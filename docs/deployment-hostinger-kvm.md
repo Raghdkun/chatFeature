@@ -44,6 +44,10 @@ TBD in P8, after the P7 load test. One known input: the default OpenWA engine (`
 | Variable | Purpose |
 |---|---|
 | `APP_KEY`, `APP_URL`, `APP_ENV=production`, `APP_DEBUG=false` | Core |
+| `TRUSTED_PROXIES` (Caddy's address list, or `*` on the internal compose network) | **Required behind Caddy**: real client IP, scheme and host for rate limiters, audit log, secure cookies and generated URLs. Empty = trust nothing. |
+| `SESSION_SECURE_COOKIE=true`, `SESSION_SAME_SITE=lax` | Session cookie hardening (HTTPS only). |
+| `SANCTUM_EXPIRATION_MINUTES` (default 43200 = 30 days) | Lifetime of staff API tokens (mobile app). |
+| `SETUP_TOKEN` | One-time takeover guard for `/setup` (printed by `chat:bootstrap-secrets` / `docker compose logs app`); not needed after install. |
 | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | MySQL |
 | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `REDIS_CLIENT` | Redis |
 | `SESSION_DRIVER`, `CACHE_STORE`, `QUEUE_CONNECTION` | Real drivers (activate once installed) |
@@ -62,3 +66,10 @@ The pizzasys base URL, service name/token and NATS URL/credentials are stored (e
 - [ ] Sizing table
 - [ ] Backup targets (MySQL, storage volume, OpenWA data volume) and restore drill ([runbook.md](runbook.md))
 - [ ] Clean-machine verification over HTTPS
+
+## Hardening notes carried over from earlier phases
+
+- Scribe (`knuckleswtf/scribe`) is a **dev** dependency and registers a public `/docs` route; production images are built with `composer install --no-dev`, which removes it. If API docs are ever served in production, put them behind auth (P7).
+- Do not run `php artisan config:cache` before `SETUP_TOKEN` / `INSTALL_*` exist in the environment: cached config ignores later `env()` changes.
+- `storage/app/install-state.json` and `installed.lock` must live on a persistent volume (the lock is what keeps `/setup` closed).
+
