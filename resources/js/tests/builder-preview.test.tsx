@@ -192,6 +192,37 @@ describe('approximation (no loader needed)', () => {
         expect(popup.style.bottom).toBe('104px');
     });
 
+    it('labels the greeting\'s dismiss button with the draft\'s own "dismiss" text, like the real widget', async () => {
+        fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
+
+        const config = defaultWidgetConfig();
+
+        config.texts.en.dismiss = 'Got it';
+
+        const custom = await render(<BuilderPreview {...props({ config })} />);
+
+        await flush();
+
+        expect(
+            custom
+                .byTestId('preview-greeting')
+                ?.querySelector('button')
+                ?.getAttribute('aria-label'),
+        ).toBe('Got it');
+
+        // Without an override the built-in English applies.
+        const plain = await render(<BuilderPreview {...props()} />);
+
+        await flush();
+
+        expect(
+            plain
+                .byTestId('preview-greeting')
+                ?.querySelector('button')
+                ?.getAttribute('aria-label'),
+        ).toBe('Dismiss');
+    });
+
     it('puts the greeting beside a round launcher, on the side facing into the page', async () => {
         fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
 

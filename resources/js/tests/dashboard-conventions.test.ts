@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import {
     BUILDER_TABS,
     DOMAIN_PROBLEM_KEYS,
+    LIVE_SLICES,
 } from '@/components/widgets/builder-state';
 import { CATEGORY_ICON_KEYS } from '@/components/categories/category-visuals';
 import { TEXT_KEYS } from '@/lib/widget-config';
@@ -120,6 +121,8 @@ describe('translations', () => {
                 `builder.features.${feature}_hint`,
             ]),
             ...Object.values(DOMAIN_PROBLEM_KEYS),
+            // The save message names the live slices it reached.
+            ...LIVE_SLICES.map((slice) => `builder.slice.${slice}`),
         ];
 
         expect(expected.filter((key) => !(key in en))).toEqual([]);

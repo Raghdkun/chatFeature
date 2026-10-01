@@ -17,7 +17,6 @@ import { useId, useState, type CSSProperties } from 'react';
 import type { GreetingDraft } from '@/components/widgets/builder-state';
 import type { PreviewScheme } from '@/components/widgets/preview-protocol';
 import { useInitials } from '@/hooks/use-initials';
-import { useTrans } from '@/hooks/use-trans';
 import { directionFor } from '@/lib/i18n';
 import {
     DEFAULT_TEXTS_EN,
@@ -194,7 +193,6 @@ export function StaticPreview({
     panelOpen: boolean;
 }) {
     const uid = useId();
-    const { t: translate } = useTrans();
     const { theme, launcher } = config;
     const viewport = DEVICES[device];
     const compact = viewport.width < COMPACT_BREAKPOINT;
@@ -346,7 +344,7 @@ export function StaticPreview({
                         </div>
                         <button
                             type="button"
-                            aria-label={translate('builder.preview.dismiss')}
+                            aria-label={text('dismiss')}
                             onClick={() => setDismissedNonce(focus.nonce)}
                             style={{ color: palette.muted }}
                             className="-me-1 -mt-1 flex size-6 shrink-0 items-center justify-center rounded-full hover:opacity-70"

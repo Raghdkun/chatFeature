@@ -2092,7 +2092,7 @@ describe('what applies immediately', () => {
         // General: identity, language and time, timing, availability.
         expect(live('general')).toBe(4);
         expect(view.byTestId('builder-live-badge')?.textContent).toBe(
-            'Applies immediately',
+            'Changes here apply immediately',
         );
 
         await openTab(view, 'branding');

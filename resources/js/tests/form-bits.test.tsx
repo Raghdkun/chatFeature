@@ -83,11 +83,11 @@ describe('SectionCard', () => {
 
         expect(view.byTestId('live')?.getAttribute('data-live')).toBe('true');
         expect(view.byTestId('live')?.textContent).toContain(
-            'Applies immediately',
+            'Changes here apply immediately',
         );
         expect(view.byTestId('draft')?.hasAttribute('data-live')).toBe(false);
         expect(view.byTestId('draft')?.textContent).not.toContain(
-            'Applies immediately',
+            'apply immediately',
         );
     });
 });
