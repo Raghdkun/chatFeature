@@ -220,6 +220,29 @@ class SetupWizardFlowTest extends InstallTestCase
         $this->assertSame(30, settings('chat.default_idle_timeout_minutes'));
     }
 
+    public function test_changing_an_answer_resets_the_run_steps_that_consumed_it(): void
+    {
+        $this->answerWizard();
+        foreach (['run-migrations', 'seed-defaults', 'create-admin'] as $step) {
+            $this->postJson(route('setup.run', $step))->assertJsonPath('status', 'ok');
+        }
+
+        $this->postBasics();
+        $this->getJson(route('setup.state'))
+            ->assertJsonPath('setup.run.0.status', 'done')
+            ->assertJsonPath('setup.run.1.status', 'pending')
+            ->assertJsonPath('setup.run.2.status', 'done');
+
+        $this->postJson(route('setup.run', 'seed-defaults'))->assertJsonPath('status', 'ok');
+        $this->postAdmin('second@example.test');
+        $this->getJson(route('setup.state'))
+            ->assertJsonPath('setup.run.1.status', 'done')
+            ->assertJsonPath('setup.run.2.status', 'pending');
+
+        $this->postJson(route('setup.run', 'create-admin'))->assertJsonPath('status', 'ok');
+        $this->assertDatabaseHas('users', ['email' => 'second@example.test', 'is_admin' => true]);
+    }
+
     public function test_write_lock_refuses_without_an_administrator(): void
     {
         $this->answerWizard();

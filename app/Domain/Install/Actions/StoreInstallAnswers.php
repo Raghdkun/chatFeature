@@ -14,12 +14,16 @@ final class StoreInstallAnswers
 {
     public function __construct(private readonly InstallState $state) {}
 
+    /**
+     * Changing an answer invalidates the run steps that consumed it, so a wizard that was resumed
+     * (or that went back a screen) re-runs them instead of keeping stale results.
+     */
     public function mode(string $mode): void
     {
         $this->state->mutate(function (array $state) use ($mode): array {
             $state['mode'] = $mode;
 
-            return $state;
+            return $this->forgetRuns($state, ['seed-defaults', 'create-admin', 'write-lock']);
         });
     }
 
@@ -30,7 +34,7 @@ final class StoreInstallAnswers
         $this->state->mutate(function (array $state) use ($name, $email, $hash): array {
             $state['admin'] = ['name' => $name, 'email' => mb_strtolower($email), 'password_hash' => $hash];
 
-            return $state;
+            return $this->forgetRuns($state, ['create-admin', 'write-lock']);
         });
     }
 
@@ -42,8 +46,22 @@ final class StoreInstallAnswers
         $this->state->mutate(function (array $state) use ($basics): array {
             $state['basics'] = $basics;
 
-            return $state;
+            return $this->forgetRuns($state, ['seed-defaults', 'write-lock']);
         });
+    }
+
+    /**
+     * @param  array<string, mixed>  $state
+     * @param  list<string>  $keys
+     * @return array<string, mixed>
+     */
+    private function forgetRuns(array $state, array $keys): array
+    {
+        foreach ($keys as $key) {
+            unset($state['run'][$key]);
+        }
+
+        return $state;
     }
 
     /**
