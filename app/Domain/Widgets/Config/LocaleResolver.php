@@ -15,6 +15,9 @@ final class LocaleResolver
 {
     public const PATTERN = '/^[a-z]{2,3}(?:[-_][A-Za-z0-9]{2,8}){0,2}$/iD';
 
+    /** Longest locale code that is ever stored (`widgets.locale` and `widget_greetings.locale` are `varchar(12)`). */
+    public const MAX_LENGTH = 12;
+
     /**
      * Normalise a user-supplied locale (`pt_br` -> `pt-BR` shape check only), or null when it is not a locale tag.
      */

@@ -7,8 +7,10 @@ use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
- * Body of `PUT /api/v1/widgets/{ulid}/domains`: `{ domains: string[] }`. Each entry is normalised
- * (lower-case, punycode, no scheme/path/userinfo, `*.` wildcard only as the first label, optional port) or rejected.
+ * Body of `PUT /api/v1/widgets/{ulid}/domains`: `{ domains: string[] }`. Each entry is normalised (lower-case, punycode,
+ * no path/userinfo, `*.` wildcard only as the first label and never on a public suffix such as `*.co.uk`, optional port)
+ * or rejected. An optional `https://` prefix is dropped (https is the default); an `http://` prefix is kept: it is the
+ * explicit permission for a plain-http site (see OriginMatcher). Entries are at most 255 characters (the column width).
  */
 class ReplaceDomainsRequest extends FormRequest
 {
@@ -26,7 +28,7 @@ class ReplaceDomainsRequest extends FormRequest
     {
         return [
             'domains' => ['present', 'array', 'max:'.self::MAX_DOMAINS],
-            'domains.*' => ['string', 'max:260'],
+            'domains.*' => ['string', 'max:'.OriginMatcher::MAX_STORED_LENGTH],
         ];
     }
 
@@ -41,7 +43,7 @@ class ReplaceDomainsRequest extends FormRequest
 
                 foreach ((array) $this->input('domains', []) as $index => $domain) {
                     if (is_string($domain) && $matcher->normalizeEntry($domain) === null) {
-                        $validator->errors()->add("domains.{$index}", __('":domain" is not a valid domain. Use a host such as example.com, *.example.com or localhost:3000.', ['domain' => $domain]));
+                        $validator->errors()->add("domains.{$index}", __('":domain" is not a valid domain. Use a host such as example.com, *.example.com (below a domain you own, not *.co.uk) or localhost:3000; add http:// only for sites served without https.', ['domain' => $domain]));
                     }
                 }
             },

@@ -19,8 +19,9 @@ use App\Models\WidgetGreeting;
  * the `api` block. Drafts never leave the dashboard.
  *
  * The locale-independent base is cached once per widget revision (any widget change busts it); the visitor's `?locale=`
- * is applied to that cached base in memory, so callers cannot multiply cache entries. Availability always goes
- * through its own short cache.
+ * is applied to that cached base in memory, so callers cannot multiply cache entries. The base embeds this installation's
+ * origin (`api.*`), so it is keyed by that origin too: changing `app.url` takes effect immediately instead of after the
+ * lifetime of the cache entry. Availability always goes through its own short cache.
  */
 final class ConfigResolver
 {
@@ -50,11 +51,13 @@ final class ConfigResolver
      */
     public function resolveArray(Widget $widget, mixed $locale = null): array
     {
+        $origin = $this->origin->url();
+
         /** @var array<string, mixed> $base */
         $base = $this->cache->repository()->remember(
-            $this->cache->key($widget, 'boot'),
+            $this->cache->key($widget, 'boot', substr(sha1($origin), 0, 10)),
             self::CACHE_SECONDS,
-            fn (): array => $this->build($widget),
+            fn (): array => $this->build($widget, $origin),
         );
 
         return [
@@ -66,7 +69,7 @@ final class ConfigResolver
     /**
      * @return array<string, mixed>
      */
-    private function build(Widget $widget): array
+    private function build(Widget $widget, string $origin): array
     {
         $config = $this->configs->hydrate(ConfigMirror::overlayColumns($widget->config, $widget));
         // A WhatsApp hand-off needs a connected session (P6); until then the feature is never offered to visitors.
@@ -78,8 +81,6 @@ final class ConfigResolver
         foreach (array_values(array_unique([$config->defaultLocale, ...array_keys($config->texts)])) as $key) {
             $texts[$key] = LocaleResolver::completeTexts($config->texts, $config->defaultLocale, $key);
         }
-
-        $origin = $this->origin->url();
 
         return [
             'v' => 1,

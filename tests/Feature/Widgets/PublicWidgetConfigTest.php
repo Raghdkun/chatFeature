@@ -9,11 +9,7 @@ use App\Domain\Widgets\Support\WidgetCache;
 use App\Models\Category;
 use App\Models\Widget;
 use App\Models\WidgetGreeting;
-use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Http\Request;
-use Illuminate\Routing\Route;
-use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\AssertsPublicPayloads;
@@ -295,6 +291,24 @@ class PublicWidgetConfigTest extends TestCase
         $this->fetch($this->configUrl(query: '?locale[]=ar'), $headers)->assertOk()->assertJsonPath('data.locale', 'en');
     }
 
+    public function test_the_loaders_accessibility_texts_reach_every_locale(): void
+    {
+        $draft = $this->widget->draft_config;
+        $draft['texts']['ar'] = ['title' => 'الدعم', 'closeChat' => 'إغلاق المحادثة'];
+        $draft['hours']['holidays'] = [['date' => '2026-12-25', 'label' => null], ['date' => '2026-12-26', 'label' => 'Boxing Day']];
+        $this->widget->forceFill(['draft_config' => $draft, 'config' => $draft])->save();
+        app(WidgetCache::class)->bust($this->widget);
+        $headers = ['Origin' => 'https://customer.test'];
+
+        $all = $this->fetch($this->configUrl(), $headers)->assertOk();
+        $this->assertSame('Close chat', $all->json('data.config.texts.en.closeChat'));
+        $this->assertSame('unread messages', $all->json('data.config.texts.en.unread'));
+        $this->assertSame('Dismiss', $all->json('data.config.texts.en.dismiss'));
+        $this->assertSame('إغلاق المحادثة', $all->json('data.config.texts.ar.closeChat'), 'translated');
+        $this->assertSame('Dismiss', $all->json('data.config.texts.ar.dismiss'), 'untranslated keys fall back to english');
+        $this->assertSame(['', 'Boxing Day'], array_column($all->json('data.config.hours.holidays'), 'label'), 'a holiday label is a string, never null');
+    }
+
     public function test_inactive_and_deleted_categories_are_not_offered(): void
     {
         $inactive = Category::factory()->inactive()->create(['slug' => 'hidden']);
@@ -318,19 +332,9 @@ class PublicWidgetConfigTest extends TestCase
         $this->assertSame(['Hello from Sara'], $bodies);
     }
 
-    public function test_the_public_config_limiter_is_defined_and_enforced(): void
+    public function test_the_public_config_limiter_is_enforced_with_the_documented_envelope(): void
     {
-        $request = Request::create('/api/v1/public/widgets/'.$this->widget->public_key.'/config', 'GET', server: ['REMOTE_ADDR' => '203.0.113.9']);
-        $request->setRouteResolver(fn () => (new Route('GET', '/api/v1/public/widgets/{key}/config', []))->bind($request));
-
-        /** @var list<Limit> $limits */
-        $limits = RateLimiter::limiter('public-config')($request);
-
-        $this->assertCount(2, $limits);
-        $this->assertSame([300, 6000], array_map(fn (Limit $limit): int => $limit->maxAttempts, $limits));
-
-        // Same wiring, tiny budget: the fourth request is throttled with the documented envelope.
-        RateLimiter::for('public-config', fn () => Limit::perMinute(3)->by('test'));
+        config(['chat.rate_limits.public_ip' => 3]);
         $headers = ['Origin' => 'https://customer.test'];
 
         $this->fetch($this->configUrl(), $headers)->assertOk();
@@ -340,5 +344,6 @@ class PublicWidgetConfigTest extends TestCase
             ->assertStatus(429)
             ->assertJsonPath('error.code', 'rate_limited')
             ->assertHeader('Retry-After');
+        // More cases (shared across keys, IPv6, 429 + CORS, unknown keys): PublicWidgetRateLimitTest.
     }
 }

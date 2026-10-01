@@ -3,18 +3,25 @@
 namespace App\Domain\Widgets\Identity;
 
 use App\Models\Widget;
+use Illuminate\Contracts\Cache\Repository;
 
 /**
  * Verifies the HS256 JWT a host site mints with a widget's identity secret (docs/widget-embed-api.md).
  *
  * Deliberately tiny and dependency-free: only `alg: HS256` is accepted (`none`, `HS512`, `RS256`, ... are
  * refused before any signature work), the signature is compared with `hash_equals`, `iss` must be the widget's
- * public key and `exp` must lie in the next 5 minutes (short-lived tokens only). `iat`/`nbf` may not be in
- * the future. The claims `sub`, `name`, `email`, `phone`, `meta` are optional and type-checked, never coerced.
+ * public key and `exp` must lie within the configured maximum lifetime (`chat.identity.max_lifetime_seconds`,
+ * default 5 minutes: short-lived tokens only). `iat`/`nbf` may not be in the future. The claims `sub`, `name`,
+ * `email`, `phone`, `meta` are optional and type-checked, never coerced.
+ *
+ * Single use is opt-in per token: when the token carries a `jti` claim, a second verification of the same `jti`
+ * (per widget) before the token expires is refused as `Replayed`. A token without `jti` stays reusable until it
+ * expires, as the contract says. The check only runs for tokens that are otherwise valid (a forged token cannot burn
+ * somebody else's `jti`), and without a cache repository `jti` is validated but not tracked.
  */
 final class IdentityTokenVerifier
 {
-    /** `exp` may be at most this many seconds ahead of the verifier's clock. */
+    /** Default for how far ahead of the verifier's clock `exp` may lie, in seconds (config `chat.identity.max_lifetime_seconds`). */
     public const MAX_LIFETIME_SECONDS = 300;
 
     /** `iat` / `nbf` may be at most this far ahead (clock skew between the host's server and ours). */
@@ -25,6 +32,17 @@ final class IdentityTokenVerifier
     private const MAX_META_ENTRIES = 20;
 
     private const MAX_META_BYTES = 4096;
+
+    private const MAX_JTI_LENGTH = 128;
+
+    private readonly int $maxLifetimeSeconds;
+
+    public function __construct(
+        private readonly ?Repository $cache = null,
+        int $maxLifetimeSeconds = self::MAX_LIFETIME_SECONDS,
+    ) {
+        $this->maxLifetimeSeconds = max(1, $maxLifetimeSeconds);
+    }
 
     public function verifyForWidget(string $token, Widget $widget, ?int $now = null): IdentityVerification
     {
@@ -109,7 +127,7 @@ final class IdentityTokenVerifier
             return IdentityVerification::failed(IdentityFailure::Expired);
         }
 
-        if ($expiry > $now + self::MAX_LIFETIME_SECONDS) {
+        if ($expiry > $now + $this->maxLifetimeSeconds) {
             return IdentityVerification::failed(IdentityFailure::ExpiryTooFar);
         }
 
@@ -127,11 +145,36 @@ final class IdentityTokenVerifier
             }
         }
 
+        $jti = $claims['jti'] ?? null;
+
+        if (array_key_exists('jti', $claims) && (! is_string($jti) || $jti === '' || strlen($jti) > self::MAX_JTI_LENGTH)) {
+            return IdentityVerification::failed(IdentityFailure::InvalidClaims);
+        }
+
         $identity = $this->identityFrom($claims);
 
-        return $identity === null
-            ? IdentityVerification::failed(IdentityFailure::InvalidClaims)
-            : IdentityVerification::verified($identity);
+        if ($identity === null) {
+            return IdentityVerification::failed(IdentityFailure::InvalidClaims);
+        }
+
+        // Last, so that only a token that is valid in every other respect can use up its `jti`.
+        if (is_string($jti) && ! $this->claimSingleUse($publicKey, $jti, (int) ceil($expiry) - $now)) {
+            return IdentityVerification::failed(IdentityFailure::Replayed);
+        }
+
+        return IdentityVerification::verified($identity);
+    }
+
+    /**
+     * Remember the `jti` until the token would have expired anyway. False when it was seen before.
+     */
+    private function claimSingleUse(string $publicKey, string $jti, int $secondsLeft): bool
+    {
+        if ($this->cache === null) {
+            return true;
+        }
+
+        return $this->cache->add('widgets:identity-jti:'.sha1($publicKey.'|'.$jti), true, max(1, $secondsLeft) + 1);
     }
 
     /**

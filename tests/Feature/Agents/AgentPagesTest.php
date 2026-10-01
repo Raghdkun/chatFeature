@@ -17,6 +17,7 @@ class AgentPagesTest extends TestCase
     {
         parent::setUp();
 
+        $this->useFortifyMode();
         $this->withoutVite();
         config(['inertia.testing.ensure_pages_exist' => false]);
     }

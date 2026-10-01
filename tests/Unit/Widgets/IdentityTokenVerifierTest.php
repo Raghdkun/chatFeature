@@ -4,6 +4,9 @@ namespace Tests\Unit\Widgets;
 
 use App\Domain\Widgets\Identity\IdentityFailure;
 use App\Domain\Widgets\Identity\IdentityTokenVerifier;
+use Carbon\Carbon;
+use Illuminate\Cache\ArrayStore;
+use Illuminate\Cache\Repository;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\WidgetFixtures;
@@ -268,5 +271,145 @@ class IdentityTokenVerifierTest extends TestCase
 
         $this->assertTrue($result->isValid());
         $this->assertSame('ada@example.com', $result->identity?->email);
+    }
+
+    // ---- single use (opt-in through `jti`) ---------------------------------------------------------------------------
+
+    private function cache(): Repository
+    {
+        return new Repository(new ArrayStore);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
+
+    public function test_a_token_with_a_jti_can_only_be_used_once(): void
+    {
+        $verifier = new IdentityTokenVerifier($this->cache());
+        $token = $this->mintIdentityToken($this->claims(['jti' => 'login-7f3a', 'sub' => 'user-1']), self::SECRET);
+
+        $first = $verifier->verify($token, self::KEY, self::SECRET, self::NOW);
+        $replay = $verifier->verify($token, self::KEY, self::SECRET, self::NOW + 1);
+
+        $this->assertTrue($first->isValid());
+        $this->assertFalse($replay->isValid());
+        $this->assertSame(IdentityFailure::Replayed, $replay->failure);
+        $this->assertNull($replay->identity);
+    }
+
+    public function test_another_jti_or_another_widget_is_not_affected(): void
+    {
+        $verifier = new IdentityTokenVerifier($this->cache());
+        $mint = fn (string $jti, string $key) => $this->mintIdentityToken(['iss' => $key, 'exp' => self::NOW + 120, 'jti' => $jti], self::SECRET);
+
+        $this->assertTrue($verifier->verify($mint('a', self::KEY), self::KEY, self::SECRET, self::NOW)->isValid());
+        $this->assertTrue($verifier->verify($mint('b', self::KEY), self::KEY, self::SECRET, self::NOW)->isValid(), 'a different jti');
+        $this->assertTrue($verifier->verify($mint('a', 'wk_otherwidget000000000'), 'wk_otherwidget000000000', self::SECRET, self::NOW)->isValid(), 'the same jti on another widget');
+        $this->assertSame(IdentityFailure::Replayed, $verifier->verify($mint('a', self::KEY), self::KEY, self::SECRET, self::NOW)->failure);
+    }
+
+    public function test_tokens_without_a_jti_stay_reusable_until_they_expire(): void
+    {
+        $verifier = new IdentityTokenVerifier($this->cache());
+        $token = $this->mintIdentityToken($this->claims(['sub' => 'user-1']), self::SECRET);
+
+        foreach ([0, 10, 60, 119] as $offset) {
+            $this->assertTrue($verifier->verify($token, self::KEY, self::SECRET, self::NOW + $offset)->isValid(), "at +{$offset}s");
+        }
+        $this->assertFalse($verifier->verify($token, self::KEY, self::SECRET, self::NOW + 120)->isValid());
+    }
+
+    public function test_the_jti_is_remembered_until_the_token_expires_and_no_longer(): void
+    {
+        $cache = $this->cache();
+        $verifier = new IdentityTokenVerifier($cache);
+        $key = 'widgets:identity-jti:'.sha1(self::KEY.'|login-1');
+
+        Carbon::setTestNow(Carbon::createFromTimestamp(self::NOW));
+        $this->assertTrue($verifier->verify($this->mintIdentityToken($this->claims(['jti' => 'login-1']), self::SECRET), self::KEY, self::SECRET, self::NOW)->isValid());
+        $this->assertTrue($cache->has($key));
+
+        Carbon::setTestNow(Carbon::createFromTimestamp(self::NOW + 60));
+        $this->assertTrue($cache->has($key), 'still remembered while the token is valid');
+
+        Carbon::setTestNow(Carbon::createFromTimestamp(self::NOW + 130));
+        $this->assertFalse($cache->has($key), 'forgotten once the token has expired (it is refused as expired by then)');
+    }
+
+    public function test_only_a_fully_valid_token_uses_up_its_jti(): void
+    {
+        $verifier = new IdentityTokenVerifier($this->cache());
+        $valid = $this->mintIdentityToken($this->claims(['jti' => 'shared-jti', 'email' => 'ada@example.com']), self::SECRET);
+
+        // Somebody who does not know the secret, a stale token and a token with a bad claim cannot burn the jti ...
+        $this->assertSame(IdentityFailure::BadSignature, $verifier->verify($this->mintIdentityToken($this->claims(['jti' => 'shared-jti']), 'not-the-secret'), self::KEY, self::SECRET, self::NOW)->failure);
+        $this->assertSame(IdentityFailure::Expired, $verifier->verify($this->mintIdentityToken($this->claims(['jti' => 'shared-jti', 'exp' => self::NOW - 5]), self::SECRET), self::KEY, self::SECRET, self::NOW)->failure);
+        $this->assertSame(IdentityFailure::InvalidClaims, $verifier->verify($this->mintIdentityToken($this->claims(['jti' => 'shared-jti', 'email' => 'not-an-email']), self::SECRET), self::KEY, self::SECRET, self::NOW)->failure);
+
+        // ... so the genuine token still works once, and only once.
+        $this->assertTrue($verifier->verify($valid, self::KEY, self::SECRET, self::NOW)->isValid());
+        $this->assertSame(IdentityFailure::Replayed, $verifier->verify($valid, self::KEY, self::SECRET, self::NOW)->failure);
+    }
+
+    /**
+     * @return array<string, array{0: mixed}>
+     */
+    public static function invalidJtis(): array
+    {
+        return [
+            'empty' => [''],
+            'integer' => [12345],
+            'array' => [['a']],
+            'null' => [null],
+            'too long' => [str_repeat('x', 129)],
+        ];
+    }
+
+    #[DataProvider('invalidJtis')]
+    public function test_a_malformed_jti_is_rejected(mixed $jti): void
+    {
+        $this->assertFails(IdentityFailure::InvalidClaims, $this->mintIdentityToken($this->claims(['jti' => $jti]), self::SECRET));
+    }
+
+    public function test_the_longest_jti_is_accepted(): void
+    {
+        $result = (new IdentityTokenVerifier($this->cache()))->verify($this->mintIdentityToken($this->claims(['jti' => str_repeat('x', 128)]), self::SECRET), self::KEY, self::SECRET, self::NOW);
+
+        $this->assertTrue($result->isValid());
+    }
+
+    public function test_without_a_cache_the_jti_is_validated_but_not_tracked(): void
+    {
+        $token = $this->mintIdentityToken($this->claims(['jti' => 'login-9']), self::SECRET);
+
+        $this->assertTrue($this->verifier->verify($token, self::KEY, self::SECRET, self::NOW)->isValid());
+        $this->assertTrue($this->verifier->verify($token, self::KEY, self::SECRET, self::NOW)->isValid());
+    }
+
+    // ---- the lifetime knob -------------------------------------------------------------------------------------------
+
+    public function test_the_maximum_lifetime_is_configurable(): void
+    {
+        $short = new IdentityTokenVerifier(null, 60);
+        $long = new IdentityTokenVerifier(null, 900);
+        $at = fn (int $seconds): string => $this->mintIdentityToken($this->claims(['exp' => self::NOW + $seconds]), self::SECRET);
+
+        $this->assertTrue($short->verify($at(60), self::KEY, self::SECRET, self::NOW)->isValid());
+        $this->assertSame(IdentityFailure::ExpiryTooFar, $short->verify($at(61), self::KEY, self::SECRET, self::NOW)->failure);
+        $this->assertTrue($long->verify($at(900), self::KEY, self::SECRET, self::NOW)->isValid());
+        $this->assertSame(IdentityFailure::ExpiryTooFar, $long->verify($at(901), self::KEY, self::SECRET, self::NOW)->failure);
+        $this->assertSame(300, IdentityTokenVerifier::MAX_LIFETIME_SECONDS, 'the default is five minutes');
+    }
+
+    public function test_a_nonsensical_lifetime_setting_cannot_disable_the_check(): void
+    {
+        $verifier = new IdentityTokenVerifier(null, 0);
+
+        $this->assertTrue($verifier->verify($this->mintIdentityToken($this->claims(['exp' => self::NOW + 1]), self::SECRET), self::KEY, self::SECRET, self::NOW)->isValid());
+        $this->assertSame(IdentityFailure::ExpiryTooFar, $verifier->verify($this->mintIdentityToken($this->claims(['exp' => self::NOW + 2]), self::SECRET), self::KEY, self::SECRET, self::NOW)->failure);
     }
 }

@@ -10,7 +10,7 @@ Everything lives under a versioned `/api/v1`. One API serves the web dashboard a
 |---|---|
 | Versioning | URL-versioned: `/api/v1` |
 | Error shape | `{"error":{"code":"...","message":"...","details":{}}}` |
-| Known codes | `no_agents` (409, start conversation), `already_claimed` (409, claim), `not_installed` (503, before setup) |
+| Known codes | `no_agents` (409, start conversation), `already_claimed` (409, claim), `not_installed` (503, before setup), `rate_limited` (429, with `Retry-After`), `slug_taken` (409, category slug taken in the meantime), `not_an_agent` (409, category assignment for an account that does not take chats), `managed_by_auth_portal` (409), `auth_mode_unavailable` (500, `auth.mode` missing on an installed instance) |
 | Pagination | Cursor pagination (no offsets) |
 | Idempotency | `client_msg_id` for messages (unique per conversation); idempotency keys for other writes |
 | Rate limiting | Named rate limiters per route group |

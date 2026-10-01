@@ -64,7 +64,7 @@ class StoreCategoryRequest extends FormRequest
                 }
 
                 foreach (array_keys($translations) as $locale) {
-                    if (preg_match(LocaleResolver::PATTERN, (string) $locale) !== 1) {
+                    if (strlen((string) $locale) > LocaleResolver::MAX_LENGTH || preg_match(LocaleResolver::PATTERN, (string) $locale) !== 1) {
                         $validator->errors()->add('name_i18n.'.$locale, __('The locale code is invalid.'));
                     }
                 }

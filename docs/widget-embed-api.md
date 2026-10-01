@@ -76,9 +76,10 @@ The host backend mints a JWT with the widget's rotatable `identity_secret`. Unsi
 
 | Claim | Meaning |
 |---|---|
-| `sub` | Stable visitor/user id on the host site (required) |
+| `sub` | Stable visitor/user id on the host site (recommended; optional) |
 | `name`, `email`, `phone` | Display fields (optional) |
-| `iat`, `exp` | Issued-at / short expiry (required; keep it minutes) |
+| `iat`, `exp` | Issued-at / short expiry (`exp` required, at most 5 minutes ahead by default: `chat.identity.max_lifetime_seconds`) |
+| `jti` | Optional unique token id. When present the token is **single use** per widget: a second use before it expires is refused. Omit it when the same token must be reusable for its short lifetime (a cached page) |
 
 PHP (`firebase/php-jwt`):
 
@@ -87,7 +88,7 @@ use Firebase\JWT\JWT;
 
 $jwt = JWT::encode([
     'sub' => (string) $user->id, 'name' => $user->name, 'email' => $user->email,
-    'iat' => time(), 'exp' => time() + 600,
+    'iat' => time(), 'exp' => time() + 300,
 ], getenv('CHAT_IDENTITY_SECRET'), 'HS256');
 ```
 
@@ -98,7 +99,7 @@ const jwt = require('jsonwebtoken');
 const token = jwt.sign(
   { sub: String(user.id), name: user.name, email: user.email },
   process.env.CHAT_IDENTITY_SECRET,
-  { algorithm: 'HS256', expiresIn: '10m' },
+  { algorithm: 'HS256', expiresIn: '5m' },
 );
 ```
 
@@ -110,7 +111,11 @@ Admin-defined pool of messages (agent name/avatar, weights, per-locale). On ever
 
 ## Domain whitelist, CSP, CORS
 
+- A whitelist entry is `host`, `host:port` or `*.host[:port]`, optionally prefixed with `https://` (the default, dropped when stored) or `http://` (kept: the admin's explicit permission for a plain-http site, which then also admits https).
+  A bare entry admits **https only**; plain `http://` origins are admitted without the prefix only for development hosts (`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`, `*.test`).
+- A wildcard must hang below a name one party owns: `*.example.com` yes, `*.com`, `*.co.uk` or `*.github.io` no (built-in list of public suffixes, `PublicSuffixes`). Entries are at most 255 characters.
 - `frame-ancestors` CSP on `/embed/{key}` limited to the widget's whitelisted domains.
-- Origin/Referer checks on public API writes; CORS echoes only whitelisted origins; rate limits apply.
+- Origin/Referer checks on public API writes; CORS echoes only whitelisted origins.
+- Rate limits (per minute, `config/chat.php` -> `rate_limits`): per client network (IPv4 address / IPv6 /64) across all widget keys, evaluated before the key is looked up; a lower limit on lookups of unknown keys; per widget (and per allowed origin) budgets that only requests of allowed origins use up. A `429` carries `Retry-After` and, for an origin that was allowed to use the widget a moment ago, the same CORS headers as a `200` (plus `Access-Control-Expose-Headers: Retry-After`).
 - Host page CSP needs `script-src` (our host) and `frame-src` (our host) only.
 - Unlisted origins are blocked for CORS, framing and writes (tested in P3).

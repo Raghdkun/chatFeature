@@ -82,6 +82,20 @@ final class SettingsRepository
         return $definition !== null ? $definition->type->cast($value) : $value;
     }
 
+    /**
+     * Whether a value is STORED for the key (the definition default does not count). Always false before installation.
+     */
+    public function has(string $key, ?int $workspaceId = null): bool
+    {
+        if (! $this->install->isInstalled()) {
+            return false;
+        }
+
+        $row = $this->rows($workspaceId)[$key] ?? null;
+
+        return $row !== null && $row['value'] !== null;
+    }
+
     public function bool(string $key, bool $default = false, ?int $workspaceId = null): bool
     {
         return (bool) $this->get($key, $default, $workspaceId);

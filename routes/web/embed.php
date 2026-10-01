@@ -4,6 +4,8 @@ use App\Domain\Widgets\Support\PublicWidgetFinder;
 use App\Http\Controllers\Embed\EmbedController;
 use App\Http\Controllers\Embed\LoaderController;
 use App\Http\Middleware\Widgets\ResolveEmbedPreview;
+use App\Http\Middleware\Widgets\ShieldPublicWidgets;
+use App\Http\Middleware\Widgets\ThrottlePublicNetwork;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -15,7 +17,7 @@ use Illuminate\Support\Facades\Route;
 | GET /embed/{key}?preview=1 is the one exception: ResolveEmbedPreview reads the admin session without setting cookies.
 */
 Route::withoutMiddleware('web')
-    ->middleware('throttle:public-config')
+    ->middleware([ShieldPublicWidgets::class, ThrottlePublicNetwork::class])
     ->where(['key' => PublicWidgetFinder::KEY_PATTERN])
     ->group(function () {
         Route::get('w/{key}.js', [LoaderController::class, 'widget'])->name('embed.script');

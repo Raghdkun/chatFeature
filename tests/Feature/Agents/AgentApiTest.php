@@ -23,6 +23,7 @@ class AgentApiTest extends TestCase
     {
         parent::setUp();
 
+        $this->useFortifyMode();
         $this->admin = User::factory()->admin()->create(['name' => 'Ada Admin']);
     }
 
