@@ -597,6 +597,67 @@ describe('realtime', () => {
         expect(view.byTestId('typing-indicator')).toBeNull();
     });
 
+    it('keeps hearing the whisper after delivery and read receipts, and a receipt does not clear the dots', async () => {
+        const { view } = await mount();
+        const whisper = () =>
+            act(async () =>
+                fakeEcho.emit(channel, '.client-typing', {
+                    actor: 'visitor',
+                    typing: true,
+                }),
+            );
+        const receipt = (name: 'message.delivered' | 'message.seen') =>
+            act(async () =>
+                fakeEcho.emitServer(channel, name, {
+                    v: 1,
+                    upToSeq: 3,
+                    by: 'visitor',
+                    at: fakeTime(400),
+                }),
+            );
+
+        // receipts first, then the whisper: the listeners are all still bound
+        await receipt('message.delivered');
+        await receipt('message.seen');
+        await whisper();
+        expect(view.byTestId('typing-indicator')).not.toBeNull();
+
+        // a receipt in the middle of typing leaves the indicator alone, and so does the next whisper
+        await receipt('message.delivered');
+        expect(view.byTestId('typing-indicator')).not.toBeNull();
+        await whisper();
+        expect(view.byTestId('typing-indicator')).not.toBeNull();
+    });
+
+    it('shows the typing indicator inside the conversation while the connection notice is up (phones show both)', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        const { view, session } = await mount();
+
+        await act(async () => session.controller.setConnection('reconnecting'));
+        await act(async () => {
+            vi.advanceTimersByTime(2_100);
+        });
+        await act(async () =>
+            fakeEcho.emit(channel, '.client-typing', {
+                actor: 'visitor',
+                typing: true,
+            }),
+        );
+
+        const conversation = view.byTestId('conversation-view');
+
+        expect(view.byTestId('connection-banner-conversation')).not.toBeNull();
+        expect(
+            conversation?.querySelector('[data-testid="typing-indicator"]'),
+        ).not.toBeNull();
+        // the notice sits beside the conversation, never inside the message list
+        expect(
+            conversation?.contains(
+                view.byTestId('connection-banner-conversation'),
+            ),
+        ).toBe(false);
+    });
+
     it("also listens to the server's typing event (the fallback for whispers a server cannot send)", async () => {
         const { view } = await mount();
 
