@@ -6,6 +6,7 @@ import type { Actors, StaffActor, VisitorActor } from './actors';
 import type { Api } from './api';
 import { openCustomerSite, type Panel } from './panel';
 import type { Instance } from './scenarios';
+import type { Allowed } from './watch';
 import { createWorld, type World, type WorldPlan } from './world';
 
 export type Rig = {
@@ -36,6 +37,13 @@ export type ChatRigOptions = {
     /** The category label of the world to chat about. Default `main`. */
     category?: string;
     email?: string;
+    /** Runs on the agent's browser BEFORE the inbox is opened (install a clock, a socket gate, listeners). */
+    prepareAgent?: (agent: StaffActor) => Promise<void>;
+    /** Runs on the visitor's browser BEFORE the customer site is opened. */
+    prepareVisitor?: (visitor: VisitorActor) => Promise<void>;
+    /** Console / request problems the actors may have (see `watch.ts`). */
+    allowAgent?: Allowed;
+    allowVisitor?: Allowed;
 };
 
 /** A visitor chat started from the real panel, offered to the agent, and (default) accepted by them. */
@@ -55,9 +63,15 @@ export async function startChat(
 
     const agent = await rig.actors.account(account, {
         presence: 'online',
-        open: '/inbox',
+        allow: options.allowAgent,
     });
-    const visitor = await rig.actors.visitor();
+
+    await options.prepareAgent?.(agent);
+    await agent.inbox.goto();
+
+    const visitor = await rig.actors.visitor({ allow: options.allowVisitor });
+
+    await options.prepareVisitor?.(visitor);
     const panel = await openCustomerSite(visitor.page, rig.instance, {
         key: world.widget.key,
         open: true,

@@ -132,3 +132,32 @@ export async function agePresence(
         E2E_SECONDS: String(seconds),
     });
 }
+
+const CREATE_ADMIN_AGENT = `
+$user = \\App\\Models\\User::factory()->admin()->create([
+    'name' => (string) getenv('E2E_NAME'), 'email' => (string) getenv('E2E_EMAIL'), 'password' => (string) getenv('E2E_PASSWORD'),
+]);
+echo "\\nE2E_ID=".$user->id."\\n";
+`;
+
+/**
+ * An administrator who also takes chats (`is_admin` and `is_agent`), created straight in the database: the management API only creates
+ * plain agents, and the seeded administrator is shared by every spec of the scenario (a spec that turns `is_agent` off must not use her).
+ */
+export async function createAdminAgent(
+    instance: Instance,
+    account: { name: string; email: string; password: string },
+): Promise<number> {
+    const output = await tinker(instance, CREATE_ADMIN_AGENT, {
+        E2E_NAME: account.name,
+        E2E_EMAIL: account.email,
+        E2E_PASSWORD: account.password,
+    });
+    const line = output.split('\n').find((row) => row.startsWith('E2E_ID='));
+
+    if (!line) {
+        throw new Error(`Creating the administrator printed no id:\n${output}`);
+    }
+
+    return Number(line.slice('E2E_ID='.length));
+}

@@ -161,6 +161,8 @@ export type StartSessionOptions = {
     locale?: string;
     /** Rotate: send an earlier visitor token as the bearer. */
     bearer?: string;
+    /** The client address (`X-Forwarded-For`) this visitor presents: default a fresh one; pass the same twice to share a rate-limit bucket. */
+    address?: string;
 };
 
 /**
@@ -180,7 +182,7 @@ export class VisitorApi {
         instance: Instance,
         options: StartSessionOptions,
     ): Promise<VisitorApi> {
-        const address = clientAddress();
+        const address = options.address ?? clientAddress();
         const context = await request.newContext({
             baseURL: instance.url,
             extraHTTPHeaders: {
