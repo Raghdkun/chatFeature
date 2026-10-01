@@ -114,3 +114,17 @@ disabled, adding categories. The server re-validates everything it receives (`st
 `data-*` attribute map (kebab-case on `<script>`): `data-widget-key`, `data-position`, `data-offset-x`, `data-offset-y`, `data-locale`,
 `data-theme-mode`, `data-theme-primary`, `data-theme-accent`, `data-theme-radius`, `data-launcher-style`, `data-launcher-label`,
 `data-greetings` (`on|off`), `data-open-on-load` (`true|false`), `data-identity-token`, `data-categories` (comma-separated slugs), `data-z-index`.
+
+## Loader boot convention (3A <-> 3B)
+
+`GET /w/{key}.js` returns, in one response: a prelude that registers the resolved boot config, then the loader bundle:
+
+```js
+(function(){var b=(window.__PNE_CHAT_BOOT__=window.__PNE_CHAT_BOOT__||{});b["wk_XXXX"]=<ResolvedBootConfig JSON>;})();
+/* ...contents of public/widget/v1/loader.js ... */
+```
+The loader finds its widget key from `document.currentScript.dataset.widgetKey` or the `/w/<key>.js` URL, reads `window.__PNE_CHAT_BOOT__[key]`, and falls back to
+`GET {api.base}/widgets/{key}/config` when absent (generic `/widget/v1/loader.js` + `data-widget-key`). The bundle is built by `npm run build:widget` into
+`public/widget/v1/loader.js` (git-ignored; Docker builds it). If the file is missing (dev), `/w/{key}.js` serves the prelude plus a console warning instead of failing.
+The embed iframe page boots `resources/js/embed/main.tsx` (stub until P4) and reads its boot data from `window.__PNE_EMBED__ = { key, appOrigin, allowedHosts, preview }` inlined by the Blade shell.
+

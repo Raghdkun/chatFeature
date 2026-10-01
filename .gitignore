@@ -49,3 +49,6 @@ yarn-error.log
 
 # Generated screenshots (regenerate with `npm run e2e:screenshots`)
 /docs/screenshots/**/*.png
+
+# Built widget loader (npm run build:widget)
+/public/widget/
