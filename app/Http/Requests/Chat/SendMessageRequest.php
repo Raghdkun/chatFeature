@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Chat;
 
 use App\Domain\Chat\Actions\SendMessage;
+use App\Domain\Chat\Services\MessageText;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
@@ -23,7 +24,7 @@ class SendMessageRequest extends FormRequest
     {
         return [
             'client_msg_id' => ['nullable', 'string', 'ulid'],
-            'body' => ['nullable', 'string', 'max:'.max(100, settings()->int('chat.max_message_length', 4000)), 'required_without:attachments'],
+            'body' => ['nullable', 'string', 'max:'.MessageText::maxLength(), 'required_without:attachments'],
             'attachments' => ['nullable', 'array', 'max:'.SendMessage::MAX_ATTACHMENTS, 'required_without:body'],
             'attachments.*' => ['string', 'ulid', 'distinct'],
         ];

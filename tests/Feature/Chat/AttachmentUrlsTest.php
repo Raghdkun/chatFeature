@@ -9,6 +9,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class AttachmentUrlsTest extends TestCase
@@ -71,17 +72,63 @@ class AttachmentUrlsTest extends TestCase
         $this->get(str_replace('thumb=1', 'thumb=0', $thumb))->assertForbidden();
     }
 
-    public function test_the_links_expire_after_thirty_minutes(): void
+    public function test_the_links_live_four_hours_by_default_and_the_lifetime_is_a_setting(): void
     {
         $this->registerAttachmentRoute();
         $this->travelTo('2026-11-20 10:00:00');
         $url = app(AttachmentUrls::class)->url(Attachment::factory()->create());
 
-        $this->travelTo('2026-11-20 10:29:00');
+        $this->travelTo('2026-11-20 13:59:00');
         $this->get($url)->assertOk();
 
-        $this->travelTo('2026-11-20 10:31:00');
+        $this->travelTo('2026-11-20 14:01:00');
         $this->get($url)->assertForbidden();
+
+        settings()->set('chat.attachment_url_ttl_minutes', 30);
+        $this->travelTo('2026-11-21 10:00:00');
+        $short = app(AttachmentUrls::class)->url(Attachment::factory()->create());
+
+        $this->travelTo('2026-11-21 10:29:00');
+        $this->get($short)->assertOk();
+
+        $this->travelTo('2026-11-21 10:31:00');
+        $this->get($short)->assertForbidden();
+    }
+
+    public function test_the_lifetime_setting_has_bounds(): void
+    {
+        $this->assertSame(240, settings('chat.attachment_url_ttl_minutes'));
+
+        foreach ([4, 1441, 'long'] as $invalid) {
+            try {
+                settings()->set('chat.attachment_url_ttl_minutes', $invalid);
+                $this->fail('accepted '.json_encode($invalid));
+            } catch (ValidationException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function test_the_host_comes_from_the_configured_origin_never_from_the_request(): void
+    {
+        $this->registerAttachmentRoute();
+        $attachment = Attachment::factory()->create();
+        settings()->set('app.url', 'https://chat.example.com');
+
+        // The request says the host is evil.test (a forged Host header the proxy let through).
+        $this->app->instance('request', Request::create('http://evil.test/anything'));
+        $url = app(AttachmentUrls::class)->url($attachment);
+        $thumb = (string) app(AttachmentUrls::class)->thumbUrl($attachment);
+
+        $this->assertStringStartsWith('https://chat.example.com/api/v1/public/attachments/'.$attachment->ulid.'?', $url);
+        $this->assertStringStartsWith('https://chat.example.com/api/v1/public/attachments/'.$attachment->ulid.'?', $thumb);
+        $this->assertStringNotContainsString('evil.test', $url.$thumb);
+
+        // The signature belongs to the configured origin, so it is valid there ...
+        $this->assertTrue(URL::hasValidSignature(Request::create($url)));
+        // ... and the forced root does not leak into any other URL the application generates.
+        $this->assertStringStartsWith('http://evil.test/', route(SignedAttachmentUrls::ROUTE, ['attachment' => $attachment->ulid]));
+        $this->assertStringStartsWith('http://evil.test/', url('/anything'));
     }
 
     public function test_an_attachment_without_a_thumbnail_has_no_thumb_url(): void

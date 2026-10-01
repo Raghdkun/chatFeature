@@ -52,20 +52,32 @@ final class AvailableAgents
     }
 
     /**
-     * Available agents per category (both `online` and `away`), for the public availability endpoint.
+     * Available agents per category, for the public availability endpoint. `$statuses` are the ones the widget's routing waves can
+     * offer a chat to (`RoutingPlan::allStatuses()`), the same set `StartConversation` checks, so the two always agree; null means
+     * `online` and `away`.
      *
      * @param  list<int>  $categoryIds
+     * @param  list<PresenceStatus>|null  $statuses
+     * @param  list<int>  $excludeUserIds  agents that do not count (the one handing a chat over)
      * @return array<int, int> category id => number of available agents (missing ids count as 0)
      */
-    public function countByCategory(array $categoryIds): array
+    public function countByCategory(array $categoryIds, ?array $statuses = null, array $excludeUserIds = []): array
     {
-        if ($categoryIds === []) {
+        $statuses ??= [PresenceStatus::Online, PresenceStatus::Away];
+
+        if ($categoryIds === [] || $statuses === []) {
             return [];
         }
 
-        $rows = $this->base([PresenceStatus::Online, PresenceStatus::Away])
+        $query = $this->base($statuses)
             ->join('category_user', 'category_user.user_id', '=', 'users.id')
-            ->whereIn('category_user.category_id', $categoryIds)
+            ->whereIn('category_user.category_id', $categoryIds);
+
+        if ($excludeUserIds !== []) {
+            $query->whereNotIn('users.id', $excludeUserIds);
+        }
+
+        $rows = $query
             ->groupBy('category_user.category_id')
             ->selectRaw('category_user.category_id as category_id, count(distinct users.id) as agents')
             ->get();
@@ -74,6 +86,50 @@ final class AvailableAgents
 
         foreach ($rows as $row) {
             $counts[(int) $row->category_id] = (int) $row->agents;
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Which of these users can take a chat right now (active agent, status in `$statuses`, fresh heartbeat, below their capacity):
+     * the one predicate a transfer to a colleague is checked with and `GET .../transfer-targets` reports as `reachable`.
+     *
+     * @param  list<int>  $userIds
+     * @param  list<PresenceStatus>  $statuses
+     * @return list<int>
+     */
+    public function availableAmong(array $userIds, array $statuses): array
+    {
+        if ($userIds === [] || $statuses === []) {
+            return [];
+        }
+
+        return array_values(array_map(intval(...), $this->base($statuses)->whereIn('users.id', $userIds)->orderBy('users.id')->pluck('users.id')->all()));
+    }
+
+    /**
+     * Live chats being handled right now, per agent.
+     *
+     * @param  list<int>  $userIds
+     * @return array<int, int> user id => active live chats (0 for agents without any)
+     */
+    public function activeChatCounts(array $userIds): array
+    {
+        $counts = array_fill_keys($userIds, 0);
+
+        if ($userIds === []) {
+            return $counts;
+        }
+
+        $rows = $this->activeChatsQuery()
+            ->whereIn('conversations.assigned_agent_id', $userIds)
+            ->groupBy('conversations.assigned_agent_id')
+            ->selectRaw('conversations.assigned_agent_id as agent_id, count(*) as chats')
+            ->get();
+
+        foreach ($rows as $row) {
+            $counts[(int) $row->agent_id] = (int) $row->chats;
         }
 
         return $counts;

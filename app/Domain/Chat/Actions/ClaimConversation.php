@@ -35,6 +35,9 @@ use Illuminate\Support\Facades\DB;
  * claims of the same agent cannot both slip past it.
  * The winner's offer becomes `accepted`, the others `taken`; a live chat gets the "joined" system line.
  *
+ * Accepting a chat that is already YOURS (two tabs, a double click, a retried request) is idempotent: `200` with the conversation,
+ * no event and no second "joined" line, even when the agent is at capacity with it. Only a different agent's chat is `already_claimed`.
+ *
  * (A Redis `SET NX` could take load off the database; it is deliberately absent: the SQL alone is correct and needs no Redis.)
  */
 final class ClaimConversation
@@ -50,12 +53,21 @@ final class ClaimConversation
     {
         $conversation = Conversation::query()->with(['widget', 'category'])->findOrFail($conversation->id);
 
+        if ($this->isAlreadyTheirs($conversation, $actor)) {
+            return $this->loadForResponse($conversation->id);
+        }
+
         $this->authorize($conversation, $actor);
 
-        /** @var array{message: Message|null, taken: list<int>}|null $result */
+        /** @var array{message: Message|null, taken: list<int>, mine?: bool}|null $result */
         $result = DeadlockRetry::transaction(function () use ($conversation, $actor): ?array {
             // Serialise one agent's claims so the capacity check below cannot be raced by their own parallel accepts.
             User::query()->whereKey($actor->id)->lockForUpdate()->first();
+
+            // A parallel accept of the same agent may have won while this request waited for the lock: that is still a success.
+            if ($this->isAlreadyTheirs(Conversation::query()->findOrFail($conversation->id), $actor)) {
+                return ['message' => null, 'taken' => [], 'mine' => true];
+            }
 
             // Offline tickets take no slot, so they can be picked up however busy the agent is with live chats.
             if ($conversation->type === ConversationType::Live && $this->agents->activeChats($actor->id) >= max(1, (int) $actor->max_concurrent_chats)) {
@@ -105,17 +117,26 @@ final class ClaimConversation
 
             if ($live) {
                 $locked = Conversation::query()->with('widget')->whereKey($conversation->id)->lockForUpdate()->firstOrFail();
-                $joined = $this->messenger->append($locked, SenderType::System, MessageType::System, __(':name joined the chat.', ['name' => $actor->label]));
+                $joined = $this->messenger->append($locked, SenderType::System, MessageType::System, __(':name joined the chat.', ['name' => $actor->public_label]));
             }
 
             return ['message' => $joined, 'taken' => $takenBy];
         });
 
         if ($result === null) {
+            // The guarded UPDATE lost; if the winner is this same agent (a parallel accept) the request still succeeds.
+            if ($this->isAlreadyTheirs(Conversation::query()->findOrFail($conversation->id), $actor)) {
+                return $this->loadForResponse($conversation->id);
+            }
+
             throw $this->lost($conversation->id);
         }
 
-        $fresh = Conversation::query()->with(['category', 'assignedAgent', 'visitor', 'visitorSession', 'widget'])->findOrFail($conversation->id);
+        if (($result['mine'] ?? false) === true) {
+            return $this->loadForResponse($conversation->id);
+        }
+
+        $fresh = $this->loadForResponse($conversation->id);
 
         ConversationClaimed::dispatch($fresh, $actor);
 
@@ -130,6 +151,19 @@ final class ClaimConversation
         QueueChanged::dispatch($fresh);
 
         return $fresh;
+    }
+
+    private function isAlreadyTheirs(Conversation $conversation, User $actor): bool
+    {
+        return $actor->is_active
+            && $actor->is_agent
+            && $conversation->status === ConversationStatus::Active
+            && $conversation->assigned_agent_id === $actor->id;
+    }
+
+    private function loadForResponse(int $conversationId): Conversation
+    {
+        return Conversation::query()->with(['category', 'assignedAgent', 'visitor', 'visitorSession', 'widget'])->findOrFail($conversationId);
     }
 
     /**

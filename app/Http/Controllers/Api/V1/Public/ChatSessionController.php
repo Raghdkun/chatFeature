@@ -2,14 +2,15 @@
 
 namespace App\Http\Controllers\Api\V1\Public;
 
-use App\Data\Chat\ConversationPublicData;
+use App\Data\Chat\RealtimeEndpointData;
+use App\Data\Chat\SessionData;
 use App\Domain\Chat\Actions\CancelQueuedConversation;
 use App\Domain\Chat\Enums\ConversationStatus;
 use App\Domain\Chat\Enums\ConversationType;
 use App\Domain\Chat\Realtime\ReverbEndpoint;
 use App\Domain\Visitors\Actions\StartSession;
 use App\Domain\Visitors\VisitorTokenService;
-use App\Domain\Widgets\Support\Timestamps;
+use App\Http\Exceptions\ApiProblemException;
 use App\Http\Requests\Chat\StartSessionRequest;
 use App\Models\Conversation;
 use Illuminate\Http\JsonResponse;
@@ -25,29 +26,40 @@ class ChatSessionController extends ChatVisitorController
 {
     public function store(StartSessionRequest $request, StartSession $action, ReverbEndpoint $realtime): JsonResponse
     {
-        $started = $action->handle($this->widget($request), $request->validated(), $request->bearerToken(), $request->userAgent());
+        $started = $action->handle($this->widget($request), $request->validated(), $request->bearerToken(), $request->userAgent(), $request->ip());
 
-        return $this->data([
-            'visitorToken' => $started->token->plaintext,
-            'expiresAt' => Timestamps::iso($started->token->session->expires_at),
-            'conversation' => $started->conversation === null ? null : ConversationPublicData::fromModel($started->conversation)->toArray(),
-            'ws' => $realtime->isAvailable() ? $realtime->forVisitors() : null,
-        ], 201)->header('Cache-Control', 'no-store');
+        return $this->data(SessionData::fromStarted($started, $realtime->isAvailable() ? RealtimeEndpointData::fromArray($realtime->forVisitors()) : null), 201)
+            ->header('Cache-Control', 'no-store');
     }
 
-    /** Revokes the token. A chat still waiting for an agent is cancelled with it (nobody is left to answer the agents). */
+    /**
+     * Ends the visit: every active session of the visitor is revoked (a leftover token must not outlive an explicit sign-out) and a
+     * chat still waiting for an agent is cancelled with it (nobody is left to answer the agents). The revocation always happens: a
+     * chat an agent claimed a moment earlier is simply left running (the cancel's `409` is not this call's failure).
+     */
     public function destroy(Request $request, VisitorTokenService $tokens, CancelQueuedConversation $cancel): Response
     {
         $session = $this->session($request);
 
-        Conversation::query()
-            ->where('visitor_session_id', $session->id)
-            ->where('type', ConversationType::Live->value)
-            ->where('status', ConversationStatus::Queued->value)
-            ->get()
-            ->each(fn (Conversation $conversation) => $cancel->handle($conversation));
-
-        $tokens->revoke($session);
+        try {
+            Conversation::query()
+                ->where('visitor_session_id', $session->id)
+                ->where('type', ConversationType::Live->value)
+                ->where('status', ConversationStatus::Queued->value)
+                ->get()
+                ->each(function (Conversation $conversation) use ($cancel): void {
+                    try {
+                        $cancel->handle($conversation);
+                    } catch (ApiProblemException $problem) {
+                        if ($problem->errorCode() !== 'conversation_not_queued') {
+                            throw $problem;
+                        }
+                    }
+                });
+        } finally {
+            $tokens->revoke($session);
+            $tokens->revokeAllFor($session->visitor);
+        }
 
         return response()->noContent();
     }

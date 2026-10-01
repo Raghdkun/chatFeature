@@ -23,7 +23,8 @@ use Throwable;
  * disk under a random path, and the client's file name is kept sanitised for staff. The attachment belongs to this one
  * conversation and is referenced by the next message (`SendMessage`); uploads nobody references are pruned after a day.
  *
- * Visitors need the widget's `attachments` feature; at most `MAX_PENDING` uploads may wait unused per conversation.
+ * Visitors need the widget's `attachments` feature; at most `MAX_PENDING` uploads may wait unused per conversation, and one
+ * conversation may hold the `chat.attachment_max_total_bytes` setting of images in all (`422 attachment_quota_exceeded`, `details.file`).
  */
 final class UploadAttachment
 {
@@ -62,6 +63,8 @@ final class UploadAttachment
             max(1, settings()->int('chat.attachment_max_dimension', 4096)),
         );
 
+        $this->assertWithinQuota($conversation, strlen($image->bytes));
+
         $diskName = (string) config('chat.attachments_disk', 'local');
         $disk = Storage::disk($diskName);
         $base = 'chat/attachments/'.now()->format('Y/m').'/'.Str::lower(Str::random(40));
@@ -90,6 +93,27 @@ final class UploadAttachment
             $disk->delete([$imagePath, $thumbPath]);
 
             throw $exception;
+        }
+    }
+
+    /**
+     * One conversation holds at most `chat.attachment_max_total_bytes` of images (visitor and agent uploads together): the per-file and
+     * per-minute limits alone would still let one chat fill the disk. A soft cap: uploads racing each other can overshoot by one.
+     */
+    private function assertWithinQuota(Conversation $conversation, int $incomingBytes): void
+    {
+        $quota = settings()->int('chat.attachment_max_total_bytes', 30 * 1024 * 1024);
+
+        if ($quota < 1) {
+            return;
+        }
+
+        $stored = (int) Attachment::query()->where('conversation_id', $conversation->id)->sum('size');
+
+        if ($stored + $incomingBytes > $quota) {
+            $message = __('This chat has reached the limit for images (:size in total).', ['size' => round($quota / 1024 / 1024, 1).' MB']);
+
+            throw new ApiProblemException(422, 'attachment_quota_exceeded', $message, ['file' => [$message]]);
         }
     }
 

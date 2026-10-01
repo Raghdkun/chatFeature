@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use App\Domain\Chat\Services\MessageText;
 use Database\Factories\VisitorFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -57,6 +59,17 @@ class Visitor extends Model
     public function getRouteKeyName(): string
     {
         return 'ulid';
+    }
+
+    /**
+     * The name is one line of plain text (it is quoted in e-mails and shown to staff): control characters and line breaks are
+     * replaced and whitespace collapsed whenever it is set, whichever path sets it.
+     *
+     * @return Attribute<string|null, string|null>
+     */
+    protected function name(): Attribute
+    {
+        return Attribute::set(fn (?string $value): ?string => MessageText::singleLine($value));
     }
 
     /**

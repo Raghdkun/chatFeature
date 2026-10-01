@@ -27,7 +27,8 @@ use Illuminate\Validation\ValidationException;
  * The offline form (`POST /public/offline-tickets`, decision P4-D2): a visitor leaves a message when nobody is available, either
  * right after `409 no_agents` or after their live chat went `missed`. It is a NEW conversation row (`type = offline`,
  * `status = queued`, no queue timeout); the link to a missed chat is recorded in the `created` event. Staff answer it by
- * claiming it and replying; the reply is e-mailed to the address given here.
+ * claiming it and replying; the reply is e-mailed to the address given here. Without a `category` the ticket gets the topic of the
+ * missed chat, else the widget's first active topic, else none (then every active agent sees it).
  */
 final class CreateOfflineTicket
 {
@@ -118,7 +119,13 @@ final class CreateOfflineTicket
     private function category(Widget $widget, ?string $slug, ?Conversation $missed): ?Category
     {
         if ($slug === null || $slug === '') {
-            return $missed?->category;
+            // The topic of the chat it follows up on, else the widget's first one (staff find a ticket by its topic); a widget without
+            // any leaves it empty and every agent sees it (`Conversation::scopeVisibleTo`).
+            if ($missed !== null && $missed->category !== null) {
+                return $missed->category;
+            }
+
+            return $widget->categories()->where('categories.is_active', true)->first();
         }
 
         $category = $widget->categories()->where('categories.is_active', true)->where('categories.slug', $slug)->first();

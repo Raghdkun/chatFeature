@@ -115,6 +115,7 @@ class ChatEventBroadcastsTest extends TestCase
     public function test_chat_offered_goes_to_every_offered_agent_in_one_publish_with_the_offer_data(): void
     {
         $inactive = User::factory()->agent()->inactive()->create();
+        $this->travelTo('2026-11-20 10:00:00');
         $expires = now()->addSeconds(90)->startOfSecond();
         $offers = new Collection([$this->alice, $this->bob, $inactive]);
         $offers = $offers->map(fn (User $agent): ConversationOffer => ConversationOffer::factory()->create([
@@ -126,7 +127,8 @@ class ChatEventBroadcastsTest extends TestCase
         $this->assertCount(1, $this->wire->of('chat.offered'));
         $this->assertChannels('chat.offered', [$this->staff($this->alice), $this->staff($this->bob)]);
         $payload = $this->wire->sole('chat.offered')['payload'];
-        $this->assertSame(['v', 'conversation', 'category', 'visitor', 'preview', 'widget', 'wave', 'expiresAt'], array_keys($payload));
+        $this->assertSame(['v', 'conversation', 'category', 'visitor', 'preview', 'widget', 'wave', 'expiresAt', 'ttlSeconds'], array_keys($payload));
+        $this->assertSame(90, $payload['ttlSeconds']);
         $this->assertSame(1, $payload['v']);
         $this->assertSame($this->conversation->ulid, $payload['conversation']);
         $this->assertSame(['slug' => 'billing', 'label' => 'Billing'], $payload['category']);

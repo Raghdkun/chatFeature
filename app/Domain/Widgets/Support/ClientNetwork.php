@@ -9,6 +9,15 @@ namespace App\Domain\Widgets\Support;
  */
 final class ClientNetwork
 {
+    /**
+     * A keyed hash (HMAC-SHA256, hex) of the network bucket: it lets two sessions from the same network be matched without keeping the
+     * address itself (and without a table of all IPv4 addresses being enough to reverse it: the key is the application key).
+     */
+    public static function fingerprint(?string $ip): string
+    {
+        return hash_hmac('sha256', self::bucket($ip), (string) config('app.key'));
+    }
+
     public static function bucket(?string $ip): string
     {
         if ($ip === null || $ip === '') {

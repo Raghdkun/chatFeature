@@ -12,7 +12,10 @@ interface PresenceReader
      * How many agents can take a new chat right now, per category.
      *
      * @param  list<int>  $categoryIds
+     * @param  list<string>|null  $statuses  the presence statuses that count (`online`, `away`): the ones the widget's routing waves
+     *                                       can offer a chat to, so "online" agrees with whether a chat can really be started;
+     *                                       null = every available status
      * @return array<int, int> category id => number of available agents (missing ids count as 0)
      */
-    public function onlineAgentsByCategory(array $categoryIds): array;
+    public function onlineAgentsByCategory(array $categoryIds, ?array $statuses = null): array;
 }

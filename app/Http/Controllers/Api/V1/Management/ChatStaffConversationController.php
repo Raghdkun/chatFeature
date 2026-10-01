@@ -6,13 +6,14 @@ use App\Data\Chat\ConversationStaffData;
 use App\Domain\Chat\Enums\ConversationStatus;
 use App\Domain\Chat\Queries\ConversationListQuery;
 use App\Domain\Chat\Services\ConversationAccess;
+use App\Domain\Chat\Services\TransferTargets;
 use App\Http\Requests\Chat\ListConversationsRequest;
 use App\Models\Conversation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * `GET /conversations` (filters + cursor paging), `GET /conversations/queue` and `GET /conversations/{ulid}`. Every query starts from
+ * `GET /conversations` (filters + cursor paging), `GET /conversations/queue`, `GET /conversations/{ulid}` and `.../transfer-targets`. Every query starts from
  * `Conversation::visibleTo($user)`; a single conversation the caller may not see is `403`.
  */
 class ChatStaffConversationController extends ChatStaffController
@@ -47,6 +48,15 @@ class ChatStaffConversationController extends ChatStaffController
             ->get();
 
         return $this->list($queued->map(fn (Conversation $conversation): array => ConversationStaffData::fromModel($conversation)->toArray()));
+    }
+
+    /** `GET /conversations/{ulid}/transfer-targets`: who an active live chat can be handed to right now (`TransferTargets`). */
+    public function transferTargets(Request $request, Conversation $conversation, ConversationAccess $access, TransferTargets $targets): JsonResponse
+    {
+        $user = $this->staff($request);
+        $access->view($user, $conversation);
+
+        return $this->data($targets->describe($conversation->load('widget'), $user));
     }
 
     public function show(Request $request, Conversation $conversation, ConversationAccess $access): JsonResponse

@@ -109,19 +109,20 @@ class PortalInputTest extends TestCase
         $this->assertSame($valid, Validator::make(['url' => $url], ['url' => ['required', new NatsUrl]])->passes(), $url);
     }
 
-    public function test_claims_accept_numeric_ids_and_fall_back_to_the_email_for_the_name(): void
+    public function test_claims_accept_numeric_ids_and_fall_back_to_the_readable_part_of_the_email_for_the_name(): void
     {
         $claims = PortalClaims::fromVerifyPayload([
             'active' => true,
             'sub' => 12,
-            'user' => ['id' => 12, 'name' => '', 'email' => 'a@b.test'],
+            'user' => ['id' => 12, 'name' => '', 'email' => 'ann.smith@b.test'],
             'roles' => ['x', ['name' => 'y'], 5, ''],
             'permissions' => ['p', 'p'],
             'exp' => 1790000000,
         ]);
 
         $this->assertSame('12', $claims->sub);
-        $this->assertSame('a@b.test', $claims->name);
+        $this->assertSame('Ann Smith', $claims->name, 'never the address itself: visitors see this name');
+        $this->assertSame('ann.smith@b.test', $claims->email);
         $this->assertSame(['x', 'y'], $claims->roles);
         $this->assertSame(['p'], $claims->permissions);
         $this->assertSame(1790000000, $claims->exp);

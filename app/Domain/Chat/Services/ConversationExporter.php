@@ -71,6 +71,12 @@ final class ConversationExporter
      */
     private function rows(Builder $query): iterable
     {
+        // A large range outlives PHP's `max_execution_time` (30 s by default under FPM): the time limit is lifted for this one stream.
+        // The stream ends with the client (PHP's default user-abort handling stays on), so an abandoned download stops the loop.
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(0);
+        }
+
         $export = $query
             ->with(['category', 'assignedAgent', 'visitor', 'visitorSession', 'widget', 'rating'])
             ->withCount('messages');

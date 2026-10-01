@@ -3,7 +3,9 @@
 namespace Tests\Feature\Support;
 
 use App\Support\Database\DeadlockRetry;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use PDOException;
 use Tests\TestCase;
 
@@ -36,6 +38,49 @@ class DeadlockRetryTest extends TestCase
 
         $this->assertSame('saved', $result);
         $this->assertSame(3, $runs);
+    }
+
+    public function test_a_deadlock_inside_a_nested_transaction_is_retried_too(): void
+    {
+        $runs = 0;
+
+        // Laravel turns the deadlock of an inner (savepoint) transaction into its own DeadlockException (the outer transaction is gone).
+        $result = DeadlockRetry::transaction(function () use (&$runs): string {
+            $runs++;
+
+            return DB::transaction(function () use ($runs): string {
+                if ($runs < 3) {
+                    $previous = new PDOException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock; try restarting transaction');
+                    $previous->errorInfo = ['40001', 1213, 'Deadlock found when trying to get lock; try restarting transaction'];
+
+                    throw new QueryException('mysql', 'update `conversations` set ...', [], $previous);
+                }
+
+                return 'saved';
+            });
+        });
+
+        $this->assertSame('saved', $result);
+        $this->assertSame(3, $runs);
+    }
+
+    public function test_a_nested_deadlock_that_keeps_happening_is_rethrown_after_the_last_attempt(): void
+    {
+        $runs = 0;
+
+        try {
+            DeadlockRetry::transaction(function () use (&$runs): void {
+                $runs++;
+
+                DB::transaction(function (): void {
+                    throw new QueryException('mysql', 'update x', [], new PDOException('Deadlock found when trying to get lock'));
+                });
+            }, 2);
+
+            $this->fail('The deadlock should have been rethrown.');
+        } catch (DeadlockException) {
+            $this->assertSame(2, $runs);
+        }
     }
 
     public function test_a_lock_wait_timeout_is_retried_too(): void

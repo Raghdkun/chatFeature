@@ -68,14 +68,16 @@ class ChatOfflineTicketsPageTest extends TestCase
 
         $visible = Conversation::factory()->offline()->forCategory($served)->create(['created_at' => now()->subHour()]);
         Conversation::factory()->offline()->forCategory($other)->create();
-        Conversation::factory()->offline()->create();
+        // A ticket without any topic (its widget had none) is everybody's.
+        $withoutTopic = Conversation::factory()->offline()->create(['created_at' => now()->subMinutes(30)]);
         Conversation::factory()->offline()->forCategory($served)->active($colleague)->create();
         $claimedByMe = Conversation::factory()->offline()->forCategory($other)->active($agent)->create(['created_at' => now()]);
 
         $this->actingAs($agent)->get('/offline-tickets')->assertInertia(fn (Assert $page) => $page
-            ->has('tickets', 2)
+            ->has('tickets', 3)
             ->where('tickets.0.ulid', $visible->ulid)
-            ->where('tickets.1.ulid', $claimedByMe->ulid)
+            ->where('tickets.1.ulid', $withoutTopic->ulid)
+            ->where('tickets.2.ulid', $claimedByMe->ulid)
             ->etc());
     }
 

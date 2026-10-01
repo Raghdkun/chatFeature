@@ -4,13 +4,17 @@ namespace Tests\Feature\Chat\Api;
 
 use App\Domain\Chat\Enums\ConversationCloseReason;
 use App\Domain\Chat\Enums\ConversationStatus;
+use App\Domain\Visitors\Actions\StartSession;
+use App\Domain\Visitors\IssuedVisitorToken;
 use App\Domain\Visitors\VisitorTokenService;
 use App\Models\Category;
+use App\Models\Conversation;
 use App\Models\User;
 use App\Models\Visitor;
 use App\Models\VisitorSession;
 use App\Models\Widget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Tests\Support\ChatFixtures;
 use Tests\TestCase;
@@ -44,6 +48,11 @@ class PublicSessionApiTest extends TestCase
             ->postJson('/api/v1/public/widgets/'.$widget->public_key.'/sessions', $payload);
     }
 
+    private function tokenFor(string $plaintext): IssuedVisitorToken
+    {
+        return new IssuedVisitorToken($plaintext, app(VisitorTokenService::class)->find($plaintext));
+    }
+
     public function test_an_anonymous_visitor_gets_a_token_shown_once(): void
     {
         $response = $this->open(['page' => ['url' => 'https://customer.test/pricing', 'title' => 'Pricing', 'referrer' => ''], 'locale' => 'en'])
@@ -51,7 +60,7 @@ class PublicSessionApiTest extends TestCase
             ->assertHeader('Cache-Control', 'no-store, private')
             ->assertJsonPath('data.conversation', null)
             ->assertJsonPath('data.ws', null)
-            ->assertJsonStructure(['data' => ['visitorToken', 'expiresAt', 'conversation', 'ws']]);
+            ->assertJsonStructure(['data' => ['visitorToken', 'expiresAt', 'conversation', 'ws', 'limits' => ['maxMessageLength', 'attachmentMaxBytes', 'attachmentMaxDimension', 'attachmentMaxPerMessage']]]);
 
         $token = $response->json('data.visitorToken');
         $this->assertMatchesRegularExpression('/^vt_[A-Za-z0-9]{40}$/', $token);
@@ -68,6 +77,32 @@ class PublicSessionApiTest extends TestCase
         // The plaintext is nowhere in the database.
         $this->assertStringNotContainsString($token, json_encode(VisitorSession::query()->get()->toArray(), JSON_THROW_ON_ERROR));
         $this->assertStringNotContainsString('"id"', (string) $response->getContent());
+    }
+
+    public function test_the_session_carries_the_effective_limits_for_the_panel(): void
+    {
+        $this->open()->assertCreated()->assertJsonPath('data.limits', [
+            'maxMessageLength' => 4000,
+            'attachmentMaxBytes' => 5 * 1024 * 1024,
+            'attachmentMaxDimension' => 4096,
+            'attachmentMaxPerMessage' => 5,
+        ]);
+
+        settings()->set('chat.max_message_length', 1500);
+        settings()->set('chat.attachment_max_bytes', 2 * 1024 * 1024);
+        settings()->set('chat.attachment_max_dimension', 2048);
+
+        $this->open()->assertCreated()->assertJsonPath('data.limits', [
+            'maxMessageLength' => 1500,
+            'attachmentMaxBytes' => 2 * 1024 * 1024,
+            'attachmentMaxDimension' => 2048,
+            'attachmentMaxPerMessage' => 5,
+        ]);
+
+        // A rotation answers exactly like a first session: new token and expiry, plus the limits.
+        $token = $this->visitorSession($this->widget);
+        $this->open(headers: $this->bearer($token))->assertCreated()
+            ->assertJsonStructure(['data' => ['visitorToken', 'expiresAt', 'conversation', 'ws', 'limits']]);
     }
 
     public function test_the_websocket_endpoint_is_given_only_when_reverb_is_configured(): void
@@ -146,15 +181,115 @@ class PublicSessionApiTest extends TestCase
         $this->assertNotSame($first->plaintext, $second);
         $response->assertJsonPath('data.conversation.ulid', $chat->ulid)->assertJsonPath('data.conversation.status', 'queued');
 
-        // Same visitor, the chat moved to the new session, the old token is dead.
+        // Same visitor, the chat moved to the new session. The replaced token has its overlap window like any previous token, but the chat
+        // is no longer reachable with it; after the window it is dead.
         $this->assertSame(1, Visitor::query()->count());
         $this->assertSame(VisitorTokenService::hash($second), VisitorSession::query()->find($chat->fresh()->visitor_session_id)->token_hash);
-        $this->withToken($first->plaintext)->getJson('/api/v1/public/conversation')->assertStatus(401)->assertJsonPath('error.code', 'session_revoked');
+        $this->withToken($first->plaintext)->getJson('/api/v1/public/conversation')->assertOk()->assertJsonPath('data.ulid', null);
+        $this->withToken($first->plaintext)->getJson("/api/v1/public/conversations/{$chat->ulid}/messages")->assertNotFound();
         $this->withToken($second)->getJson('/api/v1/public/conversation')->assertOk()->assertJsonPath('data.ulid', $chat->ulid);
+        $this->travel(61)->seconds();
+        $this->withToken($first->plaintext)->getJson('/api/v1/public/conversation')->assertStatus(401)->assertJsonPath('error.code', 'session_revoked');
+        $this->travelBack();
 
         // Once the chat is over a returning token starts clean: a new visit is a new ticket.
         $chat->forceFill(['status' => ConversationStatus::Closed, 'close_reason' => ConversationCloseReason::Skipped])->save();
         $this->open(headers: ['Authorization' => 'Bearer '.$second])->assertCreated()->assertJsonPath('data.conversation', null);
+    }
+
+    public function test_rotating_a_token_caps_the_previous_one_to_a_short_overlap(): void
+    {
+        $first = $this->visitorSession($this->widget);
+
+        $second = $this->open(headers: $this->bearer($first))->assertCreated()->json('data.visitorToken');
+
+        // Multi-tab races get a minute of overlap, never more (and the cap is not an extension either).
+        $capped = $first->session->fresh();
+        $this->assertFalse($capped->isRevoked());
+        $this->assertTrue($capped->expires_at->lessThanOrEqualTo(now()->addSeconds(60)));
+        $this->withToken($first->plaintext)->getJson('/api/v1/public/conversation')->assertOk();
+
+        $this->travel(61)->seconds();
+
+        $this->withToken($first->plaintext)->getJson('/api/v1/public/conversation')->assertStatus(401)->assertJsonPath('error.code', 'session_revoked');
+        $this->withToken($second)->getJson('/api/v1/public/conversation')->assertOk();
+    }
+
+    public function test_a_stale_token_cannot_take_over_a_chat_after_the_overlap_window(): void
+    {
+        $category = $this->widget->categories()->first();
+        $stolen = $this->visitorSession($this->widget);
+
+        // The victim's browser rotates (no open chat yet), then starts a chat on the new token.
+        $victim = $this->open(headers: $this->bearer($stolen))->assertCreated()->json('data.visitorToken');
+        $chat = $this->queuedChat($this->tokenFor($victim), $category);
+        $this->travel(61)->seconds();
+
+        // The attacker replays the old token: it is dead, and a fresh session is a different visitor with no chat.
+        $this->open(headers: $this->bearer($stolen))->assertCreated()->assertJsonPath('data.conversation', null);
+        $this->withToken($victim)->getJson('/api/v1/public/conversation')->assertOk()->assertJsonPath('data.ulid', $chat->ulid);
+        $this->assertSame($this->tokenFor($victim)->session->id, $chat->fresh()->visitor_session_id);
+    }
+
+    public function test_a_replaced_token_cannot_start_a_second_chat_during_its_overlap_window(): void
+    {
+        $category = $this->widget->categories()->first();
+        $first = $this->visitorSession($this->widget);
+        $chat = $this->queuedChat($first, $category);
+        $this->availableAgent($category);
+
+        $second = $this->open(headers: $this->bearer($first))->assertCreated()->assertJsonPath('data.conversation.ulid', $chat->ulid)->json('data.visitorToken');
+
+        // The chat belongs to the new token; the replaced one is still alive for a minute but this visitor already has a chat.
+        $this->withToken($first->plaintext)->postJson('/api/v1/public/conversations', ['category' => 'billing'])
+            ->assertStatus(409)->assertJsonPath('error.code', 'conversation_exists');
+        $this->withToken($second)->postJson('/api/v1/public/conversations', ['category' => 'billing'])
+            ->assertStatus(409)->assertJsonPath('error.code', 'conversation_exists');
+        $this->assertSame(1, Conversation::query()->count());
+    }
+
+    public function test_a_returning_visitor_without_an_open_chat_does_not_pile_up_active_sessions(): void
+    {
+        $token = $this->visitorSession($this->widget);
+        $current = $token->plaintext;
+
+        for ($i = 0; $i < 3; $i++) {
+            $current = $this->open(headers: ['Authorization' => 'Bearer '.$current])->assertCreated()->json('data.visitorToken');
+        }
+
+        $this->travel(61)->seconds();
+
+        $this->assertSame(1, VisitorSession::query()->active()->where('visitor_id', $token->session->visitor_id)->count());
+    }
+
+    public function test_unverified_meta_does_not_grow_without_bound_across_sessions(): void
+    {
+        $current = null;
+
+        foreach (range(1, 4) as $round) {
+            $meta = [];
+            foreach (range(1, 12) as $i) {
+                $meta["r{$round}_k{$i}"] = $round;
+            }
+            $response = $this->open(['visitor' => ['meta' => $meta]], $current === null ? [] : ['Authorization' => 'Bearer '.$current])->assertCreated();
+            $current = $response->json('data.visitorToken');
+        }
+
+        // The newest submission always survives whole; older keys fill what is left (a MySQL JSON column does not keep their order).
+        $stored = Visitor::query()->sole()->meta;
+        $this->assertCount(StartSession::META_MAX_KEYS, $stored);
+        foreach (range(1, 12) as $i) {
+            $this->assertSame(4, $stored["r4_k{$i}"]);
+        }
+
+        // Same key again: the newest value wins.
+        $this->open(['visitor' => ['meta' => ['r4_k1' => 'changed']]], ['Authorization' => 'Bearer '.$current])->assertCreated();
+        $this->assertSame('changed', Visitor::query()->sole()->meta['r4_k1']);
+
+        // And the serialised size is bounded too.
+        $big = array_fill_keys(array_map(fn (int $i): string => "big{$i}", range(1, 20)), str_repeat('é', 500));
+        $this->open(['visitor' => ['meta' => $big]], ['Authorization' => 'Bearer '.$current])->assertCreated();
+        $this->assertLessThanOrEqual(StartSession::META_MAX_BYTES, strlen(json_encode(Visitor::query()->sole()->meta, JSON_UNESCAPED_UNICODE)));
     }
 
     public function test_a_returning_verified_identity_continues_the_chat_from_another_browser(): void
@@ -249,6 +384,36 @@ class PublicSessionApiTest extends TestCase
         $this->assertSame(ConversationStatus::Closed, $chat->status);
         $this->assertSame(ConversationCloseReason::Cancelled, $chat->close_reason);
         $this->withToken($token->plaintext)->getJson('/api/v1/public/conversation')->assertStatus(401)->assertJsonPath('error.code', 'session_revoked');
+    }
+
+    public function test_deleting_the_session_revokes_every_session_of_the_visitor(): void
+    {
+        $token = $this->visitorSession($this->widget);
+        $other = app(VisitorTokenService::class)->issue($token->session->visitor);
+        $someoneElse = $this->visitorSession($this->widget);
+
+        $this->withToken($token->plaintext)->deleteJson('/api/v1/public/sessions')->assertNoContent();
+
+        $this->assertTrue($token->session->fresh()->isRevoked());
+        $this->assertTrue($other->session->fresh()->isRevoked());
+        $this->assertFalse($someoneElse->session->fresh()->isRevoked());
+    }
+
+    public function test_deleting_the_session_revokes_even_when_the_chat_was_claimed_a_moment_earlier(): void
+    {
+        $category = $this->widget->categories()->first();
+        $token = $this->visitorSession($this->widget);
+        $this->queuedChat($token, $category);
+
+        // An agent wins the claim between the controller's read and the guarded cancel.
+        Conversation::retrieved(static function (Conversation $conversation): void {
+            DB::table('conversations')->where('id', $conversation->id)->update(['status' => ConversationStatus::Active->value]);
+        });
+
+        $this->withToken($token->plaintext)->deleteJson('/api/v1/public/sessions')->assertNoContent();
+
+        $this->assertTrue($token->session->fresh()->isRevoked());
+        $this->assertSame(ConversationStatus::Active, Conversation::query()->sole()->status);
     }
 
     public function test_an_active_chat_survives_its_session_being_deleted(): void

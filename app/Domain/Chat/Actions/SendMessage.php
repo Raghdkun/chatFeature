@@ -20,8 +20,10 @@ use App\Models\Message;
 use App\Models\User;
 use App\Support\Database\DeadlockRetry;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * A visitor or an agent writes a message (decision P4-D6).
@@ -178,8 +180,17 @@ final class SendMessage
     {
         $email = $conversation->visitor->email;
 
-        if (is_string($email) && $email !== '') {
+        if (! is_string($email) || $email === '') {
+            return;
+        }
+
+        // The message is committed and visible to staff: a mail transport that is down (or a queue that is not reachable) must not turn
+        // that into a 500 (the agent would send it again). It is reported, and the reply stays in the conversation.
+        try {
             Mail::to($email)->queue(new OfflineTicketReply($conversation, $message));
+        } catch (Throwable $exception) {
+            report($exception);
+            Log::warning('The reply to an offline ticket could not be e-mailed.', ['conversation' => $conversation->ulid, 'message' => $message->ulid]);
         }
     }
 }

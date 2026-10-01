@@ -19,9 +19,12 @@ use Throwable;
  * 1. size and `finfo` mime type must be jpeg / png / webp / gif (SVG, HTML, PDF, ... are refused);
  * 2. the header's dimensions must stay within the limit, and decoding must fit the memory still available (a decompression bomb
  *    is refused before it is decoded);
- * 3. bytes that look like script or markup anywhere in the file (a polyglot image) are refused;
- * 4. the image is decoded and encoded again: EXIF / XMP / comments / trailing data do not survive, orientation is applied first,
- *    animated GIFs become their first frame. A 320 px thumbnail is made from the same decode.
+ * 3. a GIF with more than one frame is refused before any decoding (a few KB of "pixel bomb": every frame is a full canvas, and
+ *    the budget above only covers one); animation decoding is also switched off in the decoder, so even a GIF that slipped past
+ *    the block scan decodes as its first frame only;
+ * 4. the image is decoded and encoded again and ONLY the new bytes are kept: EXIF / XMP / comments / trailing data (and with them any
+ *    markup hidden in the file, a polyglot) do not survive, orientation is applied first. A 320 px thumbnail is made from the same
+ *    decode. The compressed upload is deliberately not scanned for markup: legitimate photos contain such byte runs by chance.
  *
  * Every refusal is a `ValidationException` on `file` (so `422 validation_failed` with `details.file`).
  */
@@ -40,7 +43,10 @@ final class ImageSanitizer
     /** Bytes of working memory per pixel while decoding and re-encoding (truecolor decode plus the encoder's copy). */
     private const BYTES_PER_PIXEL = 9;
 
-    private const MARKUP = '/<\?(?:php|=)|<script|<svg|<html|<!doctype\s+html|<iframe|<object|<embed/i';
+    /** Animated GIFs are refused: a chat image is a still. */
+    private const MAX_GIF_FRAMES = 1;
+
+    public function __construct(private readonly GifFrameCounter $gifFrames = new GifFrameCounter) {}
 
     public function sanitize(string $path, int $maxBytes, int $maxDimension): SanitizedImage
     {
@@ -72,17 +78,12 @@ final class ImageSanitizer
 
         $raw = (string) file_get_contents($path);
 
-        if (preg_match(self::MARKUP, $raw) === 1) {
-            throw $this->refuse(__('The file is not a plain image.'));
+        if ($mime === 'image/gif' && $this->gifFrames->count($raw, self::MAX_GIF_FRAMES + 1) > self::MAX_GIF_FRAMES) {
+            throw $this->refuse(__('Animated GIFs cannot be sent. Please send a still image.'));
         }
 
         try {
-            $image = ImageManager::usingDriver(GdDriver::class)->decodeBinary($raw);
-
-            if ($image->isAnimated()) {
-                $image->removeAnimation();
-            }
-
+            $image = ImageManager::usingDriver(GdDriver::class, decodeAnimation: false)->decodeBinary($raw);
             $image->orient();
 
             $encoder = $this->encoderFor($mime);

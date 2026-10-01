@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Auth\Enums\UserRole;
+use App\Support\PersonName;
 use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -51,6 +52,7 @@ use Laravel\Sanctum\HasApiTokens;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read string $label
+ * @property-read string $public_label
  * @property-read string|null $avatar_url
  */
 #[Fillable(['name', 'email', 'password', 'display_name', 'locale', 'timezone'])]
@@ -185,6 +187,17 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     protected function label(): Attribute
     {
         return Attribute::get(fn (): string => ($this->display_name !== null && $this->display_name !== '') ? $this->display_name : $this->name);
+    }
+
+    /**
+     * The name shown to chat visitors and in e-mails to them: like `label`, but never an e-mail address (an account whose name
+     * is its address is shown as the readable part before the `@`). Staff-facing code may keep using `label`.
+     *
+     * @return Attribute<string, never>
+     */
+    protected function publicLabel(): Attribute
+    {
+        return Attribute::get(fn (): string => PersonName::visitorFacing([$this->display_name, $this->name], $this->email));
     }
 
     /**

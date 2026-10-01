@@ -12,7 +12,9 @@ use App\Models\Conversation;
 use Illuminate\Support\Facades\DB;
 
 /**
- * The visitor declines to rate (`POST /public/conversations/{ulid}/rating/skip`): `ended -> closed` with reason `skipped`.
+ * The visitor declines to rate (`POST /public/conversations/{ulid}/rating/skip`): `ended -> closed` with reason `skipped`. Accepted
+ * for every `ended` chat inside its rating window, whatever the widget's rating feature says (a widget without rating closes its chats
+ * when they end, `EndConversation`); after the window `409 rating_window_closed`.
  */
 final class SkipRating
 {
@@ -24,6 +26,7 @@ final class SkipRating
             $affected = Conversation::query()
                 ->whereKey($conversation->id)
                 ->where('status', ConversationStatus::Ended->value)
+                ->where(fn ($window) => $window->whereNull('rating_window_expires_at')->orWhere('rating_window_expires_at', '>', now()))
                 ->update([
                     'status' => ConversationStatus::Closed->value,
                     'close_reason' => ConversationCloseReason::Skipped->value,
@@ -32,7 +35,11 @@ final class SkipRating
                 ]);
 
             if ($affected === 0) {
-                throw ApiProblemException::conflict('conversation_not_ended', __('This chat cannot be rated.'));
+                $ended = Conversation::query()->whereKey($conversation->id)->first()?->status === ConversationStatus::Ended;
+
+                throw $ended
+                    ? ApiProblemException::conflict('rating_window_closed', __('The time to rate this chat is over.'))
+                    : ApiProblemException::conflict('conversation_not_ended', __('This chat cannot be rated.'));
             }
 
             $this->timeline->record($conversation, ConversationTimeline::CLOSED, ActorType::Visitor, $conversation->visitor_id, ['reason' => ConversationCloseReason::Skipped->value]);

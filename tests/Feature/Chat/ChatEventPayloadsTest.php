@@ -129,7 +129,7 @@ class ChatEventPayloadsTest extends TestCase
 
         $array = $this->payload(OfferData::fromModel(Conversation::query()->with(['category', 'visitor', 'widget'])->findOrFail($conversation->id), $offer));
 
-        $this->assertSame(['v', 'conversation', 'category', 'visitor', 'preview', 'widget', 'wave', 'expiresAt'], array_keys($array));
+        $this->assertSame(['v', 'conversation', 'category', 'visitor', 'preview', 'widget', 'wave', 'expiresAt', 'ttlSeconds'], array_keys($array));
     }
 
     public function test_the_conversation_channel_events(): void

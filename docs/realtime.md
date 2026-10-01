@@ -105,7 +105,7 @@ Tests: `tests/Feature/Realtime/RealtimeFailureIsolationTest.php`.
 
 `config/broadcasting.php` (connection `reverb`, key `realtime`), `config/reverb.php`. Two addresses are involved and differ behind Caddy:
 
-- the **public** one clients connect to: `REVERB_HOST` / `REVERB_PORT` / `REVERB_SCHEME` (`chat.example.com`, `443`, `https`). `ReverbEndpoint::forVisitors()` hands exactly these and the app key to the visitor panel (`ws` block of `POST /public/sessions`), never the secret;
+- the **public** one clients connect to: `REVERB_HOST` / `REVERB_PORT` / `REVERB_SCHEME` (`chat.example.com`, `443`, `https`). `ReverbEndpoint::forVisitors()` hands exactly these and the app key to the visitor panel (`ws` block of `POST /public/widgets/{key}/sessions`), never the secret;
 - the **internal** one: the Reverb process binds `REVERB_SERVER_HOST` / `REVERB_SERVER_PORT` (default `127.0.0.1:8080`; `0.0.0.0:8080` in the Docker service) and the application publishes to `REVERB_PUBLISH_HOST` / `REVERB_PUBLISH_PORT` / `REVERB_PUBLISH_SCHEME` (default: the public values; in Docker `reverb`, `8080`, `http`).
 
 | Variable | Default | Meaning |
@@ -157,6 +157,7 @@ A mode 1 deactivation seen by `EnsureSessionIsValid` needs no hook of its own: i
 ## Known limits
 
 - **A socket cannot be closed from the server.** Authorisation happens when a client subscribes. A staff member who is deactivated or demoted keeps an already open socket until it disconnects: the legitimate client drops it on `session.revoked`, events addressed to them are filtered (`ActiveStaff`), but `private-conversation.{ulid}` / `private-admin` events are published to the channel, not to the person. Likewise an agent a chat was transferred away from stays subscribed to its conversation channel (visitor-safe payloads only) until their client unsubscribes. A hard cut-off is `php artisan reverb:restart` (every client reconnects and re-authorises).
+- **A visitor's socket outlives its token.** Authorisation happens at subscribe time. When a visitor token is rotated (the previous one lives 60 more seconds), revoked (`DELETE /public/sessions`) or expires, a websocket that is already subscribed to `private-conversation.{ulid}` keeps receiving that conversation's visitor-safe events until it disconnects (and a revoked token cannot subscribe again). The legitimate panel reconnects with the new token; a stolen token's socket is the one that lingers, and what it sees is exactly what the visitor saw. Not changed in this round (the channel scheme stays); closing visitor sockets on revocation, or binding channels to the session, is P7. A hard cut-off is `php artisan reverb:restart`.
 - Only the visitor-safe `MessageData` goes over the shared conversation channel; staff-only message fields (the agent's user id) are available over REST only.
 - Offer, claim and rating rules live in REST (4A); realtime only announces them.
 

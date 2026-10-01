@@ -166,6 +166,26 @@ class ConcurrencyMySqlTest extends TestCase
         $this->assertSame(1, $chat->last_seq);
     }
 
+    public function test_one_agent_accepting_the_same_chat_in_parallel_wins_once_and_every_request_succeeds(): void
+    {
+        [$widget, $category] = $this->world();
+        $agent = $this->agent($category, maxChats: 1);
+        $chat = $this->queuedChat($this->visitorSession($widget), $category, [$agent]);
+
+        // Two tabs and a double click: four accepts of the same chat by the same agent at the same instant (even at capacity 1).
+        $results = $this->runWorkers('claim', array_map(fn (): array => [$chat->ulid, (string) $agent->id], range(1, 4)));
+
+        foreach ($results as $result) {
+            $this->assertTrue($result['ok'] ?? false, 'every accept is a success: '.json_encode($results));
+        }
+
+        $chat->refresh();
+        $this->assertSame($agent->id, $chat->assigned_agent_id);
+        $this->assertSame(1, $chat->claim_version, 'the atomic update ran once');
+        $this->assertSame(1, Message::query()->where('conversation_id', $chat->id)->count(), 'one "joined" line');
+        $this->assertSame(1, $chat->events()->where('type', 'claimed')->count());
+    }
+
     public function test_one_agents_parallel_claims_never_exceed_their_capacity(): void
     {
         [$widget, $category] = $this->world();

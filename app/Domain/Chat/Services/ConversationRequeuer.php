@@ -65,7 +65,8 @@ final class ConversationRequeuer
                 'idle_expires_at' => null,
                 'queued_at' => $now,
                 'queue_expires_at' => $live ? $now->addSeconds(max(1, (int) $locked->widget->queue_timeout_seconds)) : null,
-                'wave' => 0,
+                // A chat handed to one colleague is offered to that agent alone: its routing is complete, no wave may widen it.
+                'wave' => $live && $toAgent !== null ? RoutingPlan::forWidget($locked->widget)->waveCount() : 0,
                 'category_id' => $toCategory !== null ? $toCategory->id : $locked->category_id,
             ]);
 

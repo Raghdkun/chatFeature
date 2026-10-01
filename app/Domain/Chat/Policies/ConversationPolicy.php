@@ -12,7 +12,7 @@ use App\Models\User;
  * `VisitorSession::owns()`). Registered for `Conversation` by `ChatServiceProvider`.
  *
  * - **See** (`view`, `viewAsStaff`): an active admin; the assigned agent; an agent holding an open offer while the chat is
- *   still `queued`; an agent serving the category of a queued offline ticket. Everyone else: no. `viewAsStaff()` is the one
+ *   still `queued`; an agent serving the category of a queued offline ticket (a ticket without any category: every active agent). Everyone else: no. `viewAsStaff()` is the one
  *   rule the realtime channel authoriser reuses, and `Conversation::scopeVisibleTo()` is its query form.
  * - **Act** (`send`, `end`, `transfer`, `close`): an active admin or the assigned agent, and only while the status allows it.
  * - **Claim**: an active agent (`is_agent`) who may see the queued, unassigned chat. Category eligibility, presence and
@@ -130,7 +130,6 @@ final class ConversationPolicy
     private function servesOfflineTicket(User $user, Conversation $conversation): bool
     {
         return $conversation->type === ConversationType::Offline
-            && $conversation->category_id !== null
-            && $user->categories()->whereKey($conversation->category_id)->exists();
+            && ($conversation->category_id === null || $user->categories()->whereKey($conversation->category_id)->exists());
     }
 }

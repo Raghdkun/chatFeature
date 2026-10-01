@@ -2,6 +2,8 @@
 
 namespace App\Domain\Widgets\Availability;
 
+use App\Domain\Chat\Enums\PresenceStatus;
+use App\Domain\Chat\Services\RoutingPlan;
 use App\Domain\Widgets\Config\WidgetConfigValidator;
 use App\Domain\Widgets\Contracts\PresenceReader;
 use App\Domain\Widgets\Data\AvailabilityData;
@@ -14,7 +16,7 @@ use Carbon\CarbonImmutable;
 
 /**
  * Whether a widget can take chats right now: opening hours of the PUBLISHED config (in the widget's timezone,
- * DST-aware) combined with agent presence. Cached per widget for a few seconds and dropped on publish / settings changes.
+ * DST-aware) combined with agent presence (counting only the statuses its routing waves can offer a chat to). Cached per widget for a few seconds and dropped on publish / settings changes.
  */
 final class AvailabilityService
 {
@@ -77,7 +79,10 @@ final class AvailabilityService
         $openNow = $hours->isOpen($now);
 
         $categories = $widget->categories()->where('categories.is_active', true)->get();
-        $counts = $this->presence->onlineAgentsByCategory(array_values($categories->map(fn (Category $category): int => $category->id)->all()));
+        // Only agents the widget's routing waves can offer a chat to count: the same rule `StartConversation` applies, so `online` here
+        // never promises a chat that `POST /public/conversations` then refuses with `no_agents`.
+        $statuses = array_map(static fn (PresenceStatus $status): string => $status->value, RoutingPlan::forWidget($widget)->allStatuses());
+        $counts = $this->presence->onlineAgentsByCategory(array_values($categories->map(fn (Category $category): int => $category->id)->all()), $statuses);
 
         $perCategory = $categories
             ->map(fn (Category $category): CategoryAvailabilityData => new CategoryAvailabilityData(

@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Chat;
 
+use App\Domain\Chat\Services\MessageText;
 use App\Domain\Chat\Services\PreChatRules;
 use App\Models\VisitorSession;
 use Illuminate\Foundation\Http\FormRequest;
@@ -31,7 +32,7 @@ class StartConversationRequest extends FormRequest
 
         return [
             'category' => ['required', 'string', 'max:100'],
-            'message' => ['nullable', 'string', 'max:'.max(100, settings()->int('chat.max_message_length', 4000))],
+            'message' => ['nullable', 'string', 'max:'.MessageText::maxLength()],
         ] + $preChat;
     }
 }

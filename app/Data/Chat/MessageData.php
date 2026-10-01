@@ -64,7 +64,7 @@ class MessageData extends Data
         return match ($message->sender_type) {
             SenderType::Agent => new MessageSenderData(
                 type: SenderType::Agent,
-                name: $message->senderUser?->label,
+                name: $forStaff ? $message->senderUser?->label : $message->senderUser?->public_label,
                 avatarUrl: $message->senderUser?->avatar_url,
                 id: $forStaff && $message->sender_user_id !== null ? $message->sender_user_id : new Optional,
             ),

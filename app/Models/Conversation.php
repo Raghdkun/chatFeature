@@ -307,8 +307,10 @@ class Conversation extends Model
                         ->where(function (Builder $reachable) use ($user, $type, $category): void {
                             $reachable->whereHas('offers', fn (Builder $offer) => $offer->where('user_id', $user->id)->open())
                                 ->orWhere(function (Builder $ticket) use ($user, $type, $category): void {
+                                    // A ticket without a topic (its widget had none) is everybody's: nobody else would ever see it.
                                     $ticket->where($type, ConversationType::Offline->value)
-                                        ->whereIn($category, fn ($served) => $served->select('category_id')->from('category_user')->where('user_id', $user->id));
+                                        ->where(fn (Builder $topic) => $topic->whereNull($category)
+                                            ->orWhereIn($category, fn ($served) => $served->select('category_id')->from('category_user')->where('user_id', $user->id)));
                                 });
                         });
                 });

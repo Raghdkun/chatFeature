@@ -8,6 +8,7 @@ use App\Domain\Visitors\StartedSession;
 use App\Domain\Visitors\VisitorTokenService;
 use App\Domain\Widgets\Identity\IdentityTokenVerifier;
 use App\Domain\Widgets\Identity\VerifiedIdentity;
+use App\Domain\Widgets\Support\ClientNetwork;
 use App\Models\Conversation;
 use App\Models\Visitor;
 use App\Models\VisitorSession;
@@ -23,13 +24,25 @@ use Illuminate\Validation\ValidationException;
  *   authoritative and a verified visitor is keyed by `external_id` (the token's `sub`), so the same person is one `Visitor` across
  *   browsers. A token that does not verify is a `422` (never silently downgraded to anonymous). Unsigned `visitor` data is stored
  *   as given, marked unverified.
- * - A returning bearer token (an active session of this widget) is rotated: the visitor is kept, a new token is issued and the old one
- *   revoked. A previous verified visitor is only continued with a fresh identity proof.
- * - Only a still-open live chat (`queued` / `active`) is resumed: it moves to the new session, and the session that held it is
- *   revoked, so a chat is never reachable from two tokens. Everything else starts clean (a new visit is a new ticket).
+ * - A returning bearer token (an active session of this widget) is rotated: the visitor is kept and a new token is issued. The
+ *   previous token is not revoked at once (a second tab may still be mid-request) but its expiry is capped to `OVERLAP_SECONDS`
+ *   from now, in the same transaction, and never extended again: after that window it is `401 session_revoked`, so a stale or
+ *   stolen token cannot outlive a rotation (nor take over the open chat by rotating itself). A previous verified visitor is only
+ *   continued with a fresh identity proof.
+ * - Only a still-open live chat (`queued` / `active`) is resumed: it moves to the new session, so a chat is never reachable from two
+ *   tokens (a session that held it and is not the token being rotated is revoked at once; the rotated token keeps only its overlap
+ *   window). Everything else starts clean (a new visit is a new ticket).
  */
 final class StartSession
 {
+    /** How long the previous token of a rotation keeps working (multi-tab races), counted from the rotation. */
+    public const OVERLAP_SECONDS = 60;
+
+    /** Unverified `meta` a visitor can pile up across sessions: at most this many keys and this many serialised bytes. */
+    public const META_MAX_KEYS = 20;
+
+    public const META_MAX_BYTES = 8192;
+
     public function __construct(
         private readonly IdentityTokenVerifier $identities,
         private readonly VisitorTokenService $tokens,
@@ -38,12 +51,12 @@ final class StartSession
     /**
      * @param  array<string, mixed>  $input  `identity_token`, `visitor{name,email,phone,meta}`, `page{url,title,referrer}`, `locale`
      */
-    public function handle(Widget $widget, array $input, ?string $bearerToken, ?string $userAgent): StartedSession
+    public function handle(Widget $widget, array $input, ?string $bearerToken, ?string $userAgent, ?string $ip = null): StartedSession
     {
         $identity = $this->identity($widget, $input['identity_token'] ?? null);
         $previous = $this->previousSession($widget, $bearerToken);
 
-        $started = DB::transaction(function () use ($widget, $input, $identity, $previous, $userAgent): StartedSession {
+        $started = DB::transaction(function () use ($widget, $input, $identity, $previous, $userAgent, $ip): StartedSession {
             $visitor = $this->visitor($widget, $identity, $previous, (array) ($input['visitor'] ?? []));
             $page = (array) ($input['page'] ?? []);
 
@@ -53,12 +66,29 @@ final class StartSession
                 'referrer' => $this->string($page['referrer'] ?? null),
                 'user_agent' => $userAgent,
                 'locale' => $this->string($input['locale'] ?? null),
+                'network_hash' => $ip === null ? null : ClientNetwork::fingerprint($ip),
             ]);
 
-            return new StartedSession($issued, $this->resume($visitor, $issued->session));
+            if ($previous !== null) {
+                $this->capOverlap($previous);
+            }
+
+            return new StartedSession($issued, $this->resume($visitor, $issued->session, $previous));
         });
 
         return $started;
+    }
+
+    /** Shortens (never extends) the previous token's life to the overlap window. */
+    private function capOverlap(VisitorSession $previous): void
+    {
+        $cap = now()->addSeconds(self::OVERLAP_SECONDS);
+
+        VisitorSession::query()
+            ->whereKey($previous->id)
+            ->whereNull('revoked_at')
+            ->where('expires_at', '>', $cap)
+            ->update(['expires_at' => $cap]);
     }
 
     private function identity(Widget $widget, mixed $token): ?VerifiedIdentity
@@ -150,7 +180,7 @@ final class StartSession
         $meta = $data['meta'] ?? null;
 
         if (is_array($meta) && $meta !== []) {
-            $visitor->meta = $verified ? $meta : ($meta + (array) $visitor->meta);
+            $visitor->meta = $verified ? $meta : $this->mergeMeta($meta, (array) $visitor->meta);
         }
 
         $visitor->forceFill(['first_seen_at' => $visitor->first_seen_at ?? now(), 'last_seen_at' => now()])->save();
@@ -159,9 +189,30 @@ final class StartSession
     }
 
     /**
-     * The visitor's open live chat moves to the new session; the session that held it is revoked.
+     * Unverified meta from every visit accumulates on the one visitor row: the newest keys win and the oldest are dropped past
+     * `META_MAX_KEYS` keys or `META_MAX_BYTES` serialised bytes.
+     *
+     * @param  array<string, mixed>  $submitted
+     * @param  array<string, mixed>  $stored
+     * @return array<string, mixed>
      */
-    private function resume(Visitor $visitor, VisitorSession $session): ?Conversation
+    private function mergeMeta(array $submitted, array $stored): array
+    {
+        $merged = array_slice($submitted + $stored, 0, self::META_MAX_KEYS, true);
+
+        while ($merged !== [] && strlen((string) json_encode($merged, JSON_UNESCAPED_UNICODE)) > self::META_MAX_BYTES) {
+            array_pop($merged);
+        }
+
+        return $merged;
+    }
+
+    /**
+     * The visitor's open live chat moves to the new session. The session that held it is revoked at once, unless it is the token
+     * this very rotation replaces: that one only gets the overlap window (already applied), like every previous token. It cannot
+     * reach the chat any more either way (`VisitorSession::owns` follows `visitor_session_id`).
+     */
+    private function resume(Visitor $visitor, VisitorSession $session, ?VisitorSession $previous): ?Conversation
     {
         $conversation = Conversation::query()
             ->where('visitor_id', $visitor->id)
@@ -180,7 +231,7 @@ final class StartSession
         $conversation->visitor_session_id = $session->id;
         $conversation->save();
 
-        if ($holder !== null) {
+        if ($holder !== null && $holder->id !== $previous?->id) {
             $this->tokens->revoke($holder);
         }
 

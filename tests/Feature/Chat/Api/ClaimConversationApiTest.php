@@ -96,11 +96,43 @@ class ClaimConversationApiTest extends TestCase
             ->assertJsonPath('error.code', 'already_claimed')
             ->assertJsonPath('error.details.by', 'Winner Wendy');
 
-        // Claiming your own chat again is the same conflict, and nothing moved.
-        $this->claim($this->winner)->assertStatus(409)->assertJsonPath('error.code', 'already_claimed');
         $this->assertSame($this->winner->id, $this->chat->fresh()->assigned_agent_id);
         $this->assertSame(1, $this->chat->fresh()->claim_version);
-        $this->assertSame(1, Message::query()->count());
+    }
+
+    public function test_accepting_your_own_chat_again_is_idempotent(): void
+    {
+        $this->claim($this->winner)->assertOk();
+        Event::fake([ConversationClaimed::class, ChatTaken::class, QueueChanged::class, MessageCreated::class]);
+
+        // Two tabs, a double click, a retried request: the same agent gets the conversation back and nothing happens twice.
+        $this->claim($this->winner)->assertOk()
+            ->assertJsonPath('data.ulid', $this->chat->ulid)
+            ->assertJsonPath('data.status', 'active')
+            ->assertJsonPath('data.assignedAgent.id', $this->winner->id);
+
+        Event::assertNotDispatched(ConversationClaimed::class);
+        Event::assertNotDispatched(ChatTaken::class);
+        Event::assertNotDispatched(QueueChanged::class);
+        Event::assertNotDispatched(MessageCreated::class);
+        $this->assertSame(1, $this->chat->fresh()->claim_version);
+        $this->assertSame(1, Message::query()->where('conversation_id', $this->chat->id)->count(), 'one "joined" line');
+        $this->assertSame(1, ConversationOffer::query()->where('response', 'accepted')->count());
+
+        // Somebody else still gets the conflict.
+        $this->claim($this->loser)->assertStatus(409)->assertJsonPath('error.code', 'already_claimed')->assertJsonPath('error.details.by', 'Winner Wendy');
+    }
+
+    public function test_an_agent_at_capacity_re_accepting_their_own_chat_is_not_told_they_are_full(): void
+    {
+        $this->winner->forceFill(['max_concurrent_chats' => 1])->save();
+        $this->claim($this->winner)->assertOk();
+
+        $this->claim($this->winner)->assertOk()->assertJsonPath('data.status', 'active');
+
+        // A different chat is what the capacity rule is about.
+        $other = $this->queuedChat($this->visitorSession($this->widget), $this->billing, [$this->winner]);
+        $this->claim($this->winner, $other)->assertStatus(409)->assertJsonPath('error.code', 'at_capacity');
     }
 
     public function test_only_an_agent_who_was_offered_the_chat_may_claim_it(): void

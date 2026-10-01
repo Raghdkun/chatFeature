@@ -26,7 +26,9 @@ class ChatSettingsTest extends TestCase
         yield 'attachment dimension (pixels)' => ['chat.attachment_max_dimension', 4096, 256, 8192];
         yield 'visitor session (days)' => ['chat.visitor_session_ttl_days', 30, 1, 365];
         yield 'offer wave delay (seconds)' => ['chat.offer_wave_delay_seconds', 20, 0, 300];
-        yield 'message length (characters)' => ['chat.max_message_length', 4000, 100, 20_000];
+        yield 'message length (characters)' => ['chat.max_message_length', 4000, 100, 16_000];
+        yield 'attachment bytes per conversation' => ['chat.attachment_max_total_bytes', 30 * 1024 * 1024, 10_240, 524_288_000];
+        yield 'attachment link lifetime (minutes)' => ['chat.attachment_url_ttl_minutes', 240, 5, 1440];
     }
 
     #[DataProvider('settingsWithRanges')]

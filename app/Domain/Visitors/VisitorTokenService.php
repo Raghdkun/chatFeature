@@ -27,7 +27,7 @@ final class VisitorTokenService
     /**
      * Sessions made by `issue()` (and by the factories) are bound to the visitor and the visitor's widget.
      *
-     * @param  array{page_url?: string|null, page_title?: string|null, referrer?: string|null, user_agent?: string|null, locale?: string|null}  $context
+     * @param  array{page_url?: string|null, page_title?: string|null, referrer?: string|null, user_agent?: string|null, locale?: string|null, network_hash?: string|null}  $context
      */
     public function issue(Visitor $visitor, array $context = [], ?CarbonInterface $expiresAt = null): IssuedVisitorToken
     {
@@ -43,6 +43,7 @@ final class VisitorTokenService
             'referrer' => self::bounded($context['referrer'] ?? null, 2048),
             'user_agent' => self::bounded($context['user_agent'] ?? null, 255),
             'locale' => self::bounded($context['locale'] ?? null, 12),
+            'network_hash' => self::bounded($context['network_hash'] ?? null, 64),
             'last_used_at' => now(),
         ]);
         $session->save();

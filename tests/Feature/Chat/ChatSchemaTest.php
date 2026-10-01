@@ -36,7 +36,7 @@ class ChatSchemaTest extends TestCase
     {
         return [
             'visitors' => ['id', 'ulid', 'workspace_id', 'widget_id', 'external_id', 'verified', 'name', 'email', 'phone', 'meta', 'first_seen_at', 'last_seen_at', 'created_at', 'updated_at'],
-            'visitor_sessions' => ['id', 'ulid', 'visitor_id', 'widget_id', 'token_hash', 'expires_at', 'revoked_at', 'last_used_at', 'page_url', 'page_title', 'referrer', 'user_agent', 'locale', 'created_at', 'updated_at'],
+            'visitor_sessions' => ['id', 'ulid', 'visitor_id', 'widget_id', 'token_hash', 'expires_at', 'revoked_at', 'last_used_at', 'page_url', 'page_title', 'referrer', 'user_agent', 'locale', 'network_hash', 'created_at', 'updated_at'],
             'conversations' => [
                 'id', 'ulid', 'workspace_id', 'widget_id', 'visitor_id', 'visitor_session_id', 'category_id', 'ticket_no', 'type', 'status', 'assigned_agent_id',
                 'last_seq', 'claim_version', 'wave', 'queued_at', 'queue_expires_at', 'claimed_at', 'ended_at', 'closed_at', 'ended_by', 'close_reason',

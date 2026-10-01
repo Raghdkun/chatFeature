@@ -7,6 +7,7 @@ use App\Domain\Widgets\Config\WidgetConfigValidator;
 use App\Domain\Widgets\Data\RoutingWaveData;
 use App\Domain\Widgets\Enums\RoutingStatus;
 use App\Models\Widget;
+use Carbon\CarbonInterface;
 
 /**
  * Who a new chat is offered to, and when: the widget's `config.routing.waves` (default: `online` agents at once, `away` agents
@@ -56,6 +57,23 @@ final readonly class RoutingPlan
     public function delayFor(int $wave): int
     {
         return $this->waves[$wave - 1]['after'] ?? 0;
+    }
+
+    /**
+     * The last wave (1-based, 0 = none yet) whose delay has elapsed `$now` for a chat queued at `$queuedAt`. Waves are cumulative, so
+     * running this one covers every earlier wave too.
+     */
+    public function dueWave(CarbonInterface $queuedAt, CarbonInterface $now): int
+    {
+        $due = 0;
+
+        foreach ($this->waves as $index => $wave) {
+            if ($queuedAt->copy()->addSeconds($wave['after'])->lte($now)) {
+                $due = $index + 1;
+            }
+        }
+
+        return $due;
     }
 
     /**

@@ -244,4 +244,135 @@ class OfferRoutingTest extends TestCase
         $this->assertEqualsWithDelta(now()->addSeconds(30)->getTimestamp(), $chat->queue_expires_at->getTimestamp(), 2);
         $this->assertSame(ConversationStatus::Queued, $chat->status);
     }
+
+    // ---- the wave sweep (C1) and queue epochs (C3) ------------------------------------------------------------------------
+
+    public function test_without_a_queue_worker_the_sweep_makes_the_later_waves_when_they_are_due(): void
+    {
+        // QUEUE_CONNECTION=sync (the phpunit default): the delayed job runs at once, finds the wave not due and drops out.
+        $away = $this->availableAgent($this->billing, status: PresenceStatus::Away);
+
+        $chat = $this->start();
+
+        $this->assertSame([], $this->offered($chat), 'wave 1 (online agents) has nobody');
+        $this->assertSame(1, $chat->fresh()->wave);
+
+        $this->artisan('chat:offer-waves')->expectsOutputToContain('Advanced the routing of 0 queued chat(s).')->assertSuccessful();
+        $this->assertSame([], $this->offered($chat), 'not due yet');
+
+        $this->travel(21)->seconds();
+        $this->setPresence($away, PresenceStatus::Away);
+        Event::fake([ChatOffered::class]);
+        $this->artisan('chat:offer-waves')->expectsOutputToContain('Advanced the routing of 1 queued chat(s).')->assertSuccessful();
+
+        $this->assertSame([$away->id], $this->offered($chat));
+        $this->assertSame(2, $chat->fresh()->wave);
+        Event::assertDispatched(ChatOffered::class, fn (ChatOffered $event): bool => $event->wave === 2);
+
+        // Idempotent: the next minute finds nothing to do.
+        $this->artisan('chat:offer-waves')->expectsOutputToContain('Advanced the routing of 0 queued chat(s).')->assertSuccessful();
+        $this->assertSame([$away->id], $this->offered($chat));
+    }
+
+    public function test_the_sweep_catches_a_job_that_was_lost_on_a_real_queue(): void
+    {
+        Queue::fake();
+        $away = $this->availableAgent($this->billing, status: PresenceStatus::Away);
+        $chat = $this->start();
+        Queue::assertPushed(OfferNextWave::class, 1);
+
+        // The job never ran (a failed job, a flushed queue): a minute later the sweep does its work.
+        $this->travel(60)->seconds();
+        $this->setPresence($away, PresenceStatus::Away);
+        $this->artisan('chat:offer-waves')->assertSuccessful();
+
+        $this->assertSame([$away->id], $this->offered($chat));
+    }
+
+    public function test_the_sweep_runs_the_latest_due_wave_and_skips_chats_that_are_over_or_out_of_time(): void
+    {
+        Queue::fake();
+        $this->useWaves([
+            ['afterSeconds' => 0, 'statuses' => ['online']],
+            ['afterSeconds' => 10, 'statuses' => ['away']],
+            ['afterSeconds' => 30, 'statuses' => ['online', 'away']],
+        ]);
+        $away = $this->availableAgent($this->billing, status: PresenceStatus::Away);
+        $chat = $this->start();
+        $claimed = $this->start();
+        Conversation::query()->whereKey($claimed->id)->update(['status' => 'active']);
+        $expired = $this->start();
+        Conversation::query()->whereKey($expired->id)->update(['queue_expires_at' => now()->addSeconds(5)]);
+
+        $this->travel(40)->seconds();
+        $this->setPresence($away, PresenceStatus::Away);
+        $this->artisan('chat:offer-waves')->assertSuccessful();
+
+        $this->assertSame([$away->id], $this->offered($chat));
+        $this->assertSame(3, $chat->fresh()->wave, 'waves are cumulative: the last due one is the one that runs');
+        $this->assertSame([], $this->offered($claimed));
+        $this->assertSame([], $this->offered($expired));
+    }
+
+    public function test_a_wave_job_from_an_earlier_trip_through_the_queue_is_ignored(): void
+    {
+        Queue::fake();
+        $first = $this->availableAgent($this->billing);
+        $away = $this->availableAgent($this->billing, status: PresenceStatus::Away);
+        $chat = $this->start();
+        $this->assertSame(0, (int) $chat->fresh()->claim_version);
+
+        // The first agent takes the chat and hands it back to the category a few seconds later.
+        $this->travel(5)->seconds();
+        $this->actingAs($first, 'sanctum')->postJson("/api/v1/conversations/{$chat->ulid}/claim")->assertOk();
+        $this->actingAs($first, 'sanctum')->postJson("/api/v1/conversations/{$chat->ulid}/transfer", ['category' => 'billing'])->assertOk();
+        $this->assertSame(1, (int) $chat->fresh()->claim_version);
+
+        // The wave-2 job of the FIRST trip (epoch 0) fires: the new trip's wave 2 is not due, so it must not offer anything.
+        $this->travel(15)->seconds();
+        $this->setPresence($away, PresenceStatus::Away);
+        $before = $this->offered($chat);
+        (new OfferNextWave($chat->id, 2, now()->getTimestamp(), 0))->handle(app(OfferToAgents::class));
+        $this->assertSame($before, $this->offered($chat));
+        $this->assertNotContains($away->id, $this->offered($chat));
+
+        // The job of the current trip (epoch 1) is honoured once it is due.
+        $this->travel(10)->seconds();
+        $this->setPresence($away, PresenceStatus::Away);
+        (new OfferNextWave($chat->id, 2, now()->getTimestamp(), 1))->handle(app(OfferToAgents::class));
+        $this->assertContains($away->id, $this->offered($chat));
+    }
+
+    public function test_a_chat_handed_to_one_colleague_is_never_widened_by_a_wave(): void
+    {
+        Queue::fake();
+        $first = $this->availableAgent($this->billing);
+        $colleague = $this->availableAgent($this->billing);
+        $away = $this->availableAgent($this->billing, status: PresenceStatus::Away);
+        $chat = $this->start();
+
+        $this->actingAs($first, 'sanctum')->postJson("/api/v1/conversations/{$chat->ulid}/claim")->assertOk();
+        $this->actingAs($first, 'sanctum')->postJson("/api/v1/conversations/{$chat->ulid}/transfer", ['agent_id' => $colleague->id])->assertOk();
+        $this->assertSame([$first->id, $colleague->id], $this->offered($chat));
+
+        // Neither a stale job nor the sweep may offer the chat to the away agent.
+        $this->travel(60)->seconds();
+        $this->setPresence($away, PresenceStatus::Away);
+        $this->setPresence($colleague, PresenceStatus::Online);
+        (new OfferNextWave($chat->id, 2, now()->getTimestamp(), 0))->handle(app(OfferToAgents::class));
+        $this->artisan('chat:offer-waves')->assertSuccessful();
+
+        $this->assertNotContains($away->id, $this->offered($chat));
+        $offers = ConversationOffer::query()->where('conversation_id', $chat->id)->orderBy('user_id')->get();
+        $this->assertSame('dismissed', $offers->firstWhere('user_id', $first->id)->response->value);
+        $this->assertNull($offers->firstWhere('user_id', $colleague->id)->responded_at);
+    }
+
+    public function test_the_wave_job_is_retried_a_few_times(): void
+    {
+        $job = new OfferNextWave(1, 2, 0);
+
+        $this->assertSame(3, $job->tries);
+        $this->assertSame([3, 10], $job->backoff());
+    }
 }

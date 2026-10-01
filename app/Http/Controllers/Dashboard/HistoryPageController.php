@@ -5,11 +5,11 @@ namespace App\Http\Controllers\Dashboard;
 use App\Data\Chat\RatingData;
 use App\Domain\Chat\Enums\ConversationStatus;
 use App\Domain\Chat\Enums\ConversationType;
+use App\Domain\Chat\Queries\ConversationSearch;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Dashboard\Concerns\PresentsConversations;
 use App\Models\Category;
 use App\Models\Conversation;
-use App\Models\Message;
 use App\Models\Rating;
 use App\Models\User;
 use App\Models\Widget;
@@ -18,7 +18,6 @@ use Carbon\Exceptions\InvalidFormatException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -32,9 +31,6 @@ class HistoryPageController extends Controller
     use PresentsConversations;
 
     public const PER_PAGE = 25;
-
-    /** InnoDB ignores tokens shorter than 3 characters, so a shorter search term cannot use the FULLTEXT index. */
-    private const FULLTEXT_MIN_LENGTH = 3;
 
     public function index(Request $request): Response
     {
@@ -132,46 +128,10 @@ class HistoryPageController extends Controller
         }
 
         if ($filters['q'] !== '') {
-            $this->search($query, $filters['q']);
+            app(ConversationSearch::class)->apply($query, $filters['q']);
         }
 
         return $query;
-    }
-
-    /**
-     * Ticket number, visitor name / e-mail / phone, and (FULLTEXT on MySQL / MariaDB, plain LIKE elsewhere) the message text.
-     *
-     * @param  Builder<Conversation>  $query
-     */
-    private function search(Builder $query, string $term): void
-    {
-        $like = '%'.addcslashes($term, '\\%_').'%';
-
-        $query->where(function (Builder $match) use ($like, $term): void {
-            $match->where('ticket_no', 'like', $like)
-                ->orWhereHas('visitor', fn (Builder $visitor) => $visitor
-                    ->where('name', 'like', $like)
-                    ->orWhere('email', 'like', $like)
-                    ->orWhere('phone', 'like', $like));
-
-            if (in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
-                if (mb_strlen($term) >= self::FULLTEXT_MIN_LENGTH) {
-                    $match->orWhereExists(fn ($messages) => $messages
-                        ->select(DB::raw(1))
-                        ->from((new Message)->getTable())
-                        ->whereColumn('messages.conversation_id', 'conversations.id')
-                        ->whereRaw('MATCH(messages.body) AGAINST (? IN NATURAL LANGUAGE MODE)', [$term]));
-                }
-
-                return;
-            }
-
-            $match->orWhereExists(fn ($messages) => $messages
-                ->select(DB::raw(1))
-                ->from((new Message)->getTable())
-                ->whereColumn('messages.conversation_id', 'conversations.id')
-                ->where('messages.body', 'like', $like));
-        });
     }
 
     /**

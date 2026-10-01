@@ -50,7 +50,7 @@ trait WidgetFixtures
              */
             public function __construct(private array $counts) {}
 
-            public function onlineAgentsByCategory(array $categoryIds): array
+            public function onlineAgentsByCategory(array $categoryIds, ?array $statuses = null): array
             {
                 return array_intersect_key($this->counts, array_flip($categoryIds));
             }

@@ -19,6 +19,6 @@ class AgentRefData extends Data
 
     public static function fromModel(User $agent): self
     {
-        return new self(name: $agent->label, avatarUrl: $agent->avatar_url);
+        return new self(name: $agent->public_label, avatarUrl: $agent->avatar_url);
     }
 }

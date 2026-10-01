@@ -84,6 +84,21 @@ class ShadowUserSyncTest extends TestCase
         $this->assertSame(1, UserExternalIdentity::query()->count());
     }
 
+    public function test_a_display_name_is_never_an_email_address(): void
+    {
+        // The portal sends the address as the name: the account name keeps it, the name visitors see does not.
+        $user = $this->sync->upsert($this->production, $this->claims(email: 'ada.lovelace@example.test', name: 'ada.lovelace@example.test'))->user;
+
+        $this->assertSame('ada.lovelace@example.test', $user->name);
+        $this->assertSame('Ada Lovelace', $user->display_name);
+        $this->assertSame('Ada Lovelace', $user->public_label);
+
+        // An address stored as the display name by an earlier version is corrected on the next sync; a real name then follows the portal.
+        $user->forceFill(['display_name' => 'ada.lovelace@example.test'])->save();
+        $this->sync->upsert($this->production, $this->claims(email: 'ada.lovelace@example.test', name: 'Ada King'));
+        $this->assertSame('Ada King', $user->refresh()->display_name);
+    }
+
     public function test_a_customised_display_name_is_kept(): void
     {
         $user = $this->sync->upsert($this->production, $this->claims())->user;

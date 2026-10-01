@@ -116,7 +116,11 @@ class ConversationPolicyTest extends TestCase
 
         $this->assertTrue($this->policy->viewAsStaff($this->agent, $ticket));
         $this->assertFalse($this->policy->viewAsStaff($this->colleague, $ticket));
-        $this->assertFalse($this->policy->viewAsStaff($this->agent, $uncategorised));
+        // A ticket without any topic (its widget had none) is every active agent's, nobody else would ever see it.
+        $this->assertTrue($this->policy->viewAsStaff($this->agent, $uncategorised));
+        $this->assertTrue($this->policy->viewAsStaff($this->colleague, $uncategorised));
+        $this->assertFalse($this->policy->viewAsStaff($this->noRole, $uncategorised));
+        $this->assertFalse($this->policy->viewAsStaff($this->inactiveAgent, $uncategorised));
         $this->assertFalse($this->policy->viewAsStaff($this->agent, Conversation::factory()->forCategory($category)->create()), 'a live chat is not an offline ticket');
     }
 

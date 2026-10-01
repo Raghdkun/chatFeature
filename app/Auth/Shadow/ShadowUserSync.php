@@ -8,6 +8,7 @@ use App\Auth\Roles\PizzasysRoleResolver;
 use App\Models\AuthEnvironment;
 use App\Models\User;
 use App\Models\UserExternalIdentity;
+use App\Support\PersonName;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -130,7 +131,7 @@ final class ShadowUserSync
         $user = new User;
         $user->forceFill([
             'name' => $claims->name,
-            'display_name' => $claims->name,
+            'display_name' => $this->displayName($claims),
             'email' => $email,
             'password' => null,
             'email_verified_at' => now(),
@@ -144,14 +145,21 @@ final class ShadowUserSync
         return $user;
     }
 
+    /** What visitors will see: the portal name, but never an e-mail address (a portal that sends the address as the name). */
+    private function displayName(PortalClaims $claims): string
+    {
+        return PersonName::visitorFacing([$claims->name], $claims->email);
+    }
+
     private function refreshUser(User $user, PortalClaims $claims, string $email): void
     {
         $previousName = $user->name;
         $attributes = ['name' => $claims->name];
+        $displayName = $this->displayName($claims);
 
-        // A display name nobody customised follows the portal name.
-        if ($user->display_name === null || $user->display_name === '' || $user->display_name === $previousName) {
-            $attributes['display_name'] = $claims->name;
+        // A display name nobody customised follows the portal name (and one that is an address, stored by an older version, is fixed).
+        if ($user->display_name === null || $user->display_name === '' || $user->display_name === $previousName || str_contains($user->display_name, '@')) {
+            $attributes['display_name'] = $displayName;
         }
 
         $taken = mb_strtolower($user->email) !== $email
