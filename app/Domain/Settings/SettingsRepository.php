@@ -26,7 +26,14 @@ final class SettingsRepository
     public const CACHE_TTL = 3600;
 
     /** @var array<int, array<string, Row>> */
+    /** Seconds a worker may serve rows from its in-process memo before re-reading the shared cache. */
+    public const MEMO_TTL_SECONDS = 2;
+
+    /** @var array<int, array{expires: int, rows: array<string, array{value: string|null, encrypted: bool}>}> */
     private array $memo = [];
+
+    /** @var array<string, true> */
+    private array $reportedDecryptFailures = [];
 
     public function __construct(
         private readonly SettingsRegistry $registry,
@@ -60,7 +67,13 @@ final class SettingsRepository
 
         try {
             $raw = $row['encrypted'] ? $this->encrypter->decryptString($row['value']) : $row['value'];
-        } catch (DecryptException) {
+        } catch (DecryptException $exception) {
+            // Typically a rotated APP_KEY or a database restored under another key: say so once per key.
+            if (! isset($this->reportedDecryptFailures[$key])) {
+                $this->reportedDecryptFailures[$key] = true;
+                report($exception);
+            }
+
             return $fallback;
         }
 
@@ -193,7 +206,13 @@ final class SettingsRepository
     {
         $workspace = $workspaceId ?? 0;
 
-        return $this->memo[$workspace] ??= $this->cache->remember(
+        $now = now()->getTimestamp();
+
+        if (isset($this->memo[$workspace]) && $this->memo[$workspace]['expires'] > $now) {
+            return $this->memo[$workspace]['rows'];
+        }
+
+        $rows = $this->cache->remember(
             $this->cacheKey($workspace),
             self::CACHE_TTL,
             fn (): array => Setting::query()
@@ -204,5 +223,9 @@ final class SettingsRepository
                 ])
                 ->all(),
         );
+
+        $this->memo[$workspace] = ['expires' => $now + self::MEMO_TTL_SECONDS, 'rows' => $rows];
+
+        return $rows;
     }
 }

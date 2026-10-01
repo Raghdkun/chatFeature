@@ -64,6 +64,20 @@ describe('interpretRunResponse', () => {
         ).toEqual({ status: 'failed', message: 'Could not connect' });
     });
 
+    it('does not report a plain 404 as "already installed"', async () => {
+        expect(
+            await interpretRunResponse(json({ message: 'Not Found' }, 404)),
+        ).toEqual({
+            status: 'failed',
+            code: 'server',
+        });
+        expect(
+            await interpretRunResponse(
+                new Response('<html>nope</html>', { status: 404 }),
+            ),
+        ).toEqual({ status: 'failed', code: 'server' });
+    });
+
     it('maps the documented HTTP statuses', async () => {
         expect(await interpretRunResponse(json({}, 409))).toEqual({
             status: 'failed',
@@ -73,9 +87,9 @@ describe('interpretRunResponse', () => {
             status: 'failed',
             code: 'forbidden',
         });
-        expect(await interpretRunResponse(json({}, 404))).toEqual({
-            status: 'installed',
-        });
+        expect(
+            await interpretRunResponse(json({ status: 'installed' }, 404)),
+        ).toEqual({ status: 'installed' });
         expect(await interpretRunResponse(json({}, 419))).toEqual({
             status: 'failed',
             code: 'session_expired',

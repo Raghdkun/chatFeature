@@ -56,8 +56,6 @@ export async function interpretRunResponse(
     response: Response,
 ): Promise<RunStepResult> {
     switch (response.status) {
-        case 404:
-            return { status: 'installed' };
         case 403:
             return { status: 'failed', code: 'forbidden' };
         case 409:
@@ -74,6 +72,14 @@ export async function interpretRunResponse(
         body = await response.json();
     } catch {
         body = null;
+    }
+
+    // Only an explicit marker means "already installed"; any other 404 (wrong base path, proxy,
+    // unknown step) is a real failure and must not be reported as success.
+    if (response.status === 404) {
+        return isRecord(body) && body.status === 'installed'
+            ? { status: 'installed' }
+            : { status: 'failed', code: 'server' };
     }
 
     if (response.ok && isRecord(body)) {

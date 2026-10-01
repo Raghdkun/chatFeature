@@ -4,11 +4,11 @@ namespace Tests\Feature\Auth;
 
 use App\Auth\AuthModeManager;
 use App\Auth\Drivers\FortifyDriver;
-use App\Domain\Install\InstallState;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
+use Tests\Support\InstallStateFake;
 use Tests\TestCase;
 
 class AuthModeManagerTest extends TestCase
@@ -26,7 +26,7 @@ class AuthModeManagerTest extends TestCase
 
     public function test_before_install_it_resolves_fortify_without_touching_the_database(): void
     {
-        InstallState::fake(installed: false);
+        InstallStateFake::make(installed: false);
         $queries = [];
         DB::listen(function (QueryExecuted $query) use (&$queries): void {
             $queries[] = $query->sql;

@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\Settings;
 
-use App\Domain\Install\InstallState;
 use App\Domain\Settings\Exceptions\UnknownSettingException;
 use App\Domain\Settings\Facades\Settings;
 use App\Domain\Settings\SettingDefinition;
@@ -16,8 +15,10 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
+use Tests\Support\InstallStateFake;
 use Tests\TestCase;
 
 class SettingsRepositoryTest extends TestCase
@@ -56,7 +57,7 @@ class SettingsRepositoryTest extends TestCase
 
     public function test_before_install_defaults_come_back_without_touching_the_database_or_the_cache(): void
     {
-        InstallState::fake(installed: false);
+        InstallStateFake::make(installed: false);
         Schema::drop('settings');
         Cache::spy();
 
@@ -242,5 +243,34 @@ class SettingsRepositoryTest extends TestCase
         $this->assertFalse($this->settings->seedMissing('app.name', 'Other'));
 
         $this->assertSame('Seeded', settings('app.name'));
+    }
+
+    public function test_the_in_process_memo_expires_so_long_lived_workers_see_changes(): void
+    {
+        $this->settings->set('chat.default_idle_timeout_minutes', 120);
+        $this->assertSame(120, $this->settings->int('chat.default_idle_timeout_minutes'));
+
+        // Another process (web request) changes the value and invalidates the shared cache.
+        Setting::query()->where('key', 'chat.default_idle_timeout_minutes')->update(['value' => json_encode(45)]);
+        Cache::flush();
+
+        // Still served from this worker's memo inside the TTL...
+        $this->assertSame(120, $this->settings->int('chat.default_idle_timeout_minutes'));
+
+        // ...and refreshed once it has expired.
+        $this->travel(SettingsRepository::MEMO_TTL_SECONDS + 1)->seconds();
+        $this->assertSame(45, $this->settings->int('chat.default_idle_timeout_minutes'));
+    }
+
+    public function test_an_undecryptable_setting_is_reported_once_and_falls_back_to_its_default(): void
+    {
+        Exceptions::fake();
+        Setting::query()->create(['group' => 'whatsapp', 'key' => 'whatsapp.api_key', 'value' => 'garbage-ciphertext', 'is_encrypted' => true]);
+        Cache::flush();
+
+        $this->assertNull($this->settings->get('whatsapp.api_key'));
+        $this->assertNull($this->settings->get('whatsapp.api_key'));
+
+        Exceptions::assertReportedCount(1);
     }
 }

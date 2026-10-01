@@ -93,6 +93,16 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     }
 
     /** Whether the user may use the chat dashboard at all (admin and/or agent). */
+    protected static function booted(): void
+    {
+        // A deactivated user, or one who lost every chat role, must not keep working with an issued API token.
+        static::updated(function (self $user): void {
+            if ($user->wasChanged(['is_active', 'is_admin', 'is_agent']) && (! $user->is_active || ! $user->hasChatAccess())) {
+                $user->tokens()->delete();
+            }
+        });
+    }
+
     public function hasChatAccess(): bool
     {
         return $this->is_admin || $this->is_agent;

@@ -87,3 +87,8 @@ The client calls the steps in order, updating `run[]` locally from each response
 - The login page receives an extra boolean prop `canRegister`; no-access / inactive / unavailable messages are delivered as `errors.email`.
 - Dev/e2e: `APP_ENV=local` + empty dedicated DB, or `APP_ENV=testing` + `APP_INSTALLED=false` + `SETUP_TOKEN=...`. Reset: `php artisan chat:install:reset --force` (local only, wipes the DB).
   Non-interactive install: `chat:install --mode=local` with `INSTALL_ADMIN_NAME/EMAIL/PASSWORD` (+ optional `INSTALL_APP_NAME/APP_URL/LOCALE/TIMEZONE/IDLE_TIMEOUT_MINUTES`); `INSTALL_STATE_DIR` relocates state + lock.
+- After install, JSON callers (`Accept: application/json`, e.g. the run endpoint) get `404 {"status":"installed"}`; HTML requests get a plain 404.
+  The client treats **only** that marker as "already installed": any other 404 (wrong base path, proxy, unknown step) is a failure.
+- `create-admin` only (re)writes the administrator the wizard created itself (recorded as audit action `install.admin_created`);
+  if the database already holds any other account the step fails ("use an empty database").
+

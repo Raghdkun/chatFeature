@@ -3,9 +3,11 @@
 namespace App\Domain\Install\Steps;
 
 use App\Auth\Enums\UserRole;
+use App\Domain\Audit\AuditLogger;
 use App\Domain\Install\Contracts\InstallStep;
 use App\Domain\Install\InstallContext;
 use App\Domain\Install\StepResult;
+use App\Models\AuditLog;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
@@ -17,6 +19,10 @@ use Illuminate\Support\Facades\DB;
  */
 final class CreateAdminStep implements InstallStep
 {
+    public const AUDIT_ACTION = 'install.admin_created';
+
+    public function __construct(private readonly AuditLogger $audit) {}
+
     public function key(): string
     {
         return 'create-admin';
@@ -45,6 +51,18 @@ final class CreateAdminStep implements InstallStep
 
         $existing = User::query()->where('email', $admin['email'])->first();
 
+        // The wizard may only (re)write the administrator it created itself, for instance when the answer is
+        // changed after the step already ran. A database that holds any other account is not a fresh install:
+        // never promote or overwrite those.
+        $count = User::query()->count();
+        $only = $count === 1 ? User::query()->first() : null;
+
+        if ($only !== null && $this->createdByWizard($only)) {
+            $existing = $only;
+        } elseif ($count > 0) {
+            return StepResult::failed('This database already contains user accounts. The installer will not modify existing accounts; use an empty database.');
+        }
+
         if ($admin['password_hash'] === null && $existing === null) {
             return StepResult::needsInput(['admin'], 'The administrator password must be entered again.');
         }
@@ -67,6 +85,9 @@ final class CreateAdminStep implements InstallStep
                 // Written without the model's `hashed` cast: the value is already a hash.
                 User::query()->whereKey($user->getKey())->update(['password' => $admin['password_hash']]);
             }
+
+            // Provenance: lets a later re-run recognise "the administrator this wizard created" (see above).
+            $this->audit->record(self::AUDIT_ACTION, $user->refresh());
         });
 
         $context->state->mutate(function (array $state): array {
@@ -78,5 +99,14 @@ final class CreateAdminStep implements InstallStep
         });
 
         return StepResult::ok();
+    }
+
+    private function createdByWizard(User $user): bool
+    {
+        return AuditLog::query()
+            ->where('action', self::AUDIT_ACTION)
+            ->where('subject_type', User::class)
+            ->where('subject_id', (string) $user->getKey())
+            ->exists();
     }
 }

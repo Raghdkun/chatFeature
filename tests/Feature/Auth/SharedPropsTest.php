@@ -2,10 +2,10 @@
 
 namespace Tests\Feature\Auth;
 
-use App\Domain\Install\InstallState;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Support\InstallStateFake;
 use Tests\TestCase;
 
 /**
@@ -127,7 +127,7 @@ class SharedPropsTest extends TestCase
 
     public function test_before_install_the_props_are_database_free_guest_props(): void
     {
-        InstallState::fake(installed: false);
+        InstallStateFake::make(installed: false);
         $this->withoutVite();
         config(['inertia.testing.ensure_pages_exist' => false]);
 

@@ -74,7 +74,7 @@ final class FortifyDriver implements AuthDriver
             return ApiAuthResult::failed($result->outcome, $result->message, $result->user);
         }
 
-        return ApiAuthResult::ok($result->user, $result->user->createToken($deviceName)->plainTextToken);
+        return ApiAuthResult::ok($result->user, $result->user->createToken($deviceName, ['staff'])->plainTextToken);
     }
 
     public function validateSession(Authenticatable $user, SessionContext $context): SessionVerdict

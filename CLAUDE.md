@@ -84,6 +84,10 @@ OpenWA, optional mysql/redis) are in `docker/compose.dev.yml` behind profiles; *
     **never expire**, re-login doesn't revoke older tokens, bad user tokens verify as HTTP 200 `active:false`, bad *service* credentials are
     HTTP 401 (never 403), `super-admin` carries no `chat.*` permission (check the role name), and NATS `user.updated` leaks a password hash.
 
+12. Behind Caddy set `TRUSTED_PROXIES` (address list or `*`) or the client IP/scheme are wrong (throttles, audit log, URLs). Settings are memoised per
+    process for only 2 s (`SettingsRepository::MEMO_TTL_SECONDS`) so queue workers don't serve stale values. Test helper `Tests\Support\InstallStateFake::make()`
+    replaces the old `InstallState::fake()`.
+
 ## Security rules
 
 - Never commit real credentials/tokens (pizzasys service token, OpenWA API key, VAPID/Reverb secrets). `.env` is ignored;

@@ -6,7 +6,9 @@ use Illuminate\Support\Facades\Route;
 // The app lives behind login: guests are sent to /login, signed-in staff to the dashboard.
 Route::redirect('/', '/dashboard')->middleware('auth')->name('home');
 
-Route::middleware(['auth', 'verified'])->group(function () {
+// Staff accounts are created by an administrator or an external auth portal, never by self-registration,
+// so email verification is not part of access (it would lock out agents and portal users).
+Route::middleware(['auth'])->group(function () {
     Route::inertia('dashboard', 'dashboard')->name('dashboard');
 });
 

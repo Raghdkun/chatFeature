@@ -3,6 +3,7 @@
 namespace Tests\Feature\Install;
 
 use App\Domain\Install\InstallState;
+use Tests\Support\InstallStateFake;
 use Tests\TestCase;
 
 /**
@@ -25,7 +26,7 @@ abstract class InstallTestCase extends TestCase
             'install.setup_token' => self::TOKEN,
         ]);
 
-        $this->install = InstallState::fake(installed: false);
+        $this->install = InstallStateFake::make(installed: false);
     }
 
     protected function verifySetupToken(): void

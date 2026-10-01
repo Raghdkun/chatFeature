@@ -43,37 +43,13 @@ final class InstallState
     }
 
     /**
-     * Point the container's InstallState at a throwaway directory (tests).
-     *
-     * @param  array<string, mixed>  $state  Initial install-state.json content.
+     * Point this instance at another directory (used by the test support helper).
      */
-    public static function fake(bool $installed = false, array $state = []): self
+    public function useDirectory(string $directory): void
     {
-        /** @var self $instance */
-        $instance = app(self::class);
-
-        $directory = rtrim(sys_get_temp_dir(), '/').'/chat-install-'.Str::lower(Str::random(12));
-        mkdir($directory, 0775, true);
-        register_shutdown_function(static function () use ($directory): void {
-            foreach (glob($directory.'/*') ?: [] as $file) {
-                @unlink($file);
-            }
-            @rmdir($directory);
-        });
-
-        $instance->directory = $directory;
-        $instance->forcedInstalled = null;
-        $instance->lockSeen = false;
-
-        if ($state !== []) {
-            $instance->mutate(fn (array $current): array => array_replace($current, $state));
-        }
-
-        if ($installed) {
-            $instance->writeLock(['mode' => 'fortify']);
-        }
-
-        return $instance;
+        $this->directory = $directory;
+        $this->forcedInstalled = null;
+        $this->lockSeen = false;
     }
 
     public function directory(): string
@@ -171,7 +147,9 @@ final class InstallState
     {
         $this->ensureDirectory();
 
+        $previousUmask = umask(0077);
         $handle = fopen($this->statePath(), 'c+');
+        umask($previousUmask);
         if ($handle === false) {
             throw new RuntimeException('Unable to open the install state file for writing.');
         }

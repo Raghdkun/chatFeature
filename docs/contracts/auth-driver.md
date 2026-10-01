@@ -74,3 +74,8 @@ interface RoleResolver
 - Value objects live in `App\Auth\Support`, enums in `App\Auth\Enums`. Registration and other Fortify feature routes are gated by driver capabilities (`EnforceAuthFeatures`).
 - `EnsureSessionIsValid` and `EnsureChatAccess` are in the `web` middleware group; the `chat.access` alias is for API groups. A signed-in user with neither role flag is logged out and
   redirected to `/login` with a message (JSON: `403 no_chat_access`). New self-registered users default to neither flag.
+- Management/mobile API route groups must use `['auth:sanctum', 'session.valid', 'chat.access']`: `session.valid` (EnsureSessionIsValid) turns away deactivated /
+  revoked users even with a live token, `chat.access` turns away users without admin/agent flags. Staff API tokens are issued with ability `staff` and expire after
+  `SANCTUM_EXPIRATION_MINUTES` (default 43200 = 30 days); deactivating a user or removing their last chat role deletes their tokens (`User::booted`).
+- Staff are never gated on email verification (accounts come from an admin or the auth portal): the dashboard/settings routes use `auth` only.
+

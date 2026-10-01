@@ -36,6 +36,13 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Behind a reverse proxy (Caddy) set TRUSTED_PROXIES to its address(es) or `*` so the real client IP,
+        // scheme and host are honoured (rate limiters, audit log, secure cookies, generated URLs).
+        $trustedProxies = env('TRUSTED_PROXIES');
+        if (is_string($trustedProxies) && trim($trustedProxies) !== '') {
+            $middleware->trustProxies(at: trim($trustedProxies) === '*' ? '*' : array_map('trim', explode(',', $trustedProxies)));
+        }
+
         // Not installed yet: web -> /setup, API -> 503 not_installed. First in the global stack.
         $middleware->prepend(InstallGate::class);
 
@@ -44,6 +51,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             // For API groups: signed-in users without admin/agent access are turned away.
             'chat.access' => EnsureChatAccess::class,
+            // For API groups: revoked / deactivated users are turned away even with a valid token.
+            'session.valid' => EnsureSessionIsValid::class,
         ]);
 
         // Bearer-only group for the public widget API and webhooks (deliberately NOT stateful).

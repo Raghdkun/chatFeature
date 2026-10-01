@@ -17,7 +17,13 @@ final class EnsureNotInstalled
      */
     public function handle(Request $request, Closure $next): Response
     {
-        abort_if($this->state->isInstalled(), 404);
+        if ($this->state->isInstalled()) {
+            // JSON callers (the wizard's run endpoint) get an explicit marker so they can tell
+            // "already installed" apart from any other 404 (wrong base path, proxy, unknown step).
+            abort_if(! $request->expectsJson(), 404);
+
+            return response()->json(['status' => 'installed'], 404);
+        }
 
         return $next($request);
     }
