@@ -163,3 +163,14 @@ export async function openNavigation(page: Page): Promise<Locator> {
 
     return page.locator('[data-sidebar="sidebar"]').first();
 }
+
+/**
+ * Closes the open dialog or popover with Escape and waits until it is really gone (its exit animation and the dimmed overlay):
+ * opening the next one in the first 100-200 ms after a close can leave the new dialog's buttons behind the old overlay.
+ */
+export async function dismiss(page: Page): Promise<void> {
+    await page.keyboard.press('Escape');
+    await expect(
+        page.locator('[data-slot$="-overlay"], [data-slot="popover-content"]'),
+    ).toHaveCount(0);
+}

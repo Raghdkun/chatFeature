@@ -3,6 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { type Api } from '../support/api';
 import {
     expectNoHorizontalScroll,
+    dismiss,
     expectNoSeriousA11yViolations,
     setTheme,
     settle,
@@ -73,7 +74,7 @@ test.describe('accessibility (axe, WCAG A/AA)', () => {
         await page.getByTestId('category-create').click();
         await expect(page.getByTestId('category-dialog')).toBeVisible();
         await bothThemes(page, testInfo, 'category-dialog');
-        await page.keyboard.press('Escape');
+        await dismiss(page);
 
         await page
             .getByRole('button', { name: /^Delete / })
@@ -81,7 +82,7 @@ test.describe('accessibility (axe, WCAG A/AA)', () => {
             .click();
         await expect(page.getByTestId('category-delete-dialog')).toBeVisible();
         await bothThemes(page, testInfo, 'category-delete-dialog');
-        await page.keyboard.press('Escape');
+        await dismiss(page);
 
         // The empty search result.
         await page.getByTestId('category-search').fill('zzzz-nothing');
@@ -102,7 +103,7 @@ test.describe('accessibility (axe, WCAG A/AA)', () => {
             .click();
         await expect(page.getByTestId(/^agent-categories-menu-/)).toBeVisible();
         await bothThemes(page, testInfo, 'agents-categories-popover');
-        await page.keyboard.press('Escape');
+        await dismiss(page);
 
         await page.getByTestId('agent-create').click();
         await expect(page.getByTestId('agent-create-dialog')).toBeVisible();
@@ -145,7 +146,7 @@ test.describe('accessibility (axe, WCAG A/AA)', () => {
         await page.getByTestId('builder-enabled-toggle').click();
         await expect(page.getByTestId('builder-enabled-dialog')).toBeVisible();
         await bothThemes(page, testInfo, 'builder-enabled-dialog');
-        await page.keyboard.press('Escape');
+        await dismiss(page);
 
         // Publish needs something to publish: make a change, but never confirm.
         await openTab(page, 'branding');
@@ -156,7 +157,7 @@ test.describe('accessibility (axe, WCAG A/AA)', () => {
         await page.getByTestId('builder-publish').click();
         await expect(page.getByTestId('builder-publish-dialog')).toBeVisible();
         await bothThemes(page, testInfo, 'builder-publish-dialog');
-        await page.keyboard.press('Escape');
+        await dismiss(page);
 
         // A validation error state (hours overlap) and the preview in both of its views.
         await openTab(page, 'hours');
@@ -386,13 +387,13 @@ test.describe('phone layout (375px, no sideways scrolling)', () => {
         expect(dialog.x + dialog.width).toBeLessThanOrEqual(375);
         await page.getByTestId('category-submit').scrollIntoViewIfNeeded();
         await expect(page.getByTestId('category-submit')).toBeInViewport();
-        await page.keyboard.press('Escape');
+        await dismiss(page);
 
         await page.goto('/agents');
         await page.getByTestId('agent-create').click();
         await expect(page.getByTestId('agent-create-dialog')).toBeVisible();
         await expectNoHorizontalScroll(page);
-        await page.keyboard.press('Escape');
+        await dismiss(page);
         await page
             .getByTestId(/^agent-categories-\d+$/)
             .first()

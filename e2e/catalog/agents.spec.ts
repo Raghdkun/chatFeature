@@ -1,6 +1,6 @@
 import { type Browser, type Page } from '@playwright/test';
 import { Api, type Category } from '../support/api';
-import { openNavigation, unique } from '../support/helpers';
+import { dismiss, openNavigation, unique } from '../support/helpers';
 import { expect, test } from '../support/test';
 import {
     ADMIN,
@@ -404,7 +404,7 @@ test.describe('category assignment', () => {
                         .length,
             )
             .toBe(4);
-        await page.keyboard.press('Escape');
+        await dismiss(page);
 
         await page.reload();
         await expect(
@@ -433,7 +433,7 @@ test.describe('category assignment', () => {
         await page.unroute(`**/api/v1/agents/${agent.id}/categories`);
 
         // Unticking everything clears the set.
-        await page.keyboard.press('Escape');
+        await dismiss(page);
         for (const slug of [
             'billing',
             'sales',
@@ -442,7 +442,7 @@ test.describe('category assignment', () => {
         ]) {
             await page.getByTestId(`agent-categories-${agent.id}`).click();
             await option(slug).click();
-            await page.keyboard.press('Escape');
+            await dismiss(page);
         }
 
         await expect
@@ -537,7 +537,7 @@ test.describe('roles and status (mode 1)', () => {
                 `agent-category-option-${khalid.id}-${cats.sales.ulid}`,
             )
             .click();
-        await page.keyboard.press('Escape');
+        await dismiss(page);
         await expect(
             page.getByTestId(`agent-categories-${khalid.id}`),
         ).toContainText('Sales');

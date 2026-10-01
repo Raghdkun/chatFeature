@@ -29,6 +29,8 @@ test('HTML in names and texts is shown as text in the dashboard and in the widge
     adminApi,
     instance,
 }) => {
+    // Unique per attempt: a retry must not meet the leftovers of the attempt before it.
+    const RUN = Math.random().toString(36).slice(2, 7);
     const dialogs: string[] = [];
 
     page.on('dialog', async (dialog) => {
@@ -38,20 +40,20 @@ test('HTML in names and texts is shown as text in the dashboard and in the widge
 
     const category = (
         await adminApi.ok('POST', '/api/v1/categories', {
-            name: `${PAYLOAD}Cat`,
+            name: `${PAYLOAD}Cat ${RUN}`,
             description: `${TAGS} desc`,
             name_i18n: { fr: `${PAYLOAD}Chat` },
         })
     ).data as { ulid: string; slug: string };
     const agent = (
         await adminApi.ok('POST', '/api/v1/agents', {
-            name: `${PAYLOAD}Agent`,
+            name: `${PAYLOAD}Agent ${RUN}`,
             email: `escaping.${Date.now().toString(36)}@example.test`,
             password: PASSWORD,
         })
     ).data as { id: number };
     const { key, ulid } = await liveWidget(adminApi, instance, {
-        name: `${PAYLOAD}Widget`,
+        name: `${PAYLOAD}Widget ${RUN}`,
         categories: ['general', category.slug],
         greetings: [
             {
@@ -72,18 +74,18 @@ test('HTML in names and texts is shown as text in the dashboard and in the widge
     // The dashboard: lists, dialogs, the builder (every tab) and its live preview.
     await page.goto('/categories');
     await expect(
-        page.getByText(`${PAYLOAD}Cat`, { exact: true }),
+        page.getByText(`${PAYLOAD}Cat ${RUN}`, { exact: true }),
     ).toBeVisible();
     await expectNothingRan(page, '/categories');
     await page.getByTestId(`category-edit-${category.ulid}`).click();
     await expect(page.getByLabel('Name', { exact: true })).toHaveValue(
-        `${PAYLOAD}Cat`,
+        `${PAYLOAD}Cat ${RUN}`,
     );
     await page.keyboard.press('Escape');
 
     await page.goto('/agents');
     await expect(page.getByTestId(`agent-row-${agent.id}`)).toContainText(
-        `${PAYLOAD}Agent`,
+        `${PAYLOAD}Agent ${RUN}`,
     );
     await page.getByTestId(`agent-categories-${agent.id}`).click();
     await expect(
@@ -93,13 +95,13 @@ test('HTML in names and texts is shown as text in the dashboard and in the widge
 
     await page.goto('/widgets');
     await expect(page.getByTestId(`widget-card-${ulid}`)).toContainText(
-        `${PAYLOAD}Widget`,
+        `${PAYLOAD}Widget ${RUN}`,
     );
     await expectNothingRan(page, '/widgets');
 
     await page.goto(`/widgets/${ulid}`);
     await expect(page.getByTestId('builder-title')).toHaveText(
-        `${PAYLOAD}Widget`,
+        `${PAYLOAD}Widget ${RUN}`,
     );
 
     for (const tab of [
@@ -120,7 +122,15 @@ test('HTML in names and texts is shown as text in the dashboard and in the widge
     await page.getByTestId('builder-tab-categories').click();
     await expect(
         page.getByTestId(`builder-category-enabled-${category.ulid}`),
-    ).toContainText(`${PAYLOAD}Cat`);
+    ).toContainText(`${PAYLOAD}Cat ${RUN}`);
+
+    // On a phone the editor and the preview take turns.
+    const switcher = page.getByTestId('builder-view-switch');
+
+    if (await switcher.isVisible()) {
+        await switcher.getByText('Preview', { exact: true }).click();
+    }
+
     await expect(page.getByTestId('builder-preview-status')).toHaveAttribute(
         'data-loader',
         'ready',

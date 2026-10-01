@@ -5,7 +5,7 @@ import {
 } from '@playwright/test';
 import { type Api, createWidget } from '../support/api';
 import { hostOrigin } from '../support/host';
-import { unique } from '../support/helpers';
+import { dismiss, unique } from '../support/helpers';
 import { expect, test } from '../support/test';
 
 /**
@@ -192,6 +192,7 @@ test.describe('widgets list', () => {
         const dialog = page.getByTestId('widget-delete-dialog');
         await expect(dialog).toBeVisible();
         await dialog.getByRole('button', { name: /keep/i }).click();
+        await expect(dialog).toBeHidden();
         await expect(page.getByTestId(`widget-card-${ulid}`)).toBeVisible();
 
         await page.getByTestId(`widget-delete-${ulid}`).click();

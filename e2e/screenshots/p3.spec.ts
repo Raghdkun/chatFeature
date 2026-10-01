@@ -13,6 +13,7 @@
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { type Browser, type Page, type TestInfo } from '@playwright/test';
 import { Api } from '../support/api';
+import { dismiss } from '../support/helpers';
 import { hostPage, settleWidget, widget } from '../support/host';
 import { ROOT } from '../support/scenarios';
 import {
@@ -79,7 +80,7 @@ async function captureAdminScreens(
         await page.getByLabel('Name', { exact: true }).fill('Shipping');
         await page.getByRole('button', { name: '#e11d48' }).click();
         await capture(page, viewport, '02-category-dialog');
-        await page.keyboard.press('Escape');
+        await dismiss(page);
 
         // Agents.
         await page.goto('/agents');
@@ -92,12 +93,12 @@ async function captureAdminScreens(
             .click();
         await expect(page.getByTestId(/^agent-categories-menu-/)).toBeVisible();
         await capture(page, viewport, '04-agent-categories-picker');
-        await page.keyboard.press('Escape');
+        await dismiss(page);
 
         await page.getByTestId('agent-create').click();
         await expect(page.getByTestId('agent-create-dialog')).toBeVisible();
         await capture(page, viewport, '05-agent-create-dialog');
-        await page.keyboard.press('Escape');
+        await dismiss(page);
 
         // Widgets: relative times ("Updated 5 minutes ago") depend on the clock, so the page gets a fixed one.
         const { ulid } = await demo(page);
