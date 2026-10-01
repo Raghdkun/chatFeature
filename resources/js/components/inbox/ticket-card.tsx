@@ -92,7 +92,10 @@ export function TicketCard({
             </div>
 
             {ticket.lastMessagePreview && (
-                <p className="mt-3 line-clamp-3 text-sm break-words text-foreground/90">
+                <p
+                    dir="auto"
+                    className="mt-3 line-clamp-3 text-sm break-words text-foreground/90"
+                >
                     {ticket.lastMessagePreview}
                 </p>
             )}

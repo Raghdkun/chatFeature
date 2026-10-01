@@ -150,7 +150,10 @@ export function OfferCard({
             </div>
 
             {item.preview && (
-                <p className="mt-2.5 line-clamp-2 text-sm break-words text-foreground/90">
+                <p
+                    dir="auto"
+                    className="mt-2.5 line-clamp-2 text-sm break-words text-foreground/90"
+                >
                     {item.preview}
                 </p>
             )}

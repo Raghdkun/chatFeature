@@ -206,7 +206,13 @@ export function MessageBubble({
                             })}
                         </div>
                     ) : null}
-                    {message.body ? <MessageText body={message.body} /> : null}
+                    {message.body ? (
+                        // A message takes the direction of what it says, not of the page around it (an English sentence in an Arabic
+                        // panel, an Arabic one on an English site): punctuation and alignment then land on the right side.
+                        <p dir="auto" className="m-0">
+                            <MessageText body={message.body} />
+                        </p>
+                    ) : null}
                 </div>
                 {failed && message.clientMsgId !== null ? (
                     <div className="text-danger mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[12px]">

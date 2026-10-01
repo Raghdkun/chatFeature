@@ -169,6 +169,20 @@ describe('message list', () => {
         expect(text(list)).toContain('https://user:pass@evil.test/');
     });
 
+    it('gives each message its own direction, so an English sentence in an Arabic panel (and the reverse) reads correctly', async () => {
+        const { c } = await activeChat((backend) => {
+            backend.agentSays('Where is my order #48213?');
+            backend.agentSays('مرحبا، أحتاج مساعدة بخصوص طلبي.');
+        });
+        const list = byTestId(c, 'message-list') as HTMLElement;
+        const bodies = Array.from(list.querySelectorAll('p[dir="auto"]'));
+
+        expect(bodies.map((body) => body.textContent)).toEqual([
+            'Where is my order #48213?',
+            'مرحبا، أحتاج مساعدة بخصوص طلبي.',
+        ]);
+    });
+
     it('shows the agent typing (visually and to screen readers) until it stops', async () => {
         const { h, c } = await activeChat();
 
