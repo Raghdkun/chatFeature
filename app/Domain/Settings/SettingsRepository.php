@@ -164,18 +164,26 @@ final class SettingsRepository
         return $values;
     }
 
-    /** Drop the cached rows (all workspaces when null). */
+    /** Drop the cached rows of a workspace (the global scope when null). */
     public function forget(?int $workspaceId = null): void
     {
-        if ($workspaceId === null) {
-            $this->cache->forget(self::CACHE_PREFIX.'0');
-            unset($this->memo[0]);
+        $workspace = $workspaceId ?? 0;
 
-            return;
-        }
+        $this->cache->forget($this->cacheKey($workspace));
+        unset($this->memo[$workspace]);
+    }
 
-        $this->cache->forget(self::CACHE_PREFIX.$workspaceId);
-        unset($this->memo[$workspaceId]);
+    /**
+     * Cache key of one workspace's rows. It carries the database it was read from, so two installs
+     * that happen to share a cache (one Redis for several environments) never read each other's settings.
+     */
+    public function cacheKey(int $workspace = 0): string
+    {
+        $connection = config('database.default');
+        $database = is_string($connection) ? config("database.connections.{$connection}.database") : null;
+        $host = is_string($connection) ? config("database.connections.{$connection}.host") : null;
+
+        return self::CACHE_PREFIX.substr(sha1((string) $connection.'|'.(is_string($host) ? $host : '').'|'.(is_string($database) ? $database : '')), 0, 12).'.'.$workspace;
     }
 
     /**
@@ -186,7 +194,7 @@ final class SettingsRepository
         $workspace = $workspaceId ?? 0;
 
         return $this->memo[$workspace] ??= $this->cache->remember(
-            self::CACHE_PREFIX.$workspace,
+            $this->cacheKey($workspace),
             self::CACHE_TTL,
             fn (): array => Setting::query()
                 ->where('workspace_key', $workspace)

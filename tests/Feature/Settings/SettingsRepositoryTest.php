@@ -111,13 +111,37 @@ class SettingsRepositoryTest extends TestCase
         $this->assertSame('sk-live-very-secret', settings('whatsapp.api_key'));
 
         // not in the cache in plain text either
-        $cached = json_encode(Cache::get(SettingsRepository::CACHE_PREFIX.'0'));
+        $cached = json_encode(Cache::get($this->settings->cacheKey()));
         $this->assertNotFalse($cached);
         $this->assertStringNotContainsString('very-secret', $cached);
 
         // and a fresh repository (new request) still reads it
         $this->app->forgetInstance(SettingsRepository::class);
         $this->assertSame('sk-live-very-secret', settings('whatsapp.api_key'));
+    }
+
+    public function test_the_cache_key_is_scoped_to_the_database_it_was_read_from(): void
+    {
+        $this->settings->set('app.name', 'Database A');
+        $this->assertSame('Database A', settings('app.name'));
+        $keyA = $this->settings->cacheKey();
+        $this->assertNotNull(Cache::get($keyA));
+
+        // Another environment pointing at the same cache store must not share the entry.
+        $original = config('database.default');
+        config([
+            'database.connections.staging' => ['driver' => 'mysql', 'host' => 'db.example', 'database' => 'chat_staging'],
+            'database.default' => 'staging',
+        ]);
+
+        try {
+            $this->assertNotSame($keyA, $this->settings->cacheKey());
+            $this->assertNull(Cache::get($this->settings->cacheKey()));
+            $this->assertStringStartsWith(SettingsRepository::CACHE_PREFIX, $this->settings->cacheKey());
+            $this->assertStringEndsWith('.1', $this->settings->cacheKey(1));
+        } finally {
+            config(['database.default' => $original]);
+        }
     }
 
     public function test_all_leaves_encrypted_settings_out(): void
