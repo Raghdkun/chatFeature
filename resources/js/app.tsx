@@ -2,6 +2,7 @@ import { createInertiaApp } from '@inertiajs/react';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { initializeTheme } from '@/hooks/use-appearance';
+import { useFlashToast } from '@/hooks/use-flash-toast';
 import AppLayout from '@/layouts/app-layout';
 import AuthLayout from '@/layouts/auth-layout';
 import SettingsLayout from '@/layouts/settings/layout';
@@ -13,6 +14,13 @@ configureEcho({
 });
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
+
+/** Shows the server's `flash.toast` (Inertia v3 flash) as a toast on every page. */
+function FlashToasts() {
+    useFlashToast();
+
+    return null;
+}
 
 void createInertiaApp({
     title: (title) => (title ? `${title} - ${appName}` : appName),
@@ -33,6 +41,7 @@ void createInertiaApp({
         return (
             <TooltipProvider delayDuration={0}>
                 {app}
+                <FlashToasts />
                 <Toaster />
             </TooltipProvider>
         );

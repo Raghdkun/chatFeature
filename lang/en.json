@@ -298,6 +298,7 @@
     "settings.auth.health.title": "Portal health",
     "settings.auth.health.description": "Whether sign-ins can reach the portal right now.",
     "settings.auth.health.refresh": "Refresh",
+    "settings.auth.health.credential_rejected": "The Auth Portal rejected this app's service credentials. New sign-ins are blocked until you save a valid service token for the active environment (people who are signed in keep working for a grace period).",
     "settings.auth.health.portal": "Portal",
     "settings.auth.health.status.ok": "Healthy",
     "settings.auth.health.status.degraded": "Degraded",

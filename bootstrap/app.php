@@ -17,7 +17,6 @@ use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\Route;
-use Throwable;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(

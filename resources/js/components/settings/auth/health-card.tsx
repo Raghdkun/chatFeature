@@ -112,6 +112,15 @@ export function HealthCard({ health }: { health: AuthSettingsData['health'] }) {
                 </div>
             </CardHeader>
             <CardContent>
+                {health.service_credential_rejected ? (
+                    <p
+                        role="alert"
+                        data-testid="settings-auth-health-credential-rejected"
+                        className="mb-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+                    >
+                        {t('settings.auth.health.credential_rejected')}
+                    </p>
+                ) : null}
                 <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-[max-content_1fr]">
                     <dt className="text-muted-foreground">
                         {t('settings.auth.health.portal')}

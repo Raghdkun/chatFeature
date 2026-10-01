@@ -19,7 +19,7 @@ Route::prefix('setup')
         Route::get('/', [SetupController::class, 'index'])->name('index');
 
         Route::post('token', [SetupController::class, 'token'])
-            ->middleware('throttle:5,1')
+            ->middleware('throttle:5,1,setup-token')
             ->name('token');
 
         Route::middleware(EnsureSetupTokenVerified::class)->group(function () {
@@ -34,7 +34,7 @@ Route::prefix('setup')
             Route::post('portal-admin', [SetupController::class, 'portalAdmin'])->middleware('throttle:setup-portal-admin')->name('portal-admin');
             Route::post('run/{step}', [SetupController::class, 'run'])
                 ->where('step', '[a-z\-]+')
-                ->middleware('throttle:60,1')
+                ->middleware('throttle:60,1,setup-run')
                 ->name('run');
         });
     });

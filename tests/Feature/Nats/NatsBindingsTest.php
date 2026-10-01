@@ -3,6 +3,7 @@
 namespace Tests\Feature\Nats;
 
 use App\Auth\Pizzasys\Contracts\IdentityInvalidator;
+use App\Auth\Pizzasys\DatabaseNatsSettingsProvider;
 use App\Infrastructure\Nats\BasisJetStreamGateway;
 use App\Infrastructure\Nats\CloudEvent;
 use App\Infrastructure\Nats\ConfigNatsSettingsProvider;
@@ -20,9 +21,11 @@ use Tests\TestCase;
 
 class NatsBindingsTest extends TestCase
 {
-    public function test_the_settings_provider_defaults_to_the_config_backed_implementation(): void
+    public function test_the_application_binds_the_database_backed_provider_over_the_config_default(): void
     {
-        $this->assertInstanceOf(ConfigNatsSettingsProvider::class, $this->app->make(NatsSettingsProvider::class));
+        // Track 2A rebinds the provider (active auth environment); the config-backed class stays the standalone default.
+        $this->assertInstanceOf(DatabaseNatsSettingsProvider::class, $this->app->make(NatsSettingsProvider::class));
+        $this->assertInstanceOf(ConfigNatsSettingsProvider::class, $this->app->make(ConfigNatsSettingsProvider::class));
     }
 
     public function test_an_explicit_binding_such_as_the_database_backed_one_overrides_the_default(): void
@@ -58,7 +61,7 @@ class NatsBindingsTest extends TestCase
     public function test_nats_is_off_and_unconfigured_by_default(): void
     {
         $this->assertFalse(config('nats.enabled'));
-        $this->assertNull($this->app->make(NatsSettingsProvider::class)->current());
+        $this->assertNull($this->app->make(ConfigNatsSettingsProvider::class)->current());
     }
 
     public function test_the_config_provider_maps_the_nats_config(): void
@@ -72,7 +75,7 @@ class NatsBindingsTest extends TestCase
             'nats.environment_key' => 'testing',
         ]);
 
-        $settings = $this->app->make(NatsSettingsProvider::class)->current();
+        $settings = $this->app->make(ConfigNatsSettingsProvider::class)->current();
 
         $this->assertEquals(new NatsSettings(
             enabled: true,
@@ -88,7 +91,7 @@ class NatsBindingsTest extends TestCase
     {
         config(['nats.enabled' => false, 'nats.url' => 'nats://nats:4222', 'nats.token' => '  ', 'nats.stream' => '', 'nats.environment_key' => null]);
 
-        $settings = $this->app->make(NatsSettingsProvider::class)->current();
+        $settings = $this->app->make(ConfigNatsSettingsProvider::class)->current();
 
         $this->assertInstanceOf(NatsSettings::class, $settings);
         $this->assertFalse($settings->enabled);
@@ -103,6 +106,6 @@ class NatsBindingsTest extends TestCase
     {
         config(['nats.enabled' => true, 'nats.url' => '  ']);
 
-        $this->assertNull($this->app->make(NatsSettingsProvider::class)->current());
+        $this->assertNull($this->app->make(ConfigNatsSettingsProvider::class)->current());
     }
 }

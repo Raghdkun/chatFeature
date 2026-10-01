@@ -3,8 +3,13 @@ namespace Auth {
 namespace Enums {
 export type AuthMode = 'fortify' | 'pizzasys';
 export type AuthOutcome = 'ok' | 'invalid' | 'unavailable' | 'no_chat_access';
-export type SessionVerdict = 'fresh' | 'revalidated' | 'revoked' | 'degraded';
+export type SessionVerdict = 'fresh' | 'revalidated' | 'revoked' | 'degraded' | 'unavailable';
 export type UserRole = 'admin' | 'agent';
+}
+namespace Pizzasys {
+namespace Results {
+export type PortalStatus = 'ok' | 'inactive' | 'invalid' | 'service_rejected' | 'unavailable';
+}
 }
 }
 namespace Data {
@@ -16,6 +21,25 @@ canManage2fa: boolean,
 profileEditable: boolean,
 portalUrl: string | null,
 };
+export type AuthHealthData = {
+portal: App.Data.Auth.PortalHealthStatus,
+circuit_open: boolean,
+last_verify_at: string | null,
+nats: App.Data.Auth.AuthNatsHealthData,
+service_credential_rejected: boolean,
+};
+export type AuthNatsHealthData = {
+enabled: boolean,
+connected: boolean | null,
+last_event_at: string | null,
+};
+export type AuthSettingsData = {
+mode: App.Auth.Enums.AuthMode,
+active_env: App.Data.Auth.EnvironmentKey,
+environments: App.Data.Auth.PizzasysEnvironmentData[],
+roles: App.Data.Auth.PizzasysRolesData,
+health: App.Data.Auth.AuthHealthData,
+};
 export type AuthUserData = {
 id: number,
 name: string,
@@ -24,6 +48,58 @@ avatar: string | null,
 is_admin: boolean,
 is_agent: boolean,
 auth_source: string,
+};
+export type EnvironmentKey = 'production' | 'testing';
+export type PizzasysEnvironmentData = {
+key: App.Data.Auth.EnvironmentKey,
+label: string,
+configured: boolean,
+base_url: string | null,
+service_name: string | null,
+has_service_token: boolean,
+nats_url: string | null,
+has_nats_token: boolean,
+verify_tls: boolean,
+last_check_at: string | null,
+last_check_status: App.Data.Auth.PortalCheckStatus | null,
+last_check_message: string | null,
+};
+export type PizzasysEnvironmentsData = {
+production: App.Data.Auth.PizzasysEnvironmentData,
+testing: App.Data.Auth.PizzasysEnvironmentData,
+};
+export type PizzasysPortalAdminData = {
+name: string,
+email: string,
+};
+export type PizzasysRolesData = {
+admin_permission: string,
+agent_permission: string,
+super_roles: string[],
+};
+export type PizzasysSetupData = {
+environments: App.Data.Auth.PizzasysEnvironmentsData,
+active_env: App.Data.Auth.EnvironmentKey,
+roles: App.Data.Auth.PizzasysRolesData,
+tested: App.Data.Auth.PizzasysTestedData,
+portal_admin: App.Data.Auth.PizzasysPortalAdminData | null,
+};
+export type PizzasysTestedData = {
+production: boolean,
+testing: boolean,
+};
+export type PortalCheckData = {
+key: App.Data.Auth.PortalCheckKey,
+label: string,
+ok: boolean,
+message?: string,
+};
+export type PortalCheckKey = 'reachable' | 'service_credential' | 'latency' | 'nats';
+export type PortalCheckStatus = 'ok' | 'failed';
+export type PortalHealthStatus = 'ok' | 'degraded' | 'down' | 'unknown';
+export type PortalTestResultData = {
+ok: boolean,
+checks: App.Data.Auth.PortalCheckData[],
 };
 }
 namespace Setup {
@@ -48,6 +124,7 @@ environment: App.Data.Setup.SetupEnvironmentData,
 defaults: App.Data.Setup.SetupDefaultsData,
 admin: App.Data.Setup.SetupAdminData | null,
 run: App.Data.Setup.SetupRunStepData[],
+pizzasys: App.Data.Auth.PizzasysSetupData | null,
 };
 export type SetupDefaultsData = {
 app_name: string,
@@ -72,7 +149,7 @@ key: App.Data.Setup.SetupStepKey,
 label: string,
 status: App.Data.Setup.SetupStepStatus,
 };
-export type SetupStepKey = 'welcome' | 'mode' | 'admin' | 'basics' | 'run' | 'done';
+export type SetupStepKey = 'welcome' | 'mode' | 'admin' | 'pizzasys' | 'portal-admin' | 'basics' | 'run' | 'done';
 export type SetupStepStatus = 'pending' | 'current' | 'done';
 }
 namespace Shared {
@@ -101,6 +178,11 @@ namespace Domain {
 namespace Settings {
 export type SettingGroup = 'app' | 'auth' | 'chat' | 'notifications' | 'storage' | 'whatsapp';
 export type SettingType = 'string' | 'bool' | 'int' | 'json';
+}
+}
+namespace Infrastructure {
+namespace Nats {
+export type EventOutcome = 'flush_user' | 'flush_all' | 'deactivate_user' | 'noop' | 'unknown' | 'duplicate';
 }
 }
 }

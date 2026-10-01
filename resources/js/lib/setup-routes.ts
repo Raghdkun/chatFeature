@@ -13,9 +13,6 @@ export type SetupRunStepKey =
     | 'create-admin'
     | 'write-lock';
 
-/** "/setup" (Wayfinder knows any base path); the mode-2 URLs hang off it. */
-const SETUP_BASE = SetupController.index.url().replace(/\/$/, '');
-
 export const setupRoutes = {
     /** GET /setup (name: setup.index) */
     index: { url: SetupController.index.url(), method: 'get' },
@@ -43,17 +40,12 @@ export const setupRoutes = {
         method: 'post',
         form: () => SetupController.basics.form(),
     },
-    /**
-     * Mode 2 (docs/contracts/auth-pizzasys.md). Plain strings on purpose: the controller does not
-     * exist until track 2A merges. After that, swap these three for `SetupController.<action>.url()`
-     * (this object is the only place that changes).
-     */
     /** POST /setup/pizzasys: environments + roles + active environment (Inertia post, redirects). */
-    pizzasys: { url: `${SETUP_BASE}/pizzasys`, method: 'post' },
+    pizzasys: { url: SetupController.pizzasys.url(), method: 'post' },
     /** POST /setup/pizzasys/test: JSON `PortalTestResult` for the SAVED environment `{ env }`. */
-    pizzasysTest: { url: `${SETUP_BASE}/pizzasys/test`, method: 'post' },
+    pizzasysTest: { url: SetupController.testPizzasys.url(), method: 'post' },
     /** POST /setup/portal-admin: JSON, `{ email, password }`. */
-    portalAdmin: { url: `${SETUP_BASE}/portal-admin`, method: 'post' },
+    portalAdmin: { url: SetupController.portalAdmin.url(), method: 'post' },
     /** GET /setup/state (setup.state): JSON snapshot of SetupProps */
     state: { url: SetupController.state.url(), method: 'get' },
     /** POST /setup/run/{step} (setup.run): JSON; `step` is one of {@link SetupRunStepKey}. */

@@ -1,25 +1,21 @@
 /**
- * The ONE place that knows the Settings > Auth URLs (docs/contracts/auth-pizzasys.md,
- * controller `Settings\AuthSettingsController`, routes/web/settings-auth.php).
- *
- * Plain strings on purpose: Wayfinder cannot generate these until track 2A merges. After that,
- * swap each entry for the generated `AuthSettingsController.<action>.url(...)`; call sites only
- * use this module, so it is a one-file change.
+ * The ONE place that knows the Settings > Auth URLs (docs/contracts/auth-pizzasys.md).
+ * Thin adapter over the generated Wayfinder actions; call sites keep a stable shape.
  */
+import AuthSettingsController from '@/actions/App/Http/Controllers/Settings/AuthSettingsController';
 import type { PizzasysEnvKey } from '@/types/pizzasys';
-
-const BASE = '/settings/auth';
 
 export const authSettingsRoutes = {
     /** GET /settings/auth: Inertia `settings/auth` with `{ authSettings }`. */
-    index: BASE,
+    index: AuthSettingsController.edit.url(),
     /** PUT /settings/auth/environments/{key}: save one environment (redirects back). */
-    environment: (key: PizzasysEnvKey): string => `${BASE}/environments/${key}`,
+    environment: (key: PizzasysEnvKey): string =>
+        AuthSettingsController.updateEnvironment.url({ key }),
     /** POST /settings/auth/environments/{key}/test: JSON `PortalTestResult` (tests the SAVED values). */
     environmentTest: (key: PizzasysEnvKey): string =>
-        `${BASE}/environments/${key}/test`,
+        AuthSettingsController.testEnvironment.url({ key }),
     /** POST /settings/auth/active-environment: JSON `{ ok, redirect }` or 422 `{ ok:false, message }`. */
-    activeEnvironment: `${BASE}/active-environment`,
+    activeEnvironment: AuthSettingsController.activateEnvironment.url(),
     /** PUT /settings/auth/roles: role mapping (redirects back). */
-    roles: `${BASE}/roles`,
+    roles: AuthSettingsController.updateRoles.url(),
 } as const;

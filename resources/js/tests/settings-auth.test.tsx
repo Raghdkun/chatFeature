@@ -84,6 +84,7 @@ const settingsData = (
     health: {
         portal: 'ok',
         circuit_open: false,
+        service_credential_rejected: false,
         last_verify_at: '2026-09-30T19:58:00Z',
         nats: {
             enabled: true,
@@ -351,6 +352,35 @@ describe('health card', () => {
         ).toContain('10 minutes ago');
     });
 
+    it('warns that new sign-ins are blocked when the service credential was rejected', async () => {
+        const view = await render(
+            <AuthSettings
+                {...page(
+                    settingsData({
+                        health: {
+                            ...settingsData().health,
+                            portal: 'degraded',
+                            service_credential_rejected: true,
+                        },
+                    }),
+                )}
+            />,
+        );
+
+        expect(
+            view.byTestId('settings-auth-health-credential-rejected')
+                ?.textContent,
+        ).toContain('rejected');
+    });
+
+    it('shows no warning when the service credential is fine', async () => {
+        const view = await render(<AuthSettings {...page(settingsData())} />);
+
+        expect(
+            view.byTestId('settings-auth-health-credential-rejected'),
+        ).toBeNull();
+    });
+
     it('says so when the portal is degraded, the circuit is open and NATS is not enabled', async () => {
         const view = await render(
             <AuthSettings
@@ -359,6 +389,7 @@ describe('health card', () => {
                         health: {
                             portal: 'degraded',
                             circuit_open: true,
+                            service_credential_rejected: false,
                             last_verify_at: null,
                             nats: {
                                 enabled: false,
@@ -397,6 +428,7 @@ describe('health card', () => {
                         health: {
                             portal: 'down',
                             circuit_open: false,
+                            service_credential_rejected: false,
                             last_verify_at: null,
                             nats: {
                                 enabled: true,
