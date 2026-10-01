@@ -596,7 +596,27 @@ for (const size of SIZES) {
                 'Here is the receipt',
             );
             await panel.expectMessage('Here is the receipt', 'agent');
-            await expect(panel.tid('message-image').first()).toBeVisible();
+            await expect(panel.tid('message-image').first())
+                .toBeVisible({ timeout: 30_000 })
+                .catch(async (error) => {
+                    // The picture's box and what became of its file, for a failure that only happens now and then.
+                    throw new Error(
+                        `${error.message}\nThe picture: ${JSON.stringify(
+                            await panel.root.evaluate((root) => {
+                                const image = root.querySelector('img');
+
+                                return {
+                                    complete: image?.complete,
+                                    natural: image?.naturalWidth,
+                                    box: image
+                                        ?.getBoundingClientRect()
+                                        .toJSON(),
+                                    src: image?.currentSrc.slice(-60),
+                                };
+                            }),
+                        )}`,
+                    );
+                });
             must(await agent.api.typing(queued.ulid, true), 'typing');
             await expect(panel.tid('typing-indicator')).toBeVisible();
 
