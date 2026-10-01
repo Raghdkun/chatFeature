@@ -268,7 +268,7 @@ final class WidgetConfigValidator
 
             'hours' => ['array'],
             'hours.mode' => [Rule::enum(OfflineMode::class)],
-            'hours.timezone' => ['string', 'timezone:all'],
+            'hours.timezone' => ['string', 'timezone:all_with_bc'],
             'hours.schedule' => ['array', 'max:42'],
             'hours.schedule.*' => ['array'],
             'hours.schedule.*.day' => ['required', 'integer:strict', 'between:0,6'],

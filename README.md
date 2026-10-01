@@ -1,10 +1,10 @@
 # PNE Chat
 
-> Status: Phase 0 (scaffold) in progress. Only the stock starter kit plus dependencies exists; everything below the roadmap is design.
+> Status: Phases 0-3 are done (install gate, setup wizard, both auth modes, categories, agents, widgets with loader and builder). The chat itself (conversations, routing, realtime, the embed panel) starts in P4: until then the widget's chat iframe is a stub. The roadmap below is the source of truth.
 
 PNE Chat is a self-hosted, tawk.to-style live-chat platform. A website visitor clicks an embeddable bubble, picks a support topic, an agent accepts, and a live chat starts. WhatsApp (through the self-hosted [OpenWA](https://www.open-wa.org) gateway) is an optional second channel. Admins run everything from a shadcn dashboard; agents only see the chats assigned to them. "PNE Chat" is a working name and can be renamed in Settings.
 
-## Features (planned)
+## Features (built through P3, the rest planned; see the roadmap)
 
 - **Embeddable widget**: tiny Shadow-DOM launcher + iframe chat panel, script/iframe/hosted-page embeds, JS API, signed visitor identity, domain whitelist.
 - **Creative greeting**: weighted-random greeting pool, 3D-flip launcher to the agent face, popup, auto-hide, reduced-motion safe.
@@ -56,17 +56,23 @@ Goal: starter kit and tooling. Exit: stock kit boots; SQLite (tests) and MySQL b
 - Exit met: empty DB boots to `/setup`; wizard completes mode 1; `/setup` is 404 after; `/` goes to login.
 - Known gaps (backlog): `lang/ar.json` is a partial seed (29/150 keys); a throttled setup-token submit shows Inertia's generic error modal; the environment checklist is only revisitable via Back after the token step.
 
-### P2 Mode-2 auth (parallel with P3)
-- [ ] 2A `PizzasysDriver`/Client/circuit breaker/`ShadowUserSync`/role resolver/`EnsureSessionIsValid`/Sanctum bridge/env model + wizard mode-2 steps
-- [ ] 2B NATS consumer, `chat:auth:switch-env`, fixtures
-- [ ] 2C pizzasys mock + Docker clone of real pizzasys, Settings > Auth page, portal login variant
-- Exit: feature tests (ok/invalid/unavailable/no-role/cache/revoked/degraded/service-token-rejected/env flip); NATS tests; real-pizzasys run documented ([auth-modes](docs/auth-modes.md)).
+### P2 Mode-2 auth (done, `v0.2.0`; developed in parallel with P3)
+- [x] 2A `PizzasysDriver`/Client/circuit breaker/`ShadowUserSync`/role resolver/`EnsureSessionIsValid`/Sanctum bridge/env model + wizard mode-2 steps (service token re-entry, pre-flight test, outbound address guard, one live identity per user and environment)
+- [x] 2B NATS consumer (`chat:auth:consume-nats`, dead-letter file, TLS verification), `chat:auth:switch-env` / `set-env` / `test` / `reactivate` / `prune-*`, fixtures
+- [x] 2C pizzasys test mock, a local clone of the real pizzasys as the e2e harness (outside the repo, not Docker), Settings > Auth page, portal login variant
+- [x] Review and hardening round: setup-token takeover guard, SSRF guard, session revocation and degrade (`503 auth_unavailable`), login throttles, secrets never flashed or logged
+- Exit met: feature tests (ok/invalid/unavailable/no-role/cache/revoked/degraded/service-token-rejected/env flip); NATS tests; mode-2 e2e against the real pizzasys clone ([auth-modes](docs/auth-modes.md), [findings](docs/pizzasys-findings.md)).
+- Known gaps: **a real NATS server was never exercised** (the integration test is skipped without `NATS_TEST_URL`); the pizzasys facts come from a local clone, not a production instance; "TLS first" NATS servers are unsupported by the client library.
 
-### P3 Widgets (parallel with P2)
-- [ ] 3A backend: categories, widgets, domains, greetings, config schema, draft/publish, public config/availability, `/w/{key}.js`, `/embed/{key}` + CSP, origin matcher, identity verifier
-- [ ] 3B loader: Shadow-DOM launcher, greeting scheduler + flip, precedence, JS API, bridge, Vitest, size-limit (<= 15 KB gz)
-- [ ] 3C dashboard UI: widget list, builder with live preview, categories, agents, embed-code page
-- Exit: bubble + flip + popup + JS API on a cross-origin host page; origin/CORS/CSP/JWT tests; builder preview matches the real widget.
+### P3 Widgets (done, `v0.3.0`; developed in parallel with P2)
+- [x] 3A backend: categories, widgets, domains, greetings, config schema, draft/publish, public config/availability, `/w/{key}.js`, `/embed/{key}` + CSP, origin matcher, identity verifier, rate limits
+- [x] 3B loader: Shadow-DOM launcher, greeting scheduler + flip, precedence, JS API, bridge, Vitest, size-limit (<= 16 KB gz; was 15, the build is 15.65 KB)
+- [x] 3C dashboard UI: widget list, builder with live preview, categories, agents, "my support categories", embed-code tab
+- [x] Review and hardening round: strict origin/CORS/CSP rules, boot-trust checks in the loader, per-origin limits, identity `jti`
+- [ ] P3 e2e (builder, loader on a cross-origin host page)
+- Exit (unit/feature level): origin/CORS/CSP/JWT/rate-limit tests, loader and builder Vitest suites. The exit item "bubble + flip + popup + JS API on a real cross-origin host page" is the open e2e line above.
+- Known gaps: the embed panel is a stub until P4 (the loader handshake therefore times out against the real `/embed/{key}` today; it is tested against a mock panel); `availability.online` is false until P5 presence exists; the built-in public-suffix list used to reject `*.co.uk`-style wildcards is partial; the loader is at 15.65 KB of its 16 KB budget; `init.boot.categories` loses description/icon/colour in the loader.
+- Gate at `integrate/phase-2-3` (P1-P3 together): PHPUnit **1658** (7 groups skip without a harness or a NATS server), Vitest **1191** (the loader's tests under `resources/widget/test` are part of that run), Playwright **251** specs (mode 1: 132, mode 2: 119; P3 has none yet).
 
 ### P4 Chat core
 - [ ] 4A domain + APIs: state machine, routing, claim, messages, attachments pipeline, idle/expiry jobs, offline tickets
@@ -106,6 +112,7 @@ Prerequisites: PHP 8.4, Composer, Node 24, MySQL, Redis.
 
 ```bash
 composer setup            # install deps, .env, key, migrate, npm install + build
+npm run build:widget      # the embeddable loader (public/widget/v1/loader.js); not part of `npm run build`
 composer dev              # runs `php artisan dev` (framework dev-process runner)
 php artisan reverb:start  # realtime server (separate terminal unless your dev runner already starts it)
 php artisan queue:listen  # queue worker (same note)
@@ -119,16 +126,16 @@ Chosen once in the setup wizard, then locked.
 1. **Mode 1 - Local**: starter-kit Fortify login (2FA/passkeys); admin/agent flags are edited in the dashboard.
 2. **Mode 2 - pizzasys**: login is delegated to the external pizzasys portal; admin/agent are derived from its roles/permissions via a service client; users are mirrored as shadow users.
 3. Both sit behind one `AuthDriver`; the app reads only `users.is_admin` / `users.is_agent`.
-4. Mode 2 keeps working if the portal or NATS is briefly down (grace window, circuit breaker).
+4. Mode 2 keeps working if the portal or NATS is briefly down (grace window, circuit breaker); beyond the grace window requests answer `503` and keep the session, and Settings > Auth stays reachable so the address or token can be repaired. Break-glass commands exist (`chat:auth:set-env`, `chat:auth:switch-env`, `chat:auth:reactivate`).
 5. Details: [docs/auth-modes.md](docs/auth-modes.md).
 
-## Embed snippet (planned, P3)
+## Embed snippet
 
 ```html
-<script async src="https://chat.example.com/w/wk_XXXX.js" data-position="left"></script>
+<script async src="https://chat.example.com/w/wk_xxxxxxxxxxxxxxxxxxxx.js" data-position="left"></script>
 ```
 
-See [docs/widget-embed-api.md](docs/widget-embed-api.md).
+The loader is built with `npm run build:widget` (git-ignored output; check the size budget with `npm run size`). The chat panel behind the bubble arrives in P4. See [docs/widget-embed-api.md](docs/widget-embed-api.md).
 
 ## Documentation
 
@@ -141,12 +148,13 @@ See [docs/widget-embed-api.md](docs/widget-embed-api.md).
 | [docs/rest-api.md](docs/rest-api.md) | Public + management API, conventions |
 | [docs/whatsapp-openwa.md](docs/whatsapp-openwa.md) | OpenWA facts, hand-off, isolation |
 | [docs/realtime.md](docs/realtime.md) | Channels, events, claim, sync, state machine |
+| [docs/security.md](docs/security.md) | Threat model summary, implemented controls through P3, open hardening items |
 | [docs/testing.md](docs/testing.md) | Test layers, commands, phase gate |
-| [docs/deployment-hostinger-kvm.md](docs/deployment-hostinger-kvm.md) | Docker Compose topology (skeleton) |
-| [docs/runbook.md](docs/runbook.md) | Operations (skeleton) |
+| [docs/deployment-hostinger-kvm.md](docs/deployment-hostinger-kvm.md) | Docker Compose topology and environment checklist (skeleton until P8) |
+| [docs/runbook.md](docs/runbook.md) | Operations: auth portal and NATS, break-glass, loader serving (rest is P7/P8) |
 | [docs/changelog.md](docs/changelog.md) | Keep a Changelog |
 
-`docs/contracts/*` (Inertia shared props, event payloads, REST shapes, postMessage protocol) is written by the orchestrator before P1 fan-out.
+`docs/contracts/*` (Inertia shared props, event payloads, REST shapes, postMessage protocol, widget config, auth) is written by the orchestrator before each phase fans out and updated to the implemented truth afterwards ([docs/contracts/README.md](docs/contracts/README.md)).
 
 ## How this project is kept up to date
 

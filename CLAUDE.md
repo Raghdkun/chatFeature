@@ -36,8 +36,15 @@ composer test             # config:clear + pint --test + phpstan + phpunit  (the
 composer lint             # pint (fix)             composer types:generate  # PHP Data classes -> resources/js/types/generated.d.ts
 npm run check             # vp check = format + lint     npm run check:fix
 npm run types:check       # tsc --noEmit                 npm test   # Vitest (vp test run)
-npm run build             # vp build                     npm run e2e  # Playwright e2e (real Chrome, MySQL chatfeature_e2e*; see docs/testing.md)
-composer ci:check         # everything above, as CI runs it
+npm run build             # vp build (the app + embed entry; does NOT build the loader)
+npm run build:widget      # the embeddable loader -> public/widget/v1/loader.js (git-ignored; Docker must run it)
+npm run size              # size-limit: loader <= 16 KB gzip (the P3 build is 15.65 KB)
+npm run e2e               # Playwright e2e (real Chrome, MySQL chatfeature_e2e*; see docs/testing.md); also e2e:headed, e2e:screenshots
+composer ci:check         # everything above, as CI runs it (not Playwright, not size-limit)
+
+php artisan chat:install --mode=local|pizzasys   # non-interactive install from INSTALL_* env; chat:bootstrap-secrets; chat:install:reset (APP_ENV=local only)
+php artisan chat:auth:test|switch-env|set-env|reactivate   # mode-2 ops and break-glass (see docs/runbook.md)
+php artisan chat:auth:consume-nats --instance=main         # supervised NATS consumer; chat:auth:prune-sessions (scheduled daily), chat:auth:prune-events
 ```
 
 Dev DB is the **dedicated** local MySQL database `chatfeature` (tests: `chatfeature_testing`, though PHPUnit
@@ -53,6 +60,8 @@ OpenWA, optional mysql/redis) are in `docker/compose.dev.yml` behind profiles; *
   Public + webhook routes use the bearer-only `widget` middleware group (never stateful/CSRF).
 - Sidebar: `resources/js/nav/<NN>-<ctx>.ts` default-exports `NavEntry[]`; `navFor(user)` filters by role.
 - Shared payloads: `app/Data/**` with `#[TypeScript]` -> `composer types:generate`. PHP is the source of truth.
+- Widget loader: vanilla TS in `resources/widget/src` (tests `resources/widget/test`, dev host page `resources/widget/dev`); built by `vite.widget.config.ts`. The chat panel `resources/js/embed/main.tsx` is a **stub until P4**.
+- Every `api/*` error is `{error:{code,message,details?}}` (`App\Exceptions\ApiErrorRenderer`); expected failures throw `App\Http\Exceptions\ApiProblemException` with their own code (`docs/contracts/rest-shapes.md`).
 - Public IDs are ULIDs / `public_key`; never leak integer PKs to visitors or APIs.
 - `docs/contracts/*` are orchestrator-owned; parallel tracks request changes, they don't edit them.
 
@@ -83,10 +92,27 @@ OpenWA, optional mysql/redis) are in `docker/compose.dev.yml` behind profiles; *
     revokes **all** of a user's tokens — never call it by default. Verified locally (`docs/pizzasys-findings.md`): pizzasys login tokens
     **never expire**, re-login doesn't revoke older tokens, bad user tokens verify as HTTP 200 `active:false`, bad *service* credentials are
     HTTP 401 (never 403), `super-admin` carries no `chat.*` permission (check the role name), and NATS `user.updated` leaks a password hash.
-
 12. Behind Caddy set `TRUSTED_PROXIES` (address list or `*`) or the client IP/scheme are wrong (throttles, audit log, URLs). Settings are memoised per
     process for only 2 s (`SettingsRepository::MEMO_TTL_SECONDS`) so queue workers don't serve stale values. Test helper `Tests\Support\InstallStateFake::make()`
     replaces the old `InstallState::fake()`.
+13. **Tests never reach a network.** `tests/TestCase.php` calls `Http::preventStrayRequests()` and binds a fake DNS `HostResolver` (every name resolves to one public address) and a fake `NatsProbe`:
+    every HTTP call in a test needs a `Http::fake`. `WidgetFixtures::useFortifyMode()` stores `auth.mode=fortify` (an installed instance without it makes `AuthModeGuard` fail closed with `500 auth_mode_unavailable`,
+    so staff/agent tests call it); `usePizzasysMode()` is the mode-2 stub. Skipped on purpose: `PIZZASYS_HARNESS=1` (real pizzasys clone) and `NATS_TEST_URL=nats://127.0.0.1:4222` (a real `nats -js`).
+14. **pizzasys facts + harness:** `docs/pizzasys-findings.md`. The local clone lives OUTSIDE the repo at `../chatFeature.harness/` (`run.sh start|stop|status|reset`, port 8200, `secrets.local.env` is never copied into the repo).
+    Mode-2 e2e tests carry the tag `@pizzasys`: `E2E_SKIP_PIZZASYS=1 npx playwright test --grep-invert @pizzasys` skips them and the harness. A real NATS server has never been run against the consumer.
+15. **Loader:** the bundle `public/widget/v1/loader.js` is git-ignored, so a fresh checkout/Docker image must run `npm run build:widget`; without it `/w/{key}.js` serves a stub and the builder falls back to its static preview.
+    Budget 16 KB gzip (`npm run size`; 15.65 KB now). `resources/js/lib/limits.ts` repeats the PHP validation limits and `limits.test.ts` pins it to the PHP source; `resources/js/lib/widgets-routes.ts` holds plain URL strings
+    (Wayfinder output is git-ignored) pinned to the contract by a Vitest test only (not yet to the real routes: the P3 e2e is pending).
+16. **Env vars worth knowing:** `TRUSTED_PROXIES`, `SETUP_TOKEN` (skipped only for `APP_ENV=local` + loopback peer + no proxy header), `SANCTUM_EXPIRATION_MINUTES` (30 days), `PORTAL_ALLOW_PRIVATE_HOSTS` (portal/NATS on a private network),
+    `NATS_TLS_CA_FILE` (the other `NATS_*` only feed the config-backed provider used in dev/tests: in production the active auth environment's NATS address in Settings > Auth switches the consumer on), `INSTALL_*` (install time only).
+17. **Frontend traps:** `Toaster` (`components/ui/sonner.tsx`) already registers `useFlashToast`: never mount it again. Widget `timezone` is validated `timezone:all_with_bc` on the settings PATCH and the wizard but `timezone:all` inside the draft config
+    (`WidgetConfigValidator`): a legacy name like `Asia/Calcutta` saved via the API makes the next draft save fail on `config.hours.timezone` (open issue; the UI sends canonical names).
+18. **Security headers:** `SecurityHeaders` (web group) sets `frame-ancestors 'self'`/`X-Frame-Options` on dashboard pages unless a response sets its own framing; `/embed/{key}`, `/c/{key}` and `/w/{key}.js` run WITHOUT the web group (no session, no cookies)
+    and send their own headers. See `docs/security.md`.
+19. **Parallel work (git worktrees):** every track/agent works in its own worktree and branch and edits only the files it owns; the merge rules are in `docs/contracts/ownership.md` "Parallel-merge rules". Highlights: tracks never commit the generated
+    `resources/js/types/generated.d.ts` / `typescript-transformer-manifest.json` (type-check with `composer types:generate`, then `git checkout --` both files; the orchestrator regenerates once after merging); new `lang/en.json` keys only under your own prefix;
+    shared files and `docs/contracts/*` change only through the orchestrator. The e2e suite owns ports 8110-8129 and the `chatfeature_e2e*` databases: start nothing else there. The external Rag volume can disconnect mid-session
+    (it then looks like a deleted cwd): check `/Volumes` first and stop instead of guessing.
 
 ## Security rules
 
@@ -109,5 +135,7 @@ OpenWA, optional mysql/redis) are in `docker/compose.dev.yml` behind profiles; *
 |---|---|
 | P0 Scaffold + tooling | done (see `docs/changelog.md`) |
 | P1 Install gate, wizard, settings, mode-1 auth, shell | done (`v0.1.0`): 236 PHPUnit, 135 Vitest, 132 Playwright |
-| P2 Mode-2 pizzasys auth · P3 Widgets/loader/builder | next (parallel) |
+| P2 Mode-2 pizzasys auth | done (`v0.2.0`), reviewed + hardened. Real NATS server never exercised; pizzasys facts from a local clone only |
+| P3 Widgets/loader/builder/categories/agents | done (`v0.3.0`), reviewed + hardened. **P3 e2e (builder, loader on a cross-origin host page) still open.** Panel is a stub until P4; `availability.online` false until P5; loader 15.65 of 16 KB |
+| Gate at `integrate/phase-2-3` | PHPUnit 1658 (7 skip groups need the harness / a NATS server), Vitest 1191 (incl. the loader tests), Playwright 251 (mode 1: 132, mode 2: 119) |
 | P4 Chat core · P5 Presence/notifications · P6 WhatsApp · P7 Analytics/hardening · P8 Deploy/QA/deck | planned |

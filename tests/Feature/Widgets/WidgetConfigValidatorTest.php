@@ -48,6 +48,17 @@ class WidgetConfigValidatorTest extends TestCase
         $this->fail('Expected the config to be rejected.');
     }
 
+    public function test_hours_accept_legacy_and_canonical_timezone_ids(): void
+    {
+        // The widget settings accept both (`timezone:all_with_bc`) and mirror the value into the draft config,
+        // so the draft validator must accept the same names or the next `PUT /draft` answers 422.
+        foreach (['Asia/Calcutta', 'Asia/Kolkata', 'Europe/Kiev', 'Europe/Kyiv'] as $zone) {
+            $config = $this->validator->validate(['hours' => ['timezone' => $zone]]);
+
+            $this->assertSame($zone, $config->hours->timezone);
+        }
+    }
+
     public function test_an_empty_object_yields_the_contract_defaults(): void
     {
         $config = $this->validator->validate([]);

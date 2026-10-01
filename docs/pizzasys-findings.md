@@ -84,3 +84,11 @@ email matching is case-sensitive on SQLite (MySQL differs); with `APP_DEBUG=true
 4. Session lifetime = our own session lifetime (+ revalidation), because upstream tokens never expire. Never call `refresh-token` or `logout` upstream on behalf of users (our logout deletes only our session; optional best-effort upstream `logout` of the **same** token is allowed since it deletes only that token).
 5. NATS is a **fast-invalidation hint**, not the source of truth. The consumer ensures stream `AUTH_EVENTS` exists (idempotent, setting `auth.nats.ensure_stream`, default on) and its own durable consumer, de-duplicates on envelope `id`, never trusts `user.updated.from`, never logs payloads, flushes cached verifies on `user.*`, `role.deleted`, `permission.deleted`, `assignment.role_permission.*`, `assignment.user_role_store.*`, `store.deleted`. Revocation lag without NATS <= verify TTL.
 6. Settings: base URL, service name, service token (encrypted), admin/agent permission names, super-role names (default `super-admin`), verify TTL, re-verify interval, verify timeout.
+
+### As implemented (P2 review; supersedes the wording above where it differs)
+
+- Our login throttle is three counters per minute (`chat.login_throttle`: 5 per email + address, 30 per address, 10 per email), not only 5 per IP + email.
+- The verify result is cached for `auth.pizzasys.verify_ttl_seconds` (default **60 s**, 15..300), `active:false` answers for 15 s, single-flight per token; verify timeout `verify_timeout_seconds` (default 3 s). There is no separate "re-verify every 5 min" job: sessions are verified lazily on the request path (websocket sessions arrive with P4).
+- Our logout and every login we discard (no chat access, refused link) log out **that one upstream token** best-effort; `refresh-token` is never called.
+- `user.deleted` deactivates only the portal **identity** and its sessions; the local user stays active (`chat:auth:reactivate` undoes it). Consumer routing is by CloudEvent `type`, and role/permission/store/hierarchy changes flush every identity (`EventRouter`).
+- Still true: nothing here was run against a production pizzasys, and the NATS part was never run against a real NATS server.

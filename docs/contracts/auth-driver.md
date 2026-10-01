@@ -1,7 +1,7 @@
 # AuthDriver
 
-> Status: contract v1 (P0). P1 implements `FortifyDriver` + the manager; P2 implements `PizzasysDriver`.
-> Detail and failure modes: [../auth-modes.md](../auth-modes.md).
+> Status: contract v1 (P0), **implemented in P1 (`FortifyDriver` + the manager) and P2 (`PizzasysDriver`), reviewed** (`v0.1.0` / `v0.2.0`; additive P2 changes are listed at the end).
+> Detail and failure modes: [../auth-modes.md](../auth-modes.md); mode-2 data model and payloads: [auth-pizzasys.md](auth-pizzasys.md).
 
 ```php
 namespace App\Auth\Contracts;
@@ -29,7 +29,7 @@ interface AuthDriver
 }
 
 enum AuthOutcome: string { case Ok = 'ok'; case Invalid = 'invalid'; case Unavailable = 'unavailable'; case NoChatAccess = 'no_chat_access'; }
-enum SessionVerdict: string { case Fresh = 'fresh'; case Revalidated = 'revalidated'; case Revoked = 'revoked'; case Degraded = 'degraded'; }
+enum SessionVerdict: string { case Fresh = 'fresh'; case Revalidated = 'revalidated'; case Revoked = 'revoked'; case Degraded = 'degraded'; case Unavailable = 'unavailable'; }   // Unavailable: additive (P2), see below
 
 final readonly class AuthCapabilities
 {
@@ -38,7 +38,7 @@ final readonly class AuthCapabilities
         public bool $canResetPassword,
         public bool $canManage2fa,
         public bool $profileEditable,
-        public ?string $portalUrl,
+        public ?string $portalUrl,   // `https://<public DNS host>` of the active portal, else null (it reaches anonymous visitors on every page)
     ) {}
 }
 ```
@@ -79,3 +79,14 @@ interface RoleResolver
   `SANCTUM_EXPIRATION_MINUTES` (default 43200 = 30 days); deactivating a user or removing their last chat role deletes their tokens (`User::booted`).
 - Staff are never gated on email verification (accounts come from an admin or the auth portal): the dashboard/settings routes use `auth` only.
 
+## Additive changes from the P2 implementation (binding)
+
+- **`SessionVerdict::Unavailable`**: mode 2 only. The portal cannot be reached and the grace window (`auth.pizzasys.grace_minutes`, default 30) is over: the session is **kept** (nobody is logged out by an outage) and `EnsureSessionIsValid` answers `503 auth_unavailable` with `Retry-After: 30`.
+  `Degraded` (inside the grace window) lets requests through. Revoked / deactivated / role-less sessions are `Revoked` (401 `session_revoked`, or a redirect to `/login`).
+- **Middleware names**: `session.valid` = `EnsureSessionIsValid` (also in the `web` group), `chat.access` = `EnsureChatAccess`, `admin` = `EnsureAdmin` (active admin only; JSON `403 forbidden`), all registered as aliases in `bootstrap/app.php`.
+  Routes that must keep working during an outage are exempt by route name: `logout`, `settings.auth.edit`, `settings.auth.environments.*`, `settings.auth.active-environment` (deliberately **not** `settings.auth.roles.update`).
+- **One live identity per (user, environment)** is enforced by the database (migration `2026_10_21_000100_*`); `ShadowUserSync` links a new portal id to an existing local user by email only when that user has no live identity in the environment, and the role flags are always derived from the identity that was just verified.
+- **Login throttles** apply to both drivers through the `login` limiter (`config/chat.php` `login_throttle`: 5 / email + address, 30 / address, 10 / email per minute).
+- **Sessions:** the pizzasys upstream token never leaves the server (`external_sessions.token_encrypted`); `attemptForApi` issues OUR Sanctum token (ability `staff`) bound to the same row (no HTTP route exposes it yet; the mobile login endpoint is planned). `chat:auth:prune-sessions` (daily) revokes abandoned sessions because upstream tokens never expire.
+- **Install:** `chat:install --mode=local|pizzasys` exists (non-interactive, `INSTALL_*` variables; `INSTALL_*` are only needed during the install and can be removed from the environment afterwards).
+- Break-glass and ops commands (`chat:auth:switch-env|set-env|test|reactivate|consume-nats|prune-events|prune-sessions`): [auth-pizzasys.md](auth-pizzasys.md) "Implemented-truth notes".

@@ -1,6 +1,6 @@
 # Realtime
 
-> Status: design, implemented in P4 (chat, channels, claim, sync) and P5 (presence); scaling numbers are TBD until the P7 load test.
+> Status: design. **Nothing in this document is implemented as of P3**: Reverb and Echo are installed and the kit's default `App.Models.User.{id}` channel exists, but there are no chat channels, events, claim or presence yet (P4: chat, channels, claim, sync; P5: presence). The widget already follows the "no websocket until a chat starts" rule because its panel is a stub. Scaling numbers are TBD until the P7 load test. Event payloads: [contracts/realtime-events.md](contracts/realtime-events.md).
 
 Laravel **Reverb** 1.12 (Pusher protocol, self-hosted) with `laravel-echo` / `pusher-js` on the clients and Redis-backed scaling. The **widget opens no websocket until the visitor starts a chat.**
 
