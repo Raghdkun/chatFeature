@@ -197,9 +197,14 @@ test('typing is shown in both directions and goes away by itself', async ({
 
     await expect(agentSees).toHaveCount(0);
 
-    // The visitor types: the agent sees the three dots, which expire a few seconds after the last key.
-    await panel.composerInput.pressSequentially('I think I was charged');
-    await expect(agentSees).toBeVisible();
+    // The visitor types: the agent sees the three dots, which expire a few seconds after the last key. The whisper repeats every 3 s
+    // while the visitor keeps typing, so a first one that left before the agent's browser had subscribed to the chat (the page is
+    // there, but the channel authorisation is still on its way: the visitor panel turns active at the claim, before the agent's page
+    // has even loaded) is made up for by the next keystrokes.
+    await expect(async () => {
+        await panel.composerInput.pressSequentially('I think I was charged');
+        await expect(agentSees).toBeVisible({ timeout: 3_500 });
+    }).toPass({ timeout: 25_000 });
     await expect(agentSees).toBeHidden({ timeout: 15_000 });
 
     // The agent types: the visitor sees it.
