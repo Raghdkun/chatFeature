@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { LIMITS } from '@/lib/limits';
 import {
     buildPreviewBoot,
     categoryLabel,
@@ -16,7 +17,6 @@ import {
     isLocaleCode,
     isSecureUrl,
     isTime,
-    LIMITS,
     normaliseDomainEntry,
     parseBounded,
     parseHexColor,
@@ -85,7 +85,7 @@ describe('defaults (docs/contracts/widget-config.md)', () => {
         expect(Object.keys(config.texts.en).sort()).toEqual(
             [...TEXT_KEYS].sort(),
         );
-        expect(TEXT_KEYS).toHaveLength(17);
+        expect(TEXT_KEYS).toHaveLength(20);
         expect(Object.keys(DEFAULT_TEXTS_EN)).toHaveLength(TEXT_KEYS.length);
     });
 

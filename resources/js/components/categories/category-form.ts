@@ -4,6 +4,8 @@
  * without rendering anything.
  */
 import type { ApiFieldErrors } from '@/lib/api-client';
+import { LIMITS, SLUG_PATTERN } from '@/lib/limits';
+import { humaniseField, withFieldLabel } from '@/lib/validation-messages';
 import { isHexColor, isLocaleCode } from '@/lib/widget-config';
 import type { CategoryData, CategoryInput } from '@/types/widgets';
 
@@ -20,9 +22,9 @@ export type CategoryFormValues = {
     names: LocaleRow[];
 };
 
-export const NAME_MAX = 120;
-export const SLUG_MAX = 80;
-export const DESCRIPTION_MAX = 500;
+export const NAME_MAX = LIMITS.categoryNameLength;
+export const SLUG_MAX = LIMITS.categorySlugLength;
+export const DESCRIPTION_MAX = LIMITS.categoryDescriptionLength;
 
 export function slugify(value: string): string {
     return value
@@ -31,7 +33,8 @@ export function slugify(value: string): string {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '')
-        .slice(0, SLUG_MAX);
+        .slice(0, SLUG_MAX)
+        .replace(/-+$/, '');
 }
 
 let rowCounter = 0;
@@ -86,8 +89,12 @@ export function validateCategoryForm(
     }
 
     if (values.slugTouched && values.slug.trim() !== '') {
-        if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(values.slug.trim())) {
+        if (!SLUG_PATTERN.test(values.slug.trim())) {
             errors.slug = t('categories.validation.slug_format');
+        } else if (values.slug.trim().length > SLUG_MAX) {
+            errors.slug = t('categories.validation.too_long', {
+                max: SLUG_MAX,
+            });
         }
     }
 
@@ -118,6 +125,10 @@ export function validateCategoryForm(
             errors[`names.${row.id}`] = t(
                 'categories.validation.name_required',
             );
+        } else if (row.name.length > NAME_MAX) {
+            errors[`names.${row.id}`] = t('categories.validation.too_long', {
+                max: NAME_MAX,
+            });
         }
 
         seen.add(row.locale.trim());
@@ -160,10 +171,15 @@ export function categoryRequestBody(
     return body;
 }
 
-/** Maps the server's `details` onto the dialog's field keys (`name_i18n.xx` -> the matching row). */
+/**
+ * Maps the server's `details` onto the dialog's field keys (`name_i18n.xx` -> the matching row).
+ * With `rowLabel` the server's text names the row ("Name in translation 2") instead of embedding
+ * the dotted attribute ("The name i18n.ar must not be greater than ...").
+ */
 export function mapCategoryErrors(
     details: ApiFieldErrors,
     values: CategoryFormValues,
+    rowLabel?: (position: number) => string,
 ): CategoryFormErrors {
     const errors: CategoryFormErrors = {};
 
@@ -172,11 +188,17 @@ export function mapCategoryErrors(
 
         if (field.startsWith('name_i18n.')) {
             const locale = field.slice('name_i18n.'.length);
-            const row = values.names.find(
+            const position = values.names.findIndex(
                 (entry) => entry.locale.trim() === locale,
             );
+            const row = values.names[position];
+            const named = withFieldLabel(
+                message,
+                field,
+                row && rowLabel ? rowLabel(position + 1) : humaniseField(field),
+            );
 
-            errors[row ? `names.${row.id}` : 'name_i18n'] = message;
+            errors[row ? `names.${row.id}` : 'name_i18n'] = named;
         } else {
             errors[field] = message;
         }

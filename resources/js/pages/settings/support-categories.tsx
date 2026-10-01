@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import { LayoutTemplate, Tags } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -33,6 +33,10 @@ function sameSet(a: string[], b: string[]): boolean {
 /** "My support categories": any agent picks which categories they take chats for. */
 export default function SupportCategories({ categories, selected }: Props) {
     const { t } = useTrans();
+    const { auth } = usePage().props;
+    // Only people who take chats serve categories; saving is refused (403) for everyone else.
+    const isAgent = auth?.user?.is_agent === true;
+    const isAdmin = auth?.user?.is_admin === true;
     const plural = usePlural();
     const uid = useId();
     // Only active categories can be served; anything else in `selected` is stale.
@@ -80,7 +84,25 @@ export default function SupportCategories({ categories, selected }: Props) {
                     description={t('categories.support.description')}
                 />
 
-                {active.length === 0 ? (
+                {!isAgent ? (
+                    <Notice data-testid="support-categories-not-agent">
+                        <p className="font-medium">
+                            {t('categories.support.not_agent_title')}
+                        </p>
+                        <p className="mt-0.5 text-muted-foreground">
+                            {t('categories.support.not_agent_body')}
+                        </p>
+                        {isAdmin && (
+                            <Link
+                                href={widgetsRoutes.pages.agents()}
+                                data-testid="support-categories-agents-link"
+                                className="mt-1.5 inline-block font-medium underline underline-offset-4"
+                            >
+                                {t('categories.support.not_agent_action')}
+                            </Link>
+                        )}
+                    </Notice>
+                ) : active.length === 0 ? (
                     <Empty
                         data-testid="support-categories-empty"
                         className="border bg-card"

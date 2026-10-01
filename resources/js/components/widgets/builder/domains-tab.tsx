@@ -51,6 +51,7 @@ export function DomainsTab({ state, dispatch }: TabProps) {
     return (
         <div className="grid gap-5" data-testid="builder-panel-domains">
             <SectionCard
+                live
                 title={t('builder.domains.title')}
                 description={t('builder.domains.description')}
             >

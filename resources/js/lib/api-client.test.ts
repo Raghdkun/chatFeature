@@ -328,6 +328,42 @@ describe('errors', () => {
     });
 });
 
+describe('describeApiError on a validation failure', () => {
+    const t = (key: string) => key;
+    const invalid = (details: Record<string, string[]>) =>
+        new ApiError({
+            status: 422,
+            code: 'validation_failed',
+            message: 'The given data was invalid.',
+            details,
+        });
+
+    it('shows the first server message without the dotted attribute it embeds', () => {
+        expect(
+            describeApiError(
+                invalid({
+                    'config.hours.holidays.1.date': [
+                        'The config.hours.holidays.1.date field has a duplicate value.',
+                    ],
+                }),
+                t,
+            ),
+        ).toBe('The hours holidays #2 date field has a duplicate value.');
+    });
+
+    it('keeps messages of plain fields and custom texts as they are', () => {
+        expect(
+            describeApiError(
+                invalid({ email: ['The email has already been taken.'] }),
+                t,
+            ),
+        ).toBe('The email has already been taken.');
+        expect(describeApiError(invalid({}), t)).toBe(
+            'The given data was invalid.',
+        );
+    });
+});
+
 describe('describeApiError', () => {
     const t = (key: string, replacements?: Record<string, string | number>) =>
         replacements ? `${key}:${JSON.stringify(replacements)}` : key;

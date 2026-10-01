@@ -15,8 +15,11 @@ import {
     hasUnpublished,
     isDirty,
     mapApiErrors,
+    nextRangeFor,
+    normaliseDraft,
     sectionAction,
     settingAction,
+    settingError,
     settingsPatch,
     tabForErrorPath,
     tabsWithErrors,
@@ -29,6 +32,8 @@ import { makeBuilderData, makeGreeting, makeWidget } from '@/tests/fixtures';
 
 const t = (key: string, replacements?: Record<string, string | number>) =>
     replacements ? `${key} ${JSON.stringify(replacements)}` : key;
+
+const own = 'https://chat.example.test';
 
 const init = (overrides = {}) => createBuilderState(makeBuilderData(overrides));
 
@@ -81,21 +86,35 @@ describe('createBuilderState', () => {
 
 describe('settings slice', () => {
     it('only marks the settings slice dirty for plain fields', () => {
-        const state = run(
+        const state = run(init(), settingAction('name', 'Docs site'));
+
+        expect(state.doc.settings).toMatchObject({ name: 'Docs site' });
+        expect(dirtySlices(state)).toEqual(['settings']);
+        expect(settingsPatch(state)).toEqual({ name: 'Docs site' });
+    });
+
+    it('never puts is_enabled into the settings PATCH: going live is its own confirmed action', () => {
+        const edited = run(
             init(),
             settingAction('name', 'Docs site'),
             settingAction('is_enabled', false),
         );
 
-        expect(state.doc.settings).toMatchObject({
-            name: 'Docs site',
-            is_enabled: false,
-        });
-        expect(dirtySlices(state)).toEqual(['settings']);
-        expect(settingsPatch(state)).toEqual({
-            name: 'Docs site',
-            is_enabled: false,
-        });
+        expect(settingsPatch(edited)).toEqual({ name: 'Docs site' });
+    });
+
+    it('the enabled action updates doc and baseline together, leaving other edits dirty', () => {
+        const edited = run(init(), settingAction('name', 'Docs site'));
+        const offline = run(edited, { type: 'enabled', value: false });
+
+        expect(offline.doc.settings.is_enabled).toBe(false);
+        expect(offline.saved.settings.is_enabled).toBe(false);
+        // The name edit is still pending; the switch itself is not a pending change.
+        expect(dirtySlices(offline)).toEqual(['settings']);
+        expect(settingsPatch(offline)).toEqual({ name: 'Docs site' });
+        expect(isDirty(run(init(), { type: 'enabled', value: false }))).toBe(
+            false,
+        );
     });
 
     it('mirrors the columns the config duplicates', () => {
@@ -326,6 +345,62 @@ describe('hours', () => {
                 .hours.holidays,
         ).toEqual([]);
     });
+
+    it('"Add hours" on a day that already has hours proposes a range after the last one, never a copy', () => {
+        // The default schedule has 09:00-17:00 on Monday (day 1).
+        const state = run(init(), { type: 'hours/add-range', day: 1 });
+        const added = state.doc.config.hours.schedule.at(-1);
+
+        expect(added).toEqual({ day: 1, start: '18:00', end: '22:00' });
+        expect(validateBuilderDoc(state.doc, t, own)).not.toHaveProperty([
+            'config.hours.schedule.5.start',
+        ]);
+    });
+
+    it('keeps adding without overlap until the day is full, then does nothing', () => {
+        let state = run(init(), { type: 'hours/set-schedule', schedule: [] });
+
+        for (let i = 0; i < 6; i++) {
+            state = run(state, { type: 'hours/add-range', day: 2 });
+        }
+
+        const ranges = state.doc.config.hours.schedule;
+
+        expect(ranges.length).toBeGreaterThanOrEqual(2);
+        expect(validateBuilderDoc(state.doc, t, own)).toEqual({});
+
+        const full = run(state, { type: 'hours/add-range', day: 2 });
+
+        // Either it still found room or it left the schedule alone; it never produces an overlap.
+        expect(validateBuilderDoc(full.doc, t, own)).toEqual({});
+    });
+
+    it('nextRangeFor: first range is office hours, a full day has no room', () => {
+        expect(nextRangeFor([], 3)).toEqual({
+            day: 3,
+            start: '09:00',
+            end: '17:00',
+        });
+        expect(
+            nextRangeFor([{ day: 3, start: '00:00', end: '24:00' }], 3),
+        ).toBeNull();
+        expect(
+            nextRangeFor([{ day: 3, start: '09:00', end: '23:30' }], 3),
+        ).toBeNull();
+        // Other days do not matter.
+        expect(
+            nextRangeFor([{ day: 4, start: '09:00', end: '17:00' }], 3),
+        ).toEqual({ day: 3, start: '09:00', end: '17:00' });
+    });
+
+    it('does not add a range when the day has no room left', () => {
+        const state = run(init(), {
+            type: 'hours/set-schedule',
+            schedule: [{ day: 1, start: '00:00', end: '24:00' }],
+        });
+
+        expect(run(state, { type: 'hours/add-range', day: 1 })).toBe(state);
+    });
 });
 
 describe('greetings pool', () => {
@@ -537,6 +612,72 @@ describe('dirty tracking and saving', () => {
         expect(hasUnpublished(saved)).toBe(false);
     });
 
+    it('a saved settings change is mirrored into the published config too (the server overlays both), so Publish has nothing to do', () => {
+        const edited = run(
+            init(),
+            settingAction('timezone', 'Europe/Berlin'),
+            settingAction('offline_mode', 'always_online'),
+            settingAction('locale', 'de'),
+            settingAction('queue_timeout_seconds', 45),
+            settingAction('idle_timeout_minutes', 30),
+        );
+        const saved = run(edited, {
+            type: 'saved',
+            slice: 'settings',
+            snapshot: edited.doc.settings,
+        });
+
+        expect(saved.published.hours).toMatchObject({
+            timezone: 'Europe/Berlin',
+            mode: 'always_online',
+        });
+        expect(saved.published.defaultLocale).toBe('de');
+        expect(saved.published.routing.queueTimeoutSeconds).toBe(45);
+        expect(saved.published.session.idleTimeoutMinutes).toBe(30);
+        // The draft baseline got the same values, so the config slice has nothing left to send.
+        expect(saved.saved.config.hours.timezone).toBe('Europe/Berlin');
+        expect(dirtySlices(saved)).toEqual([]);
+        expect(hasUnpublished(saved)).toBe(false);
+    });
+
+    it('only mirrors the settings that actually changed, leaving unpublished draft edits alone', () => {
+        const draft = defaultWidgetConfig();
+
+        draft.theme.primary = '#123456';
+
+        const clean = init({
+            draft_config: draft,
+            widget: makeWidget({ has_unpublished_changes: true }),
+        });
+        const edited = run(clean, settingAction('timezone', 'Asia/Dubai'));
+        const saved = run(edited, {
+            type: 'saved',
+            slice: 'settings',
+            snapshot: edited.doc.settings,
+        });
+
+        expect(saved.published.hours.timezone).toBe('Asia/Dubai');
+        expect(saved.published.theme.primary).toBe('#0f766e');
+        expect(saved.saved.config.theme.primary).toBe('#123456');
+        // The design draft is still unpublished.
+        expect(hasUnpublished(saved)).toBe(true);
+    });
+
+    it('a settings edit without a config twin leaves both copies alone', () => {
+        const edited = run(
+            init(),
+            settingAction('allow_non_browser_clients', true),
+        );
+        const saved = run(edited, {
+            type: 'saved',
+            slice: 'settings',
+            snapshot: edited.doc.settings,
+        });
+
+        expect(saved.published).toEqual(init().published);
+        expect(saved.saved.config).toEqual(init().saved.config);
+    });
+
     it('patches meta (secret status, ...)', () => {
         expect(
             run(init(), { type: 'meta', patch: { hasIdentitySecret: true } })
@@ -684,8 +825,6 @@ describe('field errors', () => {
 });
 
 describe('validateBuilderDoc', () => {
-    const own = 'https://chat.example.test';
-
     it('accepts the untouched defaults', () => {
         expect(validateBuilderDoc(init().doc, t, own)).toEqual({});
     });
@@ -785,17 +924,106 @@ describe('validateBuilderDoc', () => {
         );
         const errors = validateBuilderDoc(state.doc, t, own);
 
-        expect(errors).not.toHaveProperty(['config.hours.schedule.0']);
-        expect(errors['config.hours.schedule.1']).toEqual([
+        // Same paths as the server (`config.hours.schedule.N.start|end`, `...holidays.N.date`).
+        expect(errors).not.toHaveProperty(['config.hours.schedule.0.start']);
+        expect(errors).not.toHaveProperty(['config.hours.schedule.0.end']);
+        expect(errors['config.hours.schedule.1.end']).toEqual([
             'builder.validation.time_order',
         ]);
-        expect(errors['config.hours.schedule.2']).toEqual([
+        expect(errors['config.hours.schedule.2.start']).toEqual([
             'builder.validation.time',
         ]);
-        expect(errors['config.hours.holidays.0']).toEqual([
+        expect(errors['config.hours.holidays.0.date']).toEqual([
             'builder.validation.date',
         ]);
-        expect(errors).not.toHaveProperty(['config.hours.holidays.1']);
+        expect(errors).not.toHaveProperty(['config.hours.holidays.1.date']);
+    });
+
+    it('flags overlapping ranges on the same day (server: "Ranges on the same day must not overlap")', () => {
+        const state = run(init(), {
+            type: 'hours/set-schedule',
+            schedule: [
+                { day: 1, start: '09:00', end: '17:00' },
+                { day: 1, start: '09:00', end: '17:00' },
+                { day: 1, start: '16:00', end: '18:00' },
+                // Touching is fine, other days are independent.
+                { day: 1, start: '18:00', end: '20:00' },
+                { day: 2, start: '09:00', end: '17:00' },
+            ],
+        });
+        const errors = validateBuilderDoc(state.doc, t, own);
+
+        expect(errors['config.hours.schedule.1.start']).toEqual([
+            'builder.validation.time_overlap',
+        ]);
+        expect(errors['config.hours.schedule.2.start']).toEqual([
+            'builder.validation.time_overlap',
+        ]);
+        expect(errors).not.toHaveProperty(['config.hours.schedule.0.start']);
+        expect(errors).not.toHaveProperty(['config.hours.schedule.3.start']);
+        expect(errors).not.toHaveProperty(['config.hours.schedule.4.start']);
+        expect(tabForErrorPath('config.hours.schedule.1.start')).toBe('hours');
+    });
+
+    it('accepts a closing time of 24:00 (the server allows it) but not an opening time of 24:00', () => {
+        const ok = run(init(), {
+            type: 'hours/set-schedule',
+            schedule: [{ day: 1, start: '09:00', end: '24:00' }],
+        });
+        const bad = run(init(), {
+            type: 'hours/set-schedule',
+            schedule: [{ day: 1, start: '24:00', end: '24:00' }],
+        });
+
+        expect(validateBuilderDoc(ok.doc, t, own)).toEqual({});
+        expect(validateBuilderDoc(bad.doc, t, own)).toHaveProperty([
+            'config.hours.schedule.0.start',
+        ]);
+    });
+
+    it('flags a holiday date that is listed twice, on the later entry', () => {
+        const state = run(
+            init(),
+            { type: 'hours/add-holiday' },
+            { type: 'hours/add-holiday' },
+            { type: 'hours/add-holiday' },
+            ...[0, 1, 2].map((index): BuilderAction => ({
+                type: 'hours/update-holiday',
+                index,
+                patch: { date: index === 2 ? '2026-12-26' : '2026-12-25' },
+            })),
+        );
+        const errors = validateBuilderDoc(state.doc, t, own);
+
+        expect(errors['config.hours.holidays.1.date']).toEqual([
+            'builder.validation.date_duplicate',
+        ]);
+        expect(errors).not.toHaveProperty(['config.hours.holidays.0.date']);
+        expect(errors).not.toHaveProperty(['config.hours.holidays.2.date']);
+    });
+
+    it('survives a holiday whose label is null (the server stores a blank name as null)', () => {
+        const draft = defaultWidgetConfig();
+
+        draft.hours.holidays = [
+            { date: '2026-12-25', label: null },
+            { date: '2026-12-26', label: 'x'.repeat(81) },
+        ];
+
+        // A state that skipped hydration (a stale action payload, a future caller) must not throw either.
+        const doc = {
+            ...init().doc,
+            config: draft,
+        };
+        let errors: ReturnType<typeof validateBuilderDoc> = {};
+
+        expect(() => {
+            errors = validateBuilderDoc(doc, t, own);
+        }).not.toThrow();
+        expect(errors).not.toHaveProperty(['config.hours.holidays.0.label']);
+        expect(errors['config.hours.holidays.1.label'][0]).toContain(
+            'builder.validation.too_long',
+        );
     });
 
     it('validates greetings (body, weight, avatar, locale) and domains by index', () => {
@@ -932,5 +1160,293 @@ describe('deepEqual', () => {
         expect(deepEqual([], {})).toBe(false);
         expect(deepEqual(null, {})).toBe(false);
         expect(deepEqual(NaN, NaN)).toBe(true);
+    });
+});
+
+describe('hydration', () => {
+    it('turns a null holiday label (stored blank) into an empty string for both the draft and the published config', () => {
+        const wire = defaultWidgetConfig();
+
+        wire.hours.holidays = [
+            { date: '2026-12-25', label: null },
+            { date: '2026-12-26', label: 'Boxing day' },
+        ];
+
+        const state = init({ draft_config: wire, config: wire });
+
+        expect(state.doc.config.hours.holidays).toEqual([
+            { date: '2026-12-25', label: '' },
+            { date: '2026-12-26', label: 'Boxing day' },
+        ]);
+        expect(state.published.hours.holidays[0].label).toBe('');
+        // Nothing to save or publish just because of the normalisation.
+        expect(isDirty(state)).toBe(false);
+        expect(hasUnpublished(state)).toBe(false);
+        expect(validateBuilderDoc(state.doc, t, own)).toEqual({});
+    });
+
+    it('drops malformed holiday entries instead of crashing later', () => {
+        const wire = defaultWidgetConfig();
+
+        wire.hours.holidays = [null, 'x', { date: 5 }] as never;
+
+        expect(init({ draft_config: wire }).doc.config.hours.holidays).toEqual([
+            { date: '', label: '' },
+        ]);
+    });
+});
+
+describe('server error placement', () => {
+    it('keeps nested server paths of the hours tab on the hours tab', () => {
+        const errors = mapApiErrors('config', {
+            'config.hours.schedule.2.start': ['overlap'],
+            'config.hours.holidays.1.date': ['duplicate'],
+        });
+
+        expect(errors).toEqual({
+            'config.hours.schedule.2.start': ['overlap'],
+            'config.hours.holidays.1.date': ['duplicate'],
+        });
+        expect([...tabsWithErrors(errors)]).toEqual(['hours']);
+        expect(errorsUnder(errors, 'config.hours.schedule.2')).toEqual([
+            'overlap',
+        ]);
+        expect(errorsUnder(errors, 'config.hours.holidays.1')).toEqual([
+            'duplicate',
+        ]);
+        // Another item does not pick it up.
+        expect(errorsUnder(errors, 'config.hours.schedule.1')).toEqual([]);
+    });
+
+    it('replaces the dotted attribute the server embeds in its message by the field label, keeping the rule text', () => {
+        const label = (path: string) =>
+            path === 'config.hours.holidays.1.date'
+                ? 'Holiday 2 date'
+                : undefined;
+        const errors = mapApiErrors(
+            'config',
+            {
+                'config.hours.holidays.1.date': [
+                    'The config.hours.holidays.1.date field has a duplicate value.',
+                ],
+                'config.theme.primaryText': [
+                    'The config.theme.primary text field format is invalid.',
+                ],
+            },
+            label,
+        );
+
+        expect(errors['config.hours.holidays.1.date']).toEqual([
+            'The Holiday 2 date field has a duplicate value.',
+        ]);
+        // No label known: a readable name instead of the dotted key.
+        expect(errors['config.theme.primaryText']).toEqual([
+            'The theme primary text field format is invalid.',
+        ]);
+    });
+
+    it('does the same for the other slices and leaves custom texts alone', () => {
+        expect(
+            mapApiErrors(
+                'categories',
+                {
+                    'category_ulids.0': [
+                        'The selected category ulids.0 is invalid.',
+                    ],
+                },
+                (path) => (path === 'categories.0' ? 'Category 1' : undefined),
+            ),
+        ).toEqual({
+            'categories.0': ['The selected Category 1 is invalid.'],
+        });
+        expect(
+            mapApiErrors('domains', {
+                'domains.0': ['"x" is not a valid domain.'],
+            }),
+        ).toEqual({ 'domains.0': ['"x" is not a valid domain.'] });
+        expect(
+            mapApiErrors(
+                'settings',
+                {
+                    idle_timeout_minutes: [
+                        'The idle timeout minutes field must be between 5 and 10080.',
+                    ],
+                },
+                () => 'Idle timeout',
+            ),
+        ).toEqual({
+            'settings.idle_timeout_minutes': [
+                'The Idle timeout field must be between 5 and 10080.',
+            ],
+        });
+    });
+
+    it('maps category_ulids.N onto the categories tab and finds it under the list prefix', () => {
+        const errors = mapApiErrors('categories', {
+            'category_ulids.0': ['The selected category is invalid.'],
+            category_ulids: ['Too many.'],
+        });
+
+        expect(errorsUnder(errors, 'categories').sort()).toEqual([
+            'The selected category is invalid.',
+            'Too many.',
+        ]);
+        expect([...tabsWithErrors(errors)]).toEqual(['categories']);
+    });
+
+    it('reports a problem of a mirrored setting under the setting, and clears it when the setting is edited', () => {
+        const withError = {
+            ...init(),
+            errors: mapApiErrors('config', {
+                'config.hours.timezone': ['Not a time zone.'],
+            }),
+        };
+
+        expect(settingError(withError.errors, 'timezone')).toBe(
+            'Not a time zone.',
+        );
+        expect(settingError(withError.errors, 'locale')).toBeUndefined();
+        expect(
+            run(withError, settingAction('timezone', 'Europe/Paris')).errors,
+        ).toEqual({});
+    });
+
+    it('lists each message once', () => {
+        expect(
+            errorsUnder(
+                {
+                    'domains.0': ['Same.'],
+                    'domains.1': ['Same.', 'Other.'],
+                },
+                'domains',
+            ),
+        ).toEqual(['Same.', 'Other.']);
+    });
+});
+
+describe('draft normalisation', () => {
+    it('puts a cleared launcher label back at its default, like the server does', () => {
+        const config = defaultWidgetConfig();
+
+        config.launcher.label = '  ';
+
+        expect(normaliseDraft(config).launcher.label).toBe('Chat with us');
+        expect(draftPayload(config).config.launcher.label).toBe('Chat with us');
+        // The caller's object is untouched.
+        expect(config.launcher.label).toBe('  ');
+    });
+
+    it('keeps a real label', () => {
+        const config = defaultWidgetConfig();
+
+        config.launcher.label = 'Ask us';
+
+        expect(normaliseDraft(config).launcher.label).toBe('Ask us');
+    });
+
+    it('adopts the normalised draft as the baseline and shows it in the editor', () => {
+        const edited = run(
+            init(),
+            sectionAction('launcher', { style: 'bubble', label: '' }),
+        );
+        const normalised = normaliseDraft(edited.doc.config);
+        const saved = run(edited, {
+            type: 'saved',
+            slice: 'config',
+            snapshot: edited.doc.config,
+            normalised,
+        });
+
+        expect(saved.doc.config.launcher.label).toBe('Chat with us');
+        expect(isDirty(saved)).toBe(false);
+    });
+});
+
+describe('client limits match the server', () => {
+    const many = (n: number) => Array.from({ length: n }, (_, i) => i);
+
+    it('rejects more schedule ranges, holidays, greetings and domains than the server accepts', () => {
+        const state = run(
+            init(),
+            {
+                type: 'hours/set-schedule',
+                schedule: many(43).map((i) => ({
+                    day: i % 7,
+                    start: `0${i % 9}:00`,
+                    end: `0${i % 9}:30`,
+                })),
+            },
+            ...many(101).map((i): BuilderAction => ({
+                type: 'greetings/add',
+                clientId: `n${i}`,
+            })),
+            ...many(51).map((i): BuilderAction => ({
+                type: 'domains/add',
+                value: `d${i}.example.com`,
+            })),
+        );
+        const errors = validateBuilderDoc(state.doc, t, own);
+
+        expect(errors['config.hours.schedule'][0]).toContain(
+            'builder.validation.too_many',
+        );
+        expect(errors['greetings'][0]).toContain('builder.validation.too_many');
+        expect(errors['domains'][0]).toContain('builder.validation.too_many');
+    });
+
+    it('applies the server panel size ranges (280-600 x 360-900) and the font family pattern', () => {
+        const ok = run(
+            init(),
+            sectionAction('theme', {
+                panelWidth: 280,
+                panelHeight: 900,
+                fontFamily: "Inter, 'Noto Sans', system-ui",
+            }),
+        );
+
+        expect(validateBuilderDoc(ok.doc, t, own)).toEqual({});
+
+        const bad = run(
+            init(),
+            sectionAction('theme', {
+                panelWidth: 601,
+                panelHeight: 901,
+                fontFamily: 'Inter; background:url(x)',
+            }),
+        );
+        const errors = validateBuilderDoc(bad.doc, t, own);
+
+        expect(errors['config.theme.panelWidth'][0]).toBe(
+            'builder.validation.range {"min":280,"max":600}',
+        );
+        expect(errors['config.theme.panelHeight'][0]).toBe(
+            'builder.validation.range {"min":360,"max":900}',
+        );
+        expect(errors['config.theme.fontFamily']).toEqual([
+            'builder.validation.font_family',
+        ]);
+        expect(
+            validateBuilderDoc(
+                run(init(), sectionAction('theme', { panelHeight: 359 })).doc,
+                t,
+                own,
+            ),
+        ).toHaveProperty(['config.theme.panelHeight']);
+    });
+
+    it('limits the launcher label (40) and greeting agent name (120)', () => {
+        const state = run(
+            init(),
+            sectionAction('launcher', { label: 'x'.repeat(41) }),
+            {
+                type: 'greetings/update',
+                clientId: 'g1',
+                patch: { agent_name: 'y'.repeat(121) },
+            },
+        );
+        const errors = validateBuilderDoc(state.doc, t, own);
+
+        expect(errors['config.launcher.label'][0]).toContain('"max":40');
+        expect(errors['greetings.0.agent_name'][0]).toContain('"max":120');
     });
 });

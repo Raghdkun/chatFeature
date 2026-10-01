@@ -1,12 +1,21 @@
 import { useId } from 'react';
 import { describedBy, Field } from '@/components/setup/field';
-import { firstError, sectionAction } from '@/components/widgets/builder-state';
+import {
+    errorsUnder,
+    firstError,
+    sectionAction,
+} from '@/components/widgets/builder-state';
 import type { TabProps } from '@/components/widgets/builder/tab-props';
-import { Notice, SectionCard, SwitchRow } from '@/components/widgets/form-bits';
+import {
+    ErrorLines,
+    Notice,
+    SectionCard,
+    SwitchRow,
+} from '@/components/widgets/form-bits';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useTrans } from '@/hooks/use-trans';
-import { LIMITS } from '@/lib/widget-config';
+import { LIMITS } from '@/lib/limits';
 import type { FeaturesConfig, PreChatFieldKey } from '@/types/widgets';
 
 const FEATURE_KEYS: (keyof FeaturesConfig)[] = [
@@ -55,6 +64,10 @@ export function FeaturesTab({ state, dispatch }: TabProps) {
                         />
                     ))}
                 </div>
+                <ErrorLines
+                    messages={errorsUnder(state.errors, 'config.features')}
+                    data-testid="builder-features-errors"
+                />
                 {features.whatsapp && !state.meta.whatsappConnected && (
                     <Notice
                         tone="warning"
@@ -159,6 +172,14 @@ export function FeaturesTab({ state, dispatch }: TabProps) {
                         })}
                     </ul>
                 </div>
+
+                <ErrorLines
+                    messages={errorsUnder(
+                        state.errors,
+                        'config.preChat.fields',
+                    )}
+                    data-testid="builder-prechat-errors"
+                />
 
                 <Field
                     id={`${uid}-consent`}

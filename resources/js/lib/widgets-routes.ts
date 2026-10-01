@@ -1,10 +1,7 @@
 /**
- * Every URL the catalog / widgets / agents screens use, as typed plain strings per
- * docs/contracts/dashboard-pages-p3.md.
- *
- * Wayfinder cannot generate the controllers until the backend (track 3A) is merged. Afterwards
- * swap the bodies below for the generated functions (`import { index } from '@/actions/...'`
- * -> `index.url()`); no caller changes because they only ever see this module.
+ * The URLs the catalog / widgets / agents screens call, as plain strings (the paths of
+ * docs/contracts/dashboard-pages-p3.md), in one place so no screen spells a path itself. Only what
+ * a screen actually uses is listed here.
  */
 
 const API = '/api/v1';
@@ -45,22 +42,15 @@ export const widgetsRoutes = {
                 `${API}/widgets/${enc(ulid)}/categories`,
             rotateSecret: (ulid: string) =>
                 `${API}/widgets/${enc(ulid)}/rotate-secret`,
-            snippet: (ulid: string) => `${API}/widgets/${enc(ulid)}/snippet`,
         },
     },
 
-    /** Public, unauthenticated endpoints the builder preview and the embed snippets point at. */
+    /** Public, unauthenticated endpoint the builder preview loads the real widget from. */
     public: {
         /** Generic loader: reads `data-widget-key` (or a pre-registered boot config). */
         loader: () => '/widget/v1/loader.js',
-        script: (key: string) => `/w/${enc(key)}.js`,
-        embed: (key: string) => `/embed/${enc(key)}`,
-        hosted: (key: string) => `/c/${enc(key)}`,
-        publicApiBase: () => `${API}/public`,
     },
 
     /** Sanctum's CSRF cookie endpoint (used to recover from a 419). */
     csrfCookie: () => '/sanctum/csrf-cookie',
 } as const;
-
-export type WidgetsRoutes = typeof widgetsRoutes;

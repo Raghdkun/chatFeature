@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import type { ClipboardEvent, KeyboardEvent } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { useTrans } from '@/hooks/use-trans';
+import { LIMITS } from '@/lib/limits';
 import { addTags, removeTag } from '@/lib/pizzasys-form';
 import { cn } from '@/lib/utils';
 
@@ -113,6 +114,7 @@ export function TagInput({
                 onPaste={onPaste}
                 onBlur={() => commit(draft)}
                 disabled={disabled}
+                maxLength={LIMITS.superRoleLength}
                 autoComplete="off"
                 autoCapitalize="none"
                 spellCheck={false}

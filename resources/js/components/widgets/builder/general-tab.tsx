@@ -1,6 +1,10 @@
 import { CircleSlash, Clock, Radio } from 'lucide-react';
 import { useId } from 'react';
-import { firstError, settingAction } from '@/components/widgets/builder-state';
+import {
+    settingAction,
+    settingError,
+} from '@/components/widgets/builder-state';
+import { EnabledControl } from '@/components/widgets/builder/enabled-control';
 import {
     LocaleSelect,
     TimeZoneSelect,
@@ -15,7 +19,8 @@ import {
     TextField,
 } from '@/components/widgets/form-bits';
 import { useTrans } from '@/hooks/use-trans';
-import { IDLE_TIMEOUT_DEFAULT, LIMITS } from '@/lib/widget-config';
+import { LIMITS } from '@/lib/limits';
+import { IDLE_TIMEOUT_DEFAULT } from '@/lib/widget-config';
 import type { OfflineMode } from '@/types/widgets';
 
 /** Shared by General and Hours: both edit the same `offline_mode` column. */
@@ -50,21 +55,32 @@ export function OfflineModeChoice({
                 },
             ]}
             hint={t(`builder.mode.${state.doc.settings.offline_mode}_hint`)}
-            error={firstError(state.errors, 'settings.offline_mode')}
+            error={settingError(state.errors, 'offline_mode')}
             testId="builder-offline-mode"
         />
     );
 }
 
-export function GeneralTab({ state, dispatch }: TabProps) {
+export function GeneralTab({
+    state,
+    dispatch,
+    busy,
+    onSetEnabled,
+}: TabProps & {
+    /** A save / publish / switch is running: the live switch waits. */
+    busy: boolean;
+    onSetEnabled: (next: boolean) => Promise<string | null>;
+}) {
     const { t } = useTrans();
     const uid = useId();
     const { settings, config } = state.doc;
-    const err = (path: string) => firstError(state.errors, path);
+    const err = (key: Parameters<typeof settingError>[1]) =>
+        settingError(state.errors, key);
 
     return (
         <div className="grid gap-5" data-testid="builder-panel-general">
             <SectionCard
+                live
                 title={t('builder.general.identity_title')}
                 description={t('builder.general.identity_description')}
             >
@@ -76,7 +92,7 @@ export function GeneralTab({ state, dispatch }: TabProps) {
                         dispatch(settingAction('name', value))
                     }
                     maxLength={LIMITS.nameLength}
-                    error={err('settings.name')}
+                    error={err('name')}
                     autoComplete="off"
                 />
 
@@ -102,19 +118,15 @@ export function GeneralTab({ state, dispatch }: TabProps) {
                     </p>
                 </div>
 
-                <SwitchRow
-                    id={`${uid}-enabled`}
-                    label={t('builder.general.enabled')}
-                    description={t('builder.general.enabled_hint')}
-                    checked={settings.is_enabled}
-                    onCheckedChange={(value) =>
-                        dispatch(settingAction('is_enabled', value))
-                    }
-                    testId="builder-enabled"
+                <EnabledControl
+                    enabled={settings.is_enabled}
+                    disabled={busy}
+                    onChange={onSetEnabled}
                 />
             </SectionCard>
 
             <SectionCard
+                live
                 title={t('builder.general.language_title')}
                 description={t('builder.general.language_description')}
             >
@@ -127,10 +139,7 @@ export function GeneralTab({ state, dispatch }: TabProps) {
                         onValueChange={(value) =>
                             dispatch(settingAction('locale', value))
                         }
-                        error={
-                            err('settings.locale') ??
-                            err('config.defaultLocale')
-                        }
+                        error={err('locale')}
                     />
                     <TimeZoneSelect
                         id={`${uid}-timezone`}
@@ -140,25 +149,13 @@ export function GeneralTab({ state, dispatch }: TabProps) {
                         onValueChange={(value) =>
                             dispatch(settingAction('timezone', value))
                         }
-                        error={err('settings.timezone')}
+                        error={err('timezone')}
                     />
                 </div>
-                <SwitchRow
-                    id={`${uid}-detect`}
-                    label={t('builder.general.locale_detect')}
-                    description={t('builder.general.locale_detect_hint')}
-                    checked={config.localeDetect}
-                    onCheckedChange={(value) =>
-                        dispatch({
-                            type: 'config/root',
-                            patch: { localeDetect: value },
-                        })
-                    }
-                    testId="builder-locale-detect"
-                />
             </SectionCard>
 
             <SectionCard
+                live
                 title={t('builder.general.timing_title')}
                 description={t('builder.general.timing_description')}
             >
@@ -179,7 +176,7 @@ export function GeneralTab({ state, dispatch }: TabProps) {
                             minutes: settings.idle_timeout_minutes,
                             default: IDLE_TIMEOUT_DEFAULT,
                         })}
-                        error={err('settings.idle_timeout_minutes')}
+                        error={err('idle_timeout_minutes')}
                     />
                     <NumberField
                         id={`${uid}-queue`}
@@ -194,12 +191,13 @@ export function GeneralTab({ state, dispatch }: TabProps) {
                         max={LIMITS.queueTimeoutSeconds.max}
                         suffix={t('builder.unit.seconds')}
                         hint={t('builder.general.queue_hint')}
-                        error={err('settings.queue_timeout_seconds')}
+                        error={err('queue_timeout_seconds')}
                     />
                 </div>
             </SectionCard>
 
             <SectionCard
+                live
                 title={t('builder.general.availability_title')}
                 description={t('builder.general.availability_description')}
             >

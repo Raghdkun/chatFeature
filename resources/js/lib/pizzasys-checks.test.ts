@@ -3,6 +3,7 @@ import {
     checkTone,
     hintKeyFor,
     orderedChecks,
+    problemCheckKey,
     testSummary,
 } from '@/lib/pizzasys-checks';
 import type { PortalCheck, PortalTestResult } from '@/types/pizzasys';
@@ -111,5 +112,22 @@ describe('hints', () => {
                 ok: false,
             } as unknown as PortalCheck),
         ).toBeNull();
+    });
+});
+
+describe('problemCheckKey', () => {
+    it('finds the check an error key names, however it is nested', () => {
+        expect(problemCheckKey('reachable')).toBe('reachable');
+        expect(problemCheckKey('checks.service_credential')).toBe(
+            'service_credential',
+        );
+        expect(problemCheckKey('environments.production.nats')).toBe('nats');
+        expect(problemCheckKey('connection.latency')).toBe('latency');
+    });
+
+    it('is null for anything else', () => {
+        expect(problemCheckKey('connection')).toBeNull();
+        expect(problemCheckKey('service_token')).toBeNull();
+        expect(problemCheckKey('')).toBeNull();
     });
 });

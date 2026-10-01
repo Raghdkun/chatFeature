@@ -419,8 +419,8 @@ describe('edit, toggle and reorder', () => {
         });
     });
 
-    it('puts the order back when saving the move fails', async () => {
-        fakeApi({
+    it('puts the order back when saving the move fails (and asks the server what is really stored)', async () => {
+        const api = fakeApi({
             'PATCH /api/v1/categories/cat1': {
                 status: 500,
                 json: { error: { code: 'server_error', message: 'x' } },
@@ -428,6 +428,9 @@ describe('edit, toggle and reorder', () => {
             'PATCH /api/v1/categories/cat2': {
                 status: 500,
                 json: { error: { code: 'server_error', message: 'x' } },
+            },
+            'GET /api/v1/categories': {
+                json: { data: CATEGORIES, meta: { next_cursor: null } },
             },
         });
         const view = await render(<CategoriesIndex categories={CATEGORIES} />);
@@ -437,6 +440,89 @@ describe('edit, toggle and reorder', () => {
 
         expect(rowIds(view)).toEqual(['cat1', 'cat2', 'cat3']);
         expect(toast.error).toHaveBeenCalled();
+        expect(api.to('GET', '/api/v1/categories')).toHaveLength(1);
+    });
+
+    it('sends the renumbering one request at a time, not all at once', async () => {
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const api = fakeApi({
+            'PATCH /api/v1/categories/cat2': async () => {
+                await gate;
+
+                return { json: { data: {} } };
+            },
+            'PATCH /api/v1/categories/cat1': { json: { data: {} } },
+        });
+        const view = await render(<CategoriesIndex categories={CATEGORIES} />);
+
+        await click(view.byTestId('category-move-up-cat2'));
+        await flush();
+
+        // The first request is still in flight: the second one has not been sent.
+        expect(api.to('PATCH', '/api/v1/categories/cat2')).toHaveLength(1);
+        expect(api.to('PATCH', '/api/v1/categories/cat1')).toHaveLength(0);
+        // And no further move can start meanwhile.
+        expect(
+            (view.byTestId('category-move-down-cat1') as HTMLButtonElement)
+                .disabled,
+        ).toBe(true);
+
+        release();
+        await flush();
+
+        expect(api.to('PATCH', '/api/v1/categories/cat1')).toHaveLength(1);
+        expect(rowIds(view)).toEqual(['cat2', 'cat1', 'cat3']);
+        expect(
+            (view.byTestId('category-move-down-cat1') as HTMLButtonElement)
+                .disabled,
+        ).toBe(false);
+    });
+
+    it('after a partial failure shows what the server has, not the old order or the optimistic one', async () => {
+        // cat2 -> 0 is saved, cat1 -> 1 fails: the server now has cat2 first and cat1 tied with it.
+        const stored = [
+            { ...CATEGORIES[0], sort_order: 0 },
+            { ...CATEGORIES[1], sort_order: 0 },
+            CATEGORIES[2],
+        ];
+        const api = fakeApi({
+            'PATCH /api/v1/categories/cat2': { json: { data: {} } },
+            'PATCH /api/v1/categories/cat1': {
+                status: 500,
+                json: { error: { code: 'server_error', message: 'x' } },
+            },
+            'GET /api/v1/categories': {
+                json: { data: stored, meta: { next_cursor: null } },
+            },
+        });
+        const view = await render(<CategoriesIndex categories={CATEGORIES} />);
+
+        await click(view.byTestId('category-move-up-cat2'));
+        await flush();
+
+        expect(api.to('PATCH', '/api/v1/categories/cat1')).toHaveLength(1);
+        // Ties are ordered by name: Billing (cat2) before Sales (cat1).
+        expect(rowIds(view)).toEqual(['cat2', 'cat1', 'cat3']);
+        expect(toast.error).toHaveBeenCalled();
+    });
+
+    it('falls back to the previous order when even reloading fails', async () => {
+        fakeApi({
+            'PATCH /api/v1/categories/cat2': {
+                status: 500,
+                json: { error: { code: 'server_error', message: 'x' } },
+            },
+        });
+
+        const view = await render(<CategoriesIndex categories={CATEGORIES} />);
+
+        await click(view.byTestId('category-move-up-cat2'));
+        await flush();
+
+        expect(rowIds(view)).toEqual(['cat1', 'cat2', 'cat3']);
     });
 });
 

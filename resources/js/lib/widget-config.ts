@@ -3,6 +3,7 @@
  * clamping, colour contrast, host/URL/time validation and the resolved boot config the preview
  * feeds the real loader. No React, no DOM (except `URL`), so everything is unit tested.
  */
+import { FONT_FAMILY, LIMITS, LOCALE_CODE, type Range } from '@/lib/limits';
 import { IDLE_TIMEOUT } from '@/lib/setup-flow';
 import type {
     BootGreeting,
@@ -15,31 +16,8 @@ import type {
 } from '@/types/widgets';
 
 /* -------------------------------------------------------------------------- */
-/* Ranges (the server is the authority; these keep the UI inside them)         */
+/* Defaults and ranges (the limits themselves live in `@/lib/limits`)          */
 /* -------------------------------------------------------------------------- */
-
-type Range = { min: number; max: number };
-
-export const LIMITS = {
-    idleTimeoutMinutes: {
-        min: IDLE_TIMEOUT.min,
-        max: IDLE_TIMEOUT.max,
-    } as Range,
-    queueTimeoutSeconds: { min: 15, max: 600 } as Range,
-    radius: { min: 0, max: 28 } as Range,
-    panelWidth: { min: 320, max: 560 } as Range,
-    panelHeight: { min: 400, max: 960 } as Range,
-    offset: { min: 0, max: 200 } as Range,
-    zIndex: { min: 1, max: 2147483647 } as Range,
-    delaySeconds: { min: 0, max: 600 } as Range,
-    intervalMinutes: { min: 1, max: 1440 } as Range,
-    autoHideSeconds: { min: 3, max: 3600 } as Range,
-    greetingWeight: { min: 1, max: 100 } as Range,
-    maxConcurrentChats: { min: 1, max: 50 } as Range,
-    greetingBodyLength: 2000,
-    nameLength: 120,
-    consentLength: 500,
-} as const;
 
 export const IDLE_TIMEOUT_DEFAULT = IDLE_TIMEOUT.fallback;
 
@@ -99,6 +77,9 @@ export const TEXT_KEYS: readonly TextKey[] = [
     'thanks',
     'startNewChat',
     'poweredBy',
+    'closeChat',
+    'unread',
+    'dismiss',
 ];
 
 /** Built-in English: the last fallback of the widget itself. */
@@ -120,6 +101,9 @@ export const DEFAULT_TEXTS_EN: Record<TextKey, string> = {
     thanks: 'Thanks for your feedback!',
     startNewChat: 'Start a new chat',
     poweredBy: 'Powered by PNE Chat',
+    closeChat: 'Close chat',
+    unread: 'unread messages',
+    dismiss: 'Dismiss',
 };
 
 /** Keys that are long-form (rendered as a textarea). */
@@ -156,10 +140,14 @@ export function configLocales(
     return [config.defaultLocale, ...others];
 }
 
-const LOCALE_CODE = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
-
+/** Exactly what the server accepts for a locale (no trimming: the server does not trim either). */
 export function isLocaleCode(code: string): boolean {
-    return LOCALE_CODE.test(code.trim());
+    return LOCALE_CODE.test(code);
+}
+
+/** The CSS font stack allowed in `theme.fontFamily` (the server rejects `;{}()<>:\\`). */
+export function isFontFamily(value: string): boolean {
+    return FONT_FAMILY.test(value);
 }
 
 /** Common widget locales offered as suggestions when adding a language. */
@@ -304,7 +292,36 @@ export function withConfigDefaults(
         merged.texts = structuredClone(partial.texts);
     }
 
-    return merged;
+    return normaliseHolidays(merged);
+}
+
+/**
+ * The server stores a blank holiday name as `null`. The editor works with strings only, so a
+ * missing label becomes `''` here (and a malformed entry is dropped instead of crashing later).
+ */
+export function normaliseHolidays(config: WidgetConfigData): WidgetConfigData {
+    const holidays: unknown = config.hours?.holidays;
+
+    if (!Array.isArray(holidays)) {
+        return config;
+    }
+
+    return {
+        ...config,
+        hours: {
+            ...config.hours,
+            holidays: holidays
+                .filter(
+                    (holiday): holiday is { date: unknown; label?: unknown } =>
+                        typeof holiday === 'object' && holiday !== null,
+                )
+                .map((holiday) => ({
+                    date: typeof holiday.date === 'string' ? holiday.date : '',
+                    label:
+                        typeof holiday.label === 'string' ? holiday.label : '',
+                })),
+        },
+    };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -480,6 +497,10 @@ export function normaliseDomainEntry(raw: string): DomainCheck {
         return { ok: false, reason: 'empty' };
     }
 
+    if (text.length > LIMITS.domainEntryLength) {
+        return { ok: false, reason: 'invalid' };
+    }
+
     if (text.includes('://') || /^[a-z][a-z0-9+.-]*:\/\//.test(text)) {
         return { ok: false, reason: 'scheme' };
     }
@@ -540,6 +561,19 @@ const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export function isTime(value: string): boolean {
     return TIME.test(value);
+}
+
+/** A closing time may also be `24:00` (end of day): the server accepts it, `<input type="time">` cannot show it. */
+export function isClosingTime(value: string): boolean {
+    return value === '24:00' || TIME.test(value);
+}
+
+export function minutesToTime(minutes: number): string {
+    const clamped = Math.min(23 * 60 + 59, Math.max(0, Math.round(minutes)));
+    const hours = Math.floor(clamped / 60);
+    const rest = clamped % 60;
+
+    return `${String(hours).padStart(2, '0')}:${String(rest).padStart(2, '0')}`;
 }
 
 export function timeToMinutes(value: string): number {

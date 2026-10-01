@@ -12,6 +12,20 @@ export const CHECK_ORDER = [
     'nats',
 ] as const;
 
+/**
+ * The check an error key names (`reachable`, `checks.service_credential`, `connection.nats`, ...),
+ * or `null` when it names none: the server reports a failing check under its own key.
+ */
+export function problemCheckKey(
+    key: string,
+): (typeof CHECK_ORDER)[number] | null {
+    const last = key.split('.').pop() ?? key;
+
+    return (CHECK_ORDER as readonly string[]).includes(last)
+        ? (last as (typeof CHECK_ORDER)[number])
+        : null;
+}
+
 export type CheckTone = 'ok' | 'failed' | 'warning';
 
 export type TestSummary = 'passed' | 'warning' | 'failed';

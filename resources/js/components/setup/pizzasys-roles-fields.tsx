@@ -2,6 +2,7 @@ import { describedBy, Field } from '@/components/setup/field';
 import { TagInput } from '@/components/setup/tag-input';
 import { Input } from '@/components/ui/input';
 import { useTrans } from '@/hooks/use-trans';
+import { LIMITS } from '@/lib/limits';
 import { cn } from '@/lib/utils';
 import type { PizzasysRoles } from '@/types/pizzasys';
 
@@ -57,7 +58,7 @@ export function PizzasysRolesFields({
                         autoCapitalize="none"
                         autoComplete="off"
                         spellCheck={false}
-                        maxLength={100}
+                        maxLength={LIMITS.permissionLength}
                         onChange={(event) =>
                             onChange({ admin_permission: event.target.value })
                         }
@@ -86,7 +87,7 @@ export function PizzasysRolesFields({
                         autoCapitalize="none"
                         autoComplete="off"
                         spellCheck={false}
-                        maxLength={100}
+                        maxLength={LIMITS.permissionLength}
                         onChange={(event) =>
                             onChange({ agent_permission: event.target.value })
                         }

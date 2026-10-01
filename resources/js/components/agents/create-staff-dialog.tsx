@@ -22,6 +22,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { useTrans } from '@/hooks/use-trans';
 import { api, describeApiError, isApiError } from '@/lib/api-client';
+import { LIMITS } from '@/lib/limits';
 import { widgetsRoutes } from '@/lib/widgets-routes';
 import type {
     AgentListItemData,
@@ -168,6 +169,7 @@ function StaffForm({
                     label={t('agents.create.name')}
                     value={name}
                     onValueChange={setName}
+                    maxLength={LIMITS.staffNameLength}
                     error={errors.name}
                     autoComplete="name"
                     required
@@ -178,6 +180,7 @@ function StaffForm({
                     type="email"
                     value={email}
                     onValueChange={setEmail}
+                    maxLength={LIMITS.staffEmailLength}
                     error={errors.email}
                     autoComplete="off"
                     dir="ltr"
@@ -194,6 +197,7 @@ function StaffForm({
                         id={`${uid}-password`}
                         value={password}
                         onChange={(event) => setPassword(event.target.value)}
+                        maxLength={LIMITS.staffPasswordLength}
                         autoComplete="new-password"
                         aria-invalid={errors.password ? true : undefined}
                         aria-describedby={describedBy(`${uid}-password`, {

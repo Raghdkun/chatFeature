@@ -7,13 +7,19 @@ import { StepFrame } from '@/components/setup/step-frame';
 import { Input } from '@/components/ui/input';
 import { i18n, useTrans } from '@/hooks/use-trans';
 import { localeLabel } from '@/lib/i18n';
+import { LIMITS } from '@/lib/limits';
 import {
     displayIdleTimeout,
     IDLE_TIMEOUT,
     parseIdleTimeout,
 } from '@/lib/setup-flow';
 import { setupRoutes } from '@/lib/setup-routes';
-import { formatTimeZone, getTimeZones, groupTimeZones } from '@/lib/timezones';
+import {
+    canonicalTimeZone,
+    formatTimeZone,
+    getTimeZones,
+    groupTimeZones,
+} from '@/lib/timezones';
 import type { SetupState } from '@/types/setup';
 
 export function StepBasics({
@@ -66,7 +72,7 @@ export function StepBasics({
                                 name="app_name"
                                 required
                                 autoFocus
-                                maxLength={80}
+                                maxLength={LIMITS.appNameLength}
                                 defaultValue={defaults.app_name}
                                 aria-invalid={
                                     errors.app_name ? true : undefined
@@ -95,6 +101,7 @@ export function StepBasics({
                                 inputMode="url"
                                 autoCapitalize="none"
                                 spellCheck={false}
+                                maxLength={LIMITS.appUrlLength}
                                 defaultValue={defaults.app_url}
                                 placeholder="https://chat.example.com"
                                 aria-invalid={errors.app_url ? true : undefined}
@@ -139,7 +146,9 @@ export function StepBasics({
                                 <NativeSelect
                                     id="setup-timezone"
                                     name="timezone"
-                                    defaultValue={defaults.timezone}
+                                    defaultValue={canonicalTimeZone(
+                                        defaults.timezone,
+                                    )}
                                     aria-invalid={
                                         errors.timezone ? true : undefined
                                     }

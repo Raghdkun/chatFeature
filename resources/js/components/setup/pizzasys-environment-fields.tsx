@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useTrans } from '@/hooks/use-trans';
+import { LIMITS } from '@/lib/limits';
 import { cn } from '@/lib/utils';
 import { DEFAULT_SERVICE_NAME, type EnvFormValues } from '@/lib/pizzasys-form';
 
@@ -33,6 +34,8 @@ export function PizzasysEnvironmentFields({
     onChange,
     hasServiceToken = false,
     hasNatsToken = false,
+    serviceTokenRequired = false,
+    natsTokenRequired = false,
     error,
     showLabel = false,
     allowClearNatsToken = false,
@@ -46,6 +49,10 @@ export function PizzasysEnvironmentFields({
     /** A service token is already stored (only the flag ever reaches the browser). */
     hasServiceToken?: boolean;
     hasNatsToken?: boolean;
+    /** Changing the portal address, service name or TLS verification asks for the token again. */
+    serviceTokenRequired?: boolean;
+    /** The same for a stored NATS token when the NATS address changes. */
+    natsTokenRequired?: boolean;
     error: (field: EnvErrorField) => string | undefined;
     showLabel?: boolean;
     allowClearNatsToken?: boolean;
@@ -81,7 +88,7 @@ export function PizzasysEnvironmentFields({
                     <Input
                         {...props('label', 'label', true)}
                         value={values.label}
-                        maxLength={60}
+                        maxLength={LIMITS.portalLabelLength}
                         onChange={(event) =>
                             onChange({ label: event.target.value })
                         }
@@ -125,7 +132,7 @@ export function PizzasysEnvironmentFields({
                         autoCapitalize="none"
                         autoComplete="off"
                         spellCheck={false}
-                        maxLength={64}
+                        maxLength={LIMITS.serviceNameLength}
                         placeholder={DEFAULT_SERVICE_NAME}
                         value={values.service_name}
                         onChange={(event) =>
@@ -136,7 +143,11 @@ export function PizzasysEnvironmentFields({
 
                 <Field
                     id={id('service-token')}
-                    label={t('setup.pizzasys.service_token')}
+                    label={
+                        serviceTokenRequired
+                            ? `${t('setup.pizzasys.service_token')} ${t('setup.pizzasys.required_marker')}`
+                            : t('setup.pizzasys.service_token')
+                    }
                     hint={
                         hasToken ? (
                             <>
@@ -150,7 +161,18 @@ export function PizzasysEnvironmentFields({
                                     />
                                     {t('setup.pizzasys.token_saved')}
                                 </span>{' '}
-                                {t('setup.pizzasys.token_keep_hint')}
+                                <span
+                                    data-testid={id('service-token-hint')}
+                                    className={
+                                        serviceTokenRequired
+                                            ? 'font-medium text-foreground'
+                                            : undefined
+                                    }
+                                >
+                                    {serviceTokenRequired
+                                        ? t('setup.pizzasys.token_reenter_hint')
+                                        : t('setup.pizzasys.token_keep_hint')}
+                                </span>
                             </>
                         ) : (
                             t('setup.pizzasys.service_token_hint')
@@ -160,10 +182,12 @@ export function PizzasysEnvironmentFields({
                 >
                     <PasswordInput
                         {...props('service-token', 'service_token', true)}
+                        aria-required={serviceTokenRequired ? true : undefined}
                         autoCapitalize="none"
                         autoComplete="off"
                         spellCheck={false}
                         placeholder={hasToken ? '••••••••' : undefined}
+                        maxLength={LIMITS.secretLength}
                         value={values.service_token}
                         onChange={(event) =>
                             onChange({ service_token: event.target.value })
@@ -203,7 +227,11 @@ export function PizzasysEnvironmentFields({
 
                     <Field
                         id={id('nats-token')}
-                        label={t('setup.pizzasys.nats_token')}
+                        label={
+                            natsTokenRequired
+                                ? `${t('setup.pizzasys.nats_token')} ${t('setup.pizzasys.required_marker')}`
+                                : t('setup.pizzasys.nats_token')
+                        }
                         hint={
                             hasNatsToken ? (
                                 <>
@@ -217,7 +245,22 @@ export function PizzasysEnvironmentFields({
                                         />
                                         {t('setup.pizzasys.token_saved')}
                                     </span>{' '}
-                                    {t('setup.pizzasys.token_keep_hint')}
+                                    <span
+                                        data-testid={id('nats-token-hint')}
+                                        className={
+                                            natsTokenRequired
+                                                ? 'font-medium text-foreground'
+                                                : undefined
+                                        }
+                                    >
+                                        {natsTokenRequired
+                                            ? t(
+                                                  'setup.pizzasys.nats_token_reenter_hint',
+                                              )
+                                            : t(
+                                                  'setup.pizzasys.token_keep_hint',
+                                              )}
+                                    </span>
                                 </>
                             ) : undefined
                         }
@@ -225,10 +268,12 @@ export function PizzasysEnvironmentFields({
                     >
                         <PasswordInput
                             {...props('nats-token', 'nats_token', hasNatsToken)}
+                            aria-required={natsTokenRequired ? true : undefined}
                             autoCapitalize="none"
                             autoComplete="off"
                             spellCheck={false}
                             disabled={disabled || values.clear_nats_token}
+                            maxLength={LIMITS.secretLength}
                             value={values.nats_token}
                             onChange={(event) =>
                                 onChange({ nats_token: event.target.value })

@@ -10,6 +10,7 @@ import {
     Info,
     Loader2,
     TriangleAlert,
+    Zap,
 } from 'lucide-react';
 import {
     useId,
@@ -39,10 +40,29 @@ import { cn } from '@/lib/utils';
 /* Layout                                                                     */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Marks a section whose changes reach visitors as soon as they are saved (settings, greeting
+ * messages, domains, categories), unlike the draft design that waits for Publish.
+ */
+export function LiveBadge() {
+    const { t } = useTrans();
+
+    return (
+        <span
+            data-testid="builder-live-badge"
+            className="inline-flex items-center gap-1.5 rounded-full border border-sky-300/70 bg-sky-50 px-2.5 py-0.5 text-xs font-medium whitespace-nowrap text-sky-900 dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-200"
+        >
+            <Zap className="size-3" aria-hidden />
+            {t('builder.live.badge')}
+        </span>
+    );
+}
+
 export function SectionCard({
     title,
     description,
     actions,
+    live = false,
     children,
     className,
     testId,
@@ -50,6 +70,8 @@ export function SectionCard({
     title: string;
     description?: ReactNode;
     actions?: ReactNode;
+    /** Show the "Changes here apply immediately" badge. */
+    live?: boolean;
     children: ReactNode;
     className?: string;
     testId?: string;
@@ -60,6 +82,7 @@ export function SectionCard({
         <section
             aria-labelledby={id}
             data-testid={testId}
+            data-live={live ? 'true' : undefined}
             className={cn('rounded-xl border bg-card', className)}
         >
             <header className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3.5 sm:px-5">
@@ -76,7 +99,12 @@ export function SectionCard({
                         </p>
                     )}
                 </div>
-                {actions}
+                {(live || actions) && (
+                    <div className="flex flex-wrap items-center gap-2">
+                        {live && <LiveBadge />}
+                        {actions}
+                    </div>
+                )}
             </header>
             <div className="grid gap-5 p-4 sm:p-5">{children}</div>
         </section>
@@ -156,6 +184,30 @@ const NOTICE_STYLES: Record<NoticeTone, string> = {
         'border-emerald-300/70 bg-emerald-50 text-emerald-950 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-100',
 };
 
+/** Error messages as red lines under a field or section; renders nothing when there are none. */
+export function ErrorLines({
+    messages,
+    className,
+    ...props
+}: ComponentProps<'div'> & { messages: readonly string[] }) {
+    if (messages.length === 0) {
+        return null;
+    }
+
+    return (
+        <div className={cn('grid gap-0.5', className)} {...props}>
+            {messages.map((message) => (
+                <p
+                    key={message}
+                    className="text-sm text-red-600 dark:text-red-400"
+                >
+                    {message}
+                </p>
+            ))}
+        </div>
+    );
+}
+
 export function Notice({
     tone = 'info',
     children,
@@ -173,6 +225,8 @@ export function Notice({
 
     return (
         <div
+            // A failure must be announced the moment it appears (callers can still override).
+            role={tone === 'danger' ? 'alert' : undefined}
             className={cn(
                 'flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm',
                 NOTICE_STYLES[tone],

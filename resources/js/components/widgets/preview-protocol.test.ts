@@ -3,6 +3,7 @@ import { toGreetingDraft } from '@/components/widgets/builder-state';
 import {
     buildCommandMessage,
     buildDraftMessage,
+    dropsOverrides,
     parseHostStatus,
     PREVIEW_HOST_NS,
     restyleOverrides,
@@ -226,5 +227,64 @@ describe('command message', () => {
             name: 'open',
         });
         expect(buildCommandMessage('close').name).toBe('close');
+    });
+});
+
+describe('dropsOverrides', () => {
+    it('is false while values are only added or changed', () => {
+        expect(dropsOverrides({ a: 1 }, { a: 2 })).toBe(false);
+        expect(dropsOverrides({ a: 1 }, { a: 1, b: 2 })).toBe(false);
+        expect(dropsOverrides({}, { texts: { fr: {} } })).toBe(false);
+        expect(dropsOverrides({ a: null }, { a: 'x' })).toBe(false);
+        expect(dropsOverrides({ a: null }, {})).toBe(false);
+        expect(dropsOverrides({ list: [1, 2] }, { list: [3] })).toBe(false);
+    });
+
+    it('is true when a key disappears or a set value becomes null', () => {
+        expect(dropsOverrides({ a: 1, b: 2 }, { a: 1 })).toBe(true);
+        expect(dropsOverrides({ a: 'x' }, { a: null })).toBe(true);
+        expect(dropsOverrides({ a: 'x' }, { a: undefined })).toBe(true);
+        expect(dropsOverrides({ o: { a: 1 } }, { o: null })).toBe(true);
+    });
+
+    it('looks inside nested objects (a text of one language, a font url)', () => {
+        expect(
+            dropsOverrides(
+                { texts: { en: { title: 'A', send: 'B' } } },
+                { texts: { en: { title: 'A' } } },
+            ),
+        ).toBe(true);
+        expect(
+            dropsOverrides(
+                { texts: { en: { title: 'A' }, fr: { title: 'B' } } },
+                { texts: { en: { title: 'A' } } },
+            ),
+        ).toBe(true);
+        expect(
+            dropsOverrides(
+                { theme: { fontUrl: 'https://fonts.googleapis.com/css' } },
+                { theme: { fontUrl: null } },
+            ),
+        ).toBe(true);
+    });
+
+    it('sees a cleared text override in a real draft', () => {
+        const before = defaultWidgetConfig();
+        const after = structuredClone(before);
+
+        delete after.texts.en.title;
+
+        expect(
+            dropsOverrides(restyleOverrides(before), restyleOverrides(after)),
+        ).toBe(true);
+
+        const changed = structuredClone(before);
+
+        changed.texts.en.title = 'Other';
+        changed.launcher.iconUrl = 'https://cdn.example.com/i.svg';
+
+        expect(
+            dropsOverrides(restyleOverrides(before), restyleOverrides(changed)),
+        ).toBe(false);
     });
 });

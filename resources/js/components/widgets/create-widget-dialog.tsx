@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { useTrans } from '@/hooks/use-trans';
 import { api, describeApiError, isApiError } from '@/lib/api-client';
-import { LIMITS } from '@/lib/widget-config';
+import { LIMITS } from '@/lib/limits';
 import { widgetsRoutes } from '@/lib/widgets-routes';
 import type { WidgetData } from '@/types/widgets';
 

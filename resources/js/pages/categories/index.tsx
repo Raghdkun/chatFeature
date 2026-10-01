@@ -44,6 +44,8 @@ export default function CategoriesIndex({
     const [query, setQuery] = useState('');
     const [dialog, setDialog] = useState<DialogState | null>(null);
     const [deleting, setDeleting] = useState<CategoryData | null>(null);
+    // A reorder is several PATCHes: one at a time, and no second move until it has settled.
+    const [moving, setMoving] = useState(false);
 
     const searching = query.trim() !== '';
     const visible = items.filter((category) => matchesSearch(category, query));
@@ -89,15 +91,30 @@ export default function CategoriesIndex({
         }
     }
 
+    /** The server's list is the truth after a failed reorder (some PATCHes may have gone through). */
+    async function reloadFromServer(fallback: CategoryData[]) {
+        try {
+            const fresh = await api.get<CategoryData[]>(
+                widgetsRoutes.api.categories.index(),
+            );
+
+            setItems(sortCategories(fresh));
+        } catch {
+            setItems(fallback);
+        }
+    }
+
     async function move(category: CategoryData, direction: -1 | 1) {
         const changes = reorderCategories(items, category.ulid, direction);
 
-        if (changes.length === 0) {
+        if (changes.length === 0 || moving) {
             return;
         }
 
         const before = items;
         const order = new Map(changes.map((c) => [c.ulid, c.sort_order]));
+
+        setMoving(true);
 
         setItems(
             sortCategories(
@@ -110,17 +127,17 @@ export default function CategoriesIndex({
         );
 
         try {
-            await Promise.all(
-                changes.map((change) =>
-                    api.patch<CategoryData>(
-                        widgetsRoutes.api.categories.show(change.ulid),
-                        { sort_order: change.sort_order },
-                    ),
-                ),
-            );
+            for (const change of changes) {
+                await api.patch<CategoryData>(
+                    widgetsRoutes.api.categories.show(change.ulid),
+                    { sort_order: change.sort_order },
+                );
+            }
         } catch (error) {
-            setItems(before);
             toast.error(describeApiError(error, t));
+            await reloadFromServer(before);
+        } finally {
+            setMoving(false);
         }
     }
 
@@ -211,7 +228,7 @@ export default function CategoriesIndex({
                                         category={category}
                                         canMoveUp={index > 0}
                                         canMoveDown={index < visible.length - 1}
-                                        reorderDisabled={searching}
+                                        reorderDisabled={searching || moving}
                                         onToggleActive={toggleActive}
                                         onMove={move}
                                         onEdit={(entry) =>

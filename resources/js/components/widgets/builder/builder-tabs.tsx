@@ -49,6 +49,8 @@ export function BuilderTabs({
     categories,
     snippets,
     hasUnpublished,
+    busy,
+    onSetEnabled,
     onRotateSecret,
     onPreviewGreeting,
     previewingGreeting,
@@ -58,6 +60,8 @@ export function BuilderTabs({
     categories: CategoryData[];
     snippets: WidgetSnippetsData;
     hasUnpublished: boolean;
+    busy: boolean;
+    onSetEnabled: (next: boolean) => Promise<string | null>;
     onRotateSecret: () => Promise<string>;
     onPreviewGreeting: (clientId: string) => void;
     previewingGreeting: string | null;
@@ -107,7 +111,12 @@ export function BuilderTabs({
             </div>
 
             <TabsContent value="general">
-                <GeneralTab state={state} dispatch={dispatch} />
+                <GeneralTab
+                    state={state}
+                    dispatch={dispatch}
+                    busy={busy}
+                    onSetEnabled={onSetEnabled}
+                />
             </TabsContent>
             <TabsContent value="branding">
                 <BrandingTab state={state} dispatch={dispatch} />

@@ -1,9 +1,13 @@
 import { Link } from '@inertiajs/react';
 import { ChevronDown, ChevronUp, Plus, X } from 'lucide-react';
 import { CategoryTile } from '@/components/categories/category-visuals';
-import { firstError } from '@/components/widgets/builder-state';
+import { errorsUnder } from '@/components/widgets/builder-state';
 import type { TabProps } from '@/components/widgets/builder/tab-props';
-import { Notice, SectionCard } from '@/components/widgets/form-bits';
+import {
+    ErrorLines,
+    Notice,
+    SectionCard,
+} from '@/components/widgets/form-bits';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useTrans } from '@/hooks/use-trans';
@@ -23,7 +27,8 @@ export function CategoriesTab({
     const available = categories.filter(
         (category) => !state.doc.categoryUlids.includes(category.ulid),
     );
-    const error = firstError(state.errors, 'categories');
+    // The server reports `category_ulids.N` (unknown / duplicate) as well as the list itself.
+    const errors = errorsUnder(state.errors, 'categories');
 
     return (
         <div className="grid gap-5" data-testid="builder-panel-categories">
@@ -40,15 +45,15 @@ export function CategoriesTab({
             )}
 
             <SectionCard
+                live
                 title={t('builder.categories.enabled_title')}
                 description={t('builder.categories.enabled_description')}
                 testId="builder-categories-enabled"
             >
-                {error && (
-                    <p className="text-sm text-red-600 dark:text-red-400">
-                        {error}
-                    </p>
-                )}
+                <ErrorLines
+                    messages={errors}
+                    data-testid="builder-categories-errors"
+                />
                 {enabled.length === 0 ? (
                     <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
                         {t('builder.categories.enabled_empty')}
@@ -153,6 +158,7 @@ export function CategoriesTab({
 
             {available.length > 0 && (
                 <SectionCard
+                    live
                     title={t('builder.categories.available_title')}
                     description={t('builder.categories.available_description')}
                     testId="builder-categories-available"

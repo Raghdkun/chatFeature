@@ -417,6 +417,43 @@ describe('basics step', () => {
             )?.value,
         ).toBe('Mars/Olympus_Mons');
     });
+
+    it('shows a legacy default time zone under its canonical name and offers it once', async () => {
+        const view = await render(
+            <Setup
+                {...makeSetup('basics', {
+                    defaults: {
+                        app_name: 'x',
+                        app_url: 'http://x.test',
+                        locale: 'en',
+                        timezone: 'Asia/Calcutta',
+                        idle_timeout_minutes: 120,
+                    },
+                })}
+            />,
+        );
+        const select = view.container.querySelector<HTMLSelectElement>(
+            'select[name="timezone"]',
+        );
+        const values = Array.from(select?.options ?? []).map((o) => o.value);
+
+        // The select (and so the form post) carries the canonical name.
+        expect(select?.value).toBe('Asia/Kolkata');
+        expect(values.filter((value) => value === 'Asia/Kolkata')).toHaveLength(
+            1,
+        );
+        expect(values).not.toContain('Asia/Calcutta');
+    });
+
+    it('lets the application name be as long as the server allows (100)', async () => {
+        const view = await render(<Setup {...makeSetup('basics')} />);
+
+        expect(
+            view.container.querySelector<HTMLInputElement>(
+                'input[name="app_name"]',
+            )?.maxLength,
+        ).toBe(100);
+    });
 });
 
 describe('run step', () => {

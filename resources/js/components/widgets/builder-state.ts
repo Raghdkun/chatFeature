@@ -12,15 +12,20 @@
  *   categories  PUT   /widgets/{ulid}/categories
  */
 import type { ApiFieldErrors } from '@/lib/api-client';
+import { LIMITS } from '@/lib/limits';
+import { humaniseField, withFieldLabel } from '@/lib/validation-messages';
 import {
     clampToRange,
+    defaultWidgetConfig,
     isAllowedFontUrl,
+    isFontFamily,
     isHexColor,
+    isClosingTime,
     isIsoDate,
     isLocaleCode,
     isSecureUrl,
     isTime,
-    LIMITS,
+    minutesToTime,
     normaliseDomainEntry,
     timeToMinutes,
     withConfigDefaults,
@@ -85,6 +90,17 @@ export type SliceName =
 export const SLICES: readonly SliceName[] = [
     'settings',
     'config',
+    'greetings',
+    'domains',
+    'categories',
+];
+
+/**
+ * Slices that reach visitors the moment they are saved (their own endpoints write live data);
+ * only `config` is a draft that waits for Publish.
+ */
+export const LIVE_SLICES: readonly SliceName[] = [
+    'settings',
     'greetings',
     'domains',
     'categories',
@@ -294,6 +310,8 @@ export type BuilderAction =
           normalised?: BuilderDoc[keyof BuilderDoc];
       }
     | { type: 'published'; widget: WidgetData }
+    /** The widget was taken live / offline (its own request, never part of "Save draft"). */
+    | { type: 'enabled'; value: boolean }
     | { type: 'meta'; patch: Partial<BuilderMeta> }
     | { type: 'errors/set'; errors: FieldErrors }
     | { type: 'errors/clear'; prefix?: string };
@@ -311,6 +329,54 @@ export function sectionAction<S extends ConfigSectionKey>(
     patch: Partial<WidgetConfigData[S]>,
 ): BuilderAction {
     return { type: 'config/section', section, patch } as BuilderAction;
+}
+
+/** First range of a day: the usual office hours. */
+const FIRST_RANGE = { start: '09:00', end: '17:00' } as const;
+
+/** Latest bedtime for an automatically proposed range: leaves room for at least one more minute. */
+const LAST_AUTO_START = 22 * 60 + 59;
+
+function closingMinutes(range: HoursRange): number {
+    return isClosingTime(range.end) ? timeToMinutes(range.end) : 0;
+}
+
+/**
+ * The range "Add hours" proposes for `day`. A day without hours gets 09:00-17:00; a day that
+ * already has hours gets a range after the latest one (never a copy of an existing range, which
+ * the server rejects as an overlap). `null` when the day has no room left.
+ */
+export function nextRangeFor(
+    schedule: readonly HoursRange[],
+    day: number,
+): HoursRange | null {
+    const existing = schedule.filter((range) => range.day === day);
+
+    if (existing.length === 0) {
+        return { day, ...FIRST_RANGE };
+    }
+
+    const lastEnd = Math.max(...existing.map(closingMinutes));
+
+    if (lastEnd > LAST_AUTO_START) {
+        return null;
+    }
+
+    const start = Math.min(lastEnd + 60, LAST_AUTO_START);
+
+    return {
+        day,
+        start: minutesToTime(start),
+        end: minutesToTime(Math.min(start + 4 * 60, 23 * 60 + 59)),
+    };
+}
+
+/** Can "Add hours" still propose a valid range for this day? */
+export function canAddRange(
+    schedule: readonly HoursRange[],
+    day: number,
+): boolean {
+    return nextRangeFor(schedule, day) !== null;
 }
 
 function moveItem<T>(items: T[], from: number, direction: -1 | 1): T[] {
@@ -338,25 +404,54 @@ function withConfig(
     return withDoc(state, { ...state.doc, config: update(state.doc.config) });
 }
 
-/** Settings that the config mirrors (contract: `session.idleTimeoutMinutes` mirrors the column, ...). */
-function mirrorSetting(
+/**
+ * The five operational settings that exist twice: as widget columns (the settings PATCH) and as
+ * fields of the config object (`ConfigMirror::PATHS` on the server). The server keeps both copies
+ * in step; so does the builder.
+ */
+export const MIRRORED_SETTINGS = [
+    'locale',
+    'idle_timeout_minutes',
+    'queue_timeout_seconds',
+    'offline_mode',
+    'timezone',
+] as const satisfies readonly SettingsKey[];
+
+export type MirroredSetting = (typeof MIRRORED_SETTINGS)[number];
+
+/** Where the server reports a problem with the mirrored copy of a setting (`ConfigMirror::PATHS`). */
+export const MIRROR_ERROR_PATHS: Record<MirroredSetting, string> = {
+    locale: 'config.defaultLocale',
+    idle_timeout_minutes: 'config.session.idleTimeoutMinutes',
+    queue_timeout_seconds: 'config.routing.queueTimeoutSeconds',
+    offline_mode: 'config.hours.mode',
+    timezone: 'config.hours.timezone',
+};
+
+function isMirrored(key: SettingsKey): key is MirroredSetting {
+    return (MIRRORED_SETTINGS as readonly string[]).includes(key);
+}
+
+/** Writes one setting's value into its mirrored config field (other keys leave the config alone). */
+function applyMirror(
     config: WidgetConfigData,
-    action: SettingsAction,
+    key: SettingsKey,
+    value: unknown,
 ): WidgetConfigData {
-    switch (action.key) {
+    switch (key) {
         case 'locale':
-            return { ...config, defaultLocale: action.value as string };
+            return { ...config, defaultLocale: value as string };
         case 'idle_timeout_minutes':
             return {
                 ...config,
-                session: { idleTimeoutMinutes: action.value as number },
+                session: { idleTimeoutMinutes: value as number },
             };
         case 'queue_timeout_seconds':
             return {
                 ...config,
                 routing: {
                     ...config.routing,
-                    queueTimeoutSeconds: action.value as number,
+                    queueTimeoutSeconds: value as number,
                 },
             };
         case 'offline_mode':
@@ -364,13 +459,13 @@ function mirrorSetting(
                 ...config,
                 hours: {
                     ...config.hours,
-                    mode: action.value as WidgetConfigData['hours']['mode'],
+                    mode: value as WidgetConfigData['hours']['mode'],
                 },
             };
         case 'timezone':
             return {
                 ...config,
-                hours: { ...config.hours, timezone: action.value as string },
+                hours: { ...config.hours, timezone: value as string },
             };
         default:
             return config;
@@ -407,7 +502,9 @@ function clearErrorsFor(errors: FieldErrors, prefixes: string[]): FieldErrors {
 function touchedPaths(action: BuilderAction): string[] {
     switch (action.type) {
         case 'settings/set':
-            return [`settings.${action.key}`];
+            return isMirrored(action.key)
+                ? [`settings.${action.key}`, MIRROR_ERROR_PATHS[action.key]]
+                : [`settings.${action.key}`];
         case 'config/section':
             return Object.keys(action.patch).map(
                 (key) => `config.${action.section}.${key}`,
@@ -455,7 +552,7 @@ function reduceDoc(state: BuilderState, action: BuilderAction): BuilderState {
             const next: BuilderDoc = {
                 ...doc,
                 settings: { ...doc.settings, [action.key]: action.value },
-                config: mirrorSetting(doc.config, action),
+                config: applyMirror(doc.config, action.key, action.value),
             };
 
             return withDoc(state, next);
@@ -537,17 +634,21 @@ function reduceDoc(state: BuilderState, action: BuilderAction): BuilderState {
             });
         }
 
-        case 'hours/add-range':
+        case 'hours/add-range': {
+            const range = nextRangeFor(doc.config.hours.schedule, action.day);
+
+            if (range === null) {
+                return state;
+            }
+
             return withConfig(state, (config) => ({
                 ...config,
                 hours: {
                     ...config.hours,
-                    schedule: [
-                        ...config.hours.schedule,
-                        { day: action.day, start: '09:00', end: '17:00' },
-                    ],
+                    schedule: [...config.hours.schedule, range],
                 },
             }));
+        }
 
         case 'hours/update-range':
             return withConfig(state, (config) => ({
@@ -715,11 +816,39 @@ export function builderReducer(
             const key = sliceKey(action.slice);
             const baseline = (action.normalised ?? action.snapshot) as never;
             const stillCurrent = deepEqual(state.doc[key], action.snapshot);
-            const saved = { ...state.saved, [key]: structuredClone(baseline) };
+            let saved = { ...state.saved, [key]: structuredClone(baseline) };
+            let published = state.published;
             const doc = stillCurrent
                 ? { ...state.doc, [key]: structuredClone(baseline) }
                 : state.doc;
-            const next: BuilderState = { ...state, saved, doc };
+
+            if (action.slice === 'settings') {
+                // The server writes a changed setting into BOTH the draft and the published config
+                // (ConfigMirror): without the same here "Publish" would offer a version bump for nothing.
+                const sent = action.snapshot as BuilderSettings;
+
+                for (const setting of MIRRORED_SETTINGS) {
+                    if (
+                        !deepEqual(state.saved.settings[setting], sent[setting])
+                    ) {
+                        published = applyMirror(
+                            published,
+                            setting,
+                            sent[setting],
+                        );
+                        saved = {
+                            ...saved,
+                            config: applyMirror(
+                                saved.config,
+                                setting,
+                                sent[setting],
+                            ),
+                        };
+                    }
+                }
+            }
+
+            const next: BuilderState = { ...state, saved, doc, published };
 
             return action.slice === 'config'
                 ? {
@@ -728,7 +857,7 @@ export function builderReducer(
                           ...next.meta,
                           hasUnpublishedChanges: !deepEqual(
                               saved.config,
-                              state.published,
+                              published,
                           ),
                       },
                   }
@@ -740,6 +869,25 @@ export function builderReducer(
                 ...state,
                 published: structuredClone(state.saved.config),
                 meta: { ...state.meta, ...metaOf(action.widget) },
+            };
+
+        case 'enabled':
+            return {
+                ...state,
+                doc: {
+                    ...state.doc,
+                    settings: {
+                        ...state.doc.settings,
+                        is_enabled: action.value,
+                    },
+                },
+                saved: {
+                    ...state.saved,
+                    settings: {
+                        ...state.saved.settings,
+                        is_enabled: action.value,
+                    },
+                },
             };
 
         case 'meta':
@@ -803,11 +951,34 @@ export function firstError(
     return errors[path]?.[0];
 }
 
-/** First message for any path under `prefix` (e.g. every error of one greeting). */
+/** Every message for any path under `prefix` (e.g. every error of one greeting), without repeats. */
 export function errorsUnder(errors: FieldErrors, prefix: string): string[] {
-    return Object.entries(errors)
-        .filter(([path]) => path === prefix || path.startsWith(`${prefix}.`))
-        .flatMap(([, messages]) => messages);
+    return [
+        ...new Set(
+            Object.entries(errors)
+                .filter(
+                    ([path]) =>
+                        path === prefix || path.startsWith(`${prefix}.`),
+                )
+                .flatMap(([, messages]) => messages),
+        ),
+    ];
+}
+
+/**
+ * The error of a setting: from the settings PATCH (`settings.<key>`) or, for the five mirrored
+ * ones, from the draft config copy (`config.hours.timezone`, ...).
+ */
+export function settingError(
+    errors: FieldErrors,
+    key: SettingsKey,
+): string | undefined {
+    return (
+        firstError(errors, `settings.${key}`) ??
+        (isMirrored(key)
+            ? firstError(errors, MIRROR_ERROR_PATHS[key])
+            : undefined)
+    );
 }
 
 export function errorCount(errors: FieldErrors): number {
@@ -818,10 +989,15 @@ export function errorCount(errors: FieldErrors): number {
 /* Error mapping                                                              */
 /* -------------------------------------------------------------------------- */
 
-/** Namespaces the server's `details` keys so every slice can live in one error map. */
+/**
+ * Namespaces the server's `details` keys so every slice can live in one error map. With `label`
+ * the server's messages lose the dotted attribute they embed ("The config.theme.primary field ...")
+ * in favour of the field's label; the rule text stays the server's.
+ */
 export function mapApiErrors(
     slice: SliceName,
     details: ApiFieldErrors,
+    label?: (path: string) => string | undefined,
 ): FieldErrors {
     const mapped: FieldErrors = {};
 
@@ -855,7 +1031,19 @@ export function mapApiErrors(
                 break;
         }
 
-        mapped[path] = [...(mapped[path] ?? []), ...messages];
+        const named = label?.(path) ?? humaniseField(path);
+
+        mapped[path] = [
+            ...(mapped[path] ?? []),
+            // The server spells the attribute the way it received the key.
+            ...messages.map((message) =>
+                withFieldLabel(
+                    withFieldLabel(message, field, named),
+                    path,
+                    named,
+                ),
+            ),
+        ];
     }
 
     return mapped;
@@ -934,6 +1122,120 @@ export const DOMAIN_PROBLEM_KEYS: Record<DomainProblem, string> = {
 };
 
 /**
+ * Weekly hours, with the server's messages' meaning: every time well formed, a range ends after it
+ * starts, and ranges of one day never overlap. Errors sit on `.start` / `.end` of the offending range,
+ * the same paths the server uses, so a client and a server error land on the same field.
+ */
+function validateSchedule(
+    schedule: HoursRange[],
+    errors: FieldErrors,
+    t: Translate,
+): void {
+    const path = 'config.hours.schedule';
+
+    if (schedule.length > LIMITS.maxScheduleRanges) {
+        add(
+            errors,
+            path,
+            t('builder.validation.too_many', { max: LIMITS.maxScheduleRanges }),
+        );
+    }
+
+    const valid: { index: number; start: number; end: number; day: number }[] =
+        [];
+
+    schedule.forEach((entry, index) => {
+        const base = `${path}.${index}`;
+
+        if (!isTime(entry.start)) {
+            add(errors, `${base}.start`, t('builder.validation.time'));
+        }
+
+        if (!isClosingTime(entry.end)) {
+            add(errors, `${base}.end`, t('builder.validation.time'));
+        }
+
+        if (!isTime(entry.start) || !isClosingTime(entry.end)) {
+            return;
+        }
+
+        const start = timeToMinutes(entry.start);
+        const end = timeToMinutes(entry.end);
+
+        if (end <= start) {
+            add(errors, `${base}.end`, t('builder.validation.time_order'));
+
+            return;
+        }
+
+        valid.push({ index, start, end, day: entry.day });
+    });
+
+    // Sorted per day by start: a range that starts before the latest end seen so far overlaps.
+    const days = new Set(valid.map((range) => range.day));
+
+    for (const day of days) {
+        let lastEnd = -1;
+
+        valid
+            .filter((range) => range.day === day)
+            .sort((a, b) => a.start - b.start || a.index - b.index)
+            .forEach((range) => {
+                if (range.start < lastEnd) {
+                    add(
+                        errors,
+                        `${path}.${range.index}.start`,
+                        t('builder.validation.time_overlap'),
+                    );
+                }
+
+                lastEnd = Math.max(lastEnd, range.end);
+            });
+    }
+}
+
+/** Holidays: a real date, not listed twice, and a short enough name (a missing name is fine). */
+function validateHolidays(
+    holidays: Holiday[],
+    errors: FieldErrors,
+    t: Translate,
+): void {
+    const path = 'config.hours.holidays';
+    const seen = new Set<string>();
+
+    if (holidays.length > LIMITS.maxHolidays) {
+        add(
+            errors,
+            path,
+            t('builder.validation.too_many', { max: LIMITS.maxHolidays }),
+        );
+    }
+
+    holidays.forEach((holiday, index) => {
+        const base = `${path}.${index}`;
+        const label = holiday.label ?? '';
+
+        if (!isIsoDate(holiday.date)) {
+            add(errors, `${base}.date`, t('builder.validation.date'));
+        } else if (seen.has(holiday.date)) {
+            add(errors, `${base}.date`, t('builder.validation.date_duplicate'));
+        } else {
+            seen.add(holiday.date);
+        }
+
+        if (label.length > LIMITS.holidayLabelLength) {
+            add(
+                errors,
+                `${base}.label`,
+                t('builder.validation.too_long', {
+                    max: LIMITS.holidayLabelLength,
+                }),
+            );
+        }
+    });
+}
+
+/**
  * Cheap checks that mirror the server rules so obvious mistakes never cost a round trip. The
  * server stays the authority (its 422s are mapped through {@link mapApiErrors}).
  */
@@ -1008,6 +1310,18 @@ export function validateBuilderDoc(
             'config.theme.fontFamily',
             t('builder.validation.required'),
         );
+    } else if (theme.fontFamily.length > LIMITS.fontFamilyLength) {
+        add(
+            errors,
+            'config.theme.fontFamily',
+            t('builder.validation.too_long', { max: LIMITS.fontFamilyLength }),
+        );
+    } else if (!isFontFamily(theme.fontFamily)) {
+        add(
+            errors,
+            'config.theme.fontFamily',
+            t('builder.validation.font_family'),
+        );
     }
 
     if (theme.fontUrl !== null && !isAllowedFontUrl(theme.fontUrl, ownOrigin)) {
@@ -1031,6 +1345,14 @@ export function validateBuilderDoc(
 
     if (launcher.style === 'pill' && launcher.label.trim() === '') {
         add(errors, 'config.launcher.label', t('builder.validation.required'));
+    } else if (launcher.label.length > LIMITS.launcherLabelLength) {
+        add(
+            errors,
+            'config.launcher.label',
+            t('builder.validation.too_long', {
+                max: LIMITS.launcherLabelLength,
+            }),
+        );
     }
 
     if (
@@ -1055,6 +1377,14 @@ export function validateBuilderDoc(
             errors,
             'config.launcher.avatarUrl',
             t('builder.validation.https_url'),
+        );
+    }
+
+    if (Object.keys(config.texts).length > LIMITS.maxTextLocales) {
+        add(
+            errors,
+            'config.texts',
+            t('builder.validation.too_many', { max: LIMITS.maxTextLocales }),
         );
     }
 
@@ -1098,25 +1428,16 @@ export function validateBuilderDoc(
         }
     }
 
-    config.hours.schedule.forEach((entry, index) => {
-        const path = `config.hours.schedule.${index}`;
+    validateSchedule(config.hours.schedule, errors, t);
+    validateHolidays(config.hours.holidays, errors, t);
 
-        if (!isTime(entry.start) || !isTime(entry.end)) {
-            add(errors, path, t('builder.validation.time'));
-        } else if (timeToMinutes(entry.end) <= timeToMinutes(entry.start)) {
-            add(errors, path, t('builder.validation.time_order'));
-        }
-    });
-
-    config.hours.holidays.forEach((holiday, index) => {
-        const path = `config.hours.holidays.${index}`;
-
-        if (!isIsoDate(holiday.date)) {
-            add(errors, path, t('builder.validation.date'));
-        } else if (holiday.label.length > 80) {
-            add(errors, path, t('builder.validation.too_long', { max: 80 }));
-        }
-    });
+    if (doc.greetings.length > LIMITS.maxGreetings) {
+        add(
+            errors,
+            'greetings',
+            t('builder.validation.too_many', { max: LIMITS.maxGreetings }),
+        );
+    }
 
     doc.greetings.forEach((greeting, index) => {
         const path = `greetings.${index}`;
@@ -1129,6 +1450,19 @@ export function validateBuilderDoc(
                 `${path}.body`,
                 t('builder.validation.too_long', {
                     max: LIMITS.greetingBodyLength,
+                }),
+            );
+        }
+
+        if (
+            greeting.agent_name !== null &&
+            greeting.agent_name.length > LIMITS.greetingAgentNameLength
+        ) {
+            add(
+                errors,
+                `${path}.agent_name`,
+                t('builder.validation.too_long', {
+                    max: LIMITS.greetingAgentNameLength,
                 }),
             );
         }
@@ -1157,6 +1491,14 @@ export function validateBuilderDoc(
         }
     });
 
+    if (doc.domains.length > LIMITS.maxDomains) {
+        add(
+            errors,
+            'domains',
+            t('builder.validation.too_many', { max: LIMITS.maxDomains }),
+        );
+    }
+
     doc.domains.forEach((domain, index) => {
         const result = normaliseDomainEntry(domain);
 
@@ -1176,10 +1518,18 @@ export function validateBuilderDoc(
 /* Save payloads                                                              */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * The body of the settings PATCH: only what changed. `is_enabled` is never part of it; going live or
+ * offline is its own confirmed action (`enabled`), not a side effect of saving other settings.
+ */
 export function settingsPatch(state: BuilderState): Partial<BuilderSettings> {
     const patch: Record<string, unknown> = {};
 
     for (const key of Object.keys(state.doc.settings) as SettingsKey[]) {
+        if (key === 'is_enabled') {
+            continue;
+        }
+
         if (!deepEqual(state.doc.settings[key], state.saved.settings[key])) {
             patch[key] = state.doc.settings[key];
         }
@@ -1188,10 +1538,12 @@ export function settingsPatch(state: BuilderState): Partial<BuilderSettings> {
     return patch as Partial<BuilderSettings>;
 }
 
-/** The draft config as sent: blank text overrides removed so the widget keeps falling back. */
-export function draftPayload(config: WidgetConfigData): {
-    config: WidgetConfigData;
-} {
+/**
+ * The draft config as the server will keep it: blank text overrides removed so the widget keeps
+ * falling back, and a cleared launcher label back at its default (the server turns an empty string
+ * into `null`, and `null` means "use the default").
+ */
+export function normaliseDraft(config: WidgetConfigData): WidgetConfigData {
     const texts: WidgetConfigData['texts'] = {};
 
     for (const [locale, block] of Object.entries(config.texts)) {
@@ -1200,7 +1552,24 @@ export function draftPayload(config: WidgetConfigData): {
         );
     }
 
-    return { config: { ...config, texts } };
+    return {
+        ...config,
+        texts,
+        launcher: {
+            ...config.launcher,
+            label:
+                config.launcher.label.trim() === ''
+                    ? defaultWidgetConfig().launcher.label
+                    : config.launcher.label,
+        },
+    };
+}
+
+/** The body of `PUT /widgets/{ulid}/draft`. */
+export function draftPayload(config: WidgetConfigData): {
+    config: WidgetConfigData;
+} {
+    return { config: normaliseDraft(config) };
 }
 
 export function greetingsPayload(greetings: GreetingDraft[]) {

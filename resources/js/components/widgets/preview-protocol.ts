@@ -81,6 +81,31 @@ export function restyleOverrides(config: WidgetConfigData) {
     return { defaultLocale, theme, launcher, texts, greetings };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Did the edit from `previous` to `next` take something away (a text override cleared, an icon /
+ * avatar / font URL emptied, a language removed)? A runtime `ChatFeature('update', ...)` only ever
+ * adds and overrides, so such a removal is invisible to the running loader until it boots again.
+ */
+export function dropsOverrides(previous: unknown, next: unknown): boolean {
+    if (isRecord(previous) && isRecord(next)) {
+        return Object.entries(previous).some(([key, value]) =>
+            key in next
+                ? dropsOverrides(value, next[key])
+                : value !== undefined && value !== null,
+        );
+    }
+
+    return (
+        previous !== undefined &&
+        previous !== null &&
+        (next === undefined || next === null)
+    );
+}
+
 export type HostStatus = {
     ns: typeof PREVIEW_HOST_NS;
     v: typeof PROTOCOL_VERSION;

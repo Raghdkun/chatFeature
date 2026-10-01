@@ -22,7 +22,9 @@ describe('slugify', () => {
         expect(slugify('  Billing & Invoices!  ')).toBe('billing-invoices');
         expect(slugify('Café Crème')).toBe('cafe-creme');
         expect(slugify('---')).toBe('');
-        expect(slugify('a'.repeat(120))).toHaveLength(80);
+        expect(slugify('a'.repeat(120))).toHaveLength(64);
+        // A cut never leaves a trailing dash (the server pattern rejects it).
+        expect(slugify(`${'a'.repeat(63)}-bcd`)).toBe('a'.repeat(63));
     });
 });
 
@@ -101,7 +103,7 @@ describe('validateCategoryForm', () => {
                 slug: 'Bad Slug',
                 slugTouched: true,
                 color: 'teal',
-                description: 'x'.repeat(501),
+                description: 'x'.repeat(1001),
                 names: [row, duplicate, duplicate2, noName],
             },
             t,
@@ -128,6 +130,29 @@ describe('validateCategoryForm', () => {
                 t,
             ),
         ).toEqual({});
+    });
+});
+
+describe('mapCategoryErrors with row labels', () => {
+    it('names the translation row instead of the dotted attribute', () => {
+        const first = newLocaleRow('fr', 'x');
+        const second = newLocaleRow('ar', 'y');
+        const errors = mapCategoryErrors(
+            {
+                'name_i18n.ar': [
+                    'The name i18n.ar field must not be greater than 120 characters.',
+                ],
+                'name_i18n.zz': ['The name i18n.zz field is invalid.'],
+            },
+            { ...emptyCategoryForm(), names: [first, second] },
+            (n) => `Name in translation ${n}`,
+        );
+
+        expect(errors[`names.${second.id}`]).toBe(
+            'The Name in translation 2 field must not be greater than 120 characters.',
+        );
+        // Unknown locale: no row to attach it to, but still readable.
+        expect(errors.name_i18n).toBe('The name i18n zz field is invalid.');
     });
 });
 

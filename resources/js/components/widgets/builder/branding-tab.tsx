@@ -24,10 +24,10 @@ import {
 } from '@/components/widgets/form-bits';
 import { Button } from '@/components/ui/button';
 import { useTrans } from '@/hooks/use-trans';
+import { LIMITS } from '@/lib/limits';
 import {
     FONT_URL_HOSTS,
     LAUNCHER_PIXELS,
-    LIMITS,
     readableTextOn,
 } from '@/lib/widget-config';
 import type {
@@ -366,7 +366,7 @@ export function BrandingTab({ state, dispatch }: TabProps) {
                     }
                     value={launcher.label}
                     onValueChange={(label) => patchLauncher({ label })}
-                    maxLength={40}
+                    maxLength={LIMITS.launcherLabelLength}
                     error={err('config.launcher.label')}
                 />
 

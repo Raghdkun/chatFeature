@@ -2,7 +2,12 @@ import { describedBy, Field } from '@/components/setup/field';
 import { NativeSelect } from '@/components/setup/native-select';
 import { i18n } from '@/hooks/use-trans';
 import { localeLabel } from '@/lib/i18n';
-import { formatTimeZone, getTimeZones, groupTimeZones } from '@/lib/timezones';
+import {
+    canonicalTimeZone,
+    formatTimeZone,
+    getTimeZones,
+    groupTimeZones,
+} from '@/lib/timezones';
 import { LOCALE_SUGGESTIONS } from '@/lib/widget-config';
 
 /** Locales worth offering: the app's own, the common widget languages and whatever is already used. */
@@ -76,13 +81,15 @@ export function TimeZoneSelect({
     hint?: string;
     error?: string;
 }) {
-    const groups = groupTimeZones(getTimeZones(value));
+    // A saved legacy name (Asia/Calcutta) is shown, and from then on sent, under its canonical name.
+    const current = canonicalTimeZone(value);
+    const groups = groupTimeZones(getTimeZones(current));
 
     return (
         <Field id={id} label={label} hint={hint} error={error}>
             <NativeSelect
                 id={id}
-                value={value}
+                value={current}
                 onChange={(event) => onValueChange(event.target.value)}
                 aria-invalid={error ? true : undefined}
                 aria-describedby={describedBy(id, { hint, error })}

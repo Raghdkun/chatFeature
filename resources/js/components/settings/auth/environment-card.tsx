@@ -3,6 +3,7 @@ import { PlugZap, Save } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { When } from '@/components/settings/auth/health-card';
+import { EnvironmentProblems } from '@/components/setup/environment-problems';
 import {
     PizzasysEnvironmentFields,
     type EnvErrorField,
@@ -29,7 +30,10 @@ import { authSettingsRoutes } from '@/lib/auth-settings-routes';
 import {
     environmentValuesFrom,
     isEnvironmentDirty,
+    natsTokenRequired,
+    serviceTokenRequired,
     settingsEnvironmentPayload,
+    unplacedEnvironmentErrors,
     validateEnvironment,
     type EnvFormValues,
     type FieldIssues,
@@ -65,6 +69,10 @@ export function EnvironmentCard({
     const formRef = useRef<HTMLFormElement>(null);
     const { errors, processing, submit, clearError } = useAuthFormSubmit();
     const dirty = isEnvironmentDirty(values, env);
+    // Changing the portal address / service name / TLS check (or the NATS address) asks for the token again.
+    const needsServiceToken = serviceTokenRequired(values, env);
+    const needsNatsToken = natsTokenRequired(values, env);
+    const problems = unplacedEnvironmentErrors(errors);
     const running = result.status === 'running';
     const key = env.key;
     const prefix = `settings-auth-env-${key}`;
@@ -110,6 +118,7 @@ export function EnvironmentCard({
 
         const found = validateEnvironment(values, {
             hasSavedToken: env.has_service_token,
+            saved: env,
         });
 
         setIssues(found);
@@ -213,12 +222,18 @@ export function EnvironmentCard({
                 data-testid={`${prefix}-form`}
                 className="grid gap-6"
             >
-                <CardContent>
+                <CardContent className="grid gap-5">
+                    <EnvironmentProblems
+                        problems={problems}
+                        testId={`${prefix}-problems`}
+                    />
                     <PizzasysEnvironmentFields
                         idPrefix={prefix}
                         values={values}
                         hasServiceToken={env.has_service_token}
                         hasNatsToken={env.has_nats_token}
+                        serviceTokenRequired={needsServiceToken}
+                        natsTokenRequired={needsNatsToken}
                         showLabel
                         allowClearNatsToken
                         layout="stacked"

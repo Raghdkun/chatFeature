@@ -9,6 +9,7 @@
  *
  * Framework-free so it can be tested with a fake `fetch`.
  */
+import { humaniseField, withFieldLabel } from '@/lib/validation-messages';
 import { widgetsRoutes } from '@/lib/widgets-routes';
 
 /**
@@ -386,7 +387,12 @@ export function describeApiError(error: unknown, t: Translate): string {
     }
 
     if (error.isValidation) {
-        return error.firstMessage() ?? error.message;
+        const [field, messages] = Object.entries(error.details)[0] ?? [];
+
+        // The server's text, minus the dotted attribute it embeds ("The config.x.y field ...").
+        return field !== undefined && messages?.[0]
+            ? withFieldLabel(messages[0], field, humaniseField(field))
+            : error.message;
     }
 
     return error.message || t('widgets.api.error.unknown');

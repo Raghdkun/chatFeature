@@ -97,6 +97,23 @@ describe('Auth Portal login: where you are signing in', () => {
         }
     });
 
+    it('hides every link to the portal when the server gives no address (public host only)', async () => {
+        resetInertiaMock(
+            guest('pizzasys', { ...portalCapabilities, portalUrl: null }),
+        );
+
+        const view = await render(<Login />);
+        const hint = view.byTestId('login-portal-hint');
+
+        // The badge and the "ask a portal administrator" line stay; there is nothing to link to.
+        expect(hint?.textContent).toContain('Auth Portal');
+        expect(hint?.textContent).toContain('ask a portal administrator');
+        expect(hint?.querySelector('a')).toBeNull();
+        expect(view.container.querySelector('a[target="_blank"]')).toBeNull();
+        expect(view.text()).not.toContain('Open Auth Portal');
+        expect(view.text()).not.toContain('Reset it in the portal');
+    });
+
     it('does not show it for local sign-in', async () => {
         resetInertiaMock(guest('fortify', fortifyCapabilities));
 

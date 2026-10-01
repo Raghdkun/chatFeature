@@ -7,12 +7,14 @@ import {
     FieldSet,
     SectionCard,
     SegmentedChoice,
+    SwitchRow,
 } from '@/components/widgets/form-bits';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useTrans } from '@/hooks/use-trans';
 import { directionFor, localeLabel } from '@/lib/i18n';
+import { LIMITS, LOCALE_CODE_LENGTH } from '@/lib/limits';
 import {
     configLocales,
     DEFAULT_TEXTS_EN,
@@ -86,7 +88,7 @@ export function TextsTab({ state, dispatch }: TabProps) {
 
                 <FieldSet
                     legend={t('builder.texts.add_language')}
-                    error={addError}
+                    error={addError ?? firstError(state.errors, 'config.texts')}
                 >
                     <datalist id={`${uid}-suggestions`}>
                         {LOCALE_SUGGESTIONS.filter(
@@ -111,6 +113,7 @@ export function TextsTab({ state, dispatch }: TabProps) {
                             }}
                             aria-label={t('builder.texts.language_code')}
                             placeholder="ar, fr, pt-BR"
+                            maxLength={LOCALE_CODE_LENGTH}
                             dir="ltr"
                             spellCheck={false}
                             autoComplete="off"
@@ -128,6 +131,20 @@ export function TextsTab({ state, dispatch }: TabProps) {
                         </Button>
                     </div>
                 </FieldSet>
+
+                <SwitchRow
+                    id={`${uid}-detect`}
+                    label={t('builder.general.locale_detect')}
+                    description={t('builder.general.locale_detect_hint')}
+                    checked={config.localeDetect}
+                    onCheckedChange={(value) =>
+                        dispatch({
+                            type: 'config/root',
+                            patch: { localeDetect: value },
+                        })
+                    }
+                    testId="builder-locale-detect"
+                />
             </SectionCard>
 
             <SectionCard
@@ -209,7 +226,7 @@ export function TextsTab({ state, dispatch }: TabProps) {
                                         <Textarea
                                             {...common}
                                             rows={2}
-                                            maxLength={500}
+                                            maxLength={LIMITS.textLength}
                                             onChange={(event) =>
                                                 onValue(event.target.value)
                                             }
@@ -217,7 +234,7 @@ export function TextsTab({ state, dispatch }: TabProps) {
                                     ) : (
                                         <Input
                                             {...common}
-                                            maxLength={160}
+                                            maxLength={LIMITS.textLength}
                                             onChange={(event) =>
                                                 onValue(event.target.value)
                                             }
