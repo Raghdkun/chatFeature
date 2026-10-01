@@ -69,6 +69,50 @@ describe('boot', () => {
         expect(h.state().phase).toBe('prechat');
     });
 
+    it('does not hold the first screen back for a slow config call, and applies its answer when it arrives', async () => {
+        const backend = useBackend();
+        const base = bootConfig().config as object;
+        const { createVisitorApi } = await import('@/lib/chat-api/visitor');
+        let release: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const h = createHarness({
+            backend,
+            deps: {
+                configTimeoutMs: 30,
+                createApi: (options) => {
+                    const real = createVisitorApi(options);
+
+                    return {
+                        ...real,
+                        getConfig: async (locale?: string) => {
+                            await gate;
+
+                            return real.getConfig(locale);
+                        },
+                    };
+                },
+            },
+        });
+
+        // the loader's copy says "open"; the config call (late) will say nobody is available
+        await h.init(makeInit({ boot: loaderBoot({ config: base }) }));
+        expect(h.state().phase).toBe('prechat');
+
+        backend.state.availability = {
+            online: false,
+            openNow: true,
+            nextOpenAt: null,
+            categories: [],
+            whatsapp: { enabled: false },
+        };
+        release();
+        await until(() => h.state().phase === 'offline');
+
+        expect(h.state().offline.reason).toBe('no_agents');
+    });
+
     it('creates no session and opens no socket just because the panel opened', async () => {
         const backend = useBackend();
         const h = createHarness({ backend });

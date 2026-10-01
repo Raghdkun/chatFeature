@@ -630,15 +630,33 @@ export class ChatController {
             return;
         }
 
+        const request = this.api.getConfig(config.locale);
         const fresh = await withTimeout(
-            this.api.getConfig(config.locale),
-            this.deps.configTimeoutMs ?? 2500,
+            request,
+            this.deps.configTimeoutMs ?? 1500,
         );
 
         if (fresh !== null) {
             this.fresh = fresh;
             this.lastAvailabilityAt = this.now();
+
+            return;
         }
+
+        // Too slow to hold the first screen back (the loader's boot copy already carries everything the picker needs): render from
+        // that copy, and let the answer correct availability (and anything else it changes) whenever it does arrive.
+        void request.then(
+            (late) => {
+                if (this.disposed) {
+                    return;
+                }
+
+                this.fresh = late;
+                this.lastAvailabilityAt = this.now();
+                this.reconfigure();
+            },
+            () => undefined,
+        );
     }
 
     private async ensureBuiltin(): Promise<void> {
