@@ -240,7 +240,8 @@ Facts the view specs established (all fixed in product, each with its own commit
 - **Mixed-language chats**: `dir="auto"` on message text and previews.
 - **axe's default mode breaks a mobile-emulated page**: it finishes its run in a blank page it opens in the same context, and afterwards the original page ignores clicks in its lower part (below about 760 of 839 px) for the rest of the test (found when a phone-profile test could not press a form's submit button after its first scan; re-applying the viewport or `bringToFront()` does not help). The lab scans in legacy mode (`setLegacyMode(true)`, no second page) and gives the panel's iframe to axe as the root document, because legacy mode does not enter cross-origin frames.
 - **The login form is limited to 30 attempts a minute per client address** (and 5 per e-mail and address): the lab signs every tenant agent in with its own `X-Forwarded-For` (the P4 servers trust it).
-- Kit `TabsTrigger` (60% foreground on the muted track) is 4.46:1: the transfer dialog's tabs use 75%.
+- Kit `TabsTrigger` (60% foreground on the muted track) is 4.46:1: the transfer dialog's tabs use 75%. The inbox's image lightbox failed axe's `target-size` (WCAG 2.5.8) on a phone (16 px close button on the picture's corner, a 20 px link): the picture starts below the button and the link is 24 px high.
+- The end-chat dialog's focus trap used the wrong ends (confirm comes first in the document): Tab on "Keep chatting" left the dialog. The history filter bar's actions overlapped the date fields at 1280-1535 px (eight controls in a row).
 - Open observations, not fixed: the history table at 768-1279 px scrolls inside its container (the cards layout starts below 768 px); the dashboard's inbox strings exist in English only (the Arabic run shows them mirrored in English).
 
 ### Known issues the watch tolerates

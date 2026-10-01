@@ -568,7 +568,7 @@ test.describe('visitor panel, other looks', () => {
         // Every websocket of the visitor's page goes through a route that can refuse it.
         await visitor.context.routeWebSocket(/\/app\//, (route) => {
             if (down) {
-                route.close({ code: 4100 });
+                void route.close({ code: 4100 });
 
                 return;
             }
