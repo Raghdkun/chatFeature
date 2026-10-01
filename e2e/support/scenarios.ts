@@ -77,6 +77,8 @@ type Definition = {
      * (`http://localhost:<port>` vs `http://127.0.0.1:<app port>`): the cross-origin embed tests drive it.
      */
     hostPort?: number;
+    /** Extra environment of the instance's server and artisan calls (after the defaults). */
+    env?: Record<string, string>;
     /** Only started when E2E_SCREENSHOTS=1. */
     screenshotsOnly?: boolean;
     /**
@@ -260,6 +262,9 @@ const DEFINITIONS: Record<ScenarioName, Definition> = {
         mode: 'local',
         seed: 'staff',
         hostPort: 8247,
+        // The limits are per client address: trust X-Forwarded-For so every test can be its own "client" (a retry or a repeat
+        // never meets the budget an earlier attempt spent).
+        env: { TRUSTED_PROXIES: '*' },
     },
     // Real wizard runs, in token mode, that the screenshot spec walks through for the deck.
     'shots-desktop': {
@@ -349,6 +354,8 @@ function build(
         // requests would serialize otherwise.
         PHP_CLI_SERVER_WORKERS: '4',
     };
+
+    Object.assign(env, definition.env ?? {});
 
     if (definition.mode === 'token') {
         env.APP_INSTALLED = 'false';

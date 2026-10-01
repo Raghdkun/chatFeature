@@ -5,17 +5,14 @@ import { expect, test } from '../support/test';
 /**
  * Rate limits of the public widget endpoints (config.chat.rate_limits: 300 requests a minute per client address and widget, 60
  * lookups a minute of keys that do not exist). Hammers the endpoint on purpose, so it has a server of its own (`p3-limits`):
- * the limits are per client address and would otherwise starve the other specs.
+ * the limits are per client address and would otherwise starve the other specs. The server trusts X-Forwarded-For here, so every test is
+ * a client of its own (a retry, a repeat or the other project never meets a budget somebody else spent).
  */
 test.use({ scenario: 'p3-limits' });
 
-// One server for both projects: only one of them may hammer it (the budgets are per client address).
-test.beforeEach(({ scenario }, testInfo) => {
-    test.skip(
-        scenario !== undefined && testInfo.project.name === 'mobile',
-        'the desktop project hammers the shared server',
-    );
-});
+/** A private-range address nobody else uses: the server trusts X-Forwarded-For in this scenario, so every test is its own client. */
+const freshClient = () =>
+    `10.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}`;
 
 test("a flood from a listed origin ends in 429 that the visitor's page can still read, and an unlisted origin cannot spend the budget", async ({
     adminApi,
@@ -27,9 +24,10 @@ test("a flood from a listed origin ends in 429 that the visitor's page can still
     const { key } = await liveWidget(adminApi, instance);
     const origin = hostOrigin(instance);
     const url = `/api/v1/public/widgets/${key}/config`;
+    const client = freshClient();
     const call = (from: string) =>
         request.get(url, {
-            headers: { Origin: from },
+            headers: { Origin: from, 'X-Forwarded-For': client },
             failOnStatusCode: false,
         });
 
@@ -84,13 +82,17 @@ test('probing keys that do not exist is limited (and does not announce which key
 }) => {
     test.setTimeout(120_000);
 
+    const client = freshClient();
     let limited = -1;
 
     for (let attempt = 1; attempt <= 90; attempt += 1) {
         const response = await request.get(
             '/api/v1/public/widgets/wk_doesnotexist0000000/config',
             {
-                headers: { Origin: 'http://probe.example.net' },
+                headers: {
+                    Origin: 'http://probe.example.net',
+                    'X-Forwarded-For': client,
+                },
                 failOnStatusCode: false,
             },
         );
