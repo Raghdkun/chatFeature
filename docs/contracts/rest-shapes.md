@@ -98,9 +98,11 @@ Resource shapes (`Message`, `ConversationPublic`, `ConversationStaff`) are defin
 
 ### Public (visitor bearer `vt_…`, `widget` group)
 
+Session creation is scoped to a widget (`POST /public/widgets/{key}/sessions`) and goes through the same gate as the P3 config endpoint (`ShieldPublicWidgets` -> `ThrottlePublicNetwork` -> `AuthorizeWidgetOrigin` -> its own `public-session` limiter), because that is where the widget and the browser `Origin` are checked. Every later call carries only the visitor bearer token (`visitor` middleware); the token is bound to its widget, so those endpoints answer `404 widget_not_found` when the widget has been disabled or deleted since, and still apply the per-token limiters.
+
 | Method + path | Request | Response |
 |---|---|---|
-| `POST /public/sessions` | `{ identity_token?, visitor?: {name?,email?,phone?,meta?}, page: {url,title,referrer}, locale }` | `201 { data: { visitorToken, expiresAt, conversation: ConversationPublic \| null, ws: { key, host, port, scheme } } }`. The plaintext token is returned **once**; only its sha256 is stored. A returning token resumes only a still-open conversation. |
+| `POST /public/widgets/{key}/sessions` | `{ identity_token?, visitor?: {name?,email?,phone?,meta?}, page: {url,title,referrer}, locale }` | `201 { data: { visitorToken, expiresAt, conversation: ConversationPublic \| null, ws: { key, host, port, scheme } } }`. The plaintext token is returned **once**; only its sha256 is stored. A returning token resumes only a still-open conversation. |
 | `DELETE /public/sessions` | — | `204` (revokes the token). |
 | `GET /public/conversation` | — | `200 { data: ConversationPublic \| null }` (the current session's conversation only — visitors never list history). |
 | `POST /public/conversations` | `{ category: slug, name?, email?, phone?, message?, consent?: bool }` (pre-chat rules from widget config are enforced server-side) | `201 { data: ConversationPublic }` queued · `409 no_agents` (offer the offline form) · `409 conversation_exists` · `422`. |
