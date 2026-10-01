@@ -391,10 +391,11 @@ describe('mode 1 (local staff)', () => {
         expect(rowIds(view.container)).toHaveLength(3);
     });
 
-    it('activates / deactivates and toggles the agent role through PATCH', async () => {
+    it('activates / deactivates through PATCH and lets an admin stop or start taking chats', async () => {
         // A tiny stateful server: every PATCH merges into what it already stores.
         const stored = new Map([
             [1, { ...AGENTS[0] }],
+            [2, { ...AGENTS[1] }],
             [3, { ...AGENTS[2] }],
         ]);
         const patch = (id: number) => (call: { body: unknown }) => {
@@ -406,20 +407,27 @@ describe('mode 1 (local staff)', () => {
         };
         const api = fakeApi({
             'PATCH /api/v1/agents/1': patch(1),
+            'PATCH /api/v1/agents/2': patch(2),
             'PATCH /api/v1/agents/3': patch(3),
         });
         const view = await render(<AgentsIndex {...props()} />);
 
         await click(byTestId(view.container, 'agent-active-1'));
         await flush();
-        await click(byTestId(view.container, 'agent-role-1'));
+        // Omar is an admin who does not take chats yet: switch it on, then off again.
+        await click(byTestId(view.container, 'agent-role-2'));
+        await flush();
+        await click(byTestId(view.container, 'agent-role-2'));
         await flush();
         await click(byTestId(view.container, 'agent-active-3'));
         await flush();
 
         expect(
             api.to('PATCH', '/api/v1/agents/1').map((call) => call.body),
-        ).toEqual([{ is_active: false }, { is_agent: false }]);
+        ).toEqual([{ is_active: false }]);
+        expect(
+            api.to('PATCH', '/api/v1/agents/2').map((call) => call.body),
+        ).toEqual([{ is_agent: true }, { is_agent: false }]);
         expect(api.bodyOf('PATCH', '/api/v1/agents/3')).toEqual({
             is_active: true,
         });
@@ -428,8 +436,63 @@ describe('mode 1 (local staff)', () => {
                 'aria-checked',
             ),
         ).toBe('false');
-        // Admins keep their role: no agent switch on their row.
-        expect(byTestId(view.container, 'agent-role-2')).toBeNull();
+    });
+
+    it('offers "Takes chats" on admin rows only: the server refuses is_agent=false for agents ("Agents always take chats")', async () => {
+        const view = await render(<AgentsIndex {...props()} />);
+
+        // Sara (agent) always takes chats: nothing to switch.
+        expect(byTestId(view.container, 'agent-role-1')).toBeNull();
+        // Omar (admin) may or may not take chats.
+        const omar = byTestId(view.container, 'agent-role-2');
+
+        expect(omar).not.toBeNull();
+        expect(omar?.getAttribute('aria-checked')).toBe('false');
+        expect(view.byTestId('agent-row-2')?.textContent).toContain(
+            'Takes chats',
+        );
+        expect(view.byTestId('agent-row-1')?.textContent).not.toContain(
+            'Takes chats',
+        );
+    });
+
+    it('reflects an admin who already takes chats and rolls the switch back when the server says no', async () => {
+        const admin = { ...AGENTS[1], is_agent: true };
+        const api = fakeApi({
+            'PATCH /api/v1/agents/2': {
+                status: 409,
+                json: {
+                    error: {
+                        code: 'managed_by_auth_portal',
+                        message: 'This is managed by the Auth Portal.',
+                    },
+                },
+            },
+        });
+        const view = await render(
+            <AgentsIndex {...props({ agents: [AGENTS[0], admin] })} />,
+        );
+
+        expect(
+            byTestId(view.container, 'agent-role-2')?.getAttribute(
+                'aria-checked',
+            ),
+        ).toBe('true');
+
+        await click(byTestId(view.container, 'agent-role-2'));
+        await flush();
+
+        expect(api.bodyOf('PATCH', '/api/v1/agents/2')).toEqual({
+            is_agent: false,
+        });
+        expect(
+            byTestId(view.container, 'agent-role-2')?.getAttribute(
+                'aria-checked',
+            ),
+        ).toBe('true');
+        expect(toast.error).toHaveBeenCalledWith(
+            'This is managed by the Auth Portal.',
+        );
     });
 
     it('rolls the active switch back when the server says it is managed elsewhere', async () => {
@@ -563,6 +626,8 @@ describe('mode 2 (Auth Portal)', () => {
                 .disabled,
         ).toBe(true);
         expect(byTestId(view.container, 'agent-role-1')).toBeNull();
+        // Roles come from the portal: not even an admin row has the switch.
+        expect(byTestId(view.container, 'agent-role-2')).toBeNull();
         expect(byTestId(view.container, 'agent-source-1')?.textContent).toBe(
             'Local account',
         );

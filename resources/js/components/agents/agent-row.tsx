@@ -143,7 +143,8 @@ export function AgentRow({
                                 : t('agents.inactive')}
                         </Label>
                     </div>
-                    {canManageStaff && !agent.is_admin && (
+                    {/* The server only lets an admin stop taking chats (UpdateAgent: "Agents always take chats"). */}
+                    {canManageStaff && agent.is_admin && (
                         <div className="flex items-center gap-2">
                             <Switch
                                 id={roleId}
