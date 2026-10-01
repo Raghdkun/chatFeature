@@ -52,18 +52,23 @@ final class AvailableAgents
     }
 
     /**
-     * Available agents per category (both `online` and `away`), for the public availability endpoint.
+     * Available agents per category, for the public availability endpoint. `$statuses` are the ones the widget's routing waves can
+     * offer a chat to (`RoutingPlan::allStatuses()`), the same set `StartConversation` checks, so the two always agree; null means
+     * `online` and `away`.
      *
      * @param  list<int>  $categoryIds
+     * @param  list<PresenceStatus>|null  $statuses
      * @return array<int, int> category id => number of available agents (missing ids count as 0)
      */
-    public function countByCategory(array $categoryIds): array
+    public function countByCategory(array $categoryIds, ?array $statuses = null): array
     {
-        if ($categoryIds === []) {
+        $statuses ??= [PresenceStatus::Online, PresenceStatus::Away];
+
+        if ($categoryIds === [] || $statuses === []) {
             return [];
         }
 
-        $rows = $this->base([PresenceStatus::Online, PresenceStatus::Away])
+        $rows = $this->base($statuses)
             ->join('category_user', 'category_user.user_id', '=', 'users.id')
             ->whereIn('category_user.category_id', $categoryIds)
             ->groupBy('category_user.category_id')
