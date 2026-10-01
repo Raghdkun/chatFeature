@@ -14,7 +14,7 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 final class ApiProblemException extends HttpException
 {
     /**
-     * @param  array<string, array<int, string>>|null  $details
+     * @param  array<string, mixed>|null  $details  field => messages (validation), or a plain value (`already_claimed` carries `by`)
      * @param  array<string, string>  $headers
      */
     public function __construct(
