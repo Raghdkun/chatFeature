@@ -44,7 +44,7 @@ export const LIMITS = {
 
     /* Domains: app/Http/Requests/Widgets/ReplaceDomainsRequest.php */
     maxDomains: 50,
-    domainEntryLength: 260,
+    domainEntryLength: 255,
 
     /* Categories: app/Http/Requests/Catalog/StoreCategoryRequest.php + Domain/Catalog/Support/CategorySlugger.php */
     categoryNameLength: 120,

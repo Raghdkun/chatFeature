@@ -15,6 +15,7 @@ import {
 const php = import.meta.glob<string>(
     [
         '/app/Domain/Widgets/Config/WidgetConfigValidator.php',
+        '/app/Domain/Widgets/Origin/OriginMatcher.php',
         '/app/Domain/Catalog/Support/CategorySlugger.php',
         '/app/Http/Requests/Widgets/*.php',
         '/app/Http/Requests/Catalog/StoreCategoryRequest.php',
@@ -181,7 +182,10 @@ describe('greetings and domains', () => {
 
     it('matches the domain rules', () => {
         expect(LIMITS.maxDomains).toBe(constant(domains, 'MAX_DOMAINS'));
-        expect(LIMITS.domainEntryLength).toBe(max(domains, 'domains.*'));
+        // The request rule references `OriginMatcher::MAX_STORED_LENGTH` (the varchar(255) column width).
+        expect(LIMITS.domainEntryLength).toBe(
+            constant('OriginMatcher.php', 'MAX_STORED_LENGTH'),
+        );
     });
 });
 
