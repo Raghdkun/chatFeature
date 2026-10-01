@@ -68,6 +68,11 @@ final class ApiErrorRenderer
             );
         }
 
+        // Anything else is a 500: keep the documented envelope (never leak details in production).
+        if (! config('app.debug')) {
+            return self::json('server_error', __('Something went wrong on our side.'), 500);
+        }
+
         return null;
     }
 

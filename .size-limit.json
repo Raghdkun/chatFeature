@@ -1,0 +1,8 @@
+[
+    {
+        "name": "widget loader (gzip)",
+        "path": "public/widget/v1/loader.js",
+        "limit": "15 KB",
+        "gzip": true
+    }
+]
