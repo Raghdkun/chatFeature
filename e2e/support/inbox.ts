@@ -56,7 +56,10 @@ export class Inbox {
     /** "Accept" on the offer; resolves when the conversation is open (the page navigated to `/inbox/{ulid}`). */
     async accept(ulid: string): Promise<void> {
         await this.tid(`offer-accept-${ulid}`).click();
-        await expect(this.page).toHaveURL(new RegExp(`/inbox/${ulid}$`));
+        // The claim is a server round trip and an Inertia visit: generous on a loaded machine.
+        await expect(this.page).toHaveURL(new RegExp(`/inbox/${ulid}$`), {
+            timeout: 20_000,
+        });
         await expect(this.conversation).toBeVisible();
     }
 

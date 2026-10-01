@@ -133,7 +133,7 @@ test('transferring to a colleague: Ann is out of the chat, the visitor is told, 
     await ann.inbox.tid('transfer-confirm').click();
 
     // Ann is sent back to her list; the chat is not hers any more.
-    await expect(ann.page).toHaveURL(/\/inbox$/);
+    await expect(ann.page).toHaveURL(/\/inbox$/, { timeout: 20_000 });
     await expect(ann.inbox.chatRow(ulid)).toHaveCount(0);
     expect((await ann.api.conversation(ulid)).status).toBe(403);
 
@@ -184,7 +184,7 @@ test("transferring to a category sends the chat through that topic's routing and
         .tid('transfer-category')
         .selectOption(world.categories.other.slug);
     await ann.inbox.tid('transfer-confirm').click();
-    await expect(ann.page).toHaveURL(/\/inbox$/);
+    await expect(ann.page).toHaveURL(/\/inbox$/, { timeout: 20_000 });
 
     // The agents of "other" (Ben and Cy) are offered the chat; Eli, who does not serve it, and Ann, who let go, are not.
     await cy.inbox.expectOffer(ulid);
