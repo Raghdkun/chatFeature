@@ -53,6 +53,22 @@ final class AvailabilityService
     }
 
     /**
+     * Drop the cached answer of one widget (its agents' presence changed; the next request recomputes it).
+     */
+    public function forget(Widget $widget): void
+    {
+        $this->cache->repository()->forget($this->cache->key($widget, 'availability'));
+    }
+
+    /**
+     * Whether the widget's published opening hours say it is open at `$now` (agents not considered).
+     */
+    public function isOpenAt(Widget $widget, CarbonImmutable $now): bool
+    {
+        return OpeningHours::fromConfig($this->configs->hydrate($widget->config)->hours, $widget->offline_mode, $widget->timezone)->isOpen($now);
+    }
+
+    /**
      * Uncached computation at a given instant (used by tests and by `forWidget`).
      */
     public function compute(Widget $widget, CarbonImmutable $now): AvailabilityData
