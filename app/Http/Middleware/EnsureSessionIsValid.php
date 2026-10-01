@@ -18,9 +18,9 @@ use Symfony\Component\HttpFoundation\Response;
  *
  *  - Revoked: the user is signed out (401 JSON / redirect to the login page).
  *  - Unavailable (mode 2, auth portal down beyond the grace window): the session is KEPT and the request answered
- *    503 (`auth_unavailable`), so a portal outage never logs anybody out. Signing out and Settings > Auth
- *    (`settings.auth.*`) stay reachable: a wrong portal address or service token is the usual reason for that state, and
- *    the administrator must be able to fix it from the dashboard.
+ *    503 (`auth_unavailable`), so a portal outage never logs anybody out. Signing out and the Settings > Auth pages that
+ *    repair the connection stay reachable: a wrong portal address or service token is the usual reason for that state,
+ *    and the administrator must be able to fix it from the dashboard.
  *
  * The verdict is memoised on the request because the middleware runs both in the `web` group and as the
  * `session.valid` alias of a route group.
@@ -31,8 +31,13 @@ final class EnsureSessionIsValid
 
     private const VERDICT_ATTRIBUTE = 'auth.session_verdict';
 
-    /** Routes that keep working while the portal is unreachable (sign out, and the page that repairs its settings). */
-    private const AVAILABLE_WHEN_UNAVAILABLE = ['logout', 'settings.auth.*'];
+    /**
+     * Routes that keep working while the portal is unreachable: sign out, and what repairs the portal settings (the page,
+     * saving/testing an environment, switching the active one). Deliberately NOT `settings.auth.roles.update`: nothing
+     * needs that to repair a connection, and a session that could not be verified for over the grace window (an admin
+     * revoked upstream during the outage) must not be able to change who gets chat access.
+     */
+    private const AVAILABLE_WHEN_UNAVAILABLE = ['logout', 'settings.auth.edit', 'settings.auth.environments.*', 'settings.auth.active-environment'];
 
     /** Seconds a client is told to wait before retrying after a 503. */
     private const RETRY_AFTER_SECONDS = 30;

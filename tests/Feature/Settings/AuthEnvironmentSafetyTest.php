@@ -363,6 +363,16 @@ class AuthEnvironmentSafetyTest extends TestCase
         $this->postJson(route('settings.auth.environments.test', 'production'))->assertOk()->assertJsonPath('ok', false);
     }
 
+    public function test_the_role_mapping_is_not_part_of_the_exemption(): void
+    {
+        $this->signIn();
+        $this->portal->outage('connection');
+        $this->travel(31)->minutes();
+
+        $this->putJson(route('settings.auth.roles.update'), ['admin_permission' => 'chat.admin', 'agent_permission' => 'chat.agent', 'super_roles' => ['super-admin']])
+            ->assertStatus(503);
+    }
+
     public function test_the_administrator_can_repair_a_wrong_address_while_the_portal_is_down(): void
     {
         $this->signIn();
