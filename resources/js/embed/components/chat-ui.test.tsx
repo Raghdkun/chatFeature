@@ -560,6 +560,15 @@ describe('end chat confirmation', () => {
         );
         expect(document.activeElement).toBe(byTestId(c, 'end-chat-keep'));
 
+        // The two buttons are the whole tab cycle, in document order (confirm, then keep): Tab from the last one wraps to the first
+        // and Shift+Tab from the first wraps to the last, instead of leaving the dialog.
+        await press(byTestId(c, 'end-chat-keep'), 'Tab');
+        expect(document.activeElement).toBe(byTestId(c, 'end-chat-confirm'));
+        await press(byTestId(c, 'end-chat-confirm'), 'Tab', {
+            shiftKey: true,
+        });
+        expect(document.activeElement).toBe(byTestId(c, 'end-chat-keep'));
+
         await press(byTestId(c, 'end-chat-keep'), 'Escape');
         expect(byTestId(c, 'end-chat-dialog')).toBeNull();
         expect(h.sent.filter((m) => m.type === 'close')).toHaveLength(0);

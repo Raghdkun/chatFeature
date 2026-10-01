@@ -99,8 +99,9 @@ export function EndChatDialog({ onConfirm }: { onConfirm: () => void }) {
             event.stopPropagation();
             close();
         } else if (event.key === 'Tab') {
-            const first = keep.current;
-            const last = confirm.current;
+            // In document order: the confirm button comes first (the primary action reads first), "Keep chatting" last.
+            const first = confirm.current;
+            const last = keep.current;
 
             if (event.shiftKey && document.activeElement === first) {
                 event.preventDefault();
