@@ -50,7 +50,29 @@ return [
         'public_unknown_keys' => 60,
         'public_widget_ip' => 300,
         'public_widget_origin' => 6000,
+
+        /*
+         * Live chat (P4), per minute. Visitor limits key on the bearer token (or the client network for the unauthenticated
+         * session endpoint); the staff limit keys on the signed-in user.
+         * - public_session_ip / public_session_widget: POST /public/widgets/{key}/sessions per client network / per network + widget key.
+         * - public_message_session: POST messages per visitor session. public_chat_session: every other visitor call (reads, receipts, typing ...).
+         * - public_chat_ip: every visitor call per client network (a shared office NAT needs room).
+         * - public_upload_session: image uploads per visitor session. public_offline_ip / public_offline_session: offline tickets.
+         * - staff_api_user: management chat calls per staff member.
+         */
+        'public_session_ip' => 60,
+        'public_session_widget' => 30,
+        'public_message_session' => 30,
+        'public_chat_session' => 240,
+        'public_chat_ip' => 600,
+        'public_upload_session' => 10,
+        'public_offline_ip' => 10,
+        'public_offline_session' => 3,
+        'staff_api_user' => 600,
     ],
+
+    /* Disk that holds chat attachments (re-encoded images, random paths). Private: files are only served through signed URLs. */
+    'attachments_disk' => env('CHAT_ATTACHMENTS_DISK', 'local'),
 
     /* Signed visitor identities (HS256 JWT minted by the host website). */
     'identity' => [

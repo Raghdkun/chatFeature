@@ -1,0 +1,194 @@
+<?php
+
+namespace App\Domain\Visitors\Actions;
+
+use App\Domain\Chat\Enums\ConversationStatus;
+use App\Domain\Chat\Enums\ConversationType;
+use App\Domain\Visitors\StartedSession;
+use App\Domain\Visitors\VisitorTokenService;
+use App\Domain\Widgets\Identity\IdentityTokenVerifier;
+use App\Domain\Widgets\Identity\VerifiedIdentity;
+use App\Models\Conversation;
+use App\Models\Visitor;
+use App\Models\VisitorSession;
+use App\Models\Widget;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * `POST /public/widgets/{key}/sessions`: a browser opens the chat panel and gets a visitor token.
+ *
+ * - A signed identity (`identity_token`, HS256, verified by `IdentityTokenVerifier`) makes the visitor **verified**: the claims are
+ *   authoritative and a verified visitor is keyed by `external_id` (the token's `sub`), so the same person is one `Visitor` across
+ *   browsers. A token that does not verify is a `422` (never silently downgraded to anonymous). Unsigned `visitor` data is stored
+ *   as given, marked unverified.
+ * - A returning bearer token (an active session of this widget) is rotated: the visitor is kept, a new token is issued and the old one
+ *   revoked. A previous verified visitor is only continued with a fresh identity proof.
+ * - Only a still-open live chat (`queued` / `active`) is resumed: it moves to the new session, and the session that held it is
+ *   revoked, so a chat is never reachable from two tokens. Everything else starts clean (a new visit is a new ticket).
+ */
+final class StartSession
+{
+    public function __construct(
+        private readonly IdentityTokenVerifier $identities,
+        private readonly VisitorTokenService $tokens,
+    ) {}
+
+    /**
+     * @param  array<string, mixed>  $input  `identity_token`, `visitor{name,email,phone,meta}`, `page{url,title,referrer}`, `locale`
+     */
+    public function handle(Widget $widget, array $input, ?string $bearerToken, ?string $userAgent): StartedSession
+    {
+        $identity = $this->identity($widget, $input['identity_token'] ?? null);
+        $previous = $this->previousSession($widget, $bearerToken);
+
+        $started = DB::transaction(function () use ($widget, $input, $identity, $previous, $userAgent): StartedSession {
+            $visitor = $this->visitor($widget, $identity, $previous, (array) ($input['visitor'] ?? []));
+            $page = (array) ($input['page'] ?? []);
+
+            $issued = $this->tokens->issue($visitor, [
+                'page_url' => $this->string($page['url'] ?? null),
+                'page_title' => $this->string($page['title'] ?? null),
+                'referrer' => $this->string($page['referrer'] ?? null),
+                'user_agent' => $userAgent,
+                'locale' => $this->string($input['locale'] ?? null),
+            ]);
+
+            return new StartedSession($issued, $this->resume($visitor, $issued->session));
+        });
+
+        return $started;
+    }
+
+    private function identity(Widget $widget, mixed $token): ?VerifiedIdentity
+    {
+        if (! is_string($token) || $token === '') {
+            return null;
+        }
+
+        $result = $this->identities->verifyForWidget($token, $widget);
+
+        if ($result->identity === null) {
+            throw ValidationException::withMessages(['identity_token' => [__('The identity could not be verified.')]]);
+        }
+
+        return $result->identity;
+    }
+
+    private function previousSession(Widget $widget, ?string $bearerToken): ?VisitorSession
+    {
+        if ($bearerToken === null || $bearerToken === '') {
+            return null;
+        }
+
+        $session = $this->tokens->find($bearerToken);
+
+        return $session !== null && $session->isActive() && $session->widget_id === $widget->id ? $session : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $submitted
+     */
+    private function visitor(Widget $widget, ?VerifiedIdentity $identity, ?VisitorSession $previous, array $submitted): Visitor
+    {
+        if ($identity !== null && $identity->subject !== null) {
+            return $this->verifiedVisitor($widget, $identity);
+        }
+
+        if ($identity !== null) {
+            return $this->fill(new Visitor(['widget_id' => $widget->id, 'verified' => true]), $identity->toArray(), true);
+        }
+
+        $reusable = $previous?->visitor;
+
+        if ($reusable !== null && ! $reusable->verified) {
+            return $this->fill($reusable, $submitted, false);
+        }
+
+        return $this->fill(new Visitor(['widget_id' => $widget->id, 'verified' => false]), $submitted, false);
+    }
+
+    private function verifiedVisitor(Widget $widget, VerifiedIdentity $identity): Visitor
+    {
+        for ($attempt = 1; ; $attempt++) {
+            $visitor = Visitor::query()
+                ->where('widget_id', $widget->id)
+                ->where('external_id', $identity->subject)
+                ->lockForUpdate()
+                ->first() ?? new Visitor(['widget_id' => $widget->id, 'external_id' => $identity->subject]);
+
+            $visitor->verified = true;
+
+            try {
+                return $this->fill($visitor, $identity->toArray(), true);
+            } catch (UniqueConstraintViolationException $exception) {
+                // Two sessions of a new identity raced for the one row: the winner's row is read on the next round.
+                if ($attempt >= 2) {
+                    throw $exception;
+                }
+            }
+        }
+    }
+
+    /**
+     * Copy the offered fields onto the visitor and save it. Verified: identity claims replace what is stored (only the ones the
+     * token carries). Unverified: whatever was submitted, nothing else.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function fill(Visitor $visitor, array $data, bool $verified): Visitor
+    {
+        foreach (['name', 'email', 'phone'] as $field) {
+            $value = $data[$field] ?? null;
+
+            if (is_string($value) && trim($value) !== '') {
+                $visitor->{$field} = trim($value);
+            }
+        }
+
+        $meta = $data['meta'] ?? null;
+
+        if (is_array($meta) && $meta !== []) {
+            $visitor->meta = $verified ? $meta : ($meta + (array) $visitor->meta);
+        }
+
+        $visitor->forceFill(['first_seen_at' => $visitor->first_seen_at ?? now(), 'last_seen_at' => now()])->save();
+
+        return $visitor;
+    }
+
+    /**
+     * The visitor's open live chat moves to the new session; the session that held it is revoked.
+     */
+    private function resume(Visitor $visitor, VisitorSession $session): ?Conversation
+    {
+        $conversation = Conversation::query()
+            ->where('visitor_id', $visitor->id)
+            ->where('type', ConversationType::Live->value)
+            ->whereIn('status', ConversationStatus::openValues())
+            ->orderByDesc('id')
+            ->lockForUpdate()
+            ->first();
+
+        if ($conversation === null) {
+            return null;
+        }
+
+        $holder = $conversation->visitor_session_id === null ? null : VisitorSession::query()->find($conversation->visitor_session_id);
+
+        $conversation->visitor_session_id = $session->id;
+        $conversation->save();
+
+        if ($holder !== null) {
+            $this->tokens->revoke($holder);
+        }
+
+        return $conversation->load(['category', 'assignedAgent']);
+    }
+
+    private function string(mixed $value): ?string
+    {
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+}
