@@ -81,6 +81,8 @@ test('the dashboard loses its socket mid-chat: it says so, polls for the missed 
     if (isPhone(agent.page)) {
         await agent.inbox.chatRow(ulid).click();
         await expect(agent.inbox.conversation).toBeVisible();
+        // The visit that reopens the chat brings its messages with it: wait for them, so that what arrives later can only come by polling.
+        await agent.inbox.expectMessage('Before the outage.');
     }
 
     // While it is down the visitor writes twice and a second visitor asks for a chat: only REST can bring any of it ...
