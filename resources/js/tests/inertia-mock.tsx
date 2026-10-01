@@ -5,7 +5,7 @@
  *
  * Tests steer it through `inertiaState` (page props, form errors, processing flag).
  */
-import { createElement, type ReactNode } from 'react';
+import { act, createElement, type ReactNode } from 'react';
 import { vi } from 'vite-plus/test';
 
 export const inertiaState: {
@@ -21,6 +21,9 @@ const routerHandlers = new Map<string, Set<RouterHandler>>();
 export const routerMock = {
     reload: vi.fn(),
     visit: vi.fn(),
+    /** `router.post|put(url, data, options)`: recorded; tests finish them with {@link completeVisit}. */
+    post: vi.fn(),
+    put: vi.fn(),
     /** Records the listeners so tests can fire Inertia events with {@link fireRouterEvent}. */
     on: vi.fn((event: string, handler: RouterHandler) => {
         const handlers = routerHandlers.get(event) ?? new Set<RouterHandler>();
@@ -33,6 +36,54 @@ export const routerMock = {
         };
     }),
 };
+
+type VisitOptions = {
+    onStart?: () => void;
+    onSuccess?: (page: unknown) => void;
+    onError?: (errors: Record<string, string>) => void;
+    onFinish?: () => void;
+};
+
+export type RecordedVisit = {
+    url: string;
+    data: Record<string, unknown>;
+    options: VisitOptions;
+};
+
+/** The most recent `router.post|put` call, as recorded by the mock. */
+export function lastVisit(method: 'post' | 'put'): RecordedVisit {
+    const calls = routerMock[method].mock.calls;
+    const call = calls[calls.length - 1];
+
+    if (!call) {
+        throw new Error(`router.${method} was not called`);
+    }
+
+    return { url: call[0], data: call[1], options: call[2] ?? {} };
+}
+
+/**
+ * Plays a recorded visit to its end the way Inertia would: `onStart`, then `onSuccess` (or
+ * `onError` when `errors` is given), then `onFinish`.
+ */
+export async function completeVisit(
+    visit: RecordedVisit,
+    outcome: { errors?: Record<string, string> } = {},
+): Promise<void> {
+    await act(async () => {
+        visit.options.onStart?.();
+    });
+    await act(async () => {
+        if (outcome.errors) {
+            visit.options.onError?.(outcome.errors);
+        } else {
+            visit.options.onSuccess?.({});
+        }
+    });
+    await act(async () => {
+        visit.options.onFinish?.();
+    });
+}
 
 /** Fire an Inertia router event (`start`, `success`, ...) at the registered listeners. */
 export function fireRouterEvent(
@@ -120,4 +171,6 @@ export function resetInertiaMock(props: Record<string, unknown> = {}) {
     inertiaState.formProcessing = false;
     routerMock.reload.mockClear();
     routerMock.visit.mockClear();
+    routerMock.post.mockClear();
+    routerMock.put.mockClear();
 }

@@ -33,6 +33,8 @@ const STEP_LABELS: Record<SetupStepKey, string> = {
     welcome: 'Welcome',
     mode: 'Mode',
     admin: 'Admin',
+    pizzasys: 'Auth Portal',
+    'portal-admin': 'Portal admin',
     basics: 'Basics',
     run: 'Run',
     done: 'Done',

@@ -5,6 +5,8 @@ import { StepAdmin } from '@/components/setup/step-admin';
 import { StepBasics } from '@/components/setup/step-basics';
 import { StepDone } from '@/components/setup/step-done';
 import { StepMode } from '@/components/setup/step-mode';
+import { StepPizzasys } from '@/components/setup/step-pizzasys';
+import { StepPortalAdmin } from '@/components/setup/step-portal-admin';
 import { StepRun } from '@/components/setup/step-run';
 import { StepWelcome } from '@/components/setup/step-welcome';
 import { useTrans } from '@/hooks/use-trans';
@@ -30,11 +32,16 @@ export default function Setup({ setup }: SetupProps) {
         null,
     );
 
+    // A step may pin itself while it saves in the background (the Auth Portal step saves the
+    // form to test it, which can already move the server on): `hold` outranks the server's step.
+    const [hold, setHold] = useState<SetupStepKey | null>(null);
+
     const serverView = resolveView(setup.step, override);
-    const view: SetupStepKey = completion ? 'done' : serverView;
+    const view: SetupStepKey = completion ? 'done' : (hold ?? serverView);
 
     const goTo = (target: SetupStepKey | null) => {
         if (target) {
+            setHold(null);
             setOverride({ from: setup.step, view: target });
         }
     };
@@ -100,6 +107,25 @@ export default function Setup({ setup }: SetupProps) {
                     {view === 'admin' && (
                         <StepAdmin setup={setup} onBack={goBack} />
                     )}
+                    {view === 'pizzasys' && (
+                        <StepPizzasys
+                            setup={setup}
+                            onBack={goBack}
+                            onHold={setHold}
+                        />
+                    )}
+                    {view === 'portal-admin' && (
+                        <StepPortalAdmin
+                            setup={setup}
+                            onBack={goBack}
+                            onContinue={() => {
+                                goTo(nextStep('portal-admin', setup.mode));
+                                // The server recorded the verified admin: sync its state (stepper,
+                                // run summary) without waiting for the next form post.
+                                router.reload({ only: ['setup'] });
+                            }}
+                        />
+                    )}
                     {view === 'basics' && (
                         <StepBasics setup={setup} onBack={goBack} />
                     )}
@@ -115,6 +141,7 @@ export default function Setup({ setup }: SetupProps) {
                     {view === 'done' && (
                         <StepDone
                             redirect={completion?.redirect ?? LOGIN_URL}
+                            portal={setup.mode === 'pizzasys'}
                         />
                     )}
                 </div>
