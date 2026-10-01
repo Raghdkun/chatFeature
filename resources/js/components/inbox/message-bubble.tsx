@@ -67,10 +67,12 @@ function Attachments({
     attachments,
     onOpen,
     onLoad,
+    onError,
 }: {
     attachments: AttachmentData[];
     onOpen: (attachment: AttachmentData) => void;
     onLoad: () => void;
+    onError?: () => void;
 }) {
     const { t } = useTrans();
 
@@ -92,6 +94,7 @@ function Attachments({
                         height={attachment.height ?? undefined}
                         loading="lazy"
                         onLoad={onLoad}
+                        onError={onError}
                         style={
                             attachment.width && attachment.height
                                 ? {
@@ -114,12 +117,14 @@ export function MessageBubble({
     onDiscard,
     onOpenImage,
     onImageLoad,
+    onImageError,
 }: {
     entry: MessageEntry;
     onRetry: (clientMsgId: string) => void;
     onDiscard: (clientMsgId: string) => void;
     onOpenImage: (attachment: AttachmentData) => void;
     onImageLoad: () => void;
+    onImageError?: () => void;
 }) {
     const { t, locale } = useTrans();
     const { message, startsGroup, endsGroup } = entry;
@@ -175,6 +180,7 @@ export function MessageBubble({
                         attachments={message.attachments}
                         onOpen={onOpenImage}
                         onLoad={onImageLoad}
+                        onError={onImageError}
                     />
                 )}
                 {message.body && <MessageBody text={message.body} />}

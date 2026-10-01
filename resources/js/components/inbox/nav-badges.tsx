@@ -1,4 +1,4 @@
-import { useTrans } from '@/hooks/use-trans';
+import { usePlural } from '@/components/widgets/page-chrome';
 import { useInboxOptional } from '@/lib/realtime/staff/context';
 import {
     selectAttentionCount,
@@ -36,26 +36,26 @@ function useCount(select: (state: InboxState) => number): number | null {
 
 /** Waiting requests + unread messages, at the end of the "Inbox" sidebar entry. */
 export function InboxNavBadge() {
-    const { t } = useTrans();
+    const plural = usePlural();
 
     return (
         <CountBadge
             count={useCount(selectAttentionCount)}
             testId="nav-badge-inbox"
-            label={(count) => t('inbox.nav.badge', { count })}
+            label={(count) => plural('inbox.nav.badge', count)}
         />
     );
 }
 
 /** Unclaimed offline tickets, at the end of the "Offline tickets" entry. */
 export function TicketsNavBadge() {
-    const { t } = useTrans();
+    const plural = usePlural();
 
     return (
         <CountBadge
             count={useCount(selectTicketCount)}
             testId="nav-badge-tickets"
-            label={(count) => t('tickets.nav.badge', { count })}
+            label={(count) => plural('tickets.nav.badge', count)}
         />
     );
 }

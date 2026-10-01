@@ -47,6 +47,8 @@ export const staffRoutes = {
         close: (ulid: string) => `${API}/conversations/${enc(ulid)}/close`,
         transfer: (ulid: string) =>
             `${API}/conversations/${enc(ulid)}/transfer`,
+        transferTargets: (ulid: string) =>
+            `${API}/conversations/${enc(ulid)}/transfer-targets`,
         export: () => `${API}/conversations/export`,
         presence: () => `${API}/me/presence`,
         heartbeat: () => `${API}/me/presence/heartbeat`,
@@ -69,6 +71,27 @@ export type SendMessageInput = {
 
 /** Where a chat goes on transfer: a colleague (user id) or a category (slug). */
 export type TransferTarget = { agentId: number } | { category: string };
+
+/** A colleague a chat could be handed to, as `GET .../transfer-targets` describes them. */
+export type TransferTargetAgent = {
+    id: number;
+    name: string;
+    avatarUrl: string | null;
+    status: PresenceStatus;
+    activeChats: number;
+    maxConcurrentChats: number;
+    /** Online (or away) and under their chat limit: a transfer to them works right now. */
+    reachable: boolean;
+};
+
+/**
+ * Who this chat can really go to: agents who serve its category, and the other topics of its widget that have someone reachable.
+ * Newer than the first backend: a `404` means the endpoint is absent and the dialog falls back to the presence roster.
+ */
+export type TransferTargets = {
+    agents: TransferTargetAgent[];
+    categories: { slug: string; label: string }[];
+};
 
 export type ReceiptInput = { deliveredUpto?: number; seenUpto?: number };
 
@@ -337,6 +360,11 @@ export function createStaffApi(client: ApiClient = api) {
                 transferBody(target),
             ),
 
+        transferTargets: (ulid: string, signal?: AbortSignal) =>
+            client.get<TransferTargets>(staffRoutes.api.transferTargets(ulid), {
+                signal,
+            }),
+
         presence: () => client.get<PresenceData>(staffRoutes.api.presence()),
 
         setPresence: (status: PresenceStatus) =>
@@ -382,6 +410,8 @@ export function describeStaffError(error: unknown, t: Translate): string {
             }
             case 'conversation_not_active':
                 return t('inbox.error.not_active');
+            case 'no_agents':
+                return t('inbox.error.no_agents');
         }
     }
 

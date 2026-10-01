@@ -2,6 +2,7 @@ import { BadgeCheck, ExternalLink } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { fullDateTime } from '@/components/inbox/format';
 import { PAGE_URL_KEYS, visitorPageUrl } from '@/components/inbox/visitor-info';
+import { safeExternalUrl } from '@/lib/urls';
 import { useReturnFocus } from '@/components/inbox/use-return-focus';
 import {
     Sheet,
@@ -37,7 +38,10 @@ export function DetailsSheet({
     const { isRtl } = useDirection();
     const returnFocus = useReturnFocus(open);
     const { visitor } = conversation;
-    const page = visitorPageUrl(visitor.meta);
+    // The page the visitor was on: what the session reported (as the header shows it), else a URL the host put into the metadata.
+    const page =
+        safeExternalUrl(conversation.pageUrl ?? '') ??
+        visitorPageUrl(visitor.meta);
     const extra = Object.entries(visitor.meta).filter(
         ([key, value]) =>
             !PAGE_URL_KEYS.includes(key) && value !== null && value !== '',
@@ -108,6 +112,9 @@ export function DetailsSheet({
                                         href={page}
                                         target="_blank"
                                         rel="noopener noreferrer"
+                                        title={
+                                            conversation.pageTitle ?? undefined
+                                        }
                                         className="inline-flex items-center gap-1 underline underline-offset-2"
                                     >
                                         <span className="break-all">

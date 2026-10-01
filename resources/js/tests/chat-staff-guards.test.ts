@@ -56,6 +56,9 @@ const dynamicKeys = (): string[] => [
         (status) => `inbox.message.status.${status}`,
     ),
     'inbox.message.not_sent',
+    ...['offline', 'capacity', 'unavailable'].map(
+        (reason) => `inbox.transfer.reason.${reason}`,
+    ),
     ...[
         'too_long',
         'rejected',

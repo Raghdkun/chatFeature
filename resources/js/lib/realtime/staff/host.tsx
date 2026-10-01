@@ -29,7 +29,10 @@ import {
     type StaffEffects,
 } from '@/lib/realtime/staff/controller';
 import { useAttentionTitle } from '@/lib/realtime/staff/document-title';
-import { socketsConfigured } from '@/lib/realtime/staff/echo-config';
+import {
+    socketsConfigured,
+    type RealtimeProp,
+} from '@/lib/realtime/staff/echo-config';
 import {
     closeOsNotification,
     showOsNotification,
@@ -212,7 +215,10 @@ export type StaffRealtimeHostProps = {
 export function StaffRealtimeHost({
     initialPage,
     children,
-    sockets = socketsConfigured(),
+    sockets = socketsConfigured(
+        undefined,
+        initialPage.props.realtime as RealtimeProp,
+    ),
     sound: injectedSound,
     api,
     effects,

@@ -1124,6 +1124,29 @@ describe('other actions', () => {
         ).toBe('mailto:vera@visitor.example');
     });
 
+    it("the details show the page the session reported, with its title as the link's tooltip, as the header does", async () => {
+        const { view } = await mount(
+            props({
+                conversation: activeChat({
+                    pageUrl: 'https://shop.example/checkout?step=2',
+                    pageTitle: 'Checkout - Shop',
+                }),
+            }),
+        );
+
+        await click(view.byTestId('conversation-info'));
+
+        const link = (
+            body.byTestId('conversation-details') as HTMLElement
+        ).querySelector(
+            'a[href^="https://shop.example/checkout"]',
+        ) as HTMLAnchorElement;
+
+        expect(link.href).toBe('https://shop.example/checkout?step=2');
+        expect(link.title).toBe('Checkout - Shop');
+        expect(link.rel).toBe('noopener noreferrer');
+    });
+
     it('lets the agent accept a chat they opened while it was still queued', async () => {
         const queued = makeConversationStaff({
             ulid: CONVERSATION,
@@ -1641,5 +1664,265 @@ describe("a chat that stops being the agent's", () => {
         );
 
         expect(view.byTestId('conversation-reassigned')).toBeNull();
+    });
+});
+
+describe('expiring attachment URLs', () => {
+    const picture = (version: number) =>
+        makeAttachment({
+            ulid: fakeUlid(8800),
+            url: `https://files.test/full.webp?v=${version}`,
+            thumbUrl: `https://files.test/thumb.webp?v=${version}`,
+        });
+    const withPicture = () =>
+        props({
+            messages: [
+                visitorMsg(1, 'Hello'),
+                visitorMsg(2, 'Here is the bill', {
+                    attachments: [picture(1)],
+                    type: 'image',
+                }),
+            ],
+            conversation: activeChat({ lastSeq: 2 }),
+        });
+    const thumb = (view: { container: HTMLElement }) =>
+        view.container.querySelector<HTMLImageElement>(
+            `[data-testid="attachment-${fakeUlid(8800)}"] img`,
+        );
+    const fail = (element: Element | null) =>
+        act(async () => {
+            element?.dispatchEvent(new Event('error'));
+        });
+    const refreshed = (): void => {
+        const list = backend.current.state.messages.get(CONVERSATION) ?? [];
+
+        backend.current.state.messages.set(
+            CONVERSATION,
+            list.map((message) =>
+                message.attachments.length > 0
+                    ? { ...message, attachments: [picture(2)] }
+                    : message,
+            ),
+        );
+    };
+    const reads = () => backend.current.calls('GET', MESSAGES_URL).length;
+
+    it('a picture that fails to load makes the page read the messages again and use the fresh URL, once per failure burst', async () => {
+        const { view } = await mount(withPicture());
+
+        expect(thumb(view)?.getAttribute('src')).toBe(
+            'https://files.test/thumb.webp?v=1',
+        );
+        refreshed();
+
+        const before = reads();
+
+        await fail(thumb(view));
+        await waitFor(() =>
+            expect(thumb(view)?.getAttribute('src')).toBe(
+                'https://files.test/thumb.webp?v=2',
+            ),
+        );
+        expect(reads()).toBe(before + 1);
+
+        // still failing right after: broken, not expired: no second read
+        await fail(thumb(view));
+        await act(
+            async () => new Promise((resolve) => setTimeout(resolve, 40)),
+        );
+        expect(reads()).toBe(before + 1);
+    });
+
+    it('an open lightbox follows the refreshed URL', async () => {
+        const { view } = await mount(withPicture());
+
+        await click(
+            view.container.querySelector(
+                `[data-testid="attachment-${fakeUlid(8800)}"]`,
+            ) as HTMLElement,
+        );
+
+        const big = () =>
+            document.querySelector<HTMLImageElement>(
+                '[data-testid="lightbox"] img',
+            );
+
+        expect(big()?.getAttribute('src')).toBe(
+            'https://files.test/full.webp?v=1',
+        );
+        refreshed();
+        await fail(big());
+        await waitFor(() =>
+            expect(big()?.getAttribute('src')).toBe(
+                'https://files.test/full.webp?v=2',
+            ),
+        );
+    });
+});
+
+describe('the transfer dialog with the server-side list', () => {
+    const TRANSFER_URL = `/api/v1/conversations/${CONVERSATION}/transfer`;
+    const targets = {
+        agents: [
+            {
+                id: 21,
+                name: 'Zed (away, full)',
+                avatarUrl: null,
+                status: 'online',
+                activeChats: 3,
+                maxConcurrentChats: 3,
+                reachable: false,
+            },
+            {
+                id: 22,
+                name: 'Omar',
+                avatarUrl: null,
+                status: 'away',
+                activeChats: 1,
+                maxConcurrentChats: 5,
+                reachable: true,
+            },
+            {
+                id: 23,
+                name: 'Nadia',
+                avatarUrl: null,
+                status: 'offline',
+                activeChats: 0,
+                maxConcurrentChats: 5,
+                reachable: false,
+            },
+            {
+                id: AGENT.id,
+                name: 'Sam',
+                avatarUrl: null,
+                status: 'online',
+                activeChats: 1,
+                maxConcurrentChats: 5,
+                reachable: true,
+            },
+        ],
+        categories: [
+            { slug: 'billing', label: 'Billing' },
+            { slug: 'sales', label: 'Sales' },
+        ],
+    };
+    const open = async () => {
+        backend.current.state.transferTargets.set(CONVERSATION, targets);
+
+        const mounted = await mount();
+
+        await click(mounted.view.byTestId('transfer-chat'));
+        await waitFor(() =>
+            expect(body.byTestId('transfer-loading')).toBeNull(),
+        );
+
+        return mounted;
+    };
+
+    it('lists only agents who serve the category, reachable ones first, the others greyed out with the reason and their load', async () => {
+        await open();
+
+        const rows = Array.from(
+            (body.byTestId('transfer-dialog') as HTMLElement).querySelectorAll(
+                '[data-testid^="transfer-agent-"][role="radio"]',
+            ),
+        );
+
+        // the viewer is never offered; reachable first, then by presence
+        expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual([
+            'transfer-agent-22',
+            'transfer-agent-21',
+            'transfer-agent-23',
+        ]);
+        expect((rows[0] as HTMLButtonElement).disabled).toBe(false);
+        expect((rows[1] as HTMLButtonElement).disabled).toBe(true);
+        expect((rows[2] as HTMLButtonElement).disabled).toBe(true);
+
+        const dialog =
+            (body.byTestId('transfer-dialog') as HTMLElement).textContent ?? '';
+
+        expect(dialog).toContain('At capacity');
+        expect(dialog).toContain('Offline');
+        expect(body.byTestId('transfer-load-21')?.textContent).toBe(
+            '3 of 3 chats',
+        );
+        expect(body.byTestId('transfer-load-22')?.textContent).toBe(
+            '1 of 5 chats',
+        );
+    });
+
+    it("offers only the topics the server says someone can take (not the chat's own), and sends the picked agent", async () => {
+        await open();
+
+        const tab = body.byTestId('transfer-tab-category') as HTMLElement;
+
+        await act(async () => {
+            tab.dispatchEvent(
+                new MouseEvent('mousedown', { bubbles: true, button: 0 }),
+            );
+            tab.focus();
+            tab.click();
+        });
+        expect(
+            Array.from(
+                (body.byTestId('transfer-category') as HTMLSelectElement)
+                    .options,
+            ).map((option) => option.value),
+        ).toEqual(['', 'sales']);
+
+        // back to the agents: pick a reachable one
+        const agents = body.byTestId('transfer-tab-agent') as HTMLElement;
+
+        await act(async () => {
+            agents.dispatchEvent(
+                new MouseEvent('mousedown', { bubbles: true, button: 0 }),
+            );
+            agents.focus();
+            agents.click();
+        });
+        await click(body.byTestId('transfer-agent-22'));
+        await click(body.byTestId('transfer-confirm'));
+        await waitFor(() =>
+            expect(backend.current.calls('POST', TRANSFER_URL)).toHaveLength(1),
+        );
+
+        expect(backend.current.calls('POST', TRANSFER_URL)[0].body).toEqual({
+            agent_id: 22,
+        });
+    });
+
+    it('says so plainly when the server refuses with 409 no_agents, inside the dialog, which stays open', async () => {
+        await open();
+        backend.current.state.transferNoAgents = true;
+
+        await click(body.byTestId('transfer-agent-22'));
+        await click(body.byTestId('transfer-confirm'));
+        await waitFor(() =>
+            expect(body.byTestId('transfer-error')).not.toBeNull(),
+        );
+
+        expect(body.byTestId('transfer-error')?.textContent).toBe(
+            'Nobody is available for that right now. Pick another colleague or topic.',
+        );
+        expect(body.byTestId('transfer-dialog')).not.toBeNull();
+        expect(routerMock.visit).not.toHaveBeenCalled();
+    });
+
+    it('with nobody reachable for the topic it says so instead of listing colleagues who cannot take the chat', async () => {
+        backend.current.state.transferTargets.set(CONVERSATION, {
+            agents: [],
+            categories: [],
+        });
+
+        const { view } = await mount();
+
+        await click(view.byTestId('transfer-chat'));
+        await waitFor(() =>
+            expect(body.byTestId('transfer-no-agents')).not.toBeNull(),
+        );
+
+        expect(body.byTestId('transfer-no-agents')?.textContent).toContain(
+            'Nobody who handles this topic',
+        );
     });
 });

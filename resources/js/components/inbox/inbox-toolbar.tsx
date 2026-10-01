@@ -22,7 +22,8 @@ export function SoundToggle({ sound }: { sound: SoundPlayer }) {
         sound.state,
         () => 'on' as const,
     );
-    const label =
+    // A toggle keeps ONE name and says its state with `aria-pressed`; what a click would do goes in the tooltip.
+    const action =
         state === 'muted'
             ? t('inbox.sound.unmute')
             : state === 'locked'
@@ -37,8 +38,8 @@ export function SoundToggle({ sound }: { sound: SoundPlayer }) {
             data-testid="sound-toggle"
             data-state={state}
             aria-pressed={state !== 'muted'}
-            aria-label={label}
-            title={label}
+            aria-label={t('inbox.sound.label')}
+            title={action}
             className="relative"
             onClick={() => {
                 sound.unlock();

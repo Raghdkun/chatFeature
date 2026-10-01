@@ -14,9 +14,12 @@ import type { AttachmentData } from '@/lib/chat/types';
 export function Lightbox({
     attachment,
     onClose,
+    onError,
 }: {
     attachment: AttachmentData | null;
     onClose: () => void;
+    /** The picture failed to load (an expired signed URL): the owner fetches fresh URLs and passes the new attachment in. */
+    onError?: () => void;
 }) {
     const { t } = useTrans();
     const href = safeExternalUrl(attachment?.url);
@@ -46,6 +49,7 @@ export function Lightbox({
                     <img
                         src={attachment.url}
                         alt={t('inbox.message.image_alt')}
+                        onError={onError}
                         className="mx-auto max-h-[75dvh] w-auto max-w-full rounded-md object-contain"
                     />
                 )}

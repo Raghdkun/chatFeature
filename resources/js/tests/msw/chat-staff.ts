@@ -53,6 +53,10 @@ export function createStaffBackend(options: StaffBackendOptions = {}) {
             Object.entries(options.messages ?? {}),
         ),
         presence: options.presence ?? ('offline' as PresenceStatus),
+        /** ulid -> the answer of `GET .../transfer-targets`; unset = the endpoint does not exist (404). */
+        transferTargets: new Map<string, unknown>(),
+        /** The next transfer answers `409 no_agents`. */
+        transferNoAgents: false,
         /** ulid -> the colleague who wins the claim race. */
         lostClaims: new Map<string, string>(),
         /** The next N message sends answer 500 (to exercise failed + retry). */
@@ -320,6 +324,22 @@ export function createStaffBackend(options: StaffBackendOptions = {}) {
             return HttpResponse.json({ data: closed });
         }),
 
+        http.get(
+            `${API}/conversations/:ulid/transfer-targets`,
+            ({ request, params }) => {
+                record(request);
+
+                const targets = state.transferTargets.get(String(params.ulid));
+
+                return (
+                    down() ??
+                    (targets === undefined
+                        ? envelopeError('not_found', 'Not found.', 404)
+                        : HttpResponse.json({ data: targets }))
+                );
+            },
+        ),
+
         http.post(
             `${API}/conversations/:ulid/transfer`,
             async ({ request, params }) => {
@@ -327,6 +347,14 @@ export function createStaffBackend(options: StaffBackendOptions = {}) {
 
                 record(request, body);
                 const conversation = find(String(params.ulid));
+
+                if (state.transferNoAgents) {
+                    return envelopeError(
+                        'no_agents',
+                        'Nobody is available for that.',
+                        409,
+                    );
+                }
 
                 if (!conversation || conversation.status !== 'active') {
                     return envelopeError(

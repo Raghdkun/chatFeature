@@ -1,0 +1,265 @@
+/**
+ * The visitor's socket against the REAL `laravel-echo` (only the Pusher client underneath is a fake): what `echo-socket.ts` assumes
+ * about the library is checked against the library itself, like `tests/echo-integration.test.tsx` does for the staff bindings:
+ * custom event names need the leading dot, a whisper leaves as `client-<name>` and arrives under that name, every binding is undone
+ * on close, and the channel is left.
+ */
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+
+type Handler = (data: unknown) => void;
+
+class FakeChannel {
+    handlers = new Map<string, Set<Handler>>();
+    trigger = vi.fn();
+
+    constructor(public name: string) {}
+
+    bind(event: string, callback: Handler) {
+        this.handlers.set(
+            event,
+            (this.handlers.get(event) ?? new Set()).add(callback),
+        );
+
+        return this;
+    }
+
+    unbind(event: string, callback?: Handler) {
+        if (callback) {
+            this.handlers.get(event)?.delete(callback);
+        } else {
+            this.handlers.delete(event);
+        }
+
+        return this;
+    }
+
+    bind_global() {
+        return this;
+    }
+
+    unbind_global() {
+        return this;
+    }
+
+    /** What the Pusher client does when the server (or a peer's whisper) sends `event` on this channel. */
+    receive(event: string, data: unknown) {
+        this.handlers.get(event)?.forEach((callback) => callback(data));
+    }
+}
+
+const pushers: FakePusher[] = [];
+
+class FakePusher {
+    channels = { channels: {} as Record<string, FakeChannel> };
+    unsubscribed: string[] = [];
+    disconnected = false;
+    private connectionHandlers = new Map<string, Set<() => void>>();
+    connection = {
+        state: 'connecting',
+        socket_id: '1.1',
+        bind: (event: string, callback: () => void) => {
+            this.connectionHandlers.set(
+                event,
+                (this.connectionHandlers.get(event) ?? new Set()).add(callback),
+            );
+        },
+        unbind: (event: string, callback: () => void) => {
+            this.connectionHandlers.get(event)?.delete(callback);
+        },
+    };
+
+    constructor(
+        public key: string,
+        public options: Record<string, unknown>,
+    ) {
+        pushers.push(this);
+    }
+
+    subscribe(name: string) {
+        return (this.channels.channels[name] ??= new FakeChannel(name));
+    }
+
+    unsubscribe(name: string) {
+        this.unsubscribed.push(name);
+        delete this.channels.channels[name];
+    }
+
+    disconnect() {
+        this.disconnected = true;
+    }
+
+    setState(state: string) {
+        this.connection.state = state;
+        this.connectionHandlers
+            .get('state_change')
+            ?.forEach((callback) => callback());
+    }
+
+    channel(name: string): FakeChannel {
+        const channel = this.channels.channels[name];
+
+        if (!channel) {
+            throw new Error(
+                `Not subscribed to ${name}: ${Object.keys(this.channels.channels).join(', ')}`,
+            );
+        }
+
+        return channel;
+    }
+}
+
+vi.mock('pusher-js', () => ({ default: FakePusher }));
+
+const { createEchoSocket } = await import('@/lib/realtime/visitor/echo-socket');
+
+const INPUT = {
+    ws: {
+        key: 'reverb-key',
+        host: 'ws.chat.test',
+        port: 8443,
+        scheme: 'https',
+    },
+    token: 'vt_secret',
+    conversation: '01CONV',
+    authEndpoint: 'https://chat.test/api/v1/public/broadcasting/auth',
+};
+const CHANNEL = 'private-conversation.01CONV';
+
+beforeEach(() => {
+    pushers.length = 0;
+});
+
+describe('the visitor socket on the real Echo', () => {
+    it('subscribes to the private conversation channel only, with the visitor bearer as its authorisation', async () => {
+        await createEchoSocket(INPUT);
+
+        const pusher = pushers[0];
+
+        expect(Object.keys(pusher.channels.channels)).toEqual([CHANNEL]);
+        expect(pusher.key).toBe('reverb-key');
+        expect(pusher.options).toMatchObject({
+            wsHost: 'ws.chat.test',
+            wsPort: 8443,
+            wssPort: 8443,
+            forceTLS: true,
+            authEndpoint: 'https://chat.test/api/v1/public/broadcasting/auth',
+            auth: { headers: { Authorization: 'Bearer vt_secret' } },
+        });
+    });
+
+    it('delivers events under the names the server broadcasts: the leading dot keeps the name as it is, a bare name gets the app namespace', async () => {
+        const socket = await createEchoSocket(INPUT);
+        const dotted: unknown[] = [];
+        const bare: unknown[] = [];
+
+        socket.listen('.message.created', (payload) => dotted.push(payload));
+        socket.listen('message.created', (payload) => bare.push(payload));
+
+        const channel = pushers[0].channel(CHANNEL);
+
+        // what Reverb sends for `broadcastAs() === 'message.created'`
+        channel.receive('message.created', { v: 1 });
+
+        expect(dotted).toEqual([{ v: 1 }]);
+        expect(bare).toEqual([]);
+        // a handler registered without the dot hears the namespaced wire name instead (the trap `echoEvent()` avoids)
+        channel.receive('App\\Events\\message\\created', { v: 2 });
+        expect(bare).toEqual([{ v: 2 }]);
+    });
+
+    it('whispers out as client-<name> on the channel, and hears the peer whisper under the same wire name', async () => {
+        const socket = await createEchoSocket(INPUT);
+        const heard: unknown[] = [];
+
+        // the panel registers the whisper with the `client-` name from the contract
+        socket.listen('.client-typing', (payload) => heard.push(payload));
+        socket.whisper('client-typing', { actor: 'visitor', typing: true });
+
+        const channel = pushers[0].channel(CHANNEL);
+
+        expect(channel.trigger).toHaveBeenCalledTimes(1);
+        expect(channel.trigger).toHaveBeenCalledWith('client-typing', {
+            actor: 'visitor',
+            typing: true,
+        });
+
+        channel.receive('client-typing', { actor: 'agent', typing: true });
+        expect(heard).toEqual([{ actor: 'agent', typing: true }]);
+    });
+
+    it("maps the connection states of the Pusher client to the panel's statuses", async () => {
+        const socket = await createEchoSocket(INPUT);
+        const seen: string[] = [];
+
+        socket.onStatus((status) => seen.push(status));
+
+        for (const state of [
+            'connected',
+            'connecting',
+            'unavailable',
+            'connected',
+        ]) {
+            pushers[0].setState(state);
+        }
+
+        expect(seen.length).toBeGreaterThan(0);
+        expect(seen.at(-1)).toBe('connected');
+        expect(socket.status()).toBe('connected');
+        expect(seen.every((status) => typeof status === 'string')).toBe(true);
+    });
+
+    it('close() unbinds every handler it handed out, leaves the channel and disconnects, once', async () => {
+        const socket = await createEchoSocket(INPUT);
+        const seen: string[] = [];
+
+        socket.listen('.message.created', () => seen.push('message'));
+        socket.listen('.client-typing', () => seen.push('typing'));
+        socket.onStatus(() => seen.push('status'));
+        socket.onSubscribed(() => seen.push('subscribed'));
+        socket.onSubscriptionError(() => seen.push('error'));
+
+        const pusher = pushers[0];
+        const channel = pusher.channel(CHANNEL);
+
+        expect(channel.handlers.get('message.created')?.size).toBe(1);
+        expect(channel.handlers.get('client-typing')?.size).toBe(1);
+
+        socket.close();
+        socket.close();
+
+        // every app handler is gone; what remains are Echo's own two `pusher:subscription_*` bindings (it can add them, never remove
+        // them), which die with the channel when the Pusher client unsubscribes
+        expect(channel.handlers.get('message.created')?.size ?? 0).toBe(0);
+        expect(channel.handlers.get('client-typing')?.size ?? 0).toBe(0);
+        expect(
+            [...channel.handlers]
+                .filter(
+                    ([name, set]) =>
+                        !name.startsWith('pusher:') && set.size > 0,
+                )
+                .map(([name]) => name),
+        ).toEqual([]);
+        expect(pusher.unsubscribed).toEqual([CHANNEL]);
+        expect(pusher.disconnected).toBe(true);
+
+        channel.receive('message.created', {});
+        channel.receive('client-typing', {});
+        pusher.setState('disconnected');
+        expect(seen).toEqual([]);
+    });
+
+    it('an unbinder removes only its own handler', async () => {
+        const socket = await createEchoSocket(INPUT);
+        const calls: string[] = [];
+        const offFirst = socket.listen('.message.created', () =>
+            calls.push('first'),
+        );
+
+        socket.listen('.message.created', () => calls.push('second'));
+        offFirst();
+        offFirst();
+        pushers[0].channel(CHANNEL).receive('message.created', {});
+
+        expect(calls).toEqual(['second']);
+    });
+});

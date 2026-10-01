@@ -54,6 +54,8 @@ const PAGE_LIMIT = 100;
 /** The server's fallback for the typing whisper (it cannot publish `client-*` events): `{ v, actor, typing }`. Both feed the same typing helper. */
 const TYPING_FALLBACK_EVENT = echoEvent(CHAT_EVENT.typingFallback);
 const MAX_PAGES = 20;
+/** After the attachment URLs were refreshed, a picture that still fails is broken: no second refresh for a while. */
+export const ATTACHMENT_REFRESH_COOLDOWN_MS = 20_000;
 /** A send that has not been answered by now is given up on (the message turns into a retryable failure; the queue moves on). */
 export const SEND_TIMEOUT_MS = 20_000;
 
@@ -302,6 +304,52 @@ export function useConversation({
         wasVisible.current = visible;
     }, [visible, catchUp]);
 
+    /**
+     * Signed attachment URLs expire: when a picture fails to load the messages are read again (the server signs them afresh) and the
+     * new URLs merged in. Single-flight, and once per failure burst: a picture that still fails afterwards is broken, not expired.
+     */
+    const refreshing = useRef<Promise<void> | null>(null);
+    const refreshedAt = useRef(0);
+
+    const refreshAttachmentUrls = useCallback((): Promise<void> => {
+        if (refreshing.current) {
+            return refreshing.current;
+        }
+
+        if (Date.now() - refreshedAt.current < ATTACHMENT_REFRESH_COOLDOWN_MS) {
+            return Promise.resolve();
+        }
+
+        refreshing.current = (async () => {
+            try {
+                let after = 0;
+
+                for (let page = 0; page < MAX_PAGES; page++) {
+                    const batch = await api.messages(ulid, {
+                        afterSeq: after,
+                        limit: PAGE_LIMIT,
+                    });
+
+                    if (batch.length > 0) {
+                        dispatch({ type: 'received', messages: batch });
+                        after = Math.max(after, ...batch.map((m) => m.seq));
+                    }
+
+                    if (batch.length < PAGE_LIMIT) {
+                        break;
+                    }
+                }
+            } catch {
+                // The next failure after the cooldown tries again.
+            } finally {
+                refreshedAt.current = Date.now();
+                refreshing.current = null;
+            }
+        })();
+
+        return refreshing.current;
+    }, [api, ulid]);
+
     /* ---------------------------------------------------------------- */
     /* Typing                                                           */
     /* ---------------------------------------------------------------- */
@@ -512,6 +560,8 @@ export function useConversation({
     const act = useCallback(
         async (
             call: () => Promise<ConversationStaff>,
+            report: (message: string) => void = (message) =>
+                void toast.error(message),
         ): Promise<ConversationStaff | null> => {
             try {
                 const answer = await call();
@@ -528,7 +578,7 @@ export function useConversation({
 
                 return next;
             } catch (error) {
-                toast.error(describeStaffError(error, t));
+                report(describeStaffError(error, t));
 
                 return null;
             }
@@ -542,7 +592,8 @@ export function useConversation({
         [act, api, ulid],
     );
     const transfer = useCallback(
-        (target: TransferTarget) => act(() => api.transfer(ulid, target)),
+        (target: TransferTarget, report?: (message: string) => void) =>
+            act(() => api.transfer(ulid, target), report),
         [act, api, ulid],
     );
 
@@ -604,6 +655,7 @@ export function useConversation({
         discard,
         notifyTyping,
         catchUp,
+        refreshAttachmentUrls,
         end,
         close,
         transfer,

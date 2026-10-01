@@ -64,6 +64,7 @@ export function ConversationView({
     const [transferring, setTransferring] = useState(false);
     const [ending, setEnding] = useState(false);
     const [claiming, setClaiming] = useState(false);
+    const [transferError, setTransferError] = useState<string | null>(null);
     const user = auth.user;
 
     const chat = useConversation({
@@ -202,6 +203,7 @@ export function ConversationView({
                 label={t('inbox.log.label', { name: visitorName })}
                 onRetry={chat.retry}
                 onDiscard={chat.discard}
+                onImageError={() => void chat.refreshAttachmentUrls()}
             />
 
             <Composer
@@ -234,13 +236,20 @@ export function ConversationView({
             />
             <TransferDialog
                 open={transferring}
-                onOpenChange={setTransferring}
+                onOpenChange={(open) => {
+                    setTransferError(null);
+                    setTransferring(open);
+                }}
                 conversation={conversation}
                 roster={roster}
                 categories={categories}
                 viewerId={viewer.id}
+                error={transferError}
                 onTransfer={async (target) => {
-                    const next = await chat.transfer(target);
+                    setTransferError(null);
+
+                    // The reason (`409 no_agents`: nobody can take it) is shown inside the dialog, not in a toast behind it.
+                    const next = await chat.transfer(target, setTransferError);
 
                     if (next && !viewer.isAdmin) {
                         // It left this agent's hands: back to the list.

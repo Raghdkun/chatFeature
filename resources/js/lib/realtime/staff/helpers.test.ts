@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { newClientMsgId } from '@/lib/realtime/staff/client-id';
 import { withAttentionCount } from '@/lib/realtime/staff/document-title';
 import {
+    reverbSettings,
     socketsConfigured,
     staffChannelAuthorization,
+    staffEchoOptions,
 } from '@/lib/realtime/staff/echo-config';
 import {
     closeOsNotification,
@@ -68,6 +70,114 @@ describe('channel authorization', () => {
         expect(socketsConfigured({ VITE_REVERB_APP_KEY: 'abc' })).toBe(true);
         expect(socketsConfigured({ VITE_REVERB_APP_KEY: '' })).toBe(false);
         expect(socketsConfigured({})).toBe(false);
+    });
+});
+
+describe('where the websocket connects', () => {
+    const prop = {
+        key: 'runtime-key',
+        host: 'ws.chat.example',
+        port: 8443,
+        scheme: 'https',
+    };
+
+    it("prefers the shared prop (the server's own settings, no rebuild) over the build-time VITE values", () => {
+        expect(
+            reverbSettings(prop, {
+                VITE_REVERB_APP_KEY: 'build-key',
+                VITE_REVERB_HOST: 'build.example',
+                VITE_REVERB_PORT: '80',
+                VITE_REVERB_SCHEME: 'http',
+            }),
+        ).toEqual({
+            key: 'runtime-key',
+            host: 'ws.chat.example',
+            port: 8443,
+            forceTLS: true,
+        });
+        expect(reverbSettings({ ...prop, scheme: 'http' }, {})?.forceTLS).toBe(
+            false,
+        );
+    });
+
+    it('falls back to the VITE values when the prop is absent or unusable', () => {
+        const env = {
+            VITE_REVERB_APP_KEY: 'build-key',
+            VITE_REVERB_HOST: 'build.example',
+            VITE_REVERB_PORT: '8080',
+            VITE_REVERB_SCHEME: 'http',
+        };
+
+        for (const unusable of [
+            null,
+            undefined,
+            { ...prop, key: '' },
+            { ...prop, host: ' ' },
+            { ...prop, port: 0 },
+        ]) {
+            expect(reverbSettings(unusable, env)).toEqual({
+                key: 'build-key',
+                host: 'build.example',
+                port: 8080,
+                forceTLS: false,
+            });
+        }
+    });
+
+    it('is nowhere when neither source has an address, and socketsConfigured says exactly that', () => {
+        expect(reverbSettings(null, {})).toBeNull();
+        expect(reverbSettings(null, { VITE_REVERB_APP_KEY: '' })).toBeNull();
+        expect(socketsConfigured({}, null)).toBe(false);
+        // the prop alone is enough (an installation built without VITE_REVERB_*)
+        expect(socketsConfigured({}, prop)).toBe(true);
+        expect(socketsConfigured({ VITE_REVERB_APP_KEY: 'abc' }, null)).toBe(
+            true,
+        );
+    });
+
+    it('turns either source into the Echo options, with the channel authorisation, and logs nothing', () => {
+        const log = vi
+            .spyOn(console, 'log')
+            .mockImplementation(() => undefined);
+        const warn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
+        try {
+            expect(staffEchoOptions(prop, {})).toMatchObject({
+                broadcaster: 'reverb',
+                key: 'runtime-key',
+                wsHost: 'ws.chat.example',
+                wsPort: 8443,
+                wssPort: 8443,
+                forceTLS: true,
+                enabledTransports: ['ws', 'wss'],
+                channelAuthorization: { endpoint: '/broadcasting/auth' },
+            });
+            expect(
+                staffEchoOptions(null, {
+                    VITE_REVERB_APP_KEY: 'build-key',
+                    VITE_REVERB_HOST: 'build.example',
+                    VITE_REVERB_PORT: '443',
+                    VITE_REVERB_SCHEME: 'https',
+                }),
+            ).toMatchObject({
+                key: 'build-key',
+                wsHost: 'build.example',
+                wsPort: 443,
+            });
+
+            // nothing known: only the authorisation (the library's own defaults apply, and no socket is opened)
+            const none = staffEchoOptions(null, {});
+
+            expect(none).not.toHaveProperty('key');
+            expect(none).toHaveProperty('channelAuthorization');
+            expect(log).not.toHaveBeenCalled();
+            expect(warn).not.toHaveBeenCalled();
+        } finally {
+            log.mockRestore();
+            warn.mockRestore();
+        }
     });
 });
 
