@@ -66,3 +66,11 @@ interface RoleResolver
   resolves `fortify` without touching the database.
 - Fortify wiring lives in `FortifyServiceProvider`/`AuthModeServiceProvider`: in mode 2 registration, password reset, 2FA and
   passkeys are disabled and `Fortify::authenticateUsing()` delegates to the active driver.
+
+## Clarifications from the P1 implementation (binding)
+
+- `attempt()` returns the resolved user but **never logs in**: the Fortify pipeline logs in after the 2FA challenge and calls the authenticator twice, so the
+  verdict is memoised per request. `PizzasysDriver` must keep this behaviour.
+- Value objects live in `App\Auth\Support`, enums in `App\Auth\Enums`. Registration and other Fortify feature routes are gated by driver capabilities (`EnforceAuthFeatures`).
+- `EnsureSessionIsValid` and `EnsureChatAccess` are in the `web` middleware group; the `chat.access` alias is for API groups. A signed-in user with neither role flag is logged out and
+  redirected to `/login` with a message (JSON: `403 no_chat_access`). New self-registered users default to neither flag.

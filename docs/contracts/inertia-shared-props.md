@@ -15,7 +15,7 @@ Every Inertia page receives these props from `App\Http\Middleware\HandleInertiaR
 | `direction` | `'ltr' \| 'rtl'` | Derived from the locale; the root view also sets `<html lang dir>`. |
 | `installed` | `boolean` | `false` only while the setup wizard is reachable. |
 | `sidebarOpen` | `boolean` | Existing starter-kit prop (cookie). |
-| `flash` | `{success?:string, error?:string}` | Existing starter-kit toast mechanism. |
+| `flash` | `{success?:string, error?:string}` | Fed from session keys `success`/`error`; `{}` when empty. The kit's toasts use Inertia v3 page-level `flash.toast` (separate, unchanged). |
 
 **Rules**
 - Pre-install the middleware must not touch the database: `auth.user = null`, `installed = false`,

@@ -73,3 +73,17 @@ The client calls the steps in order, updating `run[]` locally from each response
 - `/up`, build assets and `/setup/*` are exempt from the gate. After install `/setup*` is 404 and the gate is a no-op.
 - The wizard never queries the database before `run-migrations` succeeds.
 - `SETUP_TOKEN` is compared with `hash_equals`; it is never rendered into a page or response.
+
+## Clarifications from the P1 implementation (binding)
+
+- `done` is never served by the server (`/setup` is 404 after the lock): the client renders it after the `write-lock` response `{status:'ok', next:null, redirect:'/login'}`.
+  In `APP_ENV=local` with a healthy environment the server starts directly at `mode` (no token step).
+- Optional `?step=<key>` lets the UI go back to an earlier screen.
+- `run` responses: failed responses may carry `fields` (per-field errors); ok responses may carry `message`. Statuses: `403` token not verified, `409` busy, `404` after install, `429` token throttling.
+  The run endpoint needs the XSRF header (use Inertia `useHttp`).
+- Environment check `message` values are withheld until the token is verified.
+- Form errors come back under the field names: `token`, `mode`, `name`/`email`/`password`, and the basics field names.
+- `SetupProps` is the PHP Data class `App\Data\Setup\SetupData` (generated TS type `App.Data.Setup.SetupData`); `GET /setup/state` returns `{setup: SetupData}`.
+- The login page receives an extra boolean prop `canRegister`; no-access / inactive / unavailable messages are delivered as `errors.email`.
+- Dev/e2e: `APP_ENV=local` + empty dedicated DB, or `APP_ENV=testing` + `APP_INSTALLED=false` + `SETUP_TOKEN=...`. Reset: `php artisan chat:install:reset --force` (local only, wipes the DB).
+  Non-interactive install: `chat:install --mode=local` with `INSTALL_ADMIN_NAME/EMAIL/PASSWORD` (+ optional `INSTALL_APP_NAME/APP_URL/LOCALE/TIMEZONE/IDLE_TIMEOUT_MINUTES`); `INSTALL_STATE_DIR` relocates state + lock.

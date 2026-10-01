@@ -35,7 +35,7 @@ export type SetupCheckData = {
 key: string,
 label: string,
 ok: boolean,
-message?: undefined | string,
+message?: string,
 };
 export type SetupData = {
 step: App.Data.Setup.SetupStepKey,
@@ -65,7 +65,7 @@ export type SetupRunStepData = {
 key: string,
 label: string,
 status: App.Data.Setup.SetupRunStatus,
-message?: undefined | string,
+message?: string,
 };
 export type SetupStepData = {
 key: App.Data.Setup.SetupStepKey,
@@ -77,8 +77,8 @@ export type SetupStepStatus = 'pending' | 'current' | 'done';
 }
 namespace Shared {
 export type FlashData = {
-success?: undefined | string,
-error?: undefined | string,
+success?: string,
+error?: string,
 };
 export type SharedAuthData = {
 user: App.Data.Auth.AuthUserData | null,
@@ -102,5 +102,52 @@ namespace Settings {
 export type SettingGroup = 'app' | 'auth' | 'chat' | 'notifications' | 'storage' | 'whatsapp';
 export type SettingType = 'string' | 'bool' | 'int' | 'json';
 }
+}
+}
+declare namespace Illuminate {
+export type CursorPaginator<TKey, TValue> = {
+data: TKey extends string ? Record<TKey, TValue> : TValue[],
+links: {
+url: string | null,
+label: string,
+active: boolean,
+}[],
+meta: {
+path: string,
+per_page: number,
+next_cursor: string | null,
+next_page_url: string | null,
+prev_cursor: string | null,
+prev_page_url: string | null,
+},
+};
+export type CursorPaginatorInterface<TKey, TValue> = Illuminate.CursorPaginator<TKey, TValue>;
+export type LengthAwarePaginator<TKey, TValue> = {
+data: TKey extends string ? Record<TKey, TValue> : TValue[],
+links: {
+url: string | null,
+label: string,
+active: boolean,
+}[],
+meta: {
+total: number,
+current_page: number,
+first_page_url: string,
+from: number | null,
+last_page: number,
+last_page_url: string,
+next_page_url: string | null,
+path: string,
+per_page: number,
+prev_page_url: string | null,
+to: number | null,
+},
+};
+export type LengthAwarePaginatorInterface<TKey, TValue> = Illuminate.LengthAwarePaginator<TKey, TValue>;
+}
+declare namespace Spatie {
+namespace LaravelData {
+export type CursorPaginatedDataCollection<TKey, TValue> = Illuminate.CursorPaginator<TKey, TValue>;
+export type PaginatedDataCollection<TKey, TValue> = Illuminate.LengthAwarePaginator<TKey, TValue>;
 }
 }
