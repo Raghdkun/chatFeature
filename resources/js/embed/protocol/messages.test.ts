@@ -101,6 +101,7 @@ describe('parseHostMessage', () => {
         expect(
             message &&
                 'payload' in message &&
+                message.payload !== null &&
                 'visitorSession' in message.payload,
         ).toBe(false);
     });
@@ -182,6 +183,24 @@ describe('parseHostMessage', () => {
                 wrap('viewport', { width: Infinity, height: 500 }),
             ),
         ).toBeNull();
+    });
+
+    it('parses the host answer to a session drop: a newer session, or null for "cleared"', () => {
+        expect(
+            parseHostMessage(
+                wrap('session', { token: 'vt_new', expiresAt: '2030-01-01' }),
+            ),
+        ).toEqual({
+            type: 'session',
+            payload: { token: 'vt_new', expiresAt: '2030-01-01' },
+        });
+        expect(parseHostMessage(wrap('session', {}))).toEqual({
+            type: 'session',
+            payload: null,
+        });
+        expect(
+            parseHostMessage(wrap('session', { token: '', expiresAt: 'x' })),
+        ).toEqual({ type: 'session', payload: null });
     });
 
     it('parses a builder draft only with a config object', () => {

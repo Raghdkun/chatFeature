@@ -582,7 +582,7 @@ export class Widget {
             ...opt('visitor', visitor),
             page: {
                 url: clip(this.o.win.location.href, 2000),
-                title: clip(this.doc.title, 300),
+                title: clip(this.doc.title, 255),
                 referrer: clip(this.doc.referrer, 2000),
             },
             overrides: this.overridesPayload(),
@@ -715,7 +715,11 @@ export class Widget {
         }
     }
 
-    /** Stores `{token, expiresAt}`; anything else (including `null`) clears the stored session. */
+    /**
+     * Stores `{token, expiresAt}`. `{drop}` is a compare-and-clear: tabs of one page share this entry and a rotation in one revokes
+     * the token another still holds, so the entry is removed only while it still holds the dropped token; otherwise the newer
+     * session is handed back to the panel to adopt (`session {}` = cleared, nothing newer). Anything else clears it.
+     */
     private persistSession(p: Dict): void {
         if (
             typeof p.token === 'string' &&
@@ -732,8 +736,22 @@ export class Widget {
                     id: this.identityId(),
                 }),
             );
-        } else {
-            this.local.remove(this.sessionKey);
+
+            return;
+        }
+
+        const newer = typeof p.drop === 'string' ? this.readSession() : null;
+
+        if (newer !== null && newer.token !== p.drop) {
+            this.bridge?.send('session', newer);
+
+            return;
+        }
+
+        this.local.remove(this.sessionKey);
+
+        if (typeof p.drop === 'string') {
+            this.bridge?.send('session');
         }
     }
 

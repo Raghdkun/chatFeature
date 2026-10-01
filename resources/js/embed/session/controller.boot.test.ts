@@ -60,7 +60,12 @@ describe('boot', () => {
             'billing',
             'tech',
         ]);
-        expect(h.snapshot().config?.categories[0].description).toBeNull();
+        // the loader passes description / icon / colour through: the picker does not depend on the config call
+        expect(h.snapshot().config?.categories[0]).toMatchObject({
+            description: 'Invoices and payments',
+            icon: 'credit-card',
+            color: '#7c3aed',
+        });
         expect(h.state().phase).toBe('prechat');
     });
 

@@ -34,6 +34,11 @@ import type {
     ViewportPayload,
 } from '@/embed/protocol/messages';
 import { toCreateFailure, toNotice } from '@/embed/session/errors';
+import {
+    bareSessionBody,
+    isUnsignedFieldRefusal,
+    serverSafeSessionBody,
+} from '@/embed/session/session-body';
 import { deriveFlow } from '@/embed/session/flow';
 import {
     createInitialState,
@@ -83,6 +88,11 @@ export type ControllerDeps = {
     host: HostPort;
     /** Called when the visitor session changes: the launcher mode forwards it to the host, standalone pages store it. */
     persistSession: (session: StoredSession | null) => void;
+    /**
+     * Compare-and-clear for a token the server refused: the stored copy is removed only while it still holds `token`; when another
+     * tab stored a newer session it is returned (and adopted) instead. Without it the copy is cleared unconditionally.
+     */
+    dropSession?: (token: string) => Promise<StoredSession | null>;
     socketFactory: SocketFactory;
     createApi?: (options: {
         base: string;
@@ -204,6 +214,8 @@ export class ChatController {
     private sessionPromise: Promise<void> | null = null;
     private rotation: Promise<void> | null = null;
     private rotatedAt = 0;
+    /** A refused token is being dropped (the host is asked whether another tab holds a newer one). */
+    private dropping = false;
 
     private realtime: ConversationRealtime | null = null;
     private realtimeFor: string | null = null;
@@ -512,7 +524,8 @@ export class ChatController {
                 conversation = null;
 
                 if (isVisitorApiError(error) && error.isSessionGone) {
-                    this.clearSession();
+                    // A newer session another tab stored is adopted: a new chat then finds its conversation (`409 conversation_exists`).
+                    await this.forgetToken();
                 }
             }
         }
@@ -764,7 +777,7 @@ export class ChatController {
     /* ---------------------------------------------------------- session */
 
     private sessionBody(): CreateSessionRequest {
-        return {
+        return serverSafeSessionBody({
             ...(this.identityToken === undefined
                 ? {}
                 : { identity_token: this.identityToken }),
@@ -773,7 +786,28 @@ export class ChatController {
                 : { visitor: this.hostVisitor }),
             page: this.page,
             locale: this.config?.locale ?? 'en',
-        };
+        });
+    }
+
+    /**
+     * `POST .../sessions`. A 422 that blames only the optional visitor / page / locale fields (nothing the visitor could fix: they
+     * are not on screen) is retried once without them; a signed identity the server refuses is not retried.
+     */
+    private async createSessionSafely(
+        resumeToken?: string,
+    ): Promise<SessionResponse> {
+        const api = this.requireApi();
+        const body = this.sessionBody();
+
+        try {
+            return await api.createSession(body, resumeToken);
+        } catch (error) {
+            if (isVisitorApiError(error) && isUnsignedFieldRefusal(error)) {
+                return api.createSession(bareSessionBody(body), resumeToken);
+            }
+
+            throw error;
+        }
     }
 
     /** Creates a visitor session when there is none. Single-flight. */
@@ -784,9 +818,7 @@ export class ChatController {
 
         this.sessionPromise ??= (async () => {
             try {
-                const api = this.requireApi();
-
-                this.adopt(await api.createSession(this.sessionBody()));
+                this.adopt(await this.createSessionSafely());
             } finally {
                 this.sessionPromise = null;
             }
@@ -821,10 +853,7 @@ export class ChatController {
                     return;
                 }
 
-                const session = await this.requireApi().createSession(
-                    this.sessionBody(),
-                    held,
-                );
+                const session = await this.createSessionSafely(held);
 
                 this.adopt(session);
                 this.rotatedAt = this.now();
@@ -903,6 +932,63 @@ export class ChatController {
     }
 
     /**
+     * The server refused the token: forget it, unless another tab of the page already rotated the session and stored a newer
+     * one (two tabs share the host's storage and a rotation revokes the other tab's token). The host removes its copy only while
+     * it still holds the refused token and otherwise answers with the newer session, which is adopted here (the socket config
+     * stays: it does not depend on the token). Resolves `true` while a session is still in hand, `false` once it is gone.
+     */
+    private async forgetToken(): Promise<boolean> {
+        const refused = this.token;
+
+        if (refused === null || this.deps.preview === true) {
+            this.clearSession(false);
+
+            return false;
+        }
+
+        const drop = this.deps.dropSession;
+
+        if (drop === undefined) {
+            this.clearSession();
+
+            return false;
+        }
+
+        const newer = await drop(refused).catch(() => null);
+
+        if (this.disposed) {
+            return false;
+        }
+
+        if (this.token !== refused) {
+            // Replaced while the host was asked (a rotation landed): nothing to forget.
+            return this.token !== null;
+        }
+
+        if (newer !== null && newer.token !== refused) {
+            this.closeRealtime();
+            this.token = newer.token;
+
+            return true;
+        }
+
+        this.clearSession(false);
+
+        return false;
+    }
+
+    /** The conversation carries on with the adopted session: the socket re-authorises with it and the state is read again. */
+    private resumeAfterAdopt(): void {
+        const conversation = this.state.conversation;
+
+        if (conversation !== null && isLiveChat(this.state)) {
+            void this.connectRealtime(conversation);
+        }
+
+        void this.syncConversation();
+    }
+
+    /**
      * The server refused the token. `staleRequest`: a REST call that may have left with the token a rotation has just replaced is
      * refused as revoked, which is not the end of the session (the socket's own refusal always is).
      */
@@ -921,8 +1007,37 @@ export class ChatController {
             }
         }
 
-        this.clearSession();
-        this.dispatch({ type: 'SESSION_LOST' });
+        if (
+            this.token === null ||
+            this.deps.dropSession === undefined ||
+            this.deps.preview === true
+        ) {
+            this.clearSession();
+            this.dispatch({ type: 'SESSION_LOST' });
+
+            return;
+        }
+
+        if (this.dropping) {
+            return;
+        }
+
+        this.dropping = true;
+        void this.forgetToken()
+            .then((kept) => {
+                if (this.disposed) {
+                    return;
+                }
+
+                if (kept) {
+                    this.resumeAfterAdopt();
+                } else {
+                    this.dispatch({ type: 'SESSION_LOST' });
+                }
+            })
+            .finally(() => {
+                this.dropping = false;
+            });
     }
 
     /* ----------------------------------------------------------- start */
@@ -1063,7 +1178,8 @@ export class ChatController {
             } catch (error) {
                 if (isVisitorApiError(error)) {
                     if (error.isSessionGone && attempt === 0) {
-                        this.clearSession();
+                        // Gone for good: the next pass creates a session. Rotated by another tab: its token is tried instead.
+                        await this.forgetToken();
 
                         continue;
                     }
@@ -1932,7 +2048,7 @@ export class ChatController {
                     error.isSessionGone &&
                     attempt === 0
                 ) {
-                    this.clearSession();
+                    await this.forgetToken();
 
                     continue;
                 }
