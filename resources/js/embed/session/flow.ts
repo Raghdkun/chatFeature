@@ -148,13 +148,14 @@ export type OfflineValues = {
 export function validateOffline(
     values: OfflineValues,
     categoryRequired: boolean,
+    maxMessage: number = MAX_MESSAGE,
 ): FieldErrorKeys {
     const errors: FieldErrorKeys = {};
     const name = checkText(values.name, { required: true, max: MAX_NAME });
     const email = checkEmail(values.email, true);
     const message = checkText(values.message, {
         required: true,
-        max: MAX_MESSAGE,
+        max: maxMessage,
     });
 
     if (name !== undefined) {

@@ -18,7 +18,7 @@ export function ClosedScreen() {
     const body =
         reason === 'ticket' && ticket !== null
             ? t('embed.chat.offline.sent_body', {
-                  email: state.form.email.trim() || '…',
+                  email: state.offline.email || state.form.email.trim() || '…',
                   ticket: ticket.ticketNo,
               })
             : reason === 'idle'

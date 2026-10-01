@@ -68,6 +68,11 @@ export const AR: Messages = {
     'embed.chat.message.delivered': 'تم التسليم',
     'embed.chat.message.seen': 'تمت المشاهدة',
     'embed.chat.message.failed': 'لم تُرسل. اضغط لإعادة المحاولة.',
+    'embed.chat.message.failed_too_long': 'لم تُرسل: الرسالة طويلة جدًا.',
+    'embed.chat.message.failed_rejected': 'لم تُرسل: تعذّر تسليم هذه الرسالة.',
+    'embed.chat.message.failed_closed': 'لم تُرسل: انتهت هذه المحادثة.',
+    'embed.chat.message.failed_rate_limited':
+        'لم تُرسل: رسائل كثيرة جدًا. انتظر لحظة ثم أعد المحاولة.',
     'embed.chat.message.retry': 'إعادة المحاولة',
     'embed.chat.message.discard': 'حذف',
     'embed.chat.message.image_alt': 'صورة من :name',
@@ -95,8 +100,18 @@ export const AR: Messages = {
     'embed.chat.error.generic': 'حدث خطأ ما. يرجى المحاولة مرة أخرى.',
     'embed.chat.error.network':
         'تعذّر الاتصال بالخادم. تحقق من اتصالك وحاول مرة أخرى.',
-    'embed.chat.error.rate_limited':
-        'محاولات كثيرة. حاول مرة أخرى بعد :seconds ثانية.',
+    'embed.chat.error.rate_limited.zero':
+        'محاولات كثيرة. حاول مرة أخرى بعد :count ثانية.',
+    'embed.chat.error.rate_limited.one':
+        'محاولات كثيرة. حاول مرة أخرى بعد ثانية واحدة.',
+    'embed.chat.error.rate_limited.two':
+        'محاولات كثيرة. حاول مرة أخرى بعد ثانيتين.',
+    'embed.chat.error.rate_limited.few':
+        'محاولات كثيرة. حاول مرة أخرى بعد :count ثوانٍ.',
+    'embed.chat.error.rate_limited.many':
+        'محاولات كثيرة. حاول مرة أخرى بعد :count ثانية.',
+    'embed.chat.error.rate_limited.other':
+        'محاولات كثيرة. حاول مرة أخرى بعد :count ثانية.',
     'embed.chat.error.unavailable': 'المحادثة غير متاحة الآن.',
     'embed.chat.error.identity':
         'تعذّر التحقق من تسجيل دخولك. أعد تحميل الصفحة وحاول مرة أخرى.',

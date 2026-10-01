@@ -45,6 +45,26 @@ export type MessageStatus =
     | 'failed';
 
 /**
+ * Why a send failed. Most causes are worth another try (`network`, `rate_limited`, `unknown`); `rejected` (the server refuses this
+ * content: `422`), `too_long`, `forbidden` and `closed` (the chat is no longer active) can never succeed, so no retry is offered.
+ */
+export type MessageFailure =
+    | 'network'
+    | 'rate_limited'
+    | 'rejected'
+    | 'too_long'
+    | 'forbidden'
+    | 'closed'
+    | 'unknown';
+
+/** A failed send that retrying cannot fix. */
+export const isFinalFailure = (failure: MessageFailure | undefined): boolean =>
+    failure === 'rejected' ||
+    failure === 'too_long' ||
+    failure === 'forbidden' ||
+    failure === 'closed';
+
+/**
  * A message in a client's list. Server messages are `MessageData` plus a status; a message that is still being sent has no
  * `ulid` and no `seq` yet (the server assigns both) and is matched to its server copy by `clientMsgId`.
  */
@@ -52,6 +72,8 @@ export type LocalMessage = Omit<MessageData, 'ulid' | 'seq'> & {
     ulid: string | null;
     seq: number | null;
     status: MessageStatus;
+    /** Set while `status` is `failed`. */
+    failure?: MessageFailure;
 };
 
 /** A message the server has numbered. */

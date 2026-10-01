@@ -75,6 +75,12 @@ export const EN = {
     'embed.chat.message.delivered': 'Delivered',
     'embed.chat.message.seen': 'Seen',
     'embed.chat.message.failed': 'Not sent. Tap to retry.',
+    'embed.chat.message.failed_too_long': 'Not sent: this message is too long.',
+    'embed.chat.message.failed_rejected':
+        "Not sent: this message can't be delivered.",
+    'embed.chat.message.failed_closed': 'Not sent: this chat has ended.',
+    'embed.chat.message.failed_rate_limited':
+        'Not sent: too many messages. Wait a moment, then retry.',
     'embed.chat.message.retry': 'Retry',
     'embed.chat.message.discard': 'Delete',
     'embed.chat.message.image_alt': 'Image from :name',
@@ -105,8 +111,10 @@ export const EN = {
     'embed.chat.error.generic': 'Something went wrong. Please try again.',
     'embed.chat.error.network':
         "We can't reach the server. Check your connection and try again.",
-    'embed.chat.error.rate_limited':
-        'Too many attempts. Try again in :seconds seconds.',
+    'embed.chat.error.rate_limited.one':
+        'Too many attempts. Try again in :count second.',
+    'embed.chat.error.rate_limited.other':
+        'Too many attempts. Try again in :count seconds.',
     'embed.chat.error.unavailable': 'Chat is not available right now.',
     'embed.chat.error.identity':
         "We couldn't verify your sign-in. Reload the page and try again.",
@@ -115,7 +123,11 @@ export const EN = {
 } as const;
 
 export type MessageKey = keyof typeof EN;
-export type Messages = Partial<Record<MessageKey, string>>;
+/** The plural forms English has no use for (`<key>.other` / `.one` exist for every plural text; other languages add these). */
+type ExtraPluralForm = {
+    [K in `${string}.${'zero' | 'two' | 'few' | 'many'}`]?: string;
+};
+export type Messages = Partial<Record<MessageKey, string>> & ExtraPluralForm;
 
 /** The keys the widget builder lets an admin override. */
 export const WIDGET_TEXT_KEYS = [

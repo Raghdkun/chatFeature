@@ -26,6 +26,7 @@ import type {
     ConversationPublic,
     LocalMessage,
     MessageData,
+    MessageFailure,
     SenderType,
 } from '@/lib/chat/types';
 import type { HostStatus, StatePayload } from '@/embed/protocol/messages';
@@ -155,6 +156,8 @@ export type MachineState = {
         /** The visitor's own `missed` conversation, recorded on the ticket. */
         missed: string | null;
         ticket: ConversationPublic | null;
+        /** The address the visitor submitted the ticket with (the confirmation names it, whatever the pre-chat form held). */
+        email?: string;
     };
     closedReason: ClosedReason | null;
 };
@@ -221,13 +224,17 @@ export type Action =
     | { type: 'RATED' }
     | { type: 'RATING_SKIPPED' }
     | { type: 'OFFLINE_SUBMITTING' }
-    | { type: 'OFFLINE_SENT'; ticket: ConversationPublic }
+    | { type: 'OFFLINE_SENT'; ticket: ConversationPublic; email?: string }
     | { type: 'OFFLINE_FAILED'; failure: CreateFailure }
     | { type: 'NEW_CHAT' }
     | { type: 'SESSION_LOST' }
     | { type: 'MESSAGES'; messages: readonly (MessageData | LocalMessage)[] }
     | { type: 'MESSAGE_PENDING'; message: LocalMessage }
-    | { type: 'MESSAGE_FAILED'; clientMsgId: string }
+    | {
+          type: 'MESSAGE_FAILED';
+          clientMsgId: string;
+          failure?: MessageFailure;
+      }
     | { type: 'MESSAGE_RETRY'; clientMsgId: string }
     | { type: 'MESSAGE_REMOVED'; clientMsgId: string }
     | { type: 'SEEN'; upToSeq: number; by: SenderType; at: string }
@@ -776,7 +783,13 @@ export function reduce(state: MachineState, action: Action): MachineState {
             return go(state, 'closed', {
                 closedReason: 'ticket',
                 busy: null,
-                offline: { ...state.offline, ticket: action.ticket },
+                offline: {
+                    ...state.offline,
+                    ticket: action.ticket,
+                    ...(action.email === undefined
+                        ? {}
+                        : { email: action.email }),
+                },
                 fieldErrors: {},
             });
 
@@ -855,6 +868,7 @@ export function reduce(state: MachineState, action: Action): MachineState {
                 state.messages,
                 action.clientMsgId,
                 'failed',
+                action.failure,
             );
 
             return messages === state.messages ? state : { ...state, messages };

@@ -53,6 +53,7 @@ let counter = 0;
 export function useAttachments(
     controller: ChatController,
     maxBytes: number = MAX_ATTACHMENT_BYTES,
+    maxCount: number = MAX_ATTACHMENTS,
 ) {
     const [items, setItems] = useState<Staged[]>([]);
     const [problem, setProblem] = useState<AttachmentProblem>(null);
@@ -123,7 +124,7 @@ export function useAttachments(
     const add = (files: readonly File[]): void => {
         setProblem(null);
 
-        let room = MAX_ATTACHMENTS - itemsRef.current.length;
+        let room = maxCount - itemsRef.current.length;
 
         for (const file of files) {
             const check = precheckImage(file, maxBytes);

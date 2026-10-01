@@ -57,6 +57,77 @@ describe('buildPanelConfig', () => {
         expect(isOffline(config)).toBe(false);
     });
 
+    it('a hostile init cannot point the panel at another origin: the inlined app origin wins and the font origin follows it', () => {
+        const boot = loaderBoot({
+            api: {
+                base: 'https://evil.example/api/v1/public',
+                embed: 'https://evil.example/embed/wk',
+                appOrigin: 'https://evil.example',
+            },
+        });
+        const config = buildPanelConfig({
+            boot: {
+                ...boot,
+                config: {
+                    ...(boot.config as object),
+                    theme: {
+                        ...(boot.config as { theme: object }).theme,
+                        fontUrl: 'https://evil.example/f.css',
+                    },
+                },
+            },
+            trustedOrigin: APP,
+        });
+
+        expect(config.appOrigin).toBe(APP);
+        expect(config.apiBase).toBe(`${APP}/api/v1/public`);
+        expect(config.theme.fontUrl).toBeNull();
+
+        // a font on the trusted origin is fine, and a base on the trusted origin is kept
+        const own = buildPanelConfig({
+            boot: {
+                ...boot,
+                api: { base: `${APP}/api/v2/public`, appOrigin: 'https://x' },
+                config: {
+                    ...(boot.config as object),
+                    theme: { fontUrl: `${APP}/fonts/f.css` },
+                },
+            },
+            trustedOrigin: APP,
+        });
+
+        expect(own.apiBase).toBe(`${APP}/api/v2/public`);
+        expect(own.theme.fontUrl).toBe(`${APP}/fonts/f.css`);
+    });
+
+    it('without a trusted origin (tests, the builder preview) the boot copy is used as before', () => {
+        const config = buildPanelConfig({
+            boot: loaderBoot({
+                api: {
+                    base: 'https://other.test/api',
+                    appOrigin: 'https://other.test',
+                },
+            }),
+        });
+
+        expect(config.appOrigin).toBe('https://other.test');
+        expect(config.apiBase).toBe('https://other.test/api');
+    });
+
+    it('accepts category slugs of up to 64 characters (the server allows 64)', () => {
+        const slug = `a${'b'.repeat(63)}`;
+        const boot = loaderBoot({
+            categories: [
+                { slug, label: 'Long' },
+                { slug: `${slug}c`, label: 'Too long' },
+            ],
+        });
+
+        expect(
+            buildPanelConfig({ boot }).categories.map((c) => c.slug),
+        ).toEqual([slug]);
+    });
+
     it('derives the API base from the app origin when the boot has none', () => {
         expect(
             buildPanelConfig({ boot: { key: 'wk_x', api: { appOrigin: APP } } })

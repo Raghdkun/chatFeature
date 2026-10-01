@@ -9,6 +9,7 @@
 import type {
     LocalMessage,
     MessageData,
+    MessageFailure,
     MessageSenderData,
     MessageStatus,
     SenderType,
@@ -319,20 +320,25 @@ export function setPendingStatus(
     messages: readonly LocalMessage[],
     clientMsgId: string,
     status: Extract<MessageStatus, 'sending' | 'failed'>,
+    failure?: MessageFailure,
 ): LocalMessage[] {
     let changed = false;
     const next = messages.map((message) => {
         if (
             message.clientMsgId !== clientMsgId ||
             message.seq !== null ||
-            message.status === status
+            (message.status === status && message.failure === failure)
         ) {
             return message;
         }
 
         changed = true;
 
-        return { ...message, status };
+        const { failure: _previous, ...rest } = message;
+
+        return status === 'failed' && failure !== undefined
+            ? { ...rest, status, failure }
+            : { ...rest, status };
     });
 
     return changed ? next : (messages as LocalMessage[]);

@@ -1,14 +1,21 @@
 import { useSnapshot } from '@/embed/components/context';
 import { Banner } from '@/embed/components/ui';
 import type { Notice } from '@/embed/state/machine';
-import type { Translate } from '@/embed/i18n';
+import { pluralText, type Translate } from '@/embed/i18n';
 
-export function noticeText(notice: Notice, t: Translate): string {
+export function noticeText(
+    notice: Notice,
+    t: Translate,
+    locale = 'en',
+): string {
     switch (notice.code) {
         case 'rate_limited':
-            return t('embed.chat.error.rate_limited', {
-                seconds: notice.seconds ?? 5,
-            });
+            return pluralText(
+                t,
+                locale,
+                'embed.chat.error.rate_limited',
+                notice.seconds ?? 5,
+            );
         case 'network':
             return t('embed.chat.error.network');
         case 'unavailable':
@@ -26,9 +33,9 @@ export function noticeText(notice: Notice, t: Translate): string {
 
 /** The current failure the visitor can act on (cleared by the next action). */
 export function NoticeBanner() {
-    const { state, t } = useSnapshot();
+    const { state, config, t } = useSnapshot();
 
     return state.notice === null ? null : (
-        <Banner>{noticeText(state.notice, t)}</Banner>
+        <Banner>{noticeText(state.notice, t, config?.locale)}</Banner>
     );
 }

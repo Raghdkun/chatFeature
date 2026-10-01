@@ -24,17 +24,36 @@ describe('panel strings', () => {
             expect(value.trim()).not.toBe('');
         }
 
-        expect(Object.keys(AR).sort()).toEqual(Object.keys(EN).sort());
+        // every English key is translated; the only extra keys are the plural forms English does not have (zero / two / few / many)
+        const extras = Object.keys(AR).filter((key) => !(key in EN));
+
+        expect(Object.keys(EN).filter((key) => !(key in AR))).toEqual([]);
+
+        for (const key of extras) {
+            expect(key).toMatch(/\.(zero|two|few|many)$/);
+            expect(`${key.replace(/\.[a-z]+$/, '')}.other` in EN, key).toBe(
+                true,
+            );
+        }
 
         for (const [key, value] of Object.entries(AR)) {
             expect((value ?? '').trim(), key).not.toBe('');
-            // placeholders must survive translation
+            // placeholders must survive translation (a plural form of a text may spell its number out, so it keeps a subset)
             const placeholders = (text: string) =>
                 [...text.matchAll(/:[a-z]+/g)].map((m) => m[0]).sort();
+            const source =
+                EN[key as MessageKey] ??
+                EN[`${key.replace(/\.[a-z]+$/, '')}.other` as MessageKey];
 
-            expect(placeholders(value ?? ''), key).toEqual(
-                placeholders(EN[key as MessageKey]),
-            );
+            if (key in EN && !/\.(one|other)$/.test(key)) {
+                expect(placeholders(value ?? ''), key).toEqual(
+                    placeholders(source),
+                );
+            } else {
+                for (const placeholder of placeholders(value ?? '')) {
+                    expect(placeholders(source), key).toContain(placeholder);
+                }
+            }
         }
     });
 
@@ -64,6 +83,37 @@ describe('panel strings', () => {
 
         expect(partial('embed.chat.back')).toBe('Back');
         expect(partial('nope' as MessageKey)).toBe('nope');
+    });
+
+    it('a text the server completed with the English default does not shadow the built-in translation, an edited one still does', () => {
+        const completed = createTranslate({
+            texts: {
+                // `LocaleResolver::completeTexts` fills every editable key: English where nothing was written
+                ar: {
+                    ...Object.fromEntries(
+                        WIDGET_TEXT_KEYS.map((key) => [key, EN[key]]),
+                    ),
+                    title: 'مساعدة أكمي',
+                },
+            },
+            textLocale: 'ar',
+            defaultLocale: 'ar',
+            builtin: AR,
+        });
+
+        expect(completed('title')).toBe('مساعدة أكمي');
+        expect(completed('send')).toBe(AR.send);
+        expect(completed('welcome')).toBe(AR.welcome);
+
+        // no built-in table (a language without one): the English text stays
+        const english = createTranslate({
+            texts: { fr: { send: EN.send } },
+            textLocale: 'fr',
+            defaultLocale: 'fr',
+            builtin: {},
+        });
+
+        expect(english('send')).toBe(EN.send);
     });
 
     it('interpolates :placeholders', () => {

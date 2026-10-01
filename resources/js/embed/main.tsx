@@ -92,6 +92,7 @@ async function start(boot: EmbedBoot, container: HTMLElement): Promise<void> {
         socketFactory: demo?.socketFactory ?? lazySocket,
         createApi: demo ? () => demo.api : undefined,
         sound: { ping: sound.ping },
+        appOrigin: boot.appOrigin,
         preview: boot.preview,
         // Standalone: the page fetches the public config itself, so that copy is already the fresh one.
         bootIsFresh: !withHost,

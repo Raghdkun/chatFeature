@@ -16,9 +16,12 @@ const all = (root: ParentNode, id: string): HTMLElement[] =>
 /** An active chat that was resumed from a stored session (so the transcript is whatever the test seeded). */
 async function activeChat(
     seed?: (backend: ReturnType<typeof useBackend>) => void,
-    options: { open?: boolean } = {},
+    options: {
+        open?: boolean;
+        backend?: Parameters<typeof useBackend>[0];
+    } = {},
 ) {
-    const backend = useBackend();
+    const backend = useBackend(options.backend);
     const stored = backend.issueToken();
 
     backend.seedConversation(stored.token, 'active');
@@ -216,6 +219,56 @@ describe('message list', () => {
         expect(
             backend.state.messages.filter((m) => m.body === 'Flaky'),
         ).toHaveLength(1);
+    });
+
+    it('a send the server refuses for good (422) says why and offers no futile retry', async () => {
+        const { backend, h, c } = await activeChat();
+
+        backend.fail(
+            'POST',
+            '/messages$',
+            422,
+            {
+                error: {
+                    code: 'validation_failed',
+                    message:
+                        'The body field must not be greater than 4000 characters.',
+                    details: {
+                        body: [
+                            'The body field must not be greater than 4000 characters.',
+                        ],
+                    },
+                },
+            },
+            1,
+        );
+        await run(() => h.controller.send({ body: 'Way too long' }));
+        await waitFor(() => c.querySelector('[data-status="failed"]') !== null);
+
+        expect(text(c.querySelector('[data-status="failed"]'))).toContain(
+            'Not sent: this message is too long.',
+        );
+        expect(all(c, 'message-retry')).toHaveLength(0);
+        expect(
+            Array.from(c.querySelectorAll('button')).some(
+                (b) => b.textContent === 'Delete',
+            ),
+        ).toBe(true);
+    });
+
+    it('a rate-limited send can be retried and says to wait', async () => {
+        const { backend, h, c } = await activeChat();
+
+        backend.fail('POST', '/messages$', 429, undefined, 3, {
+            'Retry-After': '60',
+        });
+        await run(() => h.controller.send({ body: 'Fast fingers' }));
+        await waitFor(() => c.querySelector('[data-status="failed"]') !== null);
+
+        expect(text(c.querySelector('[data-status="failed"]'))).toContain(
+            'too many messages',
+        );
+        expect(all(c, 'message-retry')).toHaveLength(1);
     });
 
     it('a failed send can be deleted from the list', async () => {
@@ -589,6 +642,34 @@ describe('attachments', () => {
         expect(body.attachments).toHaveLength(1);
         expect(body.body).toBeUndefined();
         expect(all(c, 'composer-attachment')).toHaveLength(0);
+    });
+
+    it('takes the size, count and message limits from the session response instead of the built-in defaults', async () => {
+        const { c } = await activeChat(undefined, {
+            backend: {
+                limits: {
+                    maxMessageLength: 1500,
+                    attachmentMaxBytes: 2 * 1024 * 1024,
+                    attachmentMaxDimension: 2048,
+                    attachmentMaxPerMessage: 2,
+                },
+            },
+        });
+        const input = byTestId(c, 'composer-input') as HTMLTextAreaElement;
+        const files = byTestId(c, 'composer-file') as HTMLInputElement;
+
+        expect(input.maxLength).toBe(1500);
+
+        await pickFile(files, [png('big.png', 3 * 1024 * 1024)]);
+        expect(c.querySelector('[role="alert"]')?.textContent).toBe(
+            'Images must be 2 MB or smaller.',
+        );
+
+        await pickFile(files, [png('1.png'), png('2.png'), png('3.png')]);
+        expect(all(c, 'composer-attachment')).toHaveLength(2);
+        expect(c.querySelector('[role="alert"]')?.textContent).toBe(
+            'You can attach up to 2 images.',
+        );
     });
 
     it('limits how many images go with one message', async () => {

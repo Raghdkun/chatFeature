@@ -21,9 +21,13 @@ const MAX_HEIGHT = 120;
 
 /** The message box: auto-growing, Enter sends, Shift+Enter breaks the line, images can be attached, pasted and removed before sending. */
 export function Composer() {
-    const { state, config, t } = useSnapshot();
+    const { state, config, limits, t } = useSnapshot();
     const controller = useController();
-    const attachments = useAttachments(controller);
+    // What the server accepts (from the session response); the built-in defaults until a session exists or on an older backend.
+    const maxLength = limits?.maxMessageLength ?? MAX_MESSAGE;
+    const maxBytes = limits?.attachmentMaxBytes ?? MAX_ATTACHMENT_BYTES;
+    const maxCount = limits?.attachmentMaxPerMessage ?? MAX_ATTACHMENTS;
+    const attachments = useAttachments(controller, maxBytes, maxCount);
     const [text, setText] = useState('');
     const area = useRef<HTMLTextAreaElement>(null);
     const picker = useRef<HTMLInputElement>(null);
@@ -77,9 +81,9 @@ export function Composer() {
     const problemText = {
         type: t('embed.chat.composer.bad_type'),
         size: t('embed.chat.composer.too_big', {
-            size: formatBytes(MAX_ATTACHMENT_BYTES),
+            size: formatBytes(maxBytes),
         }),
-        count: t('embed.chat.composer.too_many', { count: MAX_ATTACHMENTS }),
+        count: t('embed.chat.composer.too_many', { count: maxCount }),
         upload: t('embed.chat.composer.upload_failed'),
         rejected: t('embed.chat.composer.rejected'),
         disabled: t('embed.chat.composer.disabled'),
@@ -184,7 +188,7 @@ export function Composer() {
                     data-autofocus
                     rows={1}
                     value={text}
-                    maxLength={MAX_MESSAGE}
+                    maxLength={maxLength}
                     enterKeyHint="send"
                     aria-label={t('embed.chat.composer.label')}
                     placeholder={t('placeholder')}

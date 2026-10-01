@@ -15,7 +15,7 @@ import {
  * message that becomes a ticket; with it off they are only told.
  */
 export function OfflineScreen() {
-    const { state, config, t } = useSnapshot();
+    const { state, config, limits, t } = useSnapshot();
     const controller = useController();
     const form = useRef<HTMLFormElement>(null);
     const [values, setValues] = useState({
@@ -33,6 +33,7 @@ export function OfflineScreen() {
         return null;
     }
 
+    const maxMessage = limits?.maxMessageLength ?? MAX_MESSAGE;
     const reason = state.offline.reason;
     const next = config.availability?.nextOpenAt;
     const lead =
@@ -84,7 +85,11 @@ export function OfflineScreen() {
     const submit = (event: FormEvent): void => {
         event.preventDefault();
 
-        const found = validateOffline(values, config.categories.length > 1);
+        const found = validateOffline(
+            values,
+            config.categories.length > 1,
+            maxMessage,
+        );
 
         setErrors(found);
 
@@ -206,7 +211,7 @@ export function OfflineScreen() {
                                 name="message"
                                 rows={4}
                                 required
-                                maxLength={MAX_MESSAGE}
+                                maxLength={maxMessage}
                                 className={`${INPUT_CLASS} resize-y`}
                                 value={values.message}
                                 onChange={(event) =>

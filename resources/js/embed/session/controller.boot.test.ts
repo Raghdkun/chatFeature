@@ -607,3 +607,32 @@ describe('identity and prefill', () => {
         expect(KEY).toContain('wk_');
     });
 });
+
+describe('a hostile init', () => {
+    it('cannot send the visitor API calls to another origin: only the inlined app origin is ever called', async () => {
+        const backend = useBackend();
+        const h = createHarness({
+            backend,
+            deps: { appOrigin: 'https://chat.test' },
+        });
+
+        await h.init(
+            makeInit({
+                boot: loaderBoot({
+                    api: {
+                        base: 'https://evil.example/api/v1/public',
+                        embed: 'https://evil.example/embed/x',
+                        appOrigin: 'https://evil.example',
+                    },
+                }),
+            }),
+        );
+
+        // the config call and everything after it went to the trusted origin (MSW fails the test on any other host)
+        expect(backend.callsTo('GET', '/config')).toHaveLength(1);
+        expect(h.snapshot().config?.apiBase).toBe(
+            'https://chat.test/api/v1/public',
+        );
+        expect(h.snapshot().config?.appOrigin).toBe('https://chat.test');
+    });
+});

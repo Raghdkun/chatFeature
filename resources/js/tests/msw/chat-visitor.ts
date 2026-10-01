@@ -40,6 +40,8 @@ export type BackendOptions = {
     noWs?: boolean;
     /** `POST /broadcasting/auth` answers `503 realtime_unavailable`. */
     noRealtimeAuth?: boolean;
+    /** The `limits` block of session responses (omitted by default: an older backend). */
+    limits?: Record<string, number>;
     /** Required fields of `POST /conversations` besides `category` (server-side pre-chat rules). */
     requireName?: boolean;
     requireEmail?: boolean;
@@ -204,6 +206,7 @@ export function createVisitorBackend(options: BackendOptions = {}) {
             (bootConfig().availability as Record<string, unknown>),
         noAgents: options.noAgents ?? false,
         wsEnabled: !(options.noWs ?? false),
+        limits: options.limits,
         realtimeAuth: !(options.noRealtimeAuth ?? false),
         requireName: options.requireName ?? false,
         requireEmail: options.requireEmail ?? false,
@@ -444,6 +447,9 @@ export function createVisitorBackend(options: BackendOptions = {}) {
                                     ? state.conversation
                                     : null,
                                 ws: state.wsEnabled ? ws : null,
+                                ...(state.limits === undefined
+                                    ? {}
+                                    : { limits: state.limits }),
                             },
                         },
                         { status: 201 },
@@ -464,6 +470,9 @@ export function createVisitorBackend(options: BackendOptions = {}) {
                             expiresAt,
                             conversation: null,
                             ws: state.wsEnabled ? ws : null,
+                            ...(state.limits === undefined
+                                ? {}
+                                : { limits: state.limits }),
                         },
                     },
                     { status: 201 },

@@ -55,6 +55,7 @@ import {
     isVisitorApiError,
     type CreateConversationRequest,
     type CreateSessionRequest,
+    type SessionLimits,
     type SessionResponse,
     type VisitorApi,
     type VisitorFields,
@@ -71,6 +72,7 @@ import type {
     ConversationPublic,
     LocalMessage,
     MessageData,
+    MessageFailure,
 } from '@/lib/chat/types';
 import { createTypingTracker } from '@/lib/chat/typing';
 import {
@@ -105,6 +107,11 @@ export type ControllerDeps = {
     sound?: { ping(): void };
     navigatorLanguages?: readonly string[];
     document?: Document;
+    /**
+     * The origin the panel page itself was served from (inlined by the server). `init.boot.api.*` comes from the host page and is
+     * only honoured when it names this origin; the API base and the font origin derive from it.
+     */
+    appOrigin?: string;
     /** The builder preview: no visitor API calls, ever (the injected demo API answers instead). */
     preview?: boolean;
     loadBuiltin?: (locale: string) => Promise<Messages>;
@@ -123,9 +130,13 @@ export type Snapshot = {
     viewport: ViewportPayload | null;
     /** The config could not be loaded at all (standalone page, widget gone). */
     unavailable: boolean;
+    /** What the server accepts per message (from the session response); `null` until a session exists: use the defaults. */
+    limits: SessionLimits | null;
 };
 
 const WATCHDOG_MS = 10_000;
+/** A sync pass that has been running this long is presumed lost (a hung request): the next call starts a fresh one. */
+const SYNC_STALE_MS = 45_000;
 const ATTACHMENT_LIMIT = 4;
 
 export const MAX_ATTACHMENTS = ATTACHMENT_LIMIT;
@@ -145,6 +156,31 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
             },
         );
     });
+}
+
+/** Why a send failed (what the bubble tells the visitor, and whether a retry is offered). */
+function failureOf(error: unknown): MessageFailure {
+    if (!isVisitorApiError(error)) {
+        return 'unknown';
+    }
+
+    if (error.status === 422) {
+        return 'body' in error.details ? 'too_long' : 'rejected';
+    }
+
+    if (error.status === 403) {
+        return 'forbidden';
+    }
+
+    if (error.code === 'conversation_not_active') {
+        return 'closed';
+    }
+
+    return error.status === 429
+        ? 'rate_limited'
+        : error.isNetwork
+          ? 'network'
+          : 'unknown';
 }
 
 const isRecord = (value: unknown): value is Dict =>
@@ -199,8 +235,11 @@ export class ChatController {
     });
     private viewport: ViewportPayload | null = null;
     private unavailable = false;
+    private limits: SessionLimits | null = null;
     private booted = false;
     private disposed = false;
+    /** `startChat` from the host that arrived while the panel was still booting (the loader flushes it right after `init:result`). */
+    private pendingStart: { category?: string; message?: string } | null = null;
 
     private identityToken: string | undefined;
     private hostVisitor: VisitorFields = {};
@@ -225,6 +264,8 @@ export class ChatController {
     private realtimeRetryTimer: ReturnType<typeof setTimeout> | undefined;
     private watchdog: ReturnType<typeof setInterval> | undefined;
     private syncing: Promise<void> | null = null;
+    private syncStartedAt = 0;
+    private syncPass = 0;
     private syncAgain = false;
     private sendChain: Promise<void> = Promise.resolve();
     private readonly typing = createTypingTracker(() => this.now());
@@ -273,6 +314,7 @@ export class ChatController {
             t: this.t,
             viewport: this.viewport,
             unavailable: this.unavailable,
+            limits: this.limits,
         };
     }
 
@@ -396,6 +438,18 @@ export class ChatController {
 
         if (action.type === 'CLAIMED') {
             this.emit('agent-joined', { agentName: action.agent.name });
+        }
+
+        if (
+            action.type === 'ENDED' &&
+            action.ratingRequested &&
+            next.phase === 'closed' &&
+            previous.conversation !== null
+        ) {
+            // The widget has ratings switched off: the server still waits for the rating window unless it is told the visitor declined.
+            void this.api?.skipRating(previous.conversation.ulid).catch(() => {
+                // best effort: the window closes the chat anyway
+            });
         }
     }
 
@@ -541,6 +595,14 @@ export class ChatController {
             now: this.resumedQueueStart(conversation),
         });
         this.afterResume();
+
+        const pending = this.pendingStart;
+
+        this.pendingStart = null;
+
+        if (pending !== null) {
+            this.startFromHost(pending);
+        }
     }
 
     /** Queue time of a resumed chat: when the server created it, never in the future (clock skew). */
@@ -610,6 +672,7 @@ export class ChatController {
                       }
                     : this.fresh,
             draft: this.draft,
+            trustedOrigin: this.deps.appOrigin,
             navigatorLanguages:
                 this.deps.navigatorLanguages ??
                 (typeof navigator === 'undefined'
@@ -832,6 +895,12 @@ export class ChatController {
         this.token = session.visitorToken;
         this.ws = session.ws;
         this.wsKnown = true;
+
+        if (session.limits !== null) {
+            this.limits = session.limits;
+            this.publish();
+        }
+
         this.persist({
             token: session.visitorToken,
             expiresAt: session.expiresAt,
@@ -1048,9 +1117,15 @@ export class ChatController {
     }): void {
         const config = this.config;
 
+        if (this.state.phase === 'booting') {
+            // Not ready to start anything yet: remembered and applied once the first screen is known (`handleInit`).
+            this.pendingStart = options;
+
+            return;
+        }
+
         if (
             config === null ||
-            this.state.phase === 'booting' ||
             isLiveChat(this.state) ||
             this.state.phase === 'ended'
         ) {
@@ -1058,6 +1133,7 @@ export class ChatController {
         }
 
         if (this.state.phase === 'closed') {
+            this.resetConversationScopedState();
             this.dispatch({ type: 'NEW_CHAT' });
         }
 
@@ -1523,22 +1599,33 @@ export class ChatController {
      * runs causes exactly one more pass.
      */
     syncConversation(): Promise<void> {
-        if (this.syncing !== null) {
+        if (
+            this.syncing !== null &&
+            this.now() - this.syncStartedAt < SYNC_STALE_MS
+        ) {
             this.syncAgain = true;
 
             return this.syncing;
         }
 
-        this.syncing = (async () => {
+        this.syncStartedAt = this.now();
+
+        const id = ++this.syncPass;
+        const pass: Promise<void> = (async () => {
             do {
                 this.syncAgain = false;
                 await this.syncOnce();
-            } while (this.syncAgain && !this.disposed);
+            } while (this.syncAgain && !this.disposed && this.syncPass === id);
         })().finally(() => {
-            this.syncing = null;
+            // a pass that was given up on must not clear its successor
+            if (this.syncPass === id) {
+                this.syncing = null;
+            }
         });
 
-        return this.syncing;
+        this.syncing = pass;
+
+        return pass;
     }
 
     private async syncOnce(): Promise<void> {
@@ -1564,7 +1651,10 @@ export class ChatController {
                 return;
             }
 
-            this.applyServerConversation(latest);
+            // An answer that was in flight while the chat moved on (a `chat.claimed` landed) describes the past: never apply it.
+            if (this.state.phase === phase) {
+                this.applyServerConversation(latest);
+            }
 
             if (isLiveChat(this.state) || this.state.phase === 'ended') {
                 const messages = await this.fetchMessagesAfter(
@@ -1735,6 +1825,7 @@ export class ChatController {
             this.dispatch({
                 type: 'MESSAGE_FAILED',
                 clientMsgId: message.clientMsgId,
+                failure: failureOf(error),
             });
 
             if (isVisitorApiError(error)) {
@@ -2035,7 +2126,11 @@ export class ChatController {
                     ...(missed === null ? {} : { missed_conversation: missed }),
                 });
 
-                this.dispatch({ type: 'OFFLINE_SENT', ticket });
+                this.dispatch({
+                    type: 'OFFLINE_SENT',
+                    ticket,
+                    email: values.email.trim(),
+                });
                 this.dispatch({
                     type: 'PREFILL',
                     values: { name: values.name, email: values.email },
@@ -2065,6 +2160,19 @@ export class ChatController {
 
     /* ---------------------------------------------------------- new chat */
 
+    /** What belongs to ONE conversation and must not leak into the next: typing, the receipt counters (and their pending flush). */
+    private resetConversationScopedState(): void {
+        this.typing.reset();
+        clearTimeout(this.typingTimer);
+        clearTimeout(this.receipts.timer);
+        this.receipts.delivered = 0;
+        this.receipts.seen = 0;
+        this.receipts.sentDelivered = 0;
+        this.receipts.sentSeen = 0;
+        this.lastUnread = 0;
+        this.realtimeRetries = 0;
+    }
+
     /** "Start a new chat": the old ticket and session are left behind. */
     newChat(): void {
         if (this.state.phase !== 'closed') {
@@ -2080,11 +2188,7 @@ export class ChatController {
         }
 
         this.clearSession();
-        this.typing.reset();
-        this.receipts.delivered = 0;
-        this.receipts.seen = 0;
-        this.receipts.sentDelivered = 0;
-        this.receipts.sentSeen = 0;
+        this.resetConversationScopedState();
         this.dispatch({ type: 'NEW_CHAT' });
 
         // Nothing to ask: the visitor asked for a chat, so start it.

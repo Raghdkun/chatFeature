@@ -126,6 +126,7 @@ export function createDemoBackend(options: { delay?: number } = {}) {
                 visitorToken: 'vt_preview',
                 expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
                 conversation: null,
+                limits: null,
                 ws: {
                     key: 'preview',
                     host: 'localhost',
