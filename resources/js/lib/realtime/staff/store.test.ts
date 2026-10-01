@@ -204,8 +204,14 @@ describe('offers', () => {
     });
 
     it('expires only the offers whose deadline has passed', () => {
-        const soon = makeOffer({ expiresAt: fakeTime(30) });
-        const later = makeOffer({ expiresAt: fakeTime(90) });
+        const soon = makeOffer({
+            expiresAt: fakeTime(30),
+            ttlSeconds: undefined,
+        });
+        const later = makeOffer({
+            expiresAt: fakeTime(90),
+            ttlSeconds: undefined,
+        });
         const state = run(
             EMPTY_INBOX,
             { type: 'offered', offer: soon, nowMs: NOW },
@@ -711,7 +717,10 @@ describe('offer deadlines and the agent clock', () => {
     });
 
     it('without ttlSeconds (an older backend) the server deadline is used as sent', () => {
-        const offer = makeOffer({ expiresAt: fakeTime(45) });
+        const offer = makeOffer({
+            expiresAt: fakeTime(45),
+            ttlSeconds: undefined,
+        });
         const state = run(EMPTY_INBOX, { type: 'offered', offer, nowMs: NOW });
 
         expect(state.queue[0].expiresAt).toBe(fakeTime(45));

@@ -323,6 +323,7 @@ describe('offer expiry', () => {
             'chat.offered',
             makeOffer({
                 expiresAt: new Date(Date.now() + 30_000).toISOString(),
+                ttlSeconds: undefined,
             }),
         );
         vi.advanceTimersByTime(29_999);
@@ -340,9 +341,11 @@ describe('offer expiry', () => {
         const { store, controller } = rig();
         const soon = makeOffer({
             expiresAt: new Date(Date.now() + 10_000).toISOString(),
+            ttlSeconds: undefined,
         });
         const later = makeOffer({
             expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            ttlSeconds: undefined,
         });
 
         controller.start();
@@ -924,6 +927,7 @@ describe('timer limits', () => {
                 expiresAt: new Date(
                     Date.now() + 40 * 24 * 3_600_000,
                 ).toISOString(),
+                ttlSeconds: undefined,
             }),
         );
         vi.advanceTimersByTime(3_000_000_000);
