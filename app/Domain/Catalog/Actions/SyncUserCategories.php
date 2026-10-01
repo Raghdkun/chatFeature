@@ -5,6 +5,7 @@ namespace App\Domain\Catalog\Actions;
 use App\Domain\Audit\AuditLogger;
 use App\Models\Category;
 use App\Models\User;
+use App\Support\Database\DeadlockRetry;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -13,12 +14,6 @@ use Illuminate\Support\Facades\DB;
  */
 final class SyncUserCategories
 {
-    /**
-     * MySQL aborts one of two transactions that delete and insert rows next to each other in an index (gap locks, error 1213, e.g.
-     * two agents saving their categories at the same moment): the loser simply runs again.
-     */
-    private const ATTEMPTS = 3;
-
     public function __construct(private readonly AuditLogger $audit) {}
 
     /**
@@ -30,7 +25,7 @@ final class SyncUserCategories
         $categoryUlids = array_values(array_unique($categoryUlids));
         $ids = array_map('intval', Category::query()->whereIn('ulid', $categoryUlids)->pluck('id')->all());
 
-        DB::transaction(function () use ($user, $ids): void {
+        DeadlockRetry::transaction(function () use ($user, $ids): void {
             // A plain read (no locks), then exact-key deletes and inserts: `delete ... where user_id = ? and category_id not in (...)`
             // scans a range of the `user_id` index and its gap locks make two agents saving at the same moment deadlock (1213).
             $current = array_map('intval', DB::table('category_user')->where('user_id', $user->id)->pluck('category_id')->all());
@@ -50,7 +45,7 @@ final class SyncUserCategories
             if ($rows !== []) {
                 DB::table('category_user')->upsert($rows, ['category_id', 'user_id'], ['updated_at']);
             }
-        }, self::ATTEMPTS);
+        });
 
         $this->audit->record($action, $user, ['category_ulids' => $categoryUlids], $actor ?? $user);
 

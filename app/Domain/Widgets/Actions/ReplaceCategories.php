@@ -7,7 +7,7 @@ use App\Domain\Widgets\Support\WidgetCache;
 use App\Models\Category;
 use App\Models\User;
 use App\Models\Widget;
-use Illuminate\Support\Facades\DB;
+use App\Support\Database\DeadlockRetry;
 
 /**
  * Replaces the categories enabled on a widget; the order of the ULIDs is the display order.
@@ -15,12 +15,6 @@ use Illuminate\Support\Facades\DB;
  */
 final class ReplaceCategories
 {
-    /**
-     * MySQL aborts one of two transactions that delete and insert rows next to each other in an index (gap locks, error 1213, e.g.
-     * two administrators saving the domains of different widgets at the same moment): the loser simply runs again.
-     */
-    private const ATTEMPTS = 3;
-
     public function __construct(
         private readonly AuditLogger $audit,
         private readonly WidgetCache $cache,
@@ -43,11 +37,11 @@ final class ReplaceCategories
             }
         }
 
-        DB::transaction(function () use ($widget, $sync): void {
+        DeadlockRetry::transaction(function () use ($widget, $sync): void {
             Widget::query()->lockForUpdate()->findOrFail($widget->getKey());
 
             $widget->categories()->sync($sync);
-        }, self::ATTEMPTS);
+        });
 
         $this->cache->bust($widget);
         $this->audit->record('widget.categories_updated', $widget, ['category_ulids' => $categoryUlids], $actor);

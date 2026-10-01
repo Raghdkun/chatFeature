@@ -7,8 +7,8 @@ use App\Domain\Widgets\Support\WidgetCache;
 use App\Models\User;
 use App\Models\Widget;
 use App\Models\WidgetGreeting;
+use App\Support\Database\DeadlockRetry;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Replaces a widget's greeting pool: entries with a known ULID are updated in place, entries without one are
@@ -16,12 +16,6 @@ use Illuminate\Support\Facades\DB;
  */
 final class ReplaceGreetings
 {
-    /**
-     * MySQL aborts one of two transactions that delete and insert rows next to each other in an index (gap locks, error 1213, e.g.
-     * two administrators saving the domains of different widgets at the same moment): the loser simply runs again.
-     */
-    private const ATTEMPTS = 3;
-
     public function __construct(
         private readonly AuditLogger $audit,
         private readonly WidgetCache $cache,
@@ -33,7 +27,7 @@ final class ReplaceGreetings
      */
     public function handle(Widget $widget, array $items, ?User $actor = null): Collection
     {
-        DB::transaction(function () use ($widget, $items): void {
+        DeadlockRetry::transaction(function () use ($widget, $items): void {
             Widget::query()->lockForUpdate()->findOrFail($widget->getKey());
 
             $existing = $widget->greetings()->get()->keyBy('ulid');
@@ -63,7 +57,7 @@ final class ReplaceGreetings
             }
 
             $widget->greetings()->reorder()->whereNotIn('id', $keep)->delete();
-        }, self::ATTEMPTS);
+        });
 
         $this->cache->bust($widget);
         $this->audit->record('widget.greetings_updated', $widget, ['count' => count($items)], $actor);
