@@ -587,6 +587,17 @@ describe('Ui (launcher, popup, panel frame)', () => {
             expect(q('.panel').dataset.mode).toBe('panel');
         });
 
+        it('a full-screen panel that is not ready keeps the launcher visible as its close button', () => {
+            mount();
+            ui.setOpen(true, true, false);
+            expect(q('.panel').dataset.mode).toBe('fullscreen');
+            expect(q('.root').dataset.fullscreen).toBe('false');
+            ui.setOpen(true, true, true);
+            expect(q('.root').dataset.fullscreen).toBe('true');
+            ui.setOpen(false, true, true);
+            expect(q('.root').dataset.fullscreen).toBe('false');
+        });
+
         it('hide() removes the whole widget from view', () => {
             mount();
             ui.setHidden(true);

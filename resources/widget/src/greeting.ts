@@ -4,24 +4,26 @@ import type { Greeting, GreetingsConfig } from './types';
 const lang = (l: string): string => l.split('-')[0].toLowerCase();
 
 /**
- * Weighted random pick among the active greetings that match the visitor locale (fall back to the
- * locale-less ones). `lastId` is excluded whenever there is any alternative, so the same message is never
- * shown twice in a row.
+ * Weighted random pick among the active greetings that match the visitor locale, else the locale-less ones,
+ * else those of the widget's default locale (a visitor must not get no greeting just because the pool is
+ * tagged for another language). `lastId` is excluded whenever there is any alternative, so the same message
+ * is never shown twice in a row.
  */
 export function pickGreeting(
     pool: readonly Greeting[],
     locale: string,
     lastId: string | null,
     rng: () => number,
+    fallbackLocale = '',
 ): Greeting | null {
-    const want = lang(locale);
-    const localized = pool.filter(
-        (g) => g.locale !== null && lang(g.locale) === want,
-    );
+    const tagged = (l: string): Greeting[] =>
+        pool.filter((g) => g.locale !== null && lang(g.locale) === lang(l));
     let candidates =
-        localized.length > 0
-            ? localized
-            : pool.filter((g) => g.locale === null);
+        [
+            tagged(locale),
+            pool.filter((g) => g.locale === null),
+            tagged(fallbackLocale),
+        ].find((c) => c.length > 0) ?? [];
 
     if (candidates.length > 1) {
         candidates = candidates.filter((g) => g.id !== lastId);
@@ -96,6 +98,8 @@ export interface SchedulerDeps {
     cfg: () => GreetingsConfig;
     pool: () => readonly Greeting[];
     locale: () => string;
+    /** Widget default locale: greetings tagged with it are the last fallback. */
+    fallback?: () => string;
     /** False while the panel is open, a chat is queued/active, or the widget is hidden. */
     canShow: () => boolean;
     present: (g: Greeting) => void;
@@ -157,14 +161,18 @@ export class GreetingScheduler {
         }
     }
 
-    private schedule(ms: number): void {
-        this.next = new PausableTimer(() => this.tick(), ms, this.hidden());
+    private schedule(ms: number, skipBlock = false): void {
+        this.next = new PausableTimer(
+            () => this.tick(skipBlock),
+            ms,
+            this.hidden(),
+        );
     }
 
-    private tick(): void {
+    private tick(skipBlock = false): void {
         const c = this.d.cfg();
 
-        this.show();
+        this.show(skipBlock);
 
         if (c.enabled && c.intervalMinutes > 0) {
             this.schedule(c.intervalMinutes * 60_000);
@@ -188,14 +196,14 @@ export class GreetingScheduler {
             : Date.now() - at < c.intervalMinutes * 60_000;
     }
 
-    private show(): void {
+    private show(skipBlock = false): void {
         const c = this.d.cfg();
 
         if (
             !c.enabled ||
             this.active !== null ||
             !this.d.canShow() ||
-            this.blocked(c)
+            (!skipBlock && this.blocked(c))
         ) {
             return;
         }
@@ -205,6 +213,7 @@ export class GreetingScheduler {
             this.d.locale(),
             this.d.local.get(this.lastKey),
             Math.random,
+            this.d.fallback?.(),
         );
 
         if (g === null) {
@@ -238,7 +247,20 @@ export class GreetingScheduler {
         this.active = null;
 
         if (reason === 'dismissed') {
+            const c = this.d.cfg();
+
             this.d.session.set(this.dismissedKey, String(Date.now()));
+
+            // `interval`: the next greeting is due one full interval after the dismissal (not at the next
+            // tick of the old timeline, which would fall inside the window and be skipped for a whole cycle).
+            if (
+                c.enabled &&
+                c.dismissPolicy === 'interval' &&
+                c.intervalMinutes > 0
+            ) {
+                this.next?.clear();
+                this.schedule(c.intervalMinutes * 60_000, true);
+            }
         }
 
         this.d.retire(g, reason);

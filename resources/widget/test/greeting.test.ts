@@ -90,6 +90,44 @@ describe('pickGreeting', () => {
         expect(ids('fr')).toEqual(new Set(['any']));
     });
 
+    it('falls back to greetings of the widget default locale before giving up', () => {
+        const pool = [
+            g('en1', { locale: 'en' }),
+            g('en2', { locale: 'en-GB' }),
+        ];
+        const rng = seeded(5);
+        const ids = (loc: string, fallback?: string) =>
+            new Set(
+                Array.from(
+                    { length: 100 },
+                    () => pickGreeting(pool, loc, null, rng, fallback)?.id,
+                ),
+            );
+
+        // a French visitor on a widget whose greetings are all tagged `en` still gets one...
+        expect(ids('fr-FR', 'en')).toEqual(new Set(['en1', 'en2']));
+        // ...but the visitor's own language, then locale-less ones, still come first
+        const mixed = [...pool, g('fr', { locale: 'fr' }), g('any')];
+        expect(
+            new Set(
+                Array.from(
+                    { length: 100 },
+                    () => pickGreeting(mixed, 'fr', null, rng, 'en')?.id,
+                ),
+            ),
+        ).toEqual(new Set(['fr']));
+        expect(
+            new Set(
+                Array.from(
+                    { length: 100 },
+                    () => pickGreeting(mixed, 'de', null, rng, 'en')?.id,
+                ),
+            ),
+        ).toEqual(new Set(['any']));
+        // no fallback locale given: nothing matches
+        expect(ids('fr-FR')).toEqual(new Set([undefined]));
+    });
+
     it('returns null for an empty or fully mismatched pool', () => {
         expect(pickGreeting([], 'en', null, Math.random)).toBeNull();
         expect(
@@ -372,6 +410,41 @@ describe('GreetingScheduler', () => {
             vi.advanceTimersByTime(7 * 60_000 - 3000 + 3000); // the 10-minute tick of this page: only 7 min after dismissal
             expect(present).toHaveBeenCalledTimes(1);
             vi.advanceTimersByTime(10 * 60_000);
+            expect(present).toHaveBeenCalledTimes(2);
+        });
+
+        it('interval: shown at 0:03 and dismissed at 0:11, the next greeting comes at 10:11, one full interval after the dismissal (not a whole cycle later)', () => {
+            make({
+                dismissPolicy: 'interval',
+                intervalMinutes: 10,
+                autoHideSeconds: 0,
+            }).start();
+            vi.advanceTimersByTime(3000);
+            expect(present).toHaveBeenCalledTimes(1);
+            vi.advanceTimersByTime(8000);
+            sched.dismiss(); // 0:11, not at a tick instant
+
+            vi.advanceTimersByTime(10 * 60_000 + 3000 - 11_000); // 10:03, where the old timeline ticked
+            expect(present).toHaveBeenCalledTimes(1);
+            vi.advanceTimersByTime(7999); // 10:10.999
+            expect(present).toHaveBeenCalledTimes(1);
+            vi.advanceTimersByTime(1); // 10:11
+            expect(present).toHaveBeenCalledTimes(2);
+
+            // the timeline carries on from the new anchor
+            sched.dismiss();
+            vi.advanceTimersByTime(10 * 60_000);
+            expect(present).toHaveBeenCalledTimes(3);
+        });
+
+        it('interval: only a visitor dismissal moves the timeline (auto-hide and opening do not)', () => {
+            make({
+                dismissPolicy: 'interval',
+                intervalMinutes: 10,
+                autoHideSeconds: 5,
+            }).start();
+            vi.advanceTimersByTime(3000 + 5000); // shown, auto-hidden at 0:08
+            vi.advanceTimersByTime(10 * 60_000 - 8000 + 3000); // old tick at 10:03
             expect(present).toHaveBeenCalledTimes(2);
         });
 

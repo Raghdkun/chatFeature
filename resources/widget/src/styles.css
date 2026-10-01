@@ -39,10 +39,12 @@ svg {
 
 /* ---------------------------------------------------------------- dock */
 
-/* Physical corner placement: the dock lays out left-to-right whatever the text direction is. */
+/* Physical corner placement: the dock lays out left-to-right whatever the text direction is. Above the
+   panel, so a full-screen panel that never became ready can still be closed with the launcher. */
 .dock {
     direction: ltr;
     position: fixed;
+    z-index: 1;
     inset-block-end: calc(var(--oy) + env(safe-area-inset-bottom, 0px));
     display: flex;
     align-items: flex-end;
@@ -344,13 +346,10 @@ svg {
     align-items: flex-start;
     gap: 10px;
     min-inline-size: 0;
-    padding: 12px 36px 12px 14px;
+    padding-block: 12px;
+    padding-inline: 14px 36px;
     border-radius: inherit;
     text-align: start;
-}
-
-[dir='rtl'] .g-main {
-    padding: 12px 14px 12px 36px;
 }
 
 .g-av {
@@ -487,6 +486,7 @@ svg {
     background: transparent;
 }
 
+/* Full-screen and answering: the panel has its own close button, keep the launcher out of the way. */
 [data-fullscreen='true'] .launcher {
     visibility: hidden;
 }

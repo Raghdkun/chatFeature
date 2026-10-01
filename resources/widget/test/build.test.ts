@@ -12,6 +12,8 @@ function runBundle(): void {
 
 /** Same budget as .size-limit.json (`npm run size`): the loader must stay tiny on every host page. */
 const BUDGET_BYTES = 15_000;
+/** First line of the bundle (vite.widget.config.ts `postBanner`). */
+const MARKER = '/*! pne-chat-loader v1 */';
 
 let code = '';
 
@@ -41,9 +43,17 @@ describe('production bundle (vite.widget.config.ts)', () => {
         );
 
         expect(gz).toBeLessThanOrEqual(BUDGET_BYTES);
-        expect(code.startsWith('(function(){')).toBe(true);
+        expect(code.startsWith(`${MARKER}\n(function(){`)).toBe(true);
         expect(code.trimEnd().endsWith('})();')).toBe(true);
         expect(code).not.toMatch(/^\s*(import|export)\s/m);
+    });
+
+    it('opens with the recognisable marker banner and runs in strict mode', () => {
+        // The dashboard's "is the widget bundle built?" probe fetches /widget/v1/loader.js and looks for this;
+        // the server's "bundle not built" stub contains it nowhere.
+        expect(code.startsWith(MARKER)).toBe(true);
+        expect(code).toContain('(function(){"use strict";');
+        expect(code.split(MARKER)).toHaveLength(2);
     });
 
     it('matches the .size-limit.json budget', () => {

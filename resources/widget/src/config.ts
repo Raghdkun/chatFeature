@@ -9,67 +9,15 @@ import type {
     Texts,
     Visitor,
 } from './types';
-import { clamp, clean, isRecord, own } from './util';
+import { clamp, clean, isRecord, opt, own } from './util';
 
 /**
  * Config defaults, validation and the precedence/restriction rules of docs/contracts/widget-config.md.
  *
- * Every value that reaches the DOM goes through a spec below: colours are hex, URLs are https (or loopback
- * http in dev), numbers are clamped, free text is stripped of control characters and length-capped. Client
+ * Every value that reaches the DOM goes through a spec below: colours are hex, URLs are https (or http on local
+ * development hosts), numbers are clamped, free text is stripped of control characters and length-capped. Client
  * input is only ever *read by whitelisted key*, never iterated, so a hostile object cannot add keys.
  */
-
-export const DEFAULTS: BaseConfig = {
-    defaultLocale: 'en',
-    localeDetect: true,
-    theme: {
-        mode: 'auto',
-        primary: '#0f766e',
-        primaryText: '#ffffff',
-        accent: '#f59e0b',
-        surface: '#ffffff',
-        text: '#0f172a',
-        fontFamily: 'Inter, system-ui, sans-serif',
-        fontUrl: null,
-        radius: 16,
-        shadow: 'soft',
-        launcherSize: 'md',
-        panelWidth: 380,
-        panelHeight: 620,
-        position: 'bottom-right',
-        offsetX: 20,
-        offsetY: 20,
-        zIndex: 2147483000,
-    },
-    launcher: {
-        style: 'bubble',
-        icon: 'chat',
-        iconUrl: null,
-        label: 'Chat with us',
-        avatarUrl: null,
-    },
-    texts: {},
-    features: {
-        attachments: true,
-        rating: true,
-        sounds: true,
-        preChat: true,
-        whatsapp: false,
-        offlineForm: true,
-        titleBadge: false,
-        endChatByVisitor: true,
-        poweredBy: true,
-    },
-    greetings: {
-        enabled: true,
-        onPageLoad: true,
-        delaySeconds: 3,
-        intervalMinutes: 30,
-        autoHideSeconds: 180,
-        dismissPolicy: 'session',
-        showAgent: true,
-    },
-};
 
 /* ---------------------------------------------------------------- specs */
 
@@ -87,12 +35,13 @@ const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const LOCALE = /^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8}){0,2}$/;
 const SLUG = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const FONT = /^[\w\s,'"\-.]{1,200}$/;
-const JWT =
-    /^[A-Za-z0-9_-]{1,2048}\.[A-Za-z0-9_-]{1,2048}\.[A-Za-z0-9_-]{0,2048}$/;
+const JWT = /^[\w-]+\.[\w-]+\.[\w-]*$/;
+const MAX_CATEGORIES = 50;
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.bunny.net'];
-const LOOPBACK = /^(?:localhost|127\.0\.0\.1|\[::1\])$/;
+// Plain http is only ever accepted for local development: loopback plus the reserved `.test` / `.localhost` TLDs.
+const DEV_HOST = /^(?:localhost|127\.0\.0\.1|\[::1\]|.+\.(?:test|localhost))$/;
 
-/** `https:` only (plus `http:` on loopback for development), no credentials, resolved against `base`. */
+/** `https:` only (plus `http:` on local development hosts), no credentials, resolved against `base`. */
 export function safeUrl(v: unknown, base?: string): string | undefined {
     if (typeof v !== 'string' || v.length > 2048 || v.trim() === '') {
         return undefined;
@@ -103,7 +52,7 @@ export function safeUrl(v: unknown, base?: string): string | undefined {
 
         if (
             (u.protocol !== 'https:' &&
-                !(u.protocol === 'http:' && LOOPBACK.test(u.hostname))) ||
+                !(u.protocol === 'http:' && DEV_HOST.test(u.hostname))) ||
             u.username !== '' ||
             u.password !== ''
         ) {
@@ -171,56 +120,59 @@ const fontUrl: Spec = (v, c) => {
 };
 
 const position: Spec = (v) => {
-    const map: Dict = {
-        'bottom-right': 'bottom-right',
-        'bottom-left': 'bottom-left',
-        right: 'bottom-right',
-        left: 'bottom-left',
-    };
+    const m =
+        typeof v === 'string' ? /^(?:bottom-)?(right|left)$/.exec(v) : null;
 
-    return typeof v === 'string' && own(map, v) ? map[v] : undefined;
+    return m === null ? undefined : `bottom-${m[1]}`;
 };
 
-const THEME: Record<string, Spec> = {
-    mode: oneOf('auto', 'light', 'dark'),
-    primary: hex,
-    primaryText: hex,
-    accent: hex,
-    surface: hex,
-    text: hex,
-    fontFamily: font,
-    fontUrl,
-    radius: num(0, 28),
-    shadow: oneOf('none', 'soft', 'strong'),
-    launcherSize: oneOf('sm', 'md', 'lg'),
-    panelWidth: num(280, 640),
-    panelHeight: num(360, 900),
-    position,
-    offsetX: num(0, 200),
-    offsetY: num(0, 200),
-    zIndex: num(0, 2147483647),
+/** One entry per field: its documented default and the spec that validates client/dashboard input for it. */
+type Entry = [unknown, Spec];
+
+const THEME: Record<string, Entry> = {
+    mode: ['auto', oneOf('auto', 'light', 'dark')],
+    primary: ['#0f766e', hex],
+    primaryText: ['#ffffff', hex],
+    accent: ['#f59e0b', hex],
+    surface: ['#ffffff', hex],
+    text: ['#0f172a', hex],
+    fontFamily: ['Inter, system-ui, sans-serif', font],
+    fontUrl: [null, fontUrl],
+    radius: [16, num(0, 28)],
+    shadow: ['soft', oneOf('none', 'soft', 'strong')],
+    launcherSize: ['md', oneOf('sm', 'md', 'lg')],
+    panelWidth: [380, num(280, 640)],
+    panelHeight: [620, num(360, 900)],
+    position: ['bottom-right', position],
+    offsetX: [20, num(0, 200)],
+    offsetY: [20, num(0, 200)],
+    zIndex: [2147483000, num(0, 2147483647)],
 };
 
-const LAUNCHER: Record<string, Spec> = {
-    style: oneOf('bubble', 'pill'),
-    icon: oneOf('chat', 'help', 'sparkle', 'custom'),
-    iconUrl: url,
-    label: str(60),
-    avatarUrl: url,
+const LAUNCHER: Record<string, Entry> = {
+    style: ['bubble', oneOf('bubble', 'pill')],
+    icon: ['chat', oneOf('chat', 'help', 'sparkle', 'custom')],
+    iconUrl: [null, url],
+    label: ['Chat with us', str(60)],
+    avatarUrl: [null, url],
 };
 
-const GREETINGS: Record<string, Spec> = {
-    enabled: bool,
-    onPageLoad: bool,
-    delaySeconds: num(0, 3600),
-    intervalMinutes: num(0, 1440),
-    autoHideSeconds: num(0, 3600),
-    dismissPolicy: oneOf('session', 'interval', 'never'),
-    showAgent: bool,
+const GREETINGS: Record<string, Entry> = {
+    enabled: [true, bool],
+    onPageLoad: [true, bool],
+    delaySeconds: [3, num(0, 3600)],
+    intervalMinutes: [30, num(0, 1440)],
+    autoHideSeconds: [180, num(0, 3600)],
+    dismissPolicy: ['session', oneOf('session', 'interval', 'never')],
+    showAgent: [true, bool],
 };
 
-const FEATURES: Record<string, Spec> = Object.fromEntries(
-    FEATURE_NAMES.map((n) => [n, bool]),
+// Everything is on by default except WhatsApp (needs a connected session) and the tab-title badge.
+const FEATURES: Record<string, Entry> = Object.fromEntries(
+    FEATURE_NAMES.map((n) => [
+        n,
+        [n !== 'whatsapp' && n !== 'titleBadge', bool],
+    ]),
 );
 
 const GROUPS = {
@@ -228,15 +180,30 @@ const GROUPS = {
     launcher: LAUNCHER,
     greetings: GREETINGS,
     features: FEATURES,
-} as const;
+};
 
-function pick(raw: unknown, specs: Record<string, Spec>, c: Ctx): Dict {
+/** Config defaults (docs/contracts/widget-config.md), derived from the field table above. */
+export const DEFAULTS = {
+    defaultLocale: 'en',
+    localeDetect: true,
+    texts: {},
+    ...Object.fromEntries(
+        Object.entries(GROUPS).map(([g, fields]) => [
+            g,
+            Object.fromEntries(
+                Object.entries(fields).map(([k, e]) => [k, e[0]]),
+            ),
+        ]),
+    ),
+} as BaseConfig;
+
+function pick(raw: unknown, specs: Record<string, Entry>, c: Ctx): Dict {
     const out: Dict = {};
 
     if (isRecord(raw)) {
         for (const k of Object.keys(specs)) {
             if (own(raw, k)) {
-                const v = specs[k](raw[k], c);
+                const v = specs[k][1](raw[k], c);
 
                 if (v !== undefined) {
                     out[k] = v;
@@ -286,53 +253,40 @@ function sanitizeVisitor(raw: unknown): Visitor | undefined {
         return undefined;
     }
 
-    const out: Visitor = {};
-    const name = clean(raw.name, 200);
-    const email = clean(raw.email, 254);
-    const phone = clean(raw.phone, 40);
-
-    if (name !== undefined) {
-        out.name = name;
-    }
-
-    if (email !== undefined) {
-        out.email = email;
-    }
-
-    if (phone !== undefined) {
-        out.phone = phone;
-    }
+    const out: Dict = {
+        ...opt('name', clean(raw.name, 200)),
+        ...opt('email', clean(raw.email, 254)),
+        ...opt('phone', clean(raw.phone, 40)),
+    };
 
     if (isRecord(raw.meta)) {
-        const meta: Record<string, string | number | boolean> = {};
+        const meta: Dict = {};
+        const keys = Object.keys(raw.meta)
+            .filter((k) => /^[A-Za-z0-9_.-]{1,50}$/.test(k))
+            .slice(0, 20);
 
-        for (const k of Object.keys(raw.meta).slice(0, 20)) {
+        for (const k of keys) {
             const v = raw.meta[k];
+            const x =
+                typeof v === 'string'
+                    ? clean(v, 500)
+                    : typeof v === 'boolean' ||
+                        (typeof v === 'number' && Number.isFinite(v))
+                      ? v
+                      : undefined;
 
-            if (!/^[A-Za-z0-9_.-]{1,50}$/.test(k)) {
-                continue;
-            }
-
-            if (typeof v === 'string') {
-                const s = clean(v, 500);
-
-                if (s !== undefined) {
-                    meta[k] = s;
-                }
-            } else if (
-                typeof v === 'boolean' ||
-                (typeof v === 'number' && Number.isFinite(v))
-            ) {
-                meta[k] = v;
+            if (x !== undefined) {
+                meta[k] = x;
             }
         }
 
-        if (Object.keys(meta).length > 0) {
-            out.meta = meta;
-        }
+        Object.assign(
+            out,
+            opt('meta', Object.keys(meta).length > 0 ? meta : null),
+        );
     }
 
-    return Object.keys(out).length > 0 ? out : undefined;
+    return Object.keys(out).length > 0 ? (out as Visitor) : undefined;
 }
 
 export const sanitizeToken = (v: unknown): string | undefined =>
@@ -344,16 +298,20 @@ export const sanitizeVisitorFields = sanitizeVisitor;
 
 export function sanitizeSlugs(v: unknown): string[] | undefined {
     const list =
-        typeof v === 'string' ? v.split(',') : Array.isArray(v) ? v : null;
+        typeof v === 'string'
+            ? v.slice(0, 5000).split(',')
+            : Array.isArray(v)
+              ? v
+              : null;
 
     if (list === null) {
         return undefined;
     }
 
     const out = list
-
         .map((s) => (typeof s === 'string' ? s.trim() : ''))
-        .filter((s) => SLUG.test(s));
+        .filter((s) => SLUG.test(s))
+        .slice(0, MAX_CATEGORIES);
 
     return out.length > 0 ? out : undefined;
 }
@@ -409,8 +367,10 @@ export function sanitizeOverrides(raw: unknown, c: Ctx): Overrides {
         o.identityToken = token;
     }
 
-    if (typeof raw.openOnLoad === 'boolean') {
-        o.openOnLoad = raw.openOnLoad;
+    for (const k of ['openOnLoad', 'exposeMessageContent'] as const) {
+        if (typeof raw[k] === 'boolean') {
+            o[k] = raw[k];
+        }
     }
 
     return o;
@@ -448,7 +408,7 @@ function sanitizeGreetings(raw: unknown, c: Ctx): Greeting[] {
         }
 
         const id = clean(g.id, 64);
-        const body = clean(g.body, 2000);
+        const body = clean(g.body, 2000, true);
 
         if (id === undefined || body === undefined) {
             continue;
@@ -468,40 +428,66 @@ function sanitizeGreetings(raw: unknown, c: Ctx): Greeting[] {
     return out;
 }
 
+/** Detached JSON copy of pass-through data (`__proto__` keys dropped): the panel never gets the page's objects. */
+const copy = (v: unknown): unknown => {
+    try {
+        return JSON.parse(JSON.stringify(v ?? null), (k, x: unknown) =>
+            k === '__proto__' ? undefined : x,
+        );
+    } catch {
+        return null;
+    }
+};
+
+const copyKeys = (o: Dict, keys: string[]): Dict =>
+    Object.fromEntries(
+        keys.filter((k) => own(o, k)).map((k) => [k, copy(o[k])]),
+    );
+
 /**
  * Validates a resolved boot config (inline `__PNE_CHAT_BOOT__` or the config endpoint). Returns `null` when it
- * is unusable: wrong key, no trustworthy `api.appOrigin`, or an `api.embed` URL that is not on that origin
- * (the panel iframe and the postMessage origin check both hang off these two values).
+ * is unusable. `window.__PNE_CHAT_BOOT__` is writable by any script on the host page, so the two values the
+ * panel iframe and the postMessage origin check hang off are pinned hard: `api.appOrigin` must be a bare origin
+ * (and, when we know where the loader script came from, exactly that origin), and `api.embed` must be
+ * `<appOrigin>/embed/<key>` with at most the `?preview=1` flag. The panel never sees the object we were given:
+ * `panel` is rebuilt from validated fields.
  */
-export function parseBoot(raw: unknown, key: string): Boot | null {
+export function parseBoot(
+    raw: unknown,
+    key: string,
+    scriptOrigin?: string,
+): Boot | null {
     if (!isRecord(raw) || !isRecord(raw.api) || raw.key !== key) {
         return null;
     }
 
     const origin = safeUrl(raw.api.appOrigin);
-    const embed = safeUrl(raw.api.embed);
+    const embedUrl = safeUrl(raw.api.embed);
 
-    // `appOrigin` must be a bare origin (no path) and the embed URL must live on it.
+    if (origin === undefined || embedUrl === undefined) {
+        return null;
+    }
+
+    const appOrigin = new URL(origin).origin;
+    const e = new URL(embedUrl);
+
     if (
-        origin === undefined ||
-        embed === undefined ||
-        new URL(origin).origin !== raw.api.appOrigin ||
-        new URL(embed).origin !== raw.api.appOrigin
+        appOrigin !== raw.api.appOrigin ||
+        e.origin !== appOrigin ||
+        e.pathname !== `/embed/${key}` ||
+        e.hash !== '' ||
+        !['', '?preview=1'].includes(e.search) ||
+        (scriptOrigin !== undefined && appOrigin !== scriptOrigin)
     ) {
         return null;
     }
 
-    const appOrigin = raw.api.appOrigin;
-
-    let clone: Dict;
-
-    try {
-        clone = JSON.parse(JSON.stringify(raw)) as Dict;
-    } catch {
-        return null;
-    }
-
     const c: Ctx = { base: appOrigin, appOrigin };
+    const rc = isRecord(raw.config) ? raw.config : {};
+    const config = sanitizeBase(rc, c);
+    const greetings = sanitizeGreetings(raw.greetings, c);
+    const configVersion =
+        typeof raw.configVersion === 'number' ? raw.configVersion : 0;
     const categories = (
         Array.isArray(raw.categories) ? raw.categories : []
     ).flatMap((x: unknown) =>
@@ -509,16 +495,32 @@ export function parseBoot(raw: unknown, key: string): Boot | null {
             ? [{ slug: x.slug, label: clean(x.label, 100) ?? x.slug }]
             : [],
     );
+    const base = safeUrl(raw.api.base);
 
     return {
         key,
-        configVersion:
-            typeof raw.configVersion === 'number' ? raw.configVersion : 0,
-        api: { embed, appOrigin },
-        config: sanitizeBase(raw.config, c),
-        greetings: sanitizeGreetings(raw.greetings, c),
+        configVersion,
+        api: { embed: embedUrl, appOrigin },
+        config,
+        greetings,
         categories,
-        raw: clone,
+        panel: {
+            ...copyKeys(raw, ['generatedAt', 'locale', 'availability']),
+            v: 1,
+            key,
+            configVersion,
+            api: {
+                base:
+                    base !== undefined && new URL(base).origin === appOrigin
+                        ? base
+                        : `${appOrigin}/api/v1/public`,
+                embed: embedUrl,
+                appOrigin,
+            },
+            config: { ...config, v: 1, ...copyKeys(rc, ['preChat', 'hours']) },
+            greetings,
+            categories,
+        },
     };
 }
 
@@ -529,53 +531,43 @@ const bln = (v: string): boolean | undefined =>
 const onOff = (v: string): boolean | undefined =>
     v === 'on' ? true : v === 'off' ? false : undefined;
 
-/** data-* attribute (camelCased dataset key) -> override path. Values are validated later by the specs. */
-const DATA_MAP: [string, string[], ((v: string) => unknown)?][] = [
-    ['locale', ['locale']],
-    ['position', ['theme', 'position']],
-    ['offsetX', ['theme', 'offsetX']],
-    ['offsetY', ['theme', 'offsetY']],
-    ['zIndex', ['theme', 'zIndex']],
-    ['themeMode', ['theme', 'mode']],
-    ['themePrimary', ['theme', 'primary']],
-    ['themeAccent', ['theme', 'accent']],
-    ['themeRadius', ['theme', 'radius']],
-    ['launcherStyle', ['launcher', 'style']],
-    ['launcherLabel', ['launcher', 'label']],
-    ['greetings', ['greetings', 'enabled'], onOff],
-    ['openOnLoad', ['openOnLoad'], bln],
-    ['identityToken', ['identityToken']],
-    ['categories', ['categories']],
+/** data-* attribute (camelCased dataset key) -> dotted override path. Values are validated later by the specs. */
+const DATA_MAP: [string, string, ((v: string) => unknown)?][] = [
+    ['locale', 'locale'],
+    ['position', 'theme.position'],
+    ['offsetX', 'theme.offsetX'],
+    ['offsetY', 'theme.offsetY'],
+    ['zIndex', 'theme.zIndex'],
+    ['themeMode', 'theme.mode'],
+    ['themePrimary', 'theme.primary'],
+    ['themeAccent', 'theme.accent'],
+    ['themeRadius', 'theme.radius'],
+    ['launcherStyle', 'launcher.style'],
+    ['launcherLabel', 'launcher.label'],
+    ['greetings', 'greetings.enabled', onOff],
+    ['openOnLoad', 'openOnLoad', bln],
+    ['identityToken', 'identityToken'],
+    ['categories', 'categories'],
 ];
 
 /** Builds the raw (unsanitised) override object described by the script tag's `data-*` attributes. */
 export function parseDataAttrs(script: { dataset: DOMStringMap } | null): Dict {
     const out: Dict = {};
 
-    if (script === null) {
-        return out;
-    }
-
     for (const [attr, path, conv] of DATA_MAP) {
-        const raw = script.dataset[attr];
+        const raw = script?.dataset[attr];
+        const v = raw === undefined || conv === undefined ? raw : conv(raw);
 
-        if (raw === undefined) {
-            continue;
+        if (v !== undefined) {
+            const keys = path.split('.');
+            let node = out;
+
+            for (const seg of keys.slice(0, -1)) {
+                node = (node[seg] as Dict | undefined) ?? (node[seg] = {});
+            }
+
+            node[keys[keys.length - 1]] = v;
         }
-
-        const v = conv === undefined ? raw : conv(raw);
-
-        if (v === undefined) {
-            continue;
-        }
-
-        let node = out;
-
-        for (const seg of path.slice(0, -1)) {
-            node = (node[seg] as Dict | undefined) ?? (node[seg] = {});
-        }
-
-        node[path[path.length - 1]] = v;
     }
 
     return out;
@@ -640,17 +632,25 @@ export function resolve(
     }
 
     const dl = ov.defaultLocale ?? b.defaultLocale;
-    const nav = normalizeLocale(navLangs[0]);
-    const locale =
-        ov.locale ?? (b.localeDetect && nav !== undefined ? nav : dl);
-    const textLocale =
-        [locale, lang(locale), dl, lang(dl), 'en'].find((l) => own(texts, l)) ??
-        dl;
+    const has = (l: string): boolean => own(texts, l);
+    // The browser locale counts only when there are texts for it (otherwise the visitor would get, say,
+    // right-to-left chrome around English strings); direction always follows the texts actually shown.
+    const nav = navLangs
+        .map(normalizeLocale)
+        .find((l) => l !== undefined && (has(l) || has(lang(l))));
+    const locale = ov.locale ?? (b.localeDetect ? nav : undefined) ?? dl;
+    const textLocale = [locale, lang(locale), dl, lang(dl)].find(has) ?? 'en';
+    const label = texts[textLocale]?.launcherLabel;
+
+    if (ov.launcher?.label === undefined && textLocale !== dl && label) {
+        launcher.label = label.slice(0, 60);
+    }
 
     return {
         locale,
         textLocale,
-        dir: RTL.test(lang(locale)) ? 'rtl' : 'ltr',
+        defaultLocale: dl,
+        dir: RTL.test(lang(textLocale)) ? 'rtl' : 'ltr',
         theme,
         launcher,
         features,

@@ -88,9 +88,7 @@ export function install(
             .find((k) => KEY.test(k));
 
         if (key === undefined) {
-            warn(
-                'No widget key: add data-widget-key to the script tag or pass { widgetKey } to init.',
-            );
+            warn('No widget key (data-widget-key, or init({ widgetKey })).');
 
             return;
         }
@@ -169,15 +167,38 @@ export function install(
     api.loaded = true;
     g.ChatFeature = api;
 
-    const queued = Array.isArray(existing?.q)
-        ? (existing.q as ArrayLike<unknown>[])
-        : [];
-
-    for (const entry of queued) {
-        if (entry !== null && typeof entry === 'object' && 'length' in entry) {
-            const [command, ...args] = Array.from(entry);
-            dispatch(command, args);
+    /** One queued `[command, ...args]` entry (an array or the stub's `arguments` object); junk is ignored. */
+    const feed = (entry: unknown): void => {
+        try {
+            if (
+                entry !== null &&
+                typeof entry === 'object' &&
+                'length' in entry &&
+                typeof entry.length === 'number' &&
+                entry.length <= 20
+            ) {
+                const [command, ...args] = Array.from(
+                    entry as ArrayLike<unknown>,
+                );
+                dispatch(command, args);
+            }
+        } catch {
+            // a malformed entry must not stop the rest of the queue
         }
+    };
+
+    if (Array.isArray(existing?.q)) {
+        existing.q.forEach(feed);
+    }
+
+    // Code that kept a reference to the old stub keeps pushing onto its `q` after we took over: run those
+    // calls directly instead of letting them pile up in a dead array.
+    try {
+        if (existing !== undefined && existing !== null) {
+            (existing as { q: unknown }).q = { push: feed };
+        }
+    } catch {
+        // frozen stub
     }
 
     // Auto-boot from the script tag (`/w/<key>.js` or data-widget-key) unless an `init` already did.

@@ -96,9 +96,9 @@ export class Ui {
     private count = 0;
     private reduced = false;
     flip: FlipState = 'front';
-    private flipTimer: ReturnType<typeof setTimeout> | null = null;
-    private exitTimer: ReturnType<typeof setTimeout> | null = null;
-    private alertTimer: ReturnType<typeof setTimeout> | null = null;
+    private flipTimer?: ReturnType<typeof setTimeout>;
+    private exitTimer?: ReturnType<typeof setTimeout>;
+    private alertTimer?: ReturnType<typeof setTimeout>;
     private fontLink: HTMLLinkElement | null = null;
     private gestured = false;
 
@@ -167,16 +167,18 @@ export class Ui {
         this.button.addEventListener('keydown', gesture);
 
         // Host element: reset every inherited/leaking property and pin it, beating host `!important` rules.
-        const pin = (k: string, v: string): void =>
+        for (const [k, v] of Object.entries({
+            all: 'initial',
+            display: 'block',
+            position: 'fixed',
+            inset: '0 auto auto 0',
+            width: '0',
+            height: '0',
+            overflow: 'visible',
+            'pointer-events': 'none',
+        })) {
             this.host.style.setProperty(k, v, 'important');
-        pin('all', 'initial');
-        pin('display', 'block');
-        pin('position', 'fixed');
-        pin('inset', '0 auto auto 0');
-        pin('width', '0');
-        pin('height', '0');
-        pin('overflow', 'visible');
-        pin('pointer-events', 'none');
+        }
     }
 
     private adoptStyles(nonce?: string): void {
@@ -323,19 +325,18 @@ export class Ui {
         );
     }
 
-    setOpen(open: boolean, fullscreen: boolean): void {
+    /**
+     * `ready` = the panel answered the handshake. A full-screen panel that is not ready (still loading, blocked,
+     * crashed) keeps the launcher on top as its close button; once it is ready the panel brings its own.
+     */
+    setOpen(open: boolean, fullscreen: boolean, ready = true): void {
         this.open = open;
         this.button.setAttribute('aria-expanded', String(open));
         this.panel.dataset.open = String(open);
         this.panel.toggleAttribute('inert', !open);
-        this.setFullscreen(fullscreen);
-        this.root.dataset.fullscreen = String(open && fullscreen);
-        this.syncLabel();
-    }
-
-    setFullscreen(fullscreen: boolean): void {
         this.panel.dataset.mode = fullscreen ? 'fullscreen' : 'panel';
-        this.root.dataset.fullscreen = String(this.open && fullscreen);
+        this.root.dataset.fullscreen = String(open && fullscreen && ready);
+        this.syncLabel();
     }
 
     setBadge(n: number): void {
@@ -351,13 +352,9 @@ export class Ui {
         void this.button.offsetWidth;
         this.button.dataset.alert = 'true';
 
-        if (this.alertTimer !== null) {
-            clearTimeout(this.alertTimer);
-        }
-
+        clearTimeout(this.alertTimer);
         this.alertTimer = setTimeout(() => {
             this.button.dataset.alert = 'false';
-            this.alertTimer = null;
         }, ALERT_MS);
     }
 
@@ -440,34 +437,21 @@ export class Ui {
         card.dataset.state = 'exit';
         card.setAttribute('inert', '');
         this.flipTo('front');
-        this.exitTimer = setTimeout(() => {
-            card.remove();
-            this.exitTimer = null;
-        }, POPUP_EXIT_MS);
+        this.exitTimer = setTimeout(() => card.remove(), POPUP_EXIT_MS);
     }
 
     private removeGreeting(): void {
-        if (this.exitTimer !== null) {
-            clearTimeout(this.exitTimer);
-            this.exitTimer = null;
-        }
-
+        clearTimeout(this.exitTimer);
         this.live.replaceChildren();
         this.greet = null;
     }
 
     private flipTo(face: 'front' | 'agent'): void {
-        if (this.flipTimer !== null) {
-            clearTimeout(this.flipTimer);
-        }
-
+        clearTimeout(this.flipTimer);
         this.card.dataset.face = face;
         this.setFlip(face === 'agent' ? 'to-agent' : 'to-front');
         this.flipTimer = setTimeout(
-            () => {
-                this.flipTimer = null;
-                this.setFlip(face);
-            },
+            () => this.setFlip(face),
             this.reduced
                 ? FADE_MS
                 : face === 'agent'
@@ -483,14 +467,10 @@ export class Ui {
 
     destroy(): void {
         for (const t of [this.flipTimer, this.exitTimer, this.alertTimer]) {
-            if (t !== null) {
-                clearTimeout(t);
-            }
+            clearTimeout(t);
         }
 
-        this.flipTimer = this.exitTimer = this.alertTimer = null;
         this.fontLink?.remove();
-        this.fontLink = null;
         this.host.remove();
     }
 }

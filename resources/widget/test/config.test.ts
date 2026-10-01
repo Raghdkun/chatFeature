@@ -10,8 +10,8 @@ import {
     sanitizeToken,
 } from '../src/config';
 import type { Ctx } from '../src/config';
-import type { Overrides } from '../src/types';
-import { deepMerge } from '../src/util';
+import type { Boot, Overrides } from '../src/types';
+import { clean, deepMerge, fingerprint } from '../src/util';
 import { APP, KEY, makeBoot, makeBootCfg } from './helpers';
 
 const ctx: Ctx = { base: 'https://customer.example/page', appOrigin: APP };
@@ -45,6 +45,12 @@ describe('safeUrl', () => {
         ['/img/a.png', 'https://customer.example/img/a.png'],
         ['http://localhost:8205/a.png', 'http://localhost:8205/a.png'],
         ['http://127.0.0.1/a.png', 'http://127.0.0.1/a.png'],
+        ['http://chat.test/a.png', 'http://chat.test/a.png'],
+        [
+            'http://chat.localhost:8000/a.png',
+            'http://chat.localhost:8000/a.png',
+        ],
+        ['http://app.pne.test/a.png', 'http://app.pne.test/a.png'],
         ['//cdn.example.com/a.png', 'https://cdn.example.com/a.png'],
     ])('accepts %s', (input, out) => {
         expect(safeUrl(input, 'https://customer.example/page')).toBe(out);
@@ -54,6 +60,9 @@ describe('safeUrl', () => {
         'javascript:alert(1)',
         'data:text/html,<script>alert(1)</script>',
         'http://evil.example/a.png',
+        'http://test.example/a.png',
+        'http://evil.test.example/a.png',
+        'http://localhost.evil.example/a.png',
         'ftp://x.example/a',
         'https://user:pass@evil.example/a.png',
         'blob:https://x.example/1',
@@ -162,17 +171,41 @@ describe('sanitizeOverrides: validation', () => {
         expect(o.greetings).toEqual({ intervalMinutes: 0 });
     });
 
-    it('strips control characters, trims and caps free text', () => {
+    it('strips control and bidi characters, trims and caps free text', () => {
         const o = sanitizeOverrides(
             {
-                launcher: { label: '  Hel\u0000lo\n‮ there  ' },
+                launcher: { label: '  Hel\u0000lo\n\u202e there  ' },
                 texts: { en: { title: 'x'.repeat(900) } },
             },
             ctx,
         );
 
-        expect(o.launcher?.label).toBe('Hel lo ‮ there');
+        expect(o.launcher?.label).toBe('Hel lo  there');
         expect(o.texts?.en.title).toHaveLength(500);
+    });
+
+    it('removes every bidirectional override and isolate, however it is spelled', () => {
+        const bidi = '\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069';
+
+        expect(clean(`a${bidi}b`, 50)).toBe('ab');
+        expect(clean(`${bidi}`, 50)).toBeUndefined();
+        expect(
+            sanitizeOverrides({ visitor: { name: `Ann${bidi}` } }, ctx).visitor,
+        ).toEqual({ name: 'Ann' });
+    });
+
+    it('keeps line breaks only for message bodies', () => {
+        expect(clean('a\r\nb\nc\td', 50)).toBe('a b c d');
+        expect(clean('  a\r\nb\n\nc\u0000d  ', 50, true)).toBe('a\nb\n\nc d');
+        expect(clean('x\ny\nz', 3, true)).toBe('x\ny');
+
+        const b = parseBoot(
+            makeBoot({
+                greetings: [{ id: 'g', body: 'Hi!\nNeed help?\u202e' }],
+            }),
+            KEY,
+        );
+        expect(b?.greetings[0].body).toBe('Hi!\nNeed help?');
     });
 
     it('accepts https image URLs only', () => {
@@ -220,6 +253,58 @@ describe('sanitizeOverrides: validation', () => {
         expect(o.identityToken).toBe('aaa.bbb.ccc');
         expect(sanitizeToken('not a jwt')).toBeUndefined();
         expect(sanitizeToken('a.b')).toBeUndefined();
+    });
+
+    it('filters visitor meta keys before capping them, so valid keys are never crowded out', () => {
+        const meta: Record<string, unknown> = {};
+
+        for (let i = 0; i < 40; i++) {
+            meta[`bad key ${i}!`] = 'x';
+        }
+
+        for (let i = 0; i < 30; i++) {
+            meta[`ok${i}`] = i;
+        }
+
+        const kept = sanitizeOverrides({ visitor: { meta } }, ctx).visitor
+            ?.meta;
+        expect(Object.keys(kept ?? {})).toHaveLength(20);
+        expect(Object.keys(kept ?? {})[0]).toBe('ok0');
+    });
+
+    it('replaces visitor meta as a whole instead of merging it', () => {
+        expect(
+            deepMerge(
+                { visitor: { name: 'A', meta: { plan: 'pro', secret: 'x' } } },
+                { visitor: { meta: { plan: 'free' } } },
+            ),
+        ).toEqual({ visitor: { name: 'A', meta: { plan: 'free' } } });
+    });
+
+    it('caps the number of categories', () => {
+        const slugs = Array.from({ length: 200 }, (_, i) => `c${i}`);
+        expect(
+            sanitizeOverrides({ categories: slugs }, ctx).categories,
+        ).toHaveLength(50);
+        expect(
+            sanitizeOverrides({ categories: slugs.join(',') }, ctx).categories,
+        ).toHaveLength(50);
+        expect(
+            sanitizeOverrides(
+                { categories: `${'x'.repeat(10_000)},${slugs[0]}` },
+                ctx,
+            ).categories,
+        ).toBeUndefined(); // the string is cut before it is split
+    });
+
+    it('accepts exposeMessageContent only as a boolean', () => {
+        expect(
+            sanitizeOverrides({ exposeMessageContent: true }, ctx)
+                .exposeMessageContent,
+        ).toBe(true);
+        expect(sanitizeOverrides({ exposeMessageContent: 'yes' }, ctx)).toEqual(
+            {},
+        );
     });
 
     it('parses category lists from arrays and comma separated strings', () => {
@@ -497,7 +582,76 @@ describe('locale resolution', () => {
         expect(r(cfg, {}, ['ar-SA']).textLocale).toBe('ar');
         expect(r(cfg, {}, ['ar-SA']).locale).toBe('ar-sa');
         expect(r(cfg, {}, ['fr-FR']).textLocale).toBe('en');
-        expect(r(cfg, {}, ['fr-FR']).locale).toBe('fr-fr');
+        expect(r(cfg, {}, ['fr-FR']).locale).toBe('en'); // no French texts: the default, not the browser's
+    });
+
+    it('looks further down the browser language list for one the widget has texts for', () => {
+        const cfg = { texts: { en: { title: 'S' }, ar: { title: 'x' } } };
+        expect(r(cfg, {}, ['fr-FR', 'ar-EG']).locale).toBe('ar-eg');
+        expect(r(cfg, {}, ['fr-FR', 'de']).locale).toBe('en');
+    });
+
+    it('direction follows the texts actually shown: right-to-left chrome never wraps English strings', () => {
+        // (the fixture ships Arabic texts too: drop them explicitly)
+        const english = { texts: { en: { title: 'Support' }, ar: undefined } };
+        const e = r(english, {}, ['ar-SA']);
+        expect(e.dir).toBe('ltr');
+        expect(e.locale).toBe('en');
+        expect(e.text('title', '')).toBe('Support');
+        // an explicit locale without texts of its own does not flip the direction either
+        expect(r(english, { locale: 'ar' }, ['en']).dir).toBe('ltr');
+        // with Arabic texts it does
+        const both = { texts: { en: { title: 'S' }, ar: { title: 'ا' } } };
+        expect(r(both, {}, ['ar-SA']).dir).toBe('rtl');
+        expect(r(both, {}, ['en-US']).dir).toBe('ltr');
+        // an Arabic default locale with Arabic texts is right-to-left for everyone
+        expect(
+            r(
+                {
+                    defaultLocale: 'ar',
+                    localeDetect: false,
+                    texts: { ar: { title: 'ا' } },
+                },
+                {},
+                ['en'],
+            ).dir,
+        ).toBe('rtl');
+    });
+
+    it('localises the launcher label per locale, with the dashboard label for the default locale and client overrides on top', () => {
+        const cfg = {
+            launcher: { label: 'Talk to sales' },
+            texts: {
+                en: { launcherLabel: 'Chat with us' },
+                ar: { launcherLabel: 'تحدث معنا' },
+            },
+        };
+        expect(r(cfg, {}, ['en']).launcher.label).toBe('Talk to sales');
+        expect(r(cfg, {}, ['ar']).launcher.label).toBe('تحدث معنا');
+        expect(
+            r(cfg, { launcher: { label: 'Hi' } }, ['ar']).launcher.label,
+        ).toBe('Hi');
+    });
+
+    it('reads the closeChat / unread / dismiss texts and keeps the English fallbacks', () => {
+        const cfg = {
+            texts: {
+                en: { title: 'S' },
+                ar: {
+                    closeChat: 'إغلاق',
+                    unread: 'غير مقروءة',
+                    dismiss: 'إخفاء',
+                },
+            },
+        };
+        const ar = r(cfg, { locale: 'ar' }, []);
+        expect(ar.text('closeChat', 'Close chat')).toBe('إغلاق');
+        expect(ar.text('unread', 'unread messages')).toBe('غير مقروءة');
+        expect(ar.text('dismiss', 'Dismiss')).toBe('إخفاء');
+        const en = r(cfg, {}, ['en']);
+        expect(en.text('closeChat', 'Close chat')).toBe('Close chat');
+        expect(en.text('unread', 'unread messages')).toBe('unread messages');
+        expect(en.text('dismiss', 'Dismiss')).toBe('Dismiss');
     });
 
     it('localeDetect=false ignores the browser', () => {
@@ -524,7 +678,8 @@ describe('locale resolution', () => {
         ['fr', 'ltr'],
         ['zh-CN', 'ltr'],
     ])('%s is %s', (loc, dir) => {
-        expect(r({}, { locale: loc }, []).dir).toBe(dir);
+        const texts = { [loc.toLowerCase()]: { title: 'x' } };
+        expect(r({ texts }, { locale: loc }, []).dir).toBe(dir);
     });
 });
 
@@ -648,13 +803,172 @@ describe('boot config validation', () => {
         expect(parseBoot({ ...makeBoot(), ...over }, KEY)).toBeNull();
     });
 
-    it('allows http on loopback for development', () => {
-        const o = 'http://localhost:8205';
+    it.each([
+        'http://localhost:8205',
+        'http://127.0.0.1:8205',
+        'http://chat.test',
+        'http://chat.localhost:8000',
+        'http://app.pne.test',
+    ])('allows plain http on the development host %s', (o) => {
         const b = parseBoot(
             makeBoot({ api: { embed: `${o}/embed/${KEY}`, appOrigin: o } }),
             KEY,
         );
         expect(b?.api.appOrigin).toBe(o);
+        expect(b?.panel.api).toMatchObject({ appOrigin: o });
+    });
+
+    it.each([
+        'http://chat.example.com',
+        'http://test.example.com',
+        'http://localhost.evil.example',
+    ])('refuses plain http on the real host %s', (o) => {
+        expect(
+            parseBoot(
+                makeBoot({ api: { embed: `${o}/embed/${KEY}`, appOrigin: o } }),
+                KEY,
+            ),
+        ).toBeNull();
+    });
+
+    describe('hostile window.__PNE_CHAT_BOOT__ (writable by any script on the host page)', () => {
+        const api = (over: Dict) => ({
+            api: {
+                base: `${APP}/api/v1/public`,
+                embed: `${APP}/embed/${KEY}`,
+                appOrigin: APP,
+                ...over,
+            },
+        });
+
+        it('pins the app origin to the origin the loader script was served from', () => {
+            expect(parseBoot(makeBoot(), KEY, APP)).not.toBeNull();
+            const evil = 'https://evil.example';
+            expect(
+                parseBoot(
+                    makeBoot(
+                        api({ embed: `${evil}/embed/${KEY}`, appOrigin: evil }),
+                    ),
+                    KEY,
+                    APP,
+                ),
+            ).toBeNull();
+            // without a known script origin (no script URL) only the structural checks apply
+            expect(
+                parseBoot(
+                    makeBoot(
+                        api({ embed: `${evil}/embed/${KEY}`, appOrigin: evil }),
+                    ),
+                    KEY,
+                ),
+            ).not.toBeNull();
+        });
+
+        it.each([
+            ['another path', `${APP}/embed/wk_OTHER`],
+            ['a nested path', `${APP}/x/embed/${KEY}`],
+            ['a trailing slash', `${APP}/embed/${KEY}/`],
+            ['a different route', `${APP}/login`],
+            ['a query', `${APP}/embed/${KEY}?next=https://evil.example`],
+            ['a mode query', `${APP}/embed/${KEY}?mode=inline`],
+            ['a combined query', `${APP}/embed/${KEY}?preview=1&x=1`],
+            ['a fragment', `${APP}/embed/${KEY}#x`],
+            ['credentials', `https://u:p@chat.example.com/embed/${KEY}`],
+        ])('rejects an embed url with %s', (_, embed) => {
+            expect(parseBoot(makeBoot(api({ embed })), KEY, APP)).toBeNull();
+        });
+
+        it('accepts the builder preview flag', () => {
+            const embed = `${APP}/embed/${KEY}?preview=1`;
+            expect(
+                parseBoot(makeBoot(api({ embed })), KEY, APP)?.api.embed,
+            ).toBe(embed);
+        });
+
+        it('rebuilds the panel boot from validated fields and never forwards the raw object', () => {
+            const raw = makeBoot({
+                api: {
+                    base: 'https://evil.example/steal',
+                    embed: `${APP}/embed/${KEY}`,
+                    appOrigin: APP,
+                    extra: 'x',
+                },
+                routing: { waves: [] },
+                evil: { __proto__: { polluted: true } },
+                locale: 'en',
+                availability: { online: true, openNow: true, nextOpenAt: null },
+                config: {
+                    preChat: {
+                        fields: { name: { enabled: true, required: true } },
+                        consentText: 'OK?',
+                    },
+                    hours: { mode: 'always_online' },
+                    theme: { primary: 'red; background:url(//evil)' },
+                    session: { idleTimeoutMinutes: 1 },
+                    domains: ['evil.example'],
+                },
+            });
+            const b = parseBoot(JSON.parse(JSON.stringify(raw)), KEY, APP);
+            const panel = b?.panel as Dict;
+
+            expect(Object.keys(panel).sort()).toEqual(
+                [
+                    'api',
+                    'availability',
+                    'categories',
+                    'config',
+                    'configVersion',
+                    'generatedAt',
+                    'greetings',
+                    'key',
+                    'locale',
+                    'v',
+                ].sort(),
+            );
+            expect(panel.api).toEqual({
+                base: `${APP}/api/v1/public`, // a base on another origin is replaced, not forwarded
+                embed: `${APP}/embed/${KEY}`,
+                appOrigin: APP,
+            });
+            const config = panel.config as Dict;
+            expect(config.preChat).toEqual({
+                fields: { name: { enabled: true, required: true } },
+                consentText: 'OK?',
+            });
+            expect(config.hours).toEqual({ mode: 'always_online' });
+            expect(config).not.toHaveProperty('session');
+            expect(config).not.toHaveProperty('domains');
+            expect((config.theme as Dict).primary).toBe(DEFAULTS.theme.primary);
+            expect(panel).not.toHaveProperty('routing');
+            expect(panel).not.toHaveProperty('evil');
+            expect(JSON.stringify(panel)).not.toContain('evil.example');
+            expect(panel).not.toBe(raw);
+            expect(b).not.toHaveProperty('raw');
+        });
+
+        it('keeps a same-origin api.base and survives unserialisable pass-through data', () => {
+            const base = `${APP}/api/v2/public`;
+            const raw = makeBoot(api({ base }));
+            const cyc: Dict = {};
+            cyc.self = cyc;
+            raw.availability = cyc;
+            const b = parseBoot(raw, KEY, APP);
+
+            expect(((b as Boot).panel.api as Dict).base).toBe(base);
+            expect(b?.panel.availability).toBeNull();
+        });
+
+        it('drops __proto__ keys from pass-through data', () => {
+            const raw = makeBoot();
+            raw.availability = JSON.parse(
+                '{"online":true,"__proto__":{"polluted":true}}',
+            );
+            const a = parseBoot(raw, KEY, APP)?.panel.availability as Dict;
+
+            expect(a.online).toBe(true);
+            expect(Object.keys(a)).toEqual(['online']);
+            expect(({} as Dict).polluted).toBeUndefined();
+        });
     });
 
     it('drops malformed greetings and categories instead of failing', () => {
@@ -701,5 +1015,14 @@ describe('boot config validation', () => {
         expect(base.theme.primary).toBe(DEFAULTS.theme.primary);
         expect(base.theme.fontUrl).toBeNull();
         expect(base.launcher.iconUrl).toBeNull();
+    });
+});
+
+describe('fingerprint', () => {
+    it('is stable, differs for different input and is not the input', () => {
+        expect(fingerprint('user-42')).toBe(fingerprint('user-42'));
+        expect(fingerprint('user-42')).not.toBe(fingerprint('user-43'));
+        expect(fingerprint('user-42')).not.toContain('user');
+        expect(fingerprint('')).toBeTruthy();
     });
 });
