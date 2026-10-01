@@ -191,7 +191,6 @@ test.describe('origin whitelist', () => {
                 ),
         ).toBe(false);
     });
-    });
 
     test('wildcards: every sub-origin of *.example.localhost is welcome, the bare name is not', async ({
         page,
