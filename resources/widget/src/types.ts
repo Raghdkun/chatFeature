@@ -97,8 +97,8 @@ export interface Boot {
     config: BaseConfig;
     greetings: Greeting[];
     categories: Category[];
-    /** JSON clone of the resolved boot config as received; handed to the panel on `init`. */
-    raw: Dict;
+    /** What the panel receives on `init`: rebuilt from validated fields, never the raw object the page handed us. */
+    panel: Dict;
 }
 
 /** Sanitised client overrides (data-* < init settings < runtime update). */
@@ -114,13 +114,17 @@ export interface Overrides {
     visitor?: Visitor;
     identityToken?: string;
     openOnLoad?: boolean;
+    /** Opt-in: message bodies/previews reach `ChatFeature.on` handlers and DOM events (off by default). */
+    exposeMessageContent?: boolean;
 }
 
 export interface Effective {
-    /** Visitor locale (used to pick greetings and sent to the config endpoint). */
+    /** Visitor locale (used to pick greetings): the browser's only when a texts block exists for it. */
     locale: string;
-    /** Locale the texts are read from. */
+    /** Locale the texts are read from; `dir` follows it. */
     textLocale: string;
+    /** Widget default locale (greeting fallback). */
+    defaultLocale: string;
     dir: 'ltr' | 'rtl';
     theme: Theme;
     launcher: Launcher;
@@ -152,32 +156,25 @@ export interface ChatState {
     agent?: AgentInfo;
 }
 
+/** The first six are the ones the panel may forward with an `event` message; the rest are the loader's own. */
 export const EVENT_NAMES = [
-    'ready',
-    'open',
-    'close',
     'chat-started',
     'chat-ended',
     'agent-joined',
     'message-sent',
     'message-received',
+    'rating-submitted',
+    'ready',
+    'open',
+    'close',
     'unread-changed',
     'greeting-shown',
     'greeting-dismissed',
-    'rating-submitted',
     'error',
 ] as const;
 export type EventName = (typeof EVENT_NAMES)[number];
 
-/** Events the panel may forward with an `event` message. The rest are owned by the loader itself. */
-export const PANEL_EVENTS: readonly string[] = [
-    'chat-started',
-    'chat-ended',
-    'agent-joined',
-    'message-sent',
-    'message-received',
-    'rating-submitted',
-];
+export const PANEL_EVENTS: readonly string[] = EVENT_NAMES.slice(0, 6);
 
 export interface Envelope {
     ns: 'chatfeature';

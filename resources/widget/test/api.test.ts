@@ -252,6 +252,194 @@ describe('window.ChatFeature API', () => {
                 vi.unstubAllGlobals();
             });
 
+            describe('retries', () => {
+                const fail = () =>
+                    Promise.reject(new TypeError('Failed to fetch'));
+                const success = () =>
+                    Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: () => Promise.resolve({ data: makeBoot() }),
+                    });
+                const watch = (f: ReturnType<typeof vi.fn>) => {
+                    vi.stubGlobal('fetch', f);
+                    const errors: Dict[] = [];
+                    const cf = install(window, generic()) as ChatFeatureFn;
+                    cf('on', 'error', (e: Dict) => errors.push(e));
+
+                    return { cf, errors };
+                };
+                const mounted = () =>
+                    document.querySelector('pne-chat-widget') !== null;
+
+                it('backs off 2 s, 8 s and 30 s, reports config_failed once, and mounts as soon as one attempt works', async () => {
+                    const f = vi
+                        .fn()
+                        .mockImplementationOnce(fail)
+                        .mockImplementationOnce(fail)
+                        .mockImplementationOnce(fail)
+                        .mockImplementation(success);
+                    const { errors } = watch(f);
+                    await flush();
+                    expect(f).toHaveBeenCalledTimes(1);
+                    expect(errors.map((e) => e.code)).toEqual([
+                        'config_failed',
+                    ]);
+
+                    await vi.advanceTimersByTimeAsync(1999);
+                    expect(f).toHaveBeenCalledTimes(1);
+                    await vi.advanceTimersByTimeAsync(1);
+                    expect(f).toHaveBeenCalledTimes(2);
+
+                    await vi.advanceTimersByTimeAsync(7999);
+                    expect(f).toHaveBeenCalledTimes(2);
+                    await vi.advanceTimersByTimeAsync(1);
+                    expect(f).toHaveBeenCalledTimes(3);
+                    expect(mounted()).toBe(false);
+
+                    await vi.advanceTimersByTimeAsync(29_999);
+                    expect(f).toHaveBeenCalledTimes(3);
+                    await vi.advanceTimersByTimeAsync(1);
+                    expect(f).toHaveBeenCalledTimes(4);
+                    expect(mounted()).toBe(true);
+                    expect(errors).toHaveLength(1); // one failure episode, one event
+                    expect(vi.getTimerCount()).toBeLessThanOrEqual(3); // greeting timer etc., no retry timer left
+                    vi.unstubAllGlobals();
+                });
+
+                it('stops after the fourth attempt', async () => {
+                    const f = vi.fn().mockImplementation(fail);
+                    const { errors } = watch(f);
+                    await vi.advanceTimersByTimeAsync(
+                        2000 + 8000 + 30_000 + 1000,
+                    );
+                    expect(f).toHaveBeenCalledTimes(4);
+                    expect(errors).toHaveLength(1);
+                    expect(vi.getTimerCount()).toBe(0);
+                    await vi.advanceTimersByTimeAsync(24 * 3600_000);
+                    expect(f).toHaveBeenCalledTimes(4);
+                    expect(mounted()).toBe(false);
+                    vi.unstubAllGlobals();
+                });
+
+                it('a later ChatFeature("init") tries again right away, even after giving up', async () => {
+                    const f = vi.fn().mockImplementation(fail);
+                    const { cf } = watch(f);
+                    await flush();
+                    expect(f).toHaveBeenCalledTimes(1);
+                    f.mockImplementation(success);
+                    cf('init', { theme: { primary: '#123456' } }); // during the 2 s pause
+                    await flush();
+                    expect(f).toHaveBeenCalledTimes(2);
+                    expect(mounted()).toBe(true);
+                    // and the settings of that init made it in
+                    const root = (
+                        document.querySelector('pne-chat-widget') as HTMLElement
+                    ).shadowRoot?.querySelector<HTMLElement>('.root');
+                    expect(root?.style.getPropertyValue('--primary')).toBe(
+                        '#123456',
+                    );
+                    vi.unstubAllGlobals();
+                });
+
+                it('init() after the retries ran out starts a new round', async () => {
+                    const f = vi.fn().mockImplementation(fail);
+                    const { cf, errors } = watch(f);
+                    await vi.advanceTimersByTimeAsync(41_000);
+                    expect(f).toHaveBeenCalledTimes(4);
+                    f.mockImplementation(success);
+                    cf('init', {});
+                    await flush();
+                    expect(f).toHaveBeenCalledTimes(5);
+                    expect(mounted()).toBe(true);
+                    expect(errors.length).toBeGreaterThanOrEqual(1);
+                    vi.unstubAllGlobals();
+                });
+
+                it('the browser coming back online tries again right away', async () => {
+                    const f = vi
+                        .fn()
+                        .mockImplementationOnce(fail)
+                        .mockImplementation(success);
+                    watch(f);
+                    await flush();
+                    expect(f).toHaveBeenCalledTimes(1);
+                    window.dispatchEvent(new Event('online'));
+                    await flush();
+                    expect(f).toHaveBeenCalledTimes(2);
+                    expect(mounted()).toBe(true);
+                    window.dispatchEvent(new Event('online')); // already booted: nothing to do
+                    await flush();
+                    expect(f).toHaveBeenCalledTimes(2);
+                    vi.unstubAllGlobals();
+                });
+
+                it('never runs two requests at once', async () => {
+                    let release: (v: unknown) => void = () => {};
+                    const f = vi
+                        .fn()
+                        .mockReturnValue(new Promise((r) => (release = r)));
+                    const { cf } = watch(f);
+                    cf('init', {});
+                    window.dispatchEvent(new Event('online'));
+                    await flush();
+                    expect(f).toHaveBeenCalledTimes(1);
+                    release({
+                        ok: true,
+                        json: () => Promise.resolve({ data: makeBoot() }),
+                    });
+                    await flush();
+                    expect(mounted()).toBe(true);
+                    vi.unstubAllGlobals();
+                });
+
+                it('a hanging request is aborted and retried with a fresh abort signal', async () => {
+                    const signals: AbortSignal[] = [];
+                    const f = vi
+                        .fn()
+                        .mockImplementation((_: string, init: RequestInit) => {
+                            signals.push(init.signal as AbortSignal);
+
+                            return signals.length === 1
+                                ? new Promise((_res, rej) =>
+                                      init.signal?.addEventListener(
+                                          'abort',
+                                          () =>
+                                              rej(
+                                                  new DOMException(
+                                                      'aborted',
+                                                      'AbortError',
+                                                  ),
+                                              ),
+                                      ),
+                                  )
+                                : success();
+                        });
+                    watch(f);
+                    await vi.advanceTimersByTimeAsync(10_000);
+                    expect(signals[0].aborted).toBe(true);
+                    await vi.advanceTimersByTimeAsync(2000);
+                    expect(f).toHaveBeenCalledTimes(2);
+                    expect(signals[1].aborted).toBe(false);
+                    expect(mounted()).toBe(true);
+                    vi.unstubAllGlobals();
+                });
+
+                it('shutdown cancels the pending retry and the online listener', async () => {
+                    const f = vi.fn().mockImplementation(fail);
+                    const { cf } = watch(f);
+                    await flush();
+                    cf('shutdown');
+                    await vi.advanceTimersByTimeAsync(60_000);
+                    window.dispatchEvent(new Event('online'));
+                    await flush();
+                    expect(f).toHaveBeenCalledTimes(1);
+                    expect(mounted()).toBe(false);
+                    expect(vi.getTimerCount()).toBe(0);
+                    vi.unstubAllGlobals();
+                });
+            });
+
             it('shutdown during the fetch means nothing gets mounted afterwards', async () => {
                 let resolveFetch: (v: unknown) => void = () => {};
                 vi.stubGlobal(
@@ -327,6 +515,76 @@ describe('window.ChatFeature API', () => {
                 document.querySelector('pne-chat-widget') as HTMLElement
             ).shadowRoot?.querySelector<HTMLElement>('.root');
             expect(root?.style.getPropertyValue('--radius')).toBe('3px');
+        });
+
+        it('calls pushed onto the old stub after the loader took over are run, not lost', async () => {
+            inlineBoot();
+            const stub = function (..._args: unknown[]) {
+                // eslint-disable-next-line prefer-rest-params
+                ((stub as unknown as { q: unknown[] }).q ||= []).push(
+                    arguments,
+                );
+            } as unknown as ((...a: unknown[]) => void) & { q: unknown };
+            g.ChatFeature = stub;
+            const cf = install(window, makeScript()) as ChatFeatureFn;
+            await flush();
+            const panel = () =>
+                (
+                    document.querySelector('pne-chat-widget') as HTMLElement
+                ).shadowRoot
+                    ?.querySelector('.panel')
+                    ?.getAttribute('data-open');
+            expect(panel()).toBe('false');
+
+            stub('open'); // code that captured `var cf = window.ChatFeature` before the load
+            expect(panel()).toBe('true');
+            stub('close');
+            expect(panel()).toBe('false');
+            stub('update', { theme: { primary: '#abcdef' } });
+            expect(
+                (
+                    document.querySelector('pne-chat-widget') as HTMLElement
+                ).shadowRoot
+                    ?.querySelector<HTMLElement>('.root')
+                    ?.style.getPropertyValue('--primary'),
+            ).toBe('#abcdef');
+            expect(cf.q).toEqual([]);
+        });
+
+        it('a frozen old stub does not break the takeover', async () => {
+            inlineBoot();
+            const stub = Object.freeze(function () {}) as unknown as {
+                q?: unknown[];
+            };
+            g.ChatFeature = stub;
+            expect(() => install(window, makeScript())).not.toThrow();
+            await flush();
+            expect(document.querySelectorAll('pne-chat-widget')).toHaveLength(
+                1,
+            );
+        });
+
+        it('queue entries with a hostile length or a throwing getter are skipped without hurting the rest', async () => {
+            inlineBoot();
+            const throwing = {
+                get length(): number {
+                    throw new Error('boom');
+                },
+            };
+            const huge = { length: 1e9 };
+            const tooMany = Array.from({ length: 21 }, () => 'open');
+            g.ChatFeature = {
+                q: [huge, throwing, tooMany, { length: 'x' }, ['open']],
+            };
+            vi.spyOn(console, 'warn').mockImplementation(() => {});
+            expect(() => install(window, makeScript())).not.toThrow();
+            await flush();
+            const shadow = (
+                document.querySelector('pne-chat-widget') as HTMLElement
+            ).shadowRoot as ShadowRoot;
+            expect(
+                shadow.querySelector('.panel')?.getAttribute('data-open'),
+            ).toBe('true'); // the one sane entry still ran
         });
 
         it('ignores junk queue entries', async () => {

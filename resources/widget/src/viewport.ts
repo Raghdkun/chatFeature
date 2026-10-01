@@ -16,7 +16,7 @@ export class Viewport {
     private mq: MediaQueryList | null = null;
     private locked = false;
     private saved: [string, string] = ['', ''];
-    private frame: ReturnType<typeof setTimeout> | null = null;
+    private frame?: ReturnType<typeof setTimeout>;
     private last = '';
     private readonly onMq = (): void => {
         this.mobile = this.mq?.matches ?? false;
@@ -47,11 +47,14 @@ export class Viewport {
         return {
             width: Math.round(vv?.width ?? this.win.innerWidth),
             height: Math.round(vv?.height ?? this.win.innerHeight),
+            // Pinch-zoom shrinks `vv.height` without any keyboard: measure the visible area in layout pixels.
             keyboardInset: vv
                 ? Math.max(
                       0,
                       Math.round(
-                          this.win.innerHeight - vv.height - vv.offsetTop,
+                          this.win.innerHeight -
+                              vv.height * (vv.scale || 1) -
+                              vv.offsetTop,
                       ),
                   )
                 : 0,
@@ -61,7 +64,7 @@ export class Viewport {
     /** Coalesces bursts of resize/scroll events into one `viewport` message (about one per frame), skipping repeats. */
     private schedule(): void {
         this.frame ??= setTimeout(() => {
-            this.frame = null;
+            this.frame = undefined;
             const v = this.snapshot();
             const key = `${v.width}x${v.height}+${v.keyboardInset}`;
 
@@ -97,10 +100,6 @@ export class Viewport {
         this.win.removeEventListener('resize', this.onChange);
         this.win.visualViewport?.removeEventListener('resize', this.onChange);
         this.win.visualViewport?.removeEventListener('scroll', this.onChange);
-
-        if (this.frame !== null) {
-            clearTimeout(this.frame);
-            this.frame = null;
-        }
+        clearTimeout(this.frame);
     }
 }

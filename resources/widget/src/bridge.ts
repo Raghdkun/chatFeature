@@ -1,5 +1,5 @@
 import type { Dict } from './types';
-import { isRecord, uuid } from './util';
+import { isRecord, opt, uuid } from './util';
 
 /**
  * Host side of the postMessage protocol (docs/contracts/postmessage-protocol.md).
@@ -24,6 +24,8 @@ export interface BridgeOptions {
     init: () => Dict;
     onMessage: (type: string, payload: Dict) => void;
     onTimeout: (code: 'ready_timeout' | 'init_timeout') => void;
+    /** The handshake completed (the panel is alive and has our `init`). */
+    onAck?: () => void;
 }
 
 export class Bridge {
@@ -33,8 +35,8 @@ export class Bridge {
     acked = false;
     private initId: string | null = null;
     private outbox: [string, Dict][] = [];
-    private timeout: ReturnType<typeof setTimeout> | null = null;
-    private retry: ReturnType<typeof setTimeout> | null = null;
+    private timeout?: ReturnType<typeof setTimeout>;
+    private retry?: ReturnType<typeof setTimeout>;
     private disposed = false;
     private readonly listener = (e: MessageEvent): void => this.handle(e);
 
@@ -52,13 +54,8 @@ export class Bridge {
     }
 
     private clearTimers(): void {
-        for (const t of [this.timeout, this.retry]) {
-            if (t !== null) {
-                clearTimeout(t);
-            }
-        }
-
-        this.timeout = this.retry = null;
+        clearTimeout(this.timeout);
+        clearTimeout(this.retry);
     }
 
     private handle(e: MessageEvent): void {
@@ -138,6 +135,8 @@ export class Bridge {
         for (const [type, payload] of this.outbox.splice(0)) {
             this.post(type, payload);
         }
+
+        this.o.onAck?.();
     }
 
     private post(type: string, payload: Dict, id?: string): void {
@@ -147,7 +146,7 @@ export class Bridge {
                     ns: 'chatfeature',
                     v: 1,
                     type,
-                    ...(id === undefined ? {} : { id }),
+                    ...opt('id', id),
                     payload,
                 },
                 this.o.origin,

@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { install } from '../src/api';
 import { ping, unlockSound } from '../src/sound';
 import {
     APP,
     KEY,
     boot,
+    handles,
     makeBoot,
     makeBootCfg,
     mockMatchMedia,
@@ -17,6 +21,8 @@ vi.mock('../src/sound', () => ({ ping: vi.fn(), unlockSound: vi.fn() }));
 type Dict = Record<string, unknown>;
 const SESSION_KEY = `chatfeature:${KEY}:session`;
 const FUTURE = '2999-01-01T00:00:00.000Z';
+
+type Posted = ReturnType<Booted['posts']>[number];
 
 const types = (b: Booted): string[] => b.posts().map((p) => p.type);
 const last = (b: Booted, type: string) =>
@@ -91,7 +97,8 @@ describe('Widget (launcher + panel + bridge wired together)', () => {
                 domains: ['evil.example'],
             });
             const overrides = last(b, 'update')?.payload.overrides as Dict;
-            expect(overrides.categories).toEqual(['billing', 'admin']); // forwarded as a *request*; the panel/server re-validate
+            expect(overrides.categories).toEqual(['billing']); // intersected with the boot's, never extended
+            expect(overrides.features).toEqual({ rating: false }); // restrict-only: only `false` goes through
             expect(overrides).not.toHaveProperty('routing');
             expect(overrides).not.toHaveProperty('domains');
             expect(JSON.stringify(overrides)).not.toContain('evil.example');
@@ -335,7 +342,7 @@ describe('Widget (launcher + panel + bridge wired together)', () => {
             b.fromPanel('session', { token: 'vt_1', expiresAt: FUTURE });
             expect(
                 JSON.parse(localStorage.getItem(SESSION_KEY) ?? '{}'),
-            ).toEqual({ token: 'vt_1', expiresAt: FUTURE });
+            ).toEqual({ token: 'vt_1', expiresAt: FUTURE, id: 'anonymous' });
             b.fromPanel('session', null);
             expect(localStorage.getItem(SESSION_KEY)).toBeNull();
         });
@@ -436,9 +443,9 @@ describe('Widget (launcher + panel + bridge wired together)', () => {
             expect(b.q('.badge').dataset.show).toBe('true');
             expect(b.q('button.launcher').dataset.alert).toBe('true');
             expect(ping).toHaveBeenCalledTimes(1);
+            // the message preview stays inside the loader unless the host opted in (see 'host-visible data')
             expect(changed).toHaveBeenCalledWith({
                 count: 2,
-                preview: 'Hello!',
                 agent: { name: 'Sara' },
             });
             b.fromPanel('unread', { count: 2 });
@@ -498,6 +505,7 @@ describe('Widget (launcher + panel + bridge wired together)', () => {
         });
 
         it('the first gesture on the launcher unlocks audio', () => {
+            vi.mocked(unlockSound).mockClear();
             b.q('button.launcher').dispatchEvent(new Event('pointerdown'));
             expect(unlockSound).toHaveBeenCalledTimes(1);
         });
@@ -1019,6 +1027,7 @@ describe('Widget (launcher + panel + bridge wired together)', () => {
             document.documentElement.style.overflow = 'auto';
             const b = await boot();
             b.cf('open');
+            b.handshake();
             expect(b.q('.panel').dataset.mode).toBe('fullscreen');
             expect(b.q('.root').dataset.fullscreen).toBe('true');
             expect(document.documentElement.style.overflow).toBe('hidden');
@@ -1103,6 +1112,39 @@ describe('Widget (launcher + panel + bridge wired together)', () => {
             });
         });
 
+        it('measures the keyboard in layout pixels: pinch-zoom alone is not a keyboard', async () => {
+            resetGlobals();
+            media = mockMatchMedia({ mobile: true });
+            Object.defineProperty(window, 'innerHeight', {
+                value: 800,
+                configurable: true,
+            });
+            const vv = fakeVisualViewport({ width: 195, height: 400 });
+            Object.assign(vv, { scale: 2 }); // zoomed in 2x: half the layout viewport is visible
+            const b = await boot();
+            b.cf('open');
+            b.fromPanel('ready', { protocol: 1 });
+            const init = last(b, 'init');
+            expect(
+                ((init as Posted).payload.viewport as Dict).keyboardInset,
+            ).toBe(0);
+            b.fromPanel('init:result', {}, init?.id);
+
+            Object.assign(vv, { scale: 1 }); // same numbers without zoom really are a 400 px keyboard
+            vv.dispatchEvent(new Event('resize'));
+            vi.advanceTimersByTime(16);
+            expect(last(b, 'viewport')?.payload).toMatchObject({
+                keyboardInset: 400,
+            });
+
+            Object.assign(vv, { scale: 2, height: 300 }); // zoomed *and* a keyboard: 800 - 300 * 2
+            vv.dispatchEvent(new Event('resize'));
+            vi.advanceTimersByTime(16);
+            expect(last(b, 'viewport')?.payload).toMatchObject({
+                keyboardInset: 200,
+            });
+        });
+
         it('stops listening to the viewport after shutdown', async () => {
             const vv = fakeVisualViewport({ width: 390, height: 800 });
             const remove = vi.spyOn(vv, 'removeEventListener');
@@ -1147,7 +1189,1049 @@ describe('Widget (launcher + panel + bridge wired together)', () => {
             expect(b.q('.g-body').textContent).toBe('مرحبا');
         });
     });
+
+    describe('a panel that does not answer cannot trap the visitor (mobile full screen included)', () => {
+        const mobile = async () => {
+            resetGlobals();
+            media = mockMatchMedia({ mobile: true });
+            document.documentElement.style.overflow = 'auto';
+
+            return boot();
+        };
+
+        it('keeps the launcher on top as the close button until the panel has answered, then hands over', async () => {
+            const b = await mobile();
+            b.cf('open');
+            expect(b.q('.panel').dataset.mode).toBe('fullscreen');
+            expect(b.q('.root').dataset.fullscreen).toBe('false'); // launcher still visible
+            expect(b.q('button.launcher').getAttribute('aria-label')).toBe(
+                'Close chat',
+            );
+            b.q('button.launcher').click(); // the loader-owned way out
+            expect(b.q('.panel').dataset.open).toBe('false');
+            expect(document.documentElement.style.overflow).toBe('auto');
+
+            b.cf('open');
+            b.handshake();
+            expect(b.q('.root').dataset.fullscreen).toBe('true'); // the panel has its own close button now
+        });
+
+        it('keeps the launcher above the panel in the stylesheet', () => {
+            const css = readFileSync(
+                resolvePath(__dirname, '../src/styles.css'),
+                'utf8',
+            );
+            expect(/\.dock\s*{[^}]*z-index:\s*1/.test(css)).toBe(true);
+            expect(/\.panel\s*{[^}]*z-index/.test(css)).toBe(false);
+        });
+
+        it.each([
+            ['ready_timeout', false],
+            ['init_timeout', true],
+        ])(
+            'closes a full-screen panel whose handshake fails (%s) after 10 s and unlocks scrolling',
+            async (code, ready) => {
+                const b = await mobile();
+                const errors: Dict[] = [];
+                const closed = vi.fn();
+                b.cf('on', 'error', (e: Dict) => errors.push(e));
+                b.cf('on', 'close', closed);
+                b.cf('open');
+
+                if (ready) {
+                    b.fromPanel('ready', { protocol: 1 }); // alive but never acknowledges init
+                }
+
+                expect(document.documentElement.style.overflow).toBe('hidden');
+                await vi.advanceTimersByTimeAsync(10_000);
+
+                expect(errors.map((e) => e.code)).toEqual([code]);
+                expect(closed).toHaveBeenCalledTimes(1);
+                expect(b.q('.panel').dataset.open).toBe('false');
+                expect(document.documentElement.style.overflow).toBe('auto');
+                expect(document.body.style.overflow).toBe('');
+                expect(b.iframe()).toBeNull(); // thrown away: the next open starts from scratch
+                expect(b.cf('getState')).toMatchObject({
+                    open: false,
+                    status: 'idle',
+                });
+            },
+        );
+
+        it('retries from scratch on the next open', async () => {
+            const b = await mobile();
+            b.cf('open');
+            await vi.advanceTimersByTimeAsync(10_000);
+            expect(b.iframe()).toBeNull();
+
+            b.cf('open');
+            const frame = b.iframe();
+            expect(frame).not.toBeNull();
+            b.handshake();
+            expect(b.cf('getState')).toMatchObject({
+                open: true,
+                panelReady: true,
+            });
+            await vi.advanceTimersByTimeAsync(30_000);
+            expect(b.q('.panel').dataset.open).toBe('true'); // answered: no timeout
+            expect(b.iframe()).toBe(frame);
+        });
+
+        it('a closed panel that boots in the background and fails is just dropped', async () => {
+            localStorage.setItem(
+                SESSION_KEY,
+                JSON.stringify({ token: 'vt_1', expiresAt: FUTURE }),
+            );
+            const b = await boot();
+            expect(b.iframe()).not.toBeNull();
+            await vi.advanceTimersByTimeAsync(10_000);
+            expect(b.iframe()).toBeNull();
+            expect(() => b.cf('open')).not.toThrow();
+            expect(b.iframe()).not.toBeNull();
+        });
+
+        const esc = (
+            target: EventTarget = document,
+            init: KeyboardEventInit = {},
+        ) =>
+            target.dispatchEvent(
+                new KeyboardEvent('keydown', {
+                    key: 'Escape',
+                    bubbles: true,
+                    cancelable: true,
+                    ...init,
+                }),
+            );
+
+        it('Escape on the host document closes an open panel, wherever focus is', async () => {
+            const b = await boot();
+            b.cf('open');
+            b.handshake();
+            esc(document.body);
+            expect(b.q('.panel').dataset.open).toBe('false');
+            expect(b.cf('getState')).toMatchObject({ open: false });
+
+            b.cf('open');
+            esc(document);
+            expect(b.q('.panel').dataset.open).toBe('false');
+        });
+
+        it('Escape closes a full-screen panel and unlocks scrolling', async () => {
+            const b = await mobile();
+            b.cf('open');
+            b.handshake();
+            esc(document.body);
+            expect(b.q('.panel').dataset.open).toBe('false');
+            expect(document.documentElement.style.overflow).toBe('auto');
+        });
+
+        it('ignores other keys, and an Escape the host page already handled', async () => {
+            const b = await boot();
+            b.cf('open');
+            b.handshake();
+            esc(document.body, { key: 'Enter' });
+            expect(b.q('.panel').dataset.open).toBe('true');
+            document.body.addEventListener(
+                'keydown',
+                (e) => e.preventDefault(),
+                { once: true },
+            );
+            esc(document.body);
+            expect(b.q('.panel').dataset.open).toBe('true');
+            esc(document.body);
+            expect(b.q('.panel').dataset.open).toBe('false');
+        });
+
+        it('does nothing while the panel is closed and stops listening after shutdown', async () => {
+            const close = vi.fn();
+            const b = await boot();
+            b.cf('on', 'close', close);
+            esc(document.body);
+            expect(close).not.toHaveBeenCalled();
+            b.cf('open');
+            b.cf('shutdown');
+            esc(document.body);
+            expect(close).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('host-visible data: events and DOM events carry metadata only', () => {
+        const message = {
+            conversationId: 'c_01',
+            messageId: 'm_01',
+            body: 'Your OTP is 481516',
+            text: 'also secret',
+            message: 'x',
+            preview: 'Your OTP is 481516',
+            comment: 'great service, call me on 555-0100',
+            password: 'hunter2',
+            email: 'visitor@example.com',
+            nested: { a: 1 },
+            list: [1],
+            at: 1_700_000_000,
+            count: 3,
+            rating: 5,
+            name: 'Sara',
+            agent: {
+                name: 'Sara',
+                email: 'sara@example.com',
+                avatarUrl: 'https://x.example/a.png',
+            },
+        };
+        const safe = {
+            conversationId: 'c_01',
+            messageId: 'm_01',
+            at: 1_700_000_000,
+            count: 3,
+            rating: 5,
+            name: 'Sara',
+            agent: { name: 'Sara' },
+        };
+        const open = async (settings?: Dict) => {
+            const b = await boot(settings === undefined ? {} : { settings });
+            b.cf('open');
+            b.handshake();
+
+            return b;
+        };
+
+        it('drops message bodies, previews and every unknown field by default', async () => {
+            const b = await open();
+            const got = vi.fn();
+            b.cf('on', 'message-received', got);
+            b.fromPanel('event', { name: 'message-received', data: message });
+            expect(got).toHaveBeenCalledTimes(1);
+            expect(got.mock.calls[0][0]).toEqual(safe);
+            expect(JSON.stringify(got.mock.calls[0][0])).not.toMatch(
+                /481516|hunter2|visitor@|555-0100/,
+            );
+        });
+
+        it('applies to every forwarded event name', async () => {
+            const b = await open();
+            const seen: Dict[] = [];
+
+            for (const name of [
+                'chat-started',
+                'chat-ended',
+                'agent-joined',
+                'message-sent',
+                'message-received',
+                'rating-submitted',
+            ]) {
+                b.cf('on', name, (d: Dict) => seen.push(d));
+                b.fromPanel('event', { name, data: message });
+            }
+
+            expect(seen).toHaveLength(6);
+            for (const d of seen) {
+                expect(d).toEqual(safe);
+            }
+        });
+
+        it('types and caps what it keeps', async () => {
+            const b = await open();
+            const got = vi.fn();
+            b.cf('on', 'chat-started', got);
+            b.fromPanel('event', {
+                name: 'chat-started',
+                data: {
+                    conversationId: 'c'.repeat(500),
+                    messageId: { evil: true },
+                    count: Number.NaN,
+                    rating: Infinity,
+                    at: '2026-10-01T00:00:00Z‮',
+                    reason: ['x'],
+                    agent: { name: 5 },
+                },
+            });
+            expect(got.mock.calls[0][0]).toEqual({
+                conversationId: 'c'.repeat(100),
+                at: '2026-10-01T00:00:00Z',
+            });
+            b.fromPanel('event', {
+                name: 'chat-started',
+                data: 'not an object',
+            });
+            b.fromPanel('event', { name: 'chat-started' });
+            expect(got.mock.calls[1][0]).toEqual({});
+            expect(got.mock.calls[2][0]).toEqual({});
+        });
+
+        it('unread-changed never carries the preview, only count and the agent name', async () => {
+            const b = await open();
+            b.cf('close');
+            const changed = vi.fn();
+            const dom = vi.fn();
+            b.cf('on', 'unread-changed', changed);
+            document.addEventListener('chatfeature:unread-changed', dom);
+            b.fromPanel('unread', {
+                count: 1,
+                preview: 'Your OTP is 481516',
+                agent: { name: 'Sara', email: 's@x' },
+            });
+            expect(changed).toHaveBeenCalledWith({
+                count: 1,
+                agent: { name: 'Sara' },
+            });
+            expect((dom.mock.calls[0][0] as CustomEvent).detail).toEqual({
+                count: 1,
+                agent: { name: 'Sara' },
+            });
+            document.removeEventListener('chatfeature:unread-changed', dom);
+        });
+
+        it('lets the host opt in to message text with exposeMessageContent (bounded, still typed)', async () => {
+            const b = await open({ exposeMessageContent: true });
+            b.cf('close');
+            const got = vi.fn();
+            const changed = vi.fn();
+            b.cf('on', 'message-received', got);
+            b.cf('on', 'unread-changed', changed);
+            b.fromPanel('event', {
+                name: 'message-received',
+                data: { ...message, body: `line 1\nline 2${'x'.repeat(5000)}` },
+            });
+            const d = got.mock.calls[0][0] as Dict;
+            expect(d).toMatchObject({
+                ...safe,
+                text: 'also secret',
+                message: 'x',
+                preview: 'Your OTP is 481516',
+            });
+            expect((d.body as string).startsWith('line 1\nline 2')).toBe(true);
+            expect(d.body as string).toHaveLength(2000);
+            expect(d).not.toHaveProperty('password');
+            expect(d).not.toHaveProperty('email');
+            expect(d).not.toHaveProperty('nested');
+            b.fromPanel('unread', { count: 1, preview: 'Your OTP is 481516' });
+            expect(changed).toHaveBeenCalledWith({
+                count: 1,
+                preview: 'Your OTP is 481516',
+            });
+        });
+
+        it('cannot be switched on after boot by update() or a later init() (e.g. from a third-party tag)', async () => {
+            const b = await open();
+            b.cf('close');
+            b.cf('update', { exposeMessageContent: true });
+            b.cf('init', { exposeMessageContent: true });
+            const changed = vi.fn();
+            const got = vi.fn();
+            b.cf('on', 'unread-changed', changed);
+            b.cf('on', 'message-received', got);
+            b.fromPanel('unread', { count: 1, preview: 'secret' });
+            b.fromPanel('event', {
+                name: 'message-received',
+                data: { body: 'secret' },
+            });
+            expect(changed).toHaveBeenCalledWith({ count: 1 });
+            expect(got).toHaveBeenCalledWith({});
+            expect(JSON.stringify(last(b, 'update') ?? {})).not.toContain(
+                'exposeMessageContent',
+            );
+            b.fromPanel('ready', { protocol: 1 });
+            expect(
+                JSON.stringify(last(b, 'init')?.payload ?? {}),
+            ).not.toContain('exposeMessageContent');
+        });
+
+        it('honours exposeMessageContent from the boot-time settings, a pre-boot init or the stub queue', async () => {
+            const check = (b: Booted) => {
+                b.cf('open');
+                b.handshake();
+                b.cf('close');
+                const changed = vi.fn();
+                b.cf('on', 'unread-changed', changed);
+                b.fromPanel('unread', { count: 2, preview: 'hello' });
+                expect(changed).toHaveBeenCalledWith({
+                    count: 2,
+                    preview: 'hello',
+                });
+            };
+
+            check(await open({ exposeMessageContent: true }));
+            resetGlobals();
+            media = mockMatchMedia();
+
+            inlineBootEarly();
+            const cf = install(window, makeScriptEl()) as ChatFeatureLike;
+            cf('init', { exposeMessageContent: true }); // before the async boot finished
+            await vi.advanceTimersByTimeAsync(0);
+            check(handles(cf as never));
+            resetGlobals();
+            media = mockMatchMedia();
+
+            inlineBootEarly();
+            (window as unknown as Dict).ChatFeature = {
+                q: [['init', { exposeMessageContent: true }]],
+            };
+            const queued = install(window, makeScriptEl()) as ChatFeatureLike;
+            await vi.advanceTimersByTimeAsync(0);
+            check(handles(queued as never));
+        });
+
+        it('dispatches DOM CustomEvents that do not bubble and are not composed', async () => {
+            const b = await open();
+            const onDocument = vi.fn();
+            const onWindow = vi.fn();
+            const onRoot = vi.fn();
+            const onBody = vi.fn();
+            document.addEventListener('chatfeature:chat-started', onDocument);
+            window.addEventListener('chatfeature:chat-started', onWindow);
+            document.documentElement.addEventListener(
+                'chatfeature:chat-started',
+                onRoot,
+            );
+            document.body.addEventListener('chatfeature:chat-started', onBody);
+            b.fromPanel('event', {
+                name: 'chat-started',
+                data: { conversationId: 'c_1', body: 'secret' },
+            });
+
+            expect(onDocument).toHaveBeenCalledTimes(1);
+            expect(onWindow).toHaveBeenCalledTimes(1);
+            expect(onRoot).not.toHaveBeenCalled();
+            expect(onBody).not.toHaveBeenCalled();
+            const e = onDocument.mock.calls[0][0] as CustomEvent;
+            expect(e.bubbles).toBe(false);
+            expect(e.composed).toBe(false);
+            expect(e.cancelable).toBe(false);
+            expect(e.detail).toEqual({ conversationId: 'c_1' });
+            document.removeEventListener(
+                'chatfeature:chat-started',
+                onDocument,
+            );
+            window.removeEventListener('chatfeature:chat-started', onWindow);
+            document.documentElement.removeEventListener(
+                'chatfeature:chat-started',
+                onRoot,
+            );
+            document.body.removeEventListener(
+                'chatfeature:chat-started',
+                onBody,
+            );
+        });
+
+        it("keeps forwarding sanitised panel errors (code and message are the panel's own diagnostics)", async () => {
+            const b = await open();
+            const err = vi.fn();
+            b.cf('on', 'error', err);
+            b.fromPanel('error', {
+                code: 'send_failed',
+                message: 'Could not send',
+                body: 'secret',
+            });
+            expect(err).toHaveBeenCalledWith({
+                code: 'send_failed',
+                message: 'Could not send',
+            });
+        });
+    });
+
+    describe('the visitor session belongs to one identity', () => {
+        const b64 = (o: unknown) =>
+            btoa(JSON.stringify(o))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=+$/, '');
+        const jwt = (sub: string | number, extra: Dict = {}) =>
+            `${b64({ alg: 'HS256' })}.${b64({ sub, ...extra })}.sig_nature-1`;
+        const stored = () =>
+            JSON.parse(
+                localStorage.getItem(SESSION_KEY) ?? 'null',
+            ) as Dict | null;
+        const session = { token: 'vt_secret', expiresAt: FUTURE };
+        const startAs = async (identity: Dict, seed?: Dict | null) => {
+            if (seed !== undefined && seed !== null) {
+                localStorage.setItem(SESSION_KEY, JSON.stringify(seed));
+            }
+
+            return boot({ settings: identity });
+        };
+        const idOf = async (identity: Dict) => {
+            const b = await boot({ settings: identity });
+            b.cf('open');
+            b.handshake();
+            b.fromPanel('session', session);
+            const id = (stored() as Dict).id as string;
+            b.cf('shutdown');
+            resetGlobals();
+            media = mockMatchMedia();
+
+            return id;
+        };
+
+        it('stores a fingerprint of the identity next to the token, never the identity itself', async () => {
+            const id = await idOf({ identityToken: jwt('user-42') });
+            expect(id).not.toBe('anonymous');
+            expect(id).not.toContain('user-42');
+            expect(
+                await idOf({
+                    identityToken: jwt('user-42', { iat: 1, exp: 99 }),
+                }),
+            ).toBe(id); // a fresh token for the same sub
+            expect(await idOf({ identityToken: jwt('user-43') })).not.toBe(id);
+            expect(await idOf({})).toBe('anonymous');
+            expect(await idOf({ visitor: { name: 'Ann' } })).toBe('anonymous');
+            expect(
+                await idOf({ visitor: { email: 'a@example.com' } }),
+            ).not.toBe('anonymous');
+        });
+
+        it('hands the session back to the identity it was created for', async () => {
+            const id = await idOf({ identityToken: jwt('u1') });
+            resetGlobals();
+            media = mockMatchMedia();
+            const b = await startAs(
+                { identityToken: jwt('u1', { iat: 5 }) },
+                { ...session, id },
+            );
+            expect(b.iframe()).not.toBeNull(); // boots in the background to receive replies
+            b.fromPanel('ready', { protocol: 1 });
+            expect((last(b, 'init')?.payload ?? {}).visitorSession).toEqual(
+                session,
+            );
+        });
+
+        it.each([
+            ['another user', { identityToken: jwt('u2') }],
+            ['an anonymous visitor', {}],
+            [
+                'an unsigned visitor with an email',
+                { visitor: { email: 'x@example.com' } },
+            ],
+        ])(
+            'never sends a session that belongs to someone else (%s) and deletes it',
+            async (_, identity) => {
+                const id = await idOf({ identityToken: jwt('u1') });
+                resetGlobals();
+                media = mockMatchMedia();
+                const b = await startAs(identity, { ...session, id });
+                expect(stored()).toBeNull();
+                expect(b.iframe()).toBeNull();
+                b.cf('open');
+                b.fromPanel('ready', { protocol: 1 });
+                expect(last(b, 'init')?.payload).not.toHaveProperty(
+                    'visitorSession',
+                );
+            },
+        );
+
+        it('a session stored by an older loader (no id) counts as anonymous', async () => {
+            const anon = await startAs({}, session);
+            anon.fromPanel('ready', { protocol: 1 });
+            expect(stored()).toEqual(session);
+            expect(anon.iframe()).not.toBeNull();
+            resetGlobals();
+            media = mockMatchMedia();
+
+            const identified = await startAs(
+                { identityToken: jwt('u1') },
+                session,
+            );
+            expect(stored()).toBeNull();
+            expect(identified.iframe()).toBeNull();
+        });
+
+        it('an expired session is deleted on read, whoever asks', async () => {
+            const b = await startAs(
+                {},
+                {
+                    token: 'vt_old',
+                    expiresAt: '2000-01-01T00:00:00Z',
+                    id: 'anonymous',
+                },
+            );
+            expect(stored()).toBeNull();
+            b.cf('open');
+            b.fromPanel('ready', { protocol: 1 });
+            expect(last(b, 'init')?.payload).not.toHaveProperty(
+                'visitorSession',
+            );
+        });
+
+        it('identify() with another user wipes the stored session and starts a fresh panel', async () => {
+            const b = await startAs({ identityToken: jwt('u1') });
+            b.cf('open');
+            b.handshake();
+            b.fromPanel('session', session);
+            const first = b.iframe();
+            expect(stored()).not.toBeNull();
+
+            b.cf('identify', jwt('u1', { iat: 99 })); // same sub: nothing changes
+            expect(stored()).not.toBeNull();
+            expect(b.iframe()).toBe(first);
+
+            b.cf('identify', jwt('u2'));
+            expect(stored()).toBeNull();
+            expect(b.iframe()).not.toBe(first); // the old identity's panel (and its in-memory session) is gone
+            expect(b.cf('getState')).toMatchObject({ open: true });
+            b.fromPanel('ready', { protocol: 1 });
+            const init = last(b, 'init')?.payload as Dict;
+            expect(init).not.toHaveProperty('visitorSession');
+            expect(init.identityToken).toBe(jwt('u2'));
+        });
+
+        it('update() with a new identity token behaves the same', async () => {
+            const b = await startAs({ identityToken: jwt('u1') });
+            b.cf('open');
+            b.handshake();
+            b.fromPanel('session', session);
+            b.cf('update', { identityToken: jwt('u2') });
+            expect(stored()).toBeNull();
+        });
+
+        it('a later init() with another identity is treated the same', async () => {
+            const b = await startAs({ identityToken: jwt('u1') });
+            b.cf('open');
+            b.handshake();
+            b.fromPanel('session', session);
+            b.cf('init', { identityToken: jwt('u9') });
+            expect(stored()).toBeNull();
+        });
+
+        it('setVisitor() with a different email wipes the session; other fields do not', async () => {
+            const b = await startAs({ visitor: { email: 'a@example.com' } });
+            b.cf('open');
+            b.handshake();
+            b.fromPanel('session', session);
+            b.cf('setVisitor', {
+                name: 'Ann',
+                phone: '+100',
+                meta: { plan: 'pro' },
+            });
+            expect(stored()).not.toBeNull();
+            b.cf('setVisitor', { email: 'a@example.com' });
+            expect(stored()).not.toBeNull();
+            b.cf('setVisitor', { email: 'b@example.com' });
+            expect(stored()).toBeNull();
+        });
+
+        it('a closed panel is only rebuilt on the next open', async () => {
+            const b = await startAs({ identityToken: jwt('u1') });
+            b.cf('open');
+            b.handshake();
+            b.fromPanel('session', session);
+            b.cf('close');
+            b.cf('identify', jwt('u2'));
+            expect(b.iframe()).toBeNull();
+            b.cf('open');
+            expect(b.iframe()).not.toBeNull();
+        });
+
+        it('an identity token without a readable sub falls back to the unsigned email, then anonymous', async () => {
+            const noSub = `${b64({ alg: 'x' })}.${b64({ name: 'x' })}.sig`;
+            expect(await idOf({ identityToken: noSub })).toBe('anonymous');
+            expect(
+                await idOf({
+                    identityToken: 'a.b.c',
+                    visitor: { email: 'a@example.com' },
+                }),
+            ).not.toBe('anonymous');
+        });
+
+        it('keeps working without localStorage (memory fallback is bound to the identity too)', async () => {
+            vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+                throw new DOMException('quota', 'QuotaExceededError');
+            });
+            vi.spyOn(Storage.prototype, 'getItem').mockImplementation(
+                () => null,
+            );
+            const b = await startAs({ identityToken: jwt('u1') });
+            b.cf('open');
+            b.handshake();
+            b.fromPanel('session', session);
+            b.fromPanel('ready', { protocol: 1 });
+            expect((last(b, 'init')?.payload ?? {}).visitorSession).toEqual(
+                session,
+            );
+            b.cf('identify', jwt('u2'));
+            b.fromPanel('ready', { protocol: 1 });
+            expect(last(b, 'init')?.payload).not.toHaveProperty(
+                'visitorSession',
+            );
+        });
+    });
+
+    describe('what the panel receives', () => {
+        it('gets overrides with the restriction rule already applied', async () => {
+            const b = await boot({
+                boot: makeBootCfg({
+                    features: { attachments: false, poweredBy: true },
+                }),
+                settings: {
+                    features: {
+                        attachments: true,
+                        poweredBy: false,
+                        rating: false,
+                        sounds: true,
+                        titleBadge: false,
+                        preChat: true,
+                    },
+                    categories: ['sales', 'nope', 'secret'],
+                    greetings: { delaySeconds: 9, enabled: true },
+                    theme: { primary: '#112233' },
+                    launcher: { label: 'Hi' },
+                    texts: { en: { title: 'Help' } },
+                    locale: 'en',
+                    routing: { queueTimeoutSeconds: 1 },
+                    domains: ['evil.example'],
+                },
+            });
+            b.cf('open');
+            b.fromPanel('ready', { protocol: 1 });
+            const overrides = (last(b, 'init')?.payload ?? {})
+                .overrides as Dict;
+            expect(overrides).toEqual({
+                locale: 'en',
+                theme: { primary: '#112233' },
+                launcher: { label: 'Hi' },
+                texts: { en: { title: 'Help' } },
+                features: {
+                    poweredBy: false,
+                    rating: false,
+                    sounds: true,
+                    titleBadge: false,
+                }, // `true` for restrict-only features never travels
+                categories: ['sales'], // intersected with the boot's
+            });
+        });
+
+        it('drops a category override that matches nothing instead of forwarding junk', async () => {
+            const b = await boot({ settings: { categories: ['nope'] } });
+            b.cf('open');
+            b.fromPanel('ready', { protocol: 1 });
+            const overrides = (last(b, 'init')?.payload ?? {})
+                .overrides as Dict;
+            expect(overrides.categories).toEqual(['billing', 'sales', 'tech']); // the effective set, i.e. all of them
+        });
+
+        it('forwards a rebuilt boot, never the object the host page handed over', async () => {
+            const raw = makeBoot({
+                routing: { waves: [] },
+                identity_secret: 'topsecret',
+                api: {
+                    base: 'https://evil.example/api',
+                    embed: `${APP}/embed/${KEY}`,
+                    appOrigin: APP,
+                },
+                config: {
+                    session: { idleTimeoutMinutes: 1 },
+                    domains: ['x.example'],
+                },
+            });
+            const b = await boot({ boot: raw });
+            b.cf('open');
+            b.fromPanel('ready', { protocol: 1 });
+            const p = (last(b, 'init')?.payload ?? {}).boot as Dict;
+            expect(p.key).toBe(KEY);
+            expect(p.api).toEqual({
+                base: `${APP}/api/v1/public`,
+                embed: `${APP}/embed/${KEY}`,
+                appOrigin: APP,
+            });
+            expect(p).not.toBe(raw);
+            expect(p).not.toHaveProperty('routing');
+            expect(p).not.toHaveProperty('identity_secret');
+            expect(p.config).not.toHaveProperty('session');
+            expect(p.config).not.toHaveProperty('domains');
+            expect(JSON.stringify(p)).not.toMatch(/evil\.example|topsecret/);
+            expect(p.availability).toEqual({
+                online: true,
+                openNow: true,
+                nextOpenAt: null,
+            });
+        });
+    });
+
+    describe('a boot config the host page can write is not trusted blindly', () => {
+        const evilBoot = (): Dict =>
+            makeBoot({
+                api: {
+                    embed: 'https://evil.example/embed/' + KEY,
+                    appOrigin: 'https://evil.example',
+                },
+            });
+
+        it('never loads or messages an app origin other than the one the loader came from', async () => {
+            vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const fetchSpy = vi.fn().mockResolvedValue({
+                ok: true,
+                json: () => Promise.resolve({ data: makeBoot() }),
+            });
+            vi.stubGlobal('fetch', fetchSpy);
+            const b = await boot({ boot: evilBoot() });
+            // the hostile inline config was discarded; the real one was fetched from the script's own origin
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+            expect((fetchSpy.mock.calls[0] as string[])[0]).toBe(
+                `${APP}/api/v1/public/widgets/${KEY}/config?locale=en-US`,
+            );
+            b.cf('open');
+            expect(b.iframe()?.getAttribute('src')).toBe(`${APP}/embed/${KEY}`);
+            b.handshake();
+            expect(b.posts().every((p) => p.origin === APP)).toBe(true);
+            vi.unstubAllGlobals();
+        });
+
+        it('mounts nothing (and sends nothing anywhere) when only the hostile config is available', async () => {
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockRejectedValue(new TypeError('offline')),
+            );
+            const errors: Dict[] = [];
+            inlineBootEarly(evilBoot());
+            const cf = install(window, makeScriptEl()) as ChatFeatureLike;
+            cf('on', 'error', (e: Dict) => errors.push(e));
+            await vi.advanceTimersByTimeAsync(0);
+            expect(document.querySelector('pne-chat-widget')).toBeNull();
+            expect(document.querySelector('iframe')).toBeNull();
+            expect(errors.map((e) => e.code)).toEqual(['config_failed']);
+            vi.unstubAllGlobals();
+        });
+    });
+
+    describe('audio is unlocked by every way of opening the chat', () => {
+        it('a greeting click, API open() and toggle() unlock it; a silent openOnLoad does not', async () => {
+            const b = await boot();
+            vi.mocked(unlockSound).mockClear();
+            vi.advanceTimersByTime(3000);
+            b.q('.g-main').click();
+            expect(unlockSound).toHaveBeenCalledTimes(1);
+
+            b.cf('close');
+            b.cf('open');
+            expect(unlockSound).toHaveBeenCalledTimes(2);
+            b.cf('toggle');
+            b.cf('toggle');
+            expect(unlockSound).toHaveBeenCalledTimes(3);
+            b.cf('startChat', {}); // already open: nothing to unlock
+            expect(unlockSound).toHaveBeenCalledTimes(3);
+            b.cf('close');
+            b.cf('startChat', {});
+            expect(unlockSound).toHaveBeenCalledTimes(4);
+        });
+
+        it('openOnLoad opens without a gesture, so it does not touch the audio context', async () => {
+            vi.mocked(unlockSound).mockClear();
+            const b = await boot({ script: { 'data-open-on-load': 'true' } });
+            expect(b.q('.panel').dataset.open).toBe('true');
+            expect(unlockSound).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('locale and direction in a real boot', () => {
+        const withLanguages = (...langs: string[]) =>
+            vi
+                .spyOn(window.navigator, 'languages', 'get')
+                .mockReturnValue(langs);
+        const englishOnly = (extra: Dict = {}) =>
+            makeBootCfg(
+                { texts: { en: { title: 'Support' }, ar: undefined } },
+                extra,
+            );
+
+        it('an Arabic browser on an English-only widget gets left-to-right English, not RTL chrome', async () => {
+            withLanguages('ar-SA', 'ar');
+            const b = await boot({ boot: englishOnly() });
+            expect(b.q('.root').getAttribute('dir')).toBe('ltr');
+            expect(b.q('.panel').getAttribute('aria-label')).toBe('Support');
+        });
+
+        it('...but with Arabic texts it is right-to-left, in Arabic', async () => {
+            withLanguages('ar-SA');
+            const b = await boot();
+            expect(b.q('.root').getAttribute('dir')).toBe('rtl');
+            expect(b.q('.panel').getAttribute('aria-label')).toBe('الدعم');
+        });
+
+        it('a French visitor on a widget whose greetings are all tagged en still gets a greeting', async () => {
+            withLanguages('fr-FR');
+            const b = await boot({
+                boot: englishOnly({
+                    greetings: [
+                        {
+                            id: 'en1',
+                            body: 'Hello there',
+                            agentName: null,
+                            agentAvatarUrl: null,
+                            locale: 'en',
+                            weight: 1,
+                        },
+                    ],
+                }),
+            });
+            vi.advanceTimersByTime(3000);
+            expect(b.q('.g-body').textContent).toBe('Hello there');
+        });
+
+        it('an explicit locale with no greetings of its own falls back to the default-locale ones', async () => {
+            const b = await boot({
+                boot: englishOnly({
+                    greetings: [
+                        {
+                            id: 'en1',
+                            body: 'Hello there',
+                            agentName: null,
+                            agentAvatarUrl: null,
+                            locale: 'en',
+                            weight: 1,
+                        },
+                    ],
+                }),
+                script: { 'data-locale': 'fr' },
+            });
+            vi.advanceTimersByTime(3000);
+            expect(b.q('.g-body').textContent).toBe('Hello there');
+        });
+
+        it('localises the launcher label, the close label, the unread text and the dismiss label from texts', async () => {
+            const b = await boot({
+                boot: makeBootCfg({
+                    launcher: { style: 'pill', label: 'Chat with us' },
+                    texts: {
+                        en: { title: 'Support' },
+                        ar: {
+                            title: 'الدعم',
+                            launcherLabel: 'تحدث معنا',
+                            closeChat: 'إغلاق الدردشة',
+                            unread: 'رسائل غير مقروءة',
+                            dismiss: 'إخفاء',
+                        },
+                    },
+                }),
+                script: { 'data-locale': 'ar' },
+            });
+            expect(b.q('.lbl').textContent).toBe('تحدث معنا');
+            expect(b.q('button.launcher').getAttribute('aria-label')).toBe(
+                'تحدث معنا',
+            );
+            vi.advanceTimersByTime(3000);
+            expect(b.q('.g-x').getAttribute('aria-label')).toBe('إخفاء');
+            b.cf('open');
+            b.handshake();
+            expect(b.q('button.launcher').getAttribute('aria-label')).toBe(
+                'إغلاق الدردشة',
+            );
+            b.cf('close');
+            b.fromPanel('unread', { count: 2 });
+            expect(b.q('button.launcher').getAttribute('aria-label')).toBe(
+                'تحدث معنا, 2 رسائل غير مقروءة',
+            );
+        });
+
+        it('keeps the English fallbacks when the texts block has none of these keys', async () => {
+            const b = await boot({
+                boot: makeBootCfg({
+                    texts: { en: { title: 'Support' }, ar: undefined },
+                }),
+            });
+            vi.advanceTimersByTime(3000);
+            expect(b.q('.g-x').getAttribute('aria-label')).toBe('Dismiss');
+            b.cf('open');
+            expect(b.q('button.launcher').getAttribute('aria-label')).toBe(
+                'Close chat',
+            );
+            b.cf('close');
+            b.fromPanel('unread', { count: 1 });
+            expect(b.q('button.launcher').getAttribute('aria-label')).toBe(
+                'Chat with us, 1 unread messages',
+            );
+        });
+    });
+
+    describe('input handling at the public API', () => {
+        it('startChat keeps line breaks in the message but strips control and bidi characters', async () => {
+            const b = await boot();
+            b.cf('open');
+            b.handshake();
+            b.cf('startChat', { message: '  Hi,\r\nI need‮ help\u0000 now ⁧' });
+            expect(last(b, 'startChat')?.payload).toEqual({
+                message: 'Hi,\nI need help  now',
+            });
+        });
+
+        it('greeting text keeps its line breaks (rendered as text, pre-wrap)', async () => {
+            const b = await boot({
+                boot: makeBoot({
+                    greetings: [
+                        {
+                            id: 'g',
+                            body: 'Line one\nLine two‮',
+                            agentName: 'Sara‮',
+                            agentAvatarUrl: null,
+                            locale: null,
+                            weight: 1,
+                        },
+                    ],
+                }),
+            });
+            vi.advanceTimersByTime(3000);
+            expect(b.q('.g-body').textContent).toBe('Line one\nLine two');
+            expect(b.q('.g-name').textContent).toBe('Sara');
+        });
+
+        it('setVisitor replaces meta instead of merging it, and update() does too', async () => {
+            const b = await boot();
+            b.cf('open');
+            b.handshake();
+            b.cf('setVisitor', {
+                name: 'Ann',
+                meta: { plan: 'pro', ssn: '123' },
+            });
+            b.cf('setVisitor', { meta: { plan: 'free' } });
+            expect(last(b, 'identify')?.payload).toEqual({
+                visitor: { name: 'Ann', meta: { plan: 'free' } },
+            });
+            b.cf('update', { visitor: { meta: { tier: 1 } } });
+            expect(last(b, 'identify')?.payload).toEqual({
+                visitor: { name: 'Ann', meta: { tier: 1 } },
+            });
+            b.cf('identify', {
+                token: 'aa.bb.cc',
+                visitor: { meta: { a: true } },
+            });
+            expect(last(b, 'identify')?.payload).toEqual({
+                token: 'aa.bb.cc',
+                visitor: { name: 'Ann', meta: { a: true } },
+            });
+        });
+
+        it('a later layer replaces meta from an earlier one (settings -> init -> update)', async () => {
+            const b = await boot({
+                settings: {
+                    visitor: { name: 'Ann', meta: { plan: 'pro', old: 1 } },
+                },
+            });
+            b.cf('open');
+            b.cf('init', { visitor: { meta: { plan: 'team' } } });
+            b.cf('setVisitor', { email: 'a@example.com' });
+            b.fromPanel('ready', { protocol: 1 });
+            expect(
+                ((last(b, 'init') as Posted).payload as Dict).visitor,
+            ).toEqual({
+                name: 'Ann',
+                email: 'a@example.com',
+                meta: { plan: 'team' },
+            });
+        });
+    });
 });
+
+type ChatFeatureLike = (cmd: string, ...args: unknown[]) => unknown;
+
+function inlineBootEarly(boot: Dict = makeBoot()): void {
+    const g = window as unknown as Dict;
+    g.__PNE_CHAT_BOOT__ = { [String(boot.key)]: boot };
+}
+
+function makeScriptEl(): HTMLScriptElement {
+    const s = document.createElement('script');
+    s.src = `${APP}/w/${KEY}.js`;
+    document.head.append(s);
+
+    return s;
+}
 
 function inlineBootAndInstall(boot: Dict): void {
     const g = window as unknown as Dict;

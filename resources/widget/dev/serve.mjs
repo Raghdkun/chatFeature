@@ -12,6 +12,10 @@
  *
  * Open http://localhost:8212/ . Both servers stop with Ctrl+C. Nothing is written to disk, nothing is installed.
  *
+ * DEAD_PANEL=1 node resources/widget/dev/serve.mjs   serves a blank, un-framable /embed/<key> (CSP frame-ancestors 'none'),
+ * i.e. a panel that never says `ready`: open the chat on a phone-sized viewport to check the loader's escape hatches
+ * (launcher stays on top as the close button, Escape, 10 s watchdog).
+ *
  * Demo knobs for /w/<key>.js and the config endpoint (query string on the *script URL*):
  *   delay=1 interval=1 autohide=10 dismiss=session|interval|never style=pill position=left mode=dark|light|auto
  *   rtl=1 theme=%23c026d3 sound=0 titleBadge=1 greetings=0
@@ -230,6 +234,16 @@ const app = createServer((req, res) => {
     }
 
     if (/^\/embed\/[A-Za-z0-9_-]+$/.test(p)) {
+        if (process.env.DEAD_PANEL) {
+            return send(
+                res,
+                200,
+                'text/html; charset=utf-8',
+                '<!doctype html><title>blank</title>',
+                { 'Content-Security-Policy': "frame-ancestors 'none'" },
+            );
+        }
+
         return send(
             res,
             200,

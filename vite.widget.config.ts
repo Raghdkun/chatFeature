@@ -20,6 +20,11 @@ export default defineConfig({
             output: {
                 format: 'iife',
                 entryFileNames: 'loader.js',
+                // Recognisable on the wire (`GET /widget/v1/loader.js`): the dashboard's "is the bundle built?"
+                // probe looks for this marker, which the server's "bundle not built" stub does not contain.
+                // `postBanner` is added after minification, so the comment survives.
+                postBanner: '/*! pne-chat-loader v1 */',
+                intro: '"use strict";',
             },
         },
     },
