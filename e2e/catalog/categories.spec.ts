@@ -15,7 +15,7 @@ const rows = (page: Page): Locator => page.getByTestId(/^category-row-/);
 /** The row of a category, found by its (exact) name. */
 const rowOf = (page: Page, name: string): Locator =>
     rows(page).filter({
-        has: page.getByRole('heading', { name, exact: true, level: 3 }),
+        has: page.getByRole('heading', { name, exact: true, level: 2 }),
     });
 
 async function make(
