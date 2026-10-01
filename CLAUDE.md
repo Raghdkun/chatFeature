@@ -80,7 +80,9 @@ OpenWA, optional mysql/redis) are in `docker/compose.dev.yml` behind profiles; *
 10. MySQL `NULL` in a UNIQUE index is not unique: tenant tables use a virtual `workspace_key = COALESCE(workspace_id,0)`.
 11. Verified OpenWA webhook signature: header `X-OpenWA-Signature: sha256=<hex>`, HMAC-SHA256 over the **raw body**; OpenWA rejects
     webhook URLs resolving to private addresses unless `SSRF_ALLOWED_HOSTS` allows the app host. pizzasys `refresh-token`
-    revokes **all** of a user's tokens — never call it by default.
+    revokes **all** of a user's tokens — never call it by default. Verified locally (`docs/pizzasys-findings.md`): pizzasys login tokens
+    **never expire**, re-login doesn't revoke older tokens, bad user tokens verify as HTTP 200 `active:false`, bad *service* credentials are
+    HTTP 401 (never 403), `super-admin` carries no `chat.*` permission (check the role name), and NATS `user.updated` leaks a password hash.
 
 ## Security rules
 
