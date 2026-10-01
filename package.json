@@ -5,6 +5,7 @@
     "scripts": {
         "build": "vp build",
         "build:ssr": "vp build && vp build --ssr",
+        "build:widget": "vp build -c vite.widget.config.ts",
         "dev": "vp dev",
         "check": "vp check",
         "check:fix": "vp check --fix",

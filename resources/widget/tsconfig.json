@@ -1,0 +1,10 @@
+{
+    // Used by the widget build (nearest tsconfig): class fields become plain constructor assignments instead of
+    // `defineProperty` helpers, which keeps the ES2020 bundle small without raising the browser baseline.
+    // The root tsconfig still type-checks this folder (`npm run types:check`).
+    "extends": "../../tsconfig.json",
+    "compilerOptions": {
+        "useDefineForClassFields": false
+    },
+    "include": ["./**/*.ts"]
+}
