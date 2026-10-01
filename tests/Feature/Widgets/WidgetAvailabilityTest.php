@@ -2,11 +2,11 @@
 
 namespace Tests\Feature\Widgets;
 
+use App\Domain\Presence\DatabasePresenceReader;
 use App\Domain\Widgets\Actions\PublishWidget;
 use App\Domain\Widgets\Actions\UpdateWidget;
 use App\Domain\Widgets\Availability\AvailabilityService;
 use App\Domain\Widgets\Contracts\PresenceReader;
-use App\Domain\Widgets\Support\NullPresenceReader;
 use App\Models\Category;
 use App\Models\Widget;
 use Carbon\CarbonImmutable;
@@ -44,9 +44,9 @@ class WidgetAvailabilityTest extends TestCase
         return CarbonImmutable::parse($utc, 'UTC');
     }
 
-    public function test_without_a_presence_provider_nobody_is_online(): void
+    public function test_the_default_presence_reader_reads_the_agents_presence_and_nobody_is_online_without_any(): void
     {
-        $this->assertInstanceOf(NullPresenceReader::class, app(PresenceReader::class));
+        $this->assertInstanceOf(DatabasePresenceReader::class, app(PresenceReader::class));
 
         // Monday 10:00 New York: inside the default hours, but no agent is online.
         $availability = $this->service()->compute($this->widget, $this->at('2026-01-12 15:00:00'));

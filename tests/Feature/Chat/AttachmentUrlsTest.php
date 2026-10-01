@@ -9,7 +9,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
-use Symfony\Component\Routing\Exception\RouteNotFoundException;
 use Tests\TestCase;
 
 class AttachmentUrlsTest extends TestCase
@@ -94,10 +93,15 @@ class AttachmentUrlsTest extends TestCase
         $this->assertNotNull(app(AttachmentUrls::class)->url($attachment));
     }
 
-    public function test_the_route_must_be_registered_by_the_rest_track(): void
+    public function test_the_rest_track_registers_the_real_route_these_urls_point_at(): void
     {
-        $this->expectException(RouteNotFoundException::class);
+        $attachment = Attachment::factory()->create();
 
-        app(AttachmentUrls::class)->url(Attachment::factory()->create());
+        $route = Route::getRoutes()->getByName(SignedAttachmentUrls::ROUTE);
+
+        $this->assertNotNull($route);
+        $this->assertSame('api/v1/public/attachments/{attachment}', $route->uri());
+        $this->assertContains('signed', $route->gatherMiddleware());
+        $this->assertStringContainsString('/api/v1/public/attachments/'.$attachment->ulid, app(AttachmentUrls::class)->url($attachment));
     }
 }
