@@ -5,6 +5,7 @@ namespace App\Http\Middleware\Widgets;
 use App\Domain\Widgets\Origin\OriginMatcher;
 use App\Domain\Widgets\Support\AppOrigin;
 use App\Domain\Widgets\Support\PublicWidgetFinder;
+use App\Domain\Widgets\Support\WidgetCache;
 use App\Models\Widget;
 use App\Models\WidgetDomain;
 use Closure;
@@ -21,7 +22,11 @@ use Symfony\Component\HttpFoundation\Response;
  *    browser itself says it is same-origin (`Sec-Fetch-Site: same-origin`, which scripts cannot forge);
  * 4. `OPTIONS` preflights are answered here (204) for allowed origins.
  *
- * The resolved widget is exposed as the `widget` request attribute. Never sets cookies.
+ * The resolved widget is exposed as the `widget` request attribute and the normalised caller as `widget_origin`
+ * (`scheme://host[:port]`, or `-` without an Origin header): what the per-widget rate limiter keys on. An allowed
+ * origin is remembered briefly (WidgetCache) so a `429` from a limiter in front of this middleware can carry CORS
+ * headers without a database lookup. A `429` coming back from a limiter behind it passes through `cors()` here.
+ * Never sets cookies.
  */
 final class AuthorizeWidgetOrigin
 {
@@ -32,6 +37,7 @@ final class AuthorizeWidgetOrigin
         private readonly PublicWidgetFinder $widgets,
         private readonly OriginMatcher $origins,
         private readonly AppOrigin $appOrigin,
+        private readonly WidgetCache $cache,
     ) {}
 
     /**
@@ -46,11 +52,17 @@ final class AuthorizeWidgetOrigin
         }
 
         $origin = $request->headers->get('Origin');
+        $caller = '-';
 
         if ($origin !== null) {
-            if (! $this->isAllowedOrigin($origin, $widget)) {
+            $parsed = $this->origins->parseOrigin($origin);
+
+            if ($parsed === null || ! $this->isAllowedOrigin($origin, $widget)) {
                 return $this->error(403, 'origin_not_allowed', __('This website is not allowed to use the widget.'));
             }
+
+            $caller = $parsed['scheme'].'://'.$parsed['host'].($parsed['port'] !== null ? ':'.$parsed['port'] : '');
+            $this->cache->rememberAllowedOrigin($widget->public_key, $caller);
         } elseif (! $widget->allow_non_browser_clients && $request->headers->get('Sec-Fetch-Site') !== 'same-origin') {
             return $this->error(403, 'origin_not_allowed', __('This website is not allowed to use the widget.'));
         }
@@ -60,6 +72,7 @@ final class AuthorizeWidgetOrigin
         }
 
         $request->attributes->set('widget', $widget);
+        $request->attributes->set('widget_origin', $caller);
 
         return $this->cors($next($request), $origin);
     }
@@ -74,13 +87,7 @@ final class AuthorizeWidgetOrigin
 
     private function cors(Response $response, ?string $origin): Response
     {
-        $response->headers->set('Vary', 'Origin');
-
-        if ($origin !== null) {
-            $response->headers->set('Access-Control-Allow-Origin', $origin);
-        }
-
-        return $response;
+        return CorsHeaders::allow($response, $origin);
     }
 
     private function preflight(Response $response, ?string $origin, ?string $requestedHeaders): Response
