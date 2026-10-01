@@ -14,6 +14,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Tests\Support\ChatFixtures;
+use Tests\Support\Gifs;
 use Tests\TestCase;
 
 /**
@@ -197,23 +198,86 @@ class AttachmentApiTest extends TestCase
         $this->assertSame([], Storage::disk('local')->allFiles());
     }
 
-    public function test_a_polyglot_image_with_markup_after_the_data_is_refused(): void
+    public function test_markup_hidden_in_an_image_does_not_get_it_refused_but_never_survives_the_re_encode(): void
     {
         $png = $this->pngBytes();
+        $payloads = ['<?php echo 1; ?>', '<?= $x ?>', '<script>alert(1)</script>', '<svg onload=alert(1)>', '<HTML><body>'];
 
-        foreach (['<?php echo 1; ?>', '<script>alert(1)</script>', '<svg onload=alert(1)>', '<HTML><body>'] as $payload) {
-            $this->upload($this->content($png.$payload, 'polyglot.png'))->assertStatus(422);
+        // Trailing data after the image.
+        foreach ($payloads as $payload) {
+            $this->upload($this->content($png.$payload, 'polyglot.png'))->assertCreated();
         }
 
-        // A JPEG whose comment segment carries a script.
+        // A PNG text chunk and a JPEG comment segment.
+        $text = 'Comment'.' '.implode('', $payloads);
+        $chunk = pack('N', strlen($text)).'tEXt'.$text.pack('N', crc32('tEXt'.$text));
+        $this->upload($this->content(substr($png, 0, 33).$chunk.substr($png, 33), 'text.png'))->assertCreated();
+
         $image = imagecreatetruecolor(8, 8);
         ob_start();
         imagejpeg($image);
         $jpeg = (string) ob_get_clean();
-        $comment = '<script>alert(1)</script>';
-        $this->upload($this->content(substr($jpeg, 0, 2)."\xFF\xFE".pack('n', strlen($comment) + 2).$comment.substr($jpeg, 2), 'c.jpg', 'image/jpeg'))->assertStatus(422);
+        $comment = implode('', $payloads);
+        $this->upload($this->content(substr($jpeg, 0, 2)."\xFF\xFE".pack('n', strlen($comment) + 2).$comment.substr($jpeg, 2), 'c.jpg', 'image/jpeg'))->assertCreated();
+
+        $stored = Attachment::query()->get();
+        $this->assertCount(7, $stored);
+
+        foreach ($stored as $attachment) {
+            foreach ([$attachment->path, $attachment->thumb_path] as $path) {
+                $bytes = Storage::disk('local')->get($path);
+                $this->assertNotNull(getimagesizefromstring($bytes));
+                foreach (['<?', '<script', '<svg', '<html', 'alert('] as $needle) {
+                    $this->assertStringNotContainsStringIgnoringCase($needle, $bytes);
+                }
+            }
+        }
+    }
+
+    public function test_a_noisy_photo_whose_compressed_bytes_happen_to_contain_markup_is_accepted(): void
+    {
+        // High-entropy data: build an image whose PNG (stored, uncompressed deflate blocks) carries `<?=` and `<svg` as pixel bytes.
+        $width = 64;
+        $height = 8;
+        $raw = '';
+
+        for ($y = 0; $y < $height; $y++) {
+            $row = "\0".str_pad('<?=<svg<script<html', $width * 3, "\x7F");
+            $raw .= $row;
+        }
+
+        $zlib = "\x78\x01\x01".pack('v', strlen($raw)).pack('v', ~strlen($raw) & 0xFFFF).$raw.pack('N', hexdec(hash('adler32', $raw)));
+        $header = pack('N', $width).pack('N', $height)."\x08\x02\x00\x00\x00";
+        $png = "\x89PNG\r\n\x1a\n"
+            .pack('N', 13).'IHDR'.$header.pack('N', crc32('IHDR'.$header))
+            .pack('N', strlen($zlib)).'IDAT'.$zlib.pack('N', crc32('IDAT'.$zlib))
+            .pack('N', 0).'IEND'.pack('N', crc32('IEND'));
+        $this->assertStringContainsString('<?=<svg', $png);
+
+        $this->upload($this->content($png, 'photo.png'))->assertCreated();
+
+        $attachment = Attachment::query()->sole();
+        $this->assertStringNotContainsString('<?=', Storage::disk('local')->get($attachment->path));
+        $this->assertStringNotContainsString('<svg', Storage::disk('local')->get($attachment->path));
+    }
+
+    public function test_an_animated_gif_is_refused_before_it_is_decoded(): void
+    {
+        // 40 frames of 1500 x 1500: a few KB of file, but 90 MB if the decoder keeps every canvas.
+        $bomb = Gifs::animated(1500, 40);
+        $this->assertLessThan(200 * 1024, strlen($bomb));
+
+        $this->upload($this->content($bomb, 'bomb.gif', 'image/gif'))
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'validation_failed')
+            ->assertJsonStructure(['error' => ['details' => ['file']]]);
+        $this->upload($this->content(Gifs::animated(16, 2), 'two.gif', 'image/gif'))->assertStatus(422);
 
         $this->assertSame(0, Attachment::query()->count());
+        $this->assertSame([], Storage::disk('local')->allFiles());
+
+        // A still GIF is fine, and stays a GIF.
+        $this->upload($this->content(Gifs::still(), 'still.gif', 'image/gif'))->assertCreated()->assertJsonPath('data.mime', 'image/gif');
     }
 
     public function test_the_size_limit_is_enforced(): void
