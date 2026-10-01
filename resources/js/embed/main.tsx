@@ -80,6 +80,8 @@ async function start(boot: EmbedBoot, container: HTMLElement): Promise<void> {
     };
     const controller = new ChatController(deps);
 
+    controller.attachPageLifecycle(window);
+
     armSound();
     createRoot(container).render(
         <App

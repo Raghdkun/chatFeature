@@ -735,6 +735,23 @@ export class ChatController {
         this.dispatch({ type: 'RESET' });
     }
 
+    /**
+     * The page goes away for good (navigation, the loader throwing the iframe away): leave the channel and stop the timers so the
+     * socket closes cleanly instead of timing out on the server. A page that may come back from the back/forward cache
+     * (`persisted`) keeps everything. Returns the unbinder.
+     */
+    attachPageLifecycle(win: Window): () => void {
+        const onHide = (event: Event): void => {
+            if ((event as PageTransitionEvent).persisted !== true) {
+                this.dispose();
+            }
+        };
+
+        win.addEventListener('pagehide', onHide);
+
+        return () => win.removeEventListener('pagehide', onHide);
+    }
+
     dispose(): void {
         this.disposed = true;
         this.closeRealtime();
@@ -812,12 +829,8 @@ export class ChatController {
                 this.adopt(session);
                 this.rotatedAt = this.now();
 
-                const current = this.state.conversation;
-
-                if (
-                    current !== null &&
-                    session.conversation?.ulid !== current.ulid
-                ) {
+                if (this.state.conversation !== null) {
+                    // Whatever failed with the old token, or changed while the chat moved over, is read again with the new one.
                     void this.syncConversation();
                 }
             } catch (error) {
@@ -894,15 +907,18 @@ export class ChatController {
      * refused as revoked, which is not the end of the session (the socket's own refusal always is).
      */
     private handleSessionGone(staleRequest = true): void {
-        if (
-            staleRequest &&
-            this.token !== null &&
-            this.now() - this.rotatedAt < 5_000
-        ) {
-            this.rotatedAt = 0;
-            void this.syncConversation();
+        if (staleRequest && this.token !== null) {
+            if (this.rotation !== null) {
+                // The rotation that is running catches the chat up when it lands.
+                return;
+            }
 
-            return;
+            if (this.now() - this.rotatedAt < 5_000) {
+                this.rotatedAt = 0;
+                void this.syncConversation();
+
+                return;
+            }
         }
 
         this.clearSession();
@@ -1655,7 +1671,20 @@ export class ChatController {
             return Promise.reject(new Error('No active conversation.'));
         }
 
-        return this.api.uploadAttachment(conversation.ulid, file, options);
+        return this.api
+            .uploadAttachment(conversation.ulid, file, options)
+            .catch((error: unknown) => {
+                if (isVisitorApiError(error)) {
+                    if (error.isSessionGone) {
+                        this.handleSessionGone();
+                    } else if (error.code === 'conversation_not_active') {
+                        // The chat ended while the visitor was picking a picture: find out how.
+                        void this.syncConversation();
+                    }
+                }
+
+                throw error;
+            });
     }
 
     /* ------------------------------------------------------- receipts */

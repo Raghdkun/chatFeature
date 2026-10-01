@@ -17,7 +17,32 @@ export type Staged = {
     attachment: AttachmentData | null;
 };
 
-export type AttachmentProblem = 'type' | 'size' | 'count' | 'upload' | null;
+export type AttachmentProblem =
+    | 'type'
+    | 'size'
+    | 'count'
+    | 'upload'
+    | 'rejected'
+    | 'disabled'
+    | 'rate_limited'
+    | null;
+
+/** What the server's refusal of an upload means to the visitor (`422` content / size, `403 feature_disabled`, `429`). */
+export function problemOf(error: unknown): Exclude<AttachmentProblem, null> {
+    if (!isVisitorApiError(error)) {
+        return 'upload';
+    }
+
+    if (error.code === 'feature_disabled') {
+        return 'disabled';
+    }
+
+    if (error.status === 429) {
+        return 'rate_limited';
+    }
+
+    return error.status === 422 ? 'rejected' : 'upload';
+}
 
 let counter = 0;
 
@@ -90,7 +115,7 @@ export function useAttachments(
                 }
 
                 patch(id, { status: 'error' });
-                setProblem('upload');
+                setProblem(problemOf(error));
             })
             .finally(() => aborts.current.delete(id));
     };

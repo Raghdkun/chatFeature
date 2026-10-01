@@ -64,6 +64,11 @@ export const EN = {
     'embed.chat.composer.bad_type':
         'Only JPEG, PNG, WebP and GIF images can be sent.',
     'embed.chat.composer.too_many': 'You can attach up to :count images.',
+    'embed.chat.composer.rejected':
+        "That image can't be sent. Try a smaller JPEG, PNG, WebP or GIF.",
+    'embed.chat.composer.disabled': "Images can't be sent in this chat.",
+    'embed.chat.composer.rate_limited':
+        'Too many uploads. Wait a moment and try again.',
     'embed.chat.message.you': 'You',
     'embed.chat.message.sending': 'Sending',
     'embed.chat.message.sent': 'Sent',

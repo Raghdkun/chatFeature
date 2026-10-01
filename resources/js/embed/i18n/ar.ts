@@ -57,6 +57,11 @@ export const AR: Messages = {
     'embed.chat.composer.too_big': 'يجب ألا يتجاوز حجم الصورة :size.',
     'embed.chat.composer.bad_type': 'يمكن إرسال صور JPEG وPNG وWebP وGIF فقط.',
     'embed.chat.composer.too_many': 'يمكنك إرفاق :count صور كحد أقصى.',
+    'embed.chat.composer.rejected':
+        'تعذّر إرسال هذه الصورة. جرّب صورة JPEG أو PNG أو WebP أو GIF أصغر حجمًا.',
+    'embed.chat.composer.disabled': 'لا يمكن إرسال الصور في هذه المحادثة.',
+    'embed.chat.composer.rate_limited':
+        'عدد كبير من عمليات الرفع. انتظر قليلًا وحاول مرة أخرى.',
     'embed.chat.message.you': 'أنت',
     'embed.chat.message.sending': 'جارٍ الإرسال',
     'embed.chat.message.sent': 'تم الإرسال',

@@ -81,6 +81,9 @@ export function Composer() {
         }),
         count: t('embed.chat.composer.too_many', { count: MAX_ATTACHMENTS }),
         upload: t('embed.chat.composer.upload_failed'),
+        rejected: t('embed.chat.composer.rejected'),
+        disabled: t('embed.chat.composer.disabled'),
+        rate_limited: t('embed.chat.composer.rate_limited'),
     };
 
     return (
