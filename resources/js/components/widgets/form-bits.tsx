@@ -87,12 +87,12 @@ export function SectionCard({
         >
             <header className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3.5 sm:px-5">
                 <div className="grid min-w-0 gap-0.5">
-                    <h3
+                    <h2
                         id={id}
                         className="text-sm font-semibold tracking-tight"
                     >
                         {title}
-                    </h3>
+                    </h2>
                     {description && (
                         <p className="text-sm text-muted-foreground">
                             {description}
