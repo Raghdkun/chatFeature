@@ -1,18 +1,32 @@
-export type User = {
-    id: number;
-    name: string;
-    email: string;
-    avatar?: string;
-    email_verified_at: string | null;
-    two_factor_enabled?: boolean;
-    created_at: string;
-    updated_at: string;
-    [key: string]: unknown;
+/**
+ * Auth-related shared types. The user shape is generated from PHP
+ * (`App\Data\Auth\AuthUserData`); never hand-copy it here.
+ * See docs/contracts/inertia-shared-props.md.
+ */
+export type AuthUser = App.Data.Auth.AuthUserData;
+
+/** Alias kept for components that were written against the starter kit. */
+export type User = AuthUser;
+
+export type AuthMode = 'fortify' | 'pizzasys';
+
+/** Mirrors `AuthDriver::capabilities()`: hide any UI the active driver cannot honour. */
+export type AuthCapabilities = {
+    canRegister: boolean;
+    canResetPassword: boolean;
+    canManage2fa: boolean;
+    profileEditable: boolean;
+    portalUrl: string | null;
 };
 
 export type Auth = {
-    user: User;
+    user: AuthUser | null;
+    mode: AuthMode;
+    capabilities: AuthCapabilities;
 };
+
+/** The `auth` prop on pages that sit behind the `auth` middleware. */
+export type AuthenticatedAuth = Auth & { user: AuthUser };
 
 export type Passkey = {
     id: number;

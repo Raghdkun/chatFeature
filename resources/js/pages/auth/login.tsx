@@ -1,28 +1,86 @@
-import { Form, Head } from '@inertiajs/react';
+import { Form, Head, usePage } from '@inertiajs/react';
+import { ExternalLink, ShieldAlert, ShieldCheck } from 'lucide-react';
+import type { ReactNode } from 'react';
 import InputError from '@/components/input-error';
+import PasskeyVerify from '@/components/passkey-verify';
 import PasswordInput from '@/components/password-input';
 import TextLink from '@/components/text-link';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
+import { useTrans } from '@/hooks/use-trans';
+import AuthLayout from '@/layouts/auth-layout';
+import { hasNoChatAccess } from '@/lib/login-notice';
+import { safeExternalUrl } from '@/lib/urls';
 import { register } from '@/routes';
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
-import PasskeyVerify from '@/components/passkey-verify';
 
 type Props = {
     status?: string;
-    canResetPassword: boolean;
+    /** Set by the backend when a sign-in succeeded upstream but the user has no chat role. */
+    reason?: string;
 };
 
-export default function Login({ status, canResetPassword }: Props) {
+export default function Login({ status, reason }: Props) {
+    const { auth } = usePage().props;
+    const { t } = useTrans();
+    const { capabilities } = auth;
+    const portal = auth.mode === 'pizzasys';
+    const portalUrl = safeExternalUrl(capabilities.portalUrl);
+
     return (
         <>
-            <Head title="Log in" />
+            <Head
+                title={t(
+                    portal ? 'auth.login.portal_title' : 'auth.login.submit',
+                )}
+            />
 
-            <PasskeyVerify />
+            {capabilities.canManage2fa && (
+                <PasskeyVerify
+                    label={t('auth.login.passkey')}
+                    loadingLabel={t('auth.login.passkey_loading')}
+                    separator={t('auth.login.passkey_separator')}
+                />
+            )}
+
+            {portal && (
+                <div
+                    className="flex gap-3 rounded-lg border bg-accent/40 p-3 text-sm"
+                    data-testid="login-portal-hint"
+                >
+                    <ShieldCheck
+                        className="mt-0.5 size-4 shrink-0 text-primary"
+                        aria-hidden
+                    />
+                    <div className="grid gap-1">
+                        <p className="font-medium">
+                            {t('auth.login.portal_badge')}
+                        </p>
+                        <p className="text-muted-foreground">
+                            {t('auth.login.portal_hint')}
+                        </p>
+                        {portalUrl && (
+                            <a
+                                href={portalUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex w-fit items-center gap-1 underline underline-offset-4"
+                            >
+                                {t('auth.login.portal_link')}
+                                <ExternalLink
+                                    className="size-3.5 rtl:-scale-x-100"
+                                    aria-hidden
+                                />
+                            </a>
+                        )}
+                    </div>
+                </div>
+            )}
 
             <Form
                 {...store.form()}
@@ -31,9 +89,27 @@ export default function Login({ status, canResetPassword }: Props) {
             >
                 {({ processing, errors }) => (
                     <>
+                        {hasNoChatAccess({ reason, errors }) && (
+                            <Alert
+                                variant="destructive"
+                                className="border-destructive/40 bg-destructive/5 *:data-[slot=alert-description]:text-foreground/80"
+                                data-testid="login-no-chat-access"
+                            >
+                                <ShieldAlert />
+                                <AlertTitle>
+                                    {t('auth.no_chat_access.title')}
+                                </AlertTitle>
+                                <AlertDescription>
+                                    {t('auth.no_chat_access.body')}
+                                </AlertDescription>
+                            </Alert>
+                        )}
+
                         <div className="grid gap-6">
                             <div className="grid gap-2">
-                                <Label htmlFor="email">Email address</Label>
+                                <Label htmlFor="email">
+                                    {t('auth.login.email')}
+                                </Label>
                                 <Input
                                     id="email"
                                     type="email"
@@ -49,15 +125,29 @@ export default function Login({ status, canResetPassword }: Props) {
 
                             <div className="grid gap-2">
                                 <div className="flex items-center">
-                                    <Label htmlFor="password">Password</Label>
-                                    {canResetPassword && (
+                                    <Label htmlFor="password">
+                                        {t('auth.login.password')}
+                                    </Label>
+                                    {capabilities.canResetPassword ? (
                                         <TextLink
                                             href={request()}
-                                            className="ml-auto text-sm"
+                                            className="ms-auto text-sm"
                                             tabIndex={5}
                                         >
-                                            Forgot your password?
+                                            {t('auth.login.forgot')}
                                         </TextLink>
+                                    ) : (
+                                        portal &&
+                                        portalUrl && (
+                                            <a
+                                                href={portalUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="ms-auto text-sm underline underline-offset-4"
+                                            >
+                                                {t('auth.login.portal_forgot')}
+                                            </a>
+                                        )
                                     )}
                                 </div>
                                 <PasswordInput
@@ -66,18 +156,20 @@ export default function Login({ status, canResetPassword }: Props) {
                                     required
                                     tabIndex={2}
                                     autoComplete="current-password"
-                                    placeholder="Password"
+                                    placeholder={t('auth.login.password')}
                                 />
                                 <InputError message={errors.password} />
                             </div>
 
-                            <div className="flex items-center space-x-3">
+                            <div className="flex items-center gap-3">
                                 <Checkbox
                                     id="remember"
                                     name="remember"
                                     tabIndex={3}
                                 />
-                                <Label htmlFor="remember">Remember me</Label>
+                                <Label htmlFor="remember">
+                                    {t('auth.login.remember')}
+                                </Label>
                             </div>
 
                             <Button
@@ -88,22 +180,27 @@ export default function Login({ status, canResetPassword }: Props) {
                                 data-test="login-button"
                             >
                                 {processing && <Spinner />}
-                                Log in
+                                {t('auth.login.submit')}
                             </Button>
                         </div>
 
-                        <div className="text-center text-sm text-muted-foreground">
-                            Don't have an account?{' '}
-                            <TextLink href={register()} tabIndex={5}>
-                                Sign up
-                            </TextLink>
-                        </div>
+                        {capabilities.canRegister && (
+                            <div className="text-center text-sm text-muted-foreground">
+                                {t('auth.login.no_account')}{' '}
+                                <TextLink href={register()} tabIndex={5}>
+                                    {t('auth.login.sign_up')}
+                                </TextLink>
+                            </div>
+                        )}
                     </>
                 )}
             </Form>
 
             {status && (
-                <div className="mb-4 text-center text-sm font-medium text-green-600">
+                <div
+                    className="mb-4 text-center text-sm font-medium text-primary"
+                    role="status"
+                >
                     {status}
                 </div>
             )}
@@ -111,7 +208,24 @@ export default function Login({ status, canResetPassword }: Props) {
     );
 }
 
-Login.layout = {
-    title: 'Log in to your account',
-    description: 'Enter your email and password below to log in',
-};
+/** The sign-in heading depends on the auth mode, so the layout is a component. */
+function LoginLayout({ children }: { children: ReactNode }) {
+    const { auth } = usePage().props;
+    const { t } = useTrans();
+    const portal = auth.mode === 'pizzasys';
+
+    return (
+        <AuthLayout
+            title={t(portal ? 'auth.login.portal_title' : 'auth.login.title')}
+            description={t(
+                portal
+                    ? 'auth.login.portal_description'
+                    : 'auth.login.description',
+            )}
+        >
+            {children}
+        </AuthLayout>
+    );
+}
+
+Login.layout = LoginLayout;

@@ -5,6 +5,7 @@ import { initializeTheme } from '@/hooks/use-appearance';
 import AppLayout from '@/layouts/app-layout';
 import AuthLayout from '@/layouts/auth-layout';
 import SettingsLayout from '@/layouts/settings/layout';
+import SetupLayout from '@/layouts/setup-layout';
 import { configureEcho } from '@laravel/echo-react';
 
 configureEcho({
@@ -17,8 +18,8 @@ void createInertiaApp({
     title: (title) => (title ? `${title} - ${appName}` : appName),
     layout: (name) => {
         switch (true) {
-            case name === 'welcome':
-                return null;
+            case name.startsWith('setup/'):
+                return SetupLayout;
             case name.startsWith('auth/'):
                 return AuthLayout;
             case name.startsWith('settings/'):
@@ -37,7 +38,7 @@ void createInertiaApp({
         );
     },
     progress: {
-        color: '#4B5563',
+        color: '#2f6b60',
     },
 });
 

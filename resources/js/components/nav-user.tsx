@@ -13,16 +13,22 @@ import {
 } from '@/components/ui/sidebar';
 import { UserInfo } from '@/components/user-info';
 import { UserMenuContent } from '@/components/user-menu-content';
+import { useDirection } from '@/hooks/use-direction';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 export function NavUser() {
     const { auth } = usePage().props;
     const { state } = useSidebar();
     const isMobile = useIsMobile();
+    const { isRtl } = useDirection();
 
     if (!auth.user) {
         return null;
     }
+
+    // The menu opens beside the collapsed icon rail: towards the content, whichever
+    // side the sidebar sits on.
+    const sideWhenCollapsed = isRtl ? 'right' : 'left';
 
     return (
         <SidebarMenu>
@@ -34,8 +40,8 @@ export function NavUser() {
                             className="group text-sidebar-accent-foreground data-[state=open]:bg-sidebar-accent"
                             data-test="sidebar-menu-button"
                         >
-                            <UserInfo user={auth.user} />
-                            <ChevronsUpDown className="ml-auto size-4" />
+                            <UserInfo user={auth.user} showRole />
+                            <ChevronsUpDown className="ms-auto size-4" />
                         </SidebarMenuButton>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
@@ -45,7 +51,7 @@ export function NavUser() {
                             isMobile
                                 ? 'bottom'
                                 : state === 'collapsed'
-                                  ? 'left'
+                                  ? sideWhenCollapsed
                                   : 'bottom'
                         }
                     >

@@ -1,0 +1,37 @@
+{
+    "common.back": "رجوع",
+    "common.continue": "متابعة",
+    "common.retry": "إعادة المحاولة",
+    "common.soon": "قريبًا",
+
+    "shell.role.admin": "مسؤول",
+    "shell.role.agent": "موظف دعم",
+
+    "nav.platform": "المنصة",
+    "nav.administration": "الإدارة",
+    "nav.dashboard": "لوحة التحكم",
+
+    "user_menu.settings": "الإعدادات",
+    "user_menu.logout": "تسجيل الخروج",
+
+    "dashboard.greeting": "مرحبًا بعودتك، :name",
+    "dashboard.agent.title": "في انتظار المحادثات",
+
+    "auth.login.title": "سجّل الدخول إلى حسابك",
+    "auth.login.email": "البريد الإلكتروني",
+    "auth.login.password": "كلمة المرور",
+    "auth.login.submit": "تسجيل الدخول",
+
+    "setup.steps.welcome": "مرحبًا",
+    "setup.steps.mode": "طريقة تسجيل الدخول",
+    "setup.steps.admin": "حساب المسؤول",
+    "setup.steps.basics": "الأساسيات",
+    "setup.steps.run": "التثبيت",
+    "setup.steps.done": "اكتمل",
+    "setup.welcome.title": "مرحبًا بك في :app",
+    "setup.mode.title": "كيف سيسجّل الأشخاص دخولهم؟",
+    "setup.mode.coming_soon": "قريبًا",
+    "setup.basics.idle_timeout_hint": "تُغلق المحادثات تلقائيًا بعد :minutes دقيقة بلا رسائل. الافتراضي: 120.",
+    "setup.run.start": "ابدأ التثبيت",
+    "setup.done.title": "كل شيء جاهز"
+}
