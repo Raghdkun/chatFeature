@@ -32,8 +32,11 @@ Targets: MySQL, the storage volume (attachments, `installed.lock`), the OpenWA d
 | Situation | Command (planned) |
 |---|---|
 | Portal down or wrong environment active (pizzasys mode) | `php artisan chat:auth:switch-env` |
+| Wrong portal address / service name / token saved (nobody can use Settings > Auth) | `php artisan chat:auth:set-env production --base-url=... --token-file=...` (secret from a file or a hidden prompt, never argv), then `php artisan chat:auth:test` |
+| A person cannot sign in after a `user.deleted` event that was wrong | `php artisan chat:auth:reactivate <email or portal user id>` |
 | Non-interactive install (Docker/e2e) | `php artisan chat:install --mode=local\|pizzasys` |
-| Locked out in pizzasys mode | Degraded grace window (30 min), then switch env via the CLI above |
+| Locked out in pizzasys mode | Degraded grace window (30 min); Settings > Auth and sign-out stay reachable beyond it so an administrator can repair the address/token; otherwise the CLI above |
+| Portal on a private network (Docker/VPN) is refused as an address | Set `PORTAL_ALLOW_PRIVATE_HOSTS=true` (never needed for a public portal) and restart |
 
 See [auth-modes.md](auth-modes.md).
 

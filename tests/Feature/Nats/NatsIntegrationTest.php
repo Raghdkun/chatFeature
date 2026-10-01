@@ -60,6 +60,9 @@ class NatsIntegrationTest extends TestCase
             $this->markTestSkipped('Set NATS_TEST_URL=nats://127.0.0.1:4222 (a server running with -js) to run the real-NATS integration test.');
         }
 
+        // A dev NATS on loopback is a private-network target: allowed here the way PORTAL_ALLOW_PRIVATE_HOSTS=true does.
+        config(['chat.portal_allow_private_hosts' => true]);
+
         $parts = parse_url($url);
         $token = getenv('NATS_TEST_TOKEN');
         $suffix = bin2hex(random_bytes(4));
