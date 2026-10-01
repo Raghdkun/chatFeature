@@ -3,7 +3,7 @@
 namespace Tests\Feature\Catalog;
 
 use App\Domain\Catalog\Contracts\CategoryUsageChecker;
-use App\Domain\Catalog\Support\NullCategoryUsageChecker;
+use App\Domain\Chat\Support\ConversationCategoryUsageChecker;
 use App\Models\Category;
 use App\Models\User;
 use App\Models\Widget;
@@ -299,8 +299,8 @@ class CategoryApiTest extends TestCase
         $this->assertNotSoftDeleted('categories', ['id' => $category->id]);
     }
 
-    public function test_the_default_usage_checker_never_blocks(): void
+    public function test_the_default_usage_checker_is_the_conversation_one(): void
     {
-        $this->assertInstanceOf(NullCategoryUsageChecker::class, app(CategoryUsageChecker::class));
+        $this->assertInstanceOf(ConversationCategoryUsageChecker::class, app(CategoryUsageChecker::class));
     }
 }
