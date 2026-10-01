@@ -34,6 +34,8 @@ export function PizzasysEnvironmentFields({
     onChange,
     hasServiceToken = false,
     hasNatsToken = false,
+    serviceTokenRequired = false,
+    natsTokenRequired = false,
     error,
     showLabel = false,
     allowClearNatsToken = false,
@@ -47,6 +49,10 @@ export function PizzasysEnvironmentFields({
     /** A service token is already stored (only the flag ever reaches the browser). */
     hasServiceToken?: boolean;
     hasNatsToken?: boolean;
+    /** Changing the portal address, service name or TLS verification asks for the token again. */
+    serviceTokenRequired?: boolean;
+    /** The same for a stored NATS token when the NATS address changes. */
+    natsTokenRequired?: boolean;
     error: (field: EnvErrorField) => string | undefined;
     showLabel?: boolean;
     allowClearNatsToken?: boolean;
@@ -137,7 +143,11 @@ export function PizzasysEnvironmentFields({
 
                 <Field
                     id={id('service-token')}
-                    label={t('setup.pizzasys.service_token')}
+                    label={
+                        serviceTokenRequired
+                            ? `${t('setup.pizzasys.service_token')} ${t('setup.pizzasys.required_marker')}`
+                            : t('setup.pizzasys.service_token')
+                    }
                     hint={
                         hasToken ? (
                             <>
@@ -151,7 +161,18 @@ export function PizzasysEnvironmentFields({
                                     />
                                     {t('setup.pizzasys.token_saved')}
                                 </span>{' '}
-                                {t('setup.pizzasys.token_keep_hint')}
+                                <span
+                                    data-testid={id('service-token-hint')}
+                                    className={
+                                        serviceTokenRequired
+                                            ? 'font-medium text-foreground'
+                                            : undefined
+                                    }
+                                >
+                                    {serviceTokenRequired
+                                        ? t('setup.pizzasys.token_reenter_hint')
+                                        : t('setup.pizzasys.token_keep_hint')}
+                                </span>
                             </>
                         ) : (
                             t('setup.pizzasys.service_token_hint')
@@ -161,6 +182,7 @@ export function PizzasysEnvironmentFields({
                 >
                     <PasswordInput
                         {...props('service-token', 'service_token', true)}
+                        aria-required={serviceTokenRequired ? true : undefined}
                         autoCapitalize="none"
                         autoComplete="off"
                         spellCheck={false}
@@ -205,7 +227,11 @@ export function PizzasysEnvironmentFields({
 
                     <Field
                         id={id('nats-token')}
-                        label={t('setup.pizzasys.nats_token')}
+                        label={
+                            natsTokenRequired
+                                ? `${t('setup.pizzasys.nats_token')} ${t('setup.pizzasys.required_marker')}`
+                                : t('setup.pizzasys.nats_token')
+                        }
                         hint={
                             hasNatsToken ? (
                                 <>
@@ -219,7 +245,22 @@ export function PizzasysEnvironmentFields({
                                         />
                                         {t('setup.pizzasys.token_saved')}
                                     </span>{' '}
-                                    {t('setup.pizzasys.token_keep_hint')}
+                                    <span
+                                        data-testid={id('nats-token-hint')}
+                                        className={
+                                            natsTokenRequired
+                                                ? 'font-medium text-foreground'
+                                                : undefined
+                                        }
+                                    >
+                                        {natsTokenRequired
+                                            ? t(
+                                                  'setup.pizzasys.nats_token_reenter_hint',
+                                              )
+                                            : t(
+                                                  'setup.pizzasys.token_keep_hint',
+                                              )}
+                                    </span>
                                 </>
                             ) : undefined
                         }
@@ -227,6 +268,7 @@ export function PizzasysEnvironmentFields({
                     >
                         <PasswordInput
                             {...props('nats-token', 'nats_token', hasNatsToken)}
+                            aria-required={natsTokenRequired ? true : undefined}
                             autoCapitalize="none"
                             autoComplete="off"
                             spellCheck={false}

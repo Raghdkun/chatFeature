@@ -126,6 +126,8 @@ export type ValidationCode =
     | 'https'
     | 'service_name'
     | 'token_required'
+    | 'token_changed'
+    | 'nats_token_changed'
     | 'nats_url'
     | 'permission'
     | 'same_permission'
@@ -139,6 +141,8 @@ export const VALIDATION_CODES: readonly ValidationCode[] = [
     'https',
     'service_name',
     'token_required',
+    'token_changed',
+    'nats_token_changed',
     'nats_url',
     'permission',
     'same_permission',
@@ -151,7 +155,8 @@ export type EnvFieldName =
     | 'base_url'
     | 'service_name'
     | 'service_token'
-    | 'nats_url';
+    | 'nats_url'
+    | 'nats_token';
 
 export type FieldIssues = Record<string, ValidationCode>;
 
@@ -184,9 +189,62 @@ export function checkBaseUrl(raw: string): 'ok' | 'url' | 'https' {
     return 'url';
 }
 
+/**
+ * What the server holds for an environment, as far as the token rules are concerned. (The
+ * server hands out flags, never the tokens.)
+ */
+export type EnvBaseline = Pick<
+    PizzasysEnvironmentData,
+    | 'base_url'
+    | 'service_name'
+    | 'nats_url'
+    | 'verify_tls'
+    | 'has_service_token'
+    | 'has_nats_token'
+>;
+
+/**
+ * Changing where the portal is (address, service name) or turning TLS verification off could point a
+ * stored credential at a different party, so the server asks for the service token again
+ * ("Re-enter the service token to change the portal address", 422 on `service_token`). Mirrors that
+ * so the field is marked required as soon as one of them differs from what is saved. Nothing saved
+ * yet: the token is required anyway.
+ */
+export function serviceTokenRequired(
+    values: EnvFormValues,
+    saved: EnvBaseline | null | undefined,
+): boolean {
+    if (!saved?.has_service_token) {
+        return false;
+    }
+
+    return (
+        values.base_url.trim() !== (saved.base_url ?? '').trim() ||
+        values.service_name.trim() !== (saved.service_name ?? '').trim() ||
+        (!values.verify_tls && saved.verify_tls)
+    );
+}
+
+/** The same for a stored NATS token when the NATS address is changed to another one (not when it is cleared). */
+export function natsTokenRequired(
+    values: EnvFormValues,
+    saved: EnvBaseline | null | undefined,
+): boolean {
+    if (!saved?.has_nats_token || values.clear_nats_token) {
+        return false;
+    }
+
+    const url = values.nats_url.trim();
+
+    return url !== '' && url !== (saved.nats_url ?? '').trim();
+}
+
 export function validateEnvironment(
     values: EnvFormValues,
-    { hasSavedToken }: { hasSavedToken: boolean },
+    {
+        hasSavedToken,
+        saved,
+    }: { hasSavedToken: boolean; saved?: EnvBaseline | null },
 ): Partial<Record<EnvFieldName, ValidationCode>> {
     const issues: Partial<Record<EnvFieldName, ValidationCode>> = {};
     const baseUrl = values.base_url.trim();
@@ -214,6 +272,15 @@ export function validateEnvironment(
 
     if (values.service_token.trim() === '' && !hasSavedToken) {
         issues.service_token = 'token_required';
+    } else if (
+        values.service_token.trim() === '' &&
+        serviceTokenRequired(values, saved)
+    ) {
+        issues.service_token = 'token_changed';
+    }
+
+    if (values.nats_token.trim() === '' && natsTokenRequired(values, saved)) {
+        issues.nats_token = 'nats_token_changed';
     }
 
     if (natsUrl !== '' && /\s/.test(natsUrl)) {
@@ -254,6 +321,39 @@ export function validateRoles(roles: PizzasysRoles): FieldIssues {
     return issues;
 }
 
+/** Keys an environment form shows next to an input. */
+export const ENV_FIELD_KEYS: readonly string[] = [
+    'label',
+    'base_url',
+    'api_prefix',
+    'service_name',
+    'service_token',
+    'nats_url',
+    'nats_token',
+    'verify_tls',
+];
+
+export type EnvProblem = { key: string; message: string };
+
+/**
+ * Server errors of one environment that no input shows (a failed connection test, a message about
+ * the form as a whole). `prefix` is the path the server puts them under (`environments.production.`
+ * in the wizard, nothing in Settings); errors for a known field are left to that field.
+ */
+export function unplacedEnvironmentErrors(
+    errors: Record<string, string>,
+    prefix = '',
+): EnvProblem[] {
+    return Object.entries(errors)
+        .filter(
+            ([key, message]) =>
+                message !== '' &&
+                key.startsWith(prefix) &&
+                !ENV_FIELD_KEYS.includes(key.slice(prefix.length)),
+        )
+        .map(([key, message]) => ({ key: key.slice(prefix.length), message }));
+}
+
 /** Which environments already have a stored service token (the server's `has_service_token`). */
 export type SavedTokens = Record<PizzasysEnvKey, boolean>;
 
@@ -266,6 +366,7 @@ export const NO_SAVED_TOKENS: SavedTokens = {
 export function validateSetupForm(
     values: SetupFormValues,
     savedTokens: SavedTokens = NO_SAVED_TOKENS,
+    baselines: Partial<Record<PizzasysEnvKey, EnvBaseline | null>> = {},
 ): FieldIssues {
     const issues: FieldIssues = {};
 
@@ -279,6 +380,7 @@ export function validateSetupForm(
 
         const found = validateEnvironment(env, {
             hasSavedToken: savedTokens[key],
+            saved: baselines[key],
         });
 
         for (const [field, code] of Object.entries(found)) {

@@ -12,11 +12,14 @@ import {
     isEnvironmentDirty,
     isEnvironmentFilled,
     isLocalHost,
+    natsTokenRequired,
     removeTag,
     rolesPayload,
+    serviceTokenRequired,
     setupFormValuesFrom,
     setupPizzasysPayload,
     settingsEnvironmentPayload,
+    unplacedEnvironmentErrors,
     validateEnvironment,
     validateRoles,
     validateSetupForm,
@@ -180,6 +183,190 @@ describe('environment validation', () => {
         expect(ok('pne-chat_2.prod')).toBeUndefined();
         expect(ok('a'.repeat(64))).toBeUndefined();
         expect(ok('a'.repeat(65))).toBe('service_name');
+    });
+});
+
+describe('token re-entry (the server asks for it when the portal address changes)', () => {
+    const saved = savedEnv('production');
+
+    it('is not needed while nothing that points at the portal differs', () => {
+        expect(serviceTokenRequired(values({ service_token: '' }), null)).toBe(
+            false,
+        );
+        expect(
+            serviceTokenRequired(
+                values({
+                    base_url: ' https://production.example.com ',
+                    service_token: '',
+                }),
+                saved,
+            ),
+        ).toBe(false);
+        // Label and NATS address are not part of the rule for the service token.
+        expect(
+            serviceTokenRequired(
+                {
+                    ...environmentValuesFrom(saved),
+                    label: 'Other',
+                    nats_url: 'nats://x:4222',
+                },
+                saved,
+            ),
+        ).toBe(false);
+    });
+
+    it('is needed for a different address, a different service name and TLS verification turned off', () => {
+        const same = environmentValuesFrom(saved);
+
+        expect(
+            serviceTokenRequired(
+                { ...same, base_url: 'https://x.test' },
+                saved,
+            ),
+        ).toBe(true);
+        expect(
+            serviceTokenRequired({ ...same, service_name: 'other' }, saved),
+        ).toBe(true);
+        expect(
+            serviceTokenRequired({ ...same, verify_tls: false }, saved),
+        ).toBe(true);
+    });
+
+    it('is not needed when nothing is stored yet (the token is simply required) or TLS goes back on', () => {
+        const same = environmentValuesFrom(saved);
+
+        expect(
+            serviceTokenRequired(
+                { ...same, base_url: 'https://x.test' },
+                savedEnv('production', { has_service_token: false }),
+            ),
+        ).toBe(false);
+        expect(
+            serviceTokenRequired(
+                { ...same, verify_tls: true },
+                savedEnv('production', { verify_tls: false }),
+            ),
+        ).toBe(false);
+    });
+
+    it('asks for a stored NATS token only when the NATS address changes to another one', () => {
+        const withNats = savedEnv('production', {
+            nats_url: 'nats://a:4222',
+            has_nats_token: true,
+        });
+        const same = environmentValuesFrom(withNats);
+
+        expect(natsTokenRequired(same, withNats)).toBe(false);
+        expect(
+            natsTokenRequired({ ...same, nats_url: 'nats://b:4222' }, withNats),
+        ).toBe(true);
+        expect(natsTokenRequired({ ...same, nats_url: '' }, withNats)).toBe(
+            false,
+        );
+        expect(
+            natsTokenRequired(
+                { ...same, nats_url: 'nats://b:4222', clear_nats_token: true },
+                withNats,
+            ),
+        ).toBe(false);
+        // No stored token: nothing to re-enter.
+        expect(
+            natsTokenRequired(
+                { ...same, nats_url: 'nats://b:4222' },
+                savedEnv('production', {
+                    nats_url: 'nats://a:4222',
+                    has_nats_token: false,
+                }),
+            ),
+        ).toBe(false);
+        expect(natsTokenRequired(same, null)).toBe(false);
+    });
+
+    it('validateEnvironment reports a missing re-entered token, but not when it is typed', () => {
+        const moved = {
+            ...environmentValuesFrom(saved),
+            base_url: 'https://moved.example.com',
+        };
+
+        expect(
+            validateEnvironment(moved, { hasSavedToken: true, saved }),
+        ).toEqual({ service_token: 'token_changed' });
+        expect(
+            validateEnvironment(
+                { ...moved, service_token: 'again' },
+                { hasSavedToken: true, saved },
+            ),
+        ).toEqual({});
+        // Without a baseline (old callers) the behaviour is unchanged.
+        expect(validateEnvironment(moved, { hasSavedToken: true })).toEqual({});
+        expect(
+            validateEnvironment(
+                { ...moved, service_token: '' },
+                { hasSavedToken: false, saved: blankEnv('production') },
+            ),
+        ).toEqual({ service_token: 'token_required' });
+    });
+
+    it('validateSetupForm uses the baselines per environment', () => {
+        const form = setupFormValuesFrom({
+            environments: {
+                production: saved,
+                testing: blankEnv('testing'),
+            },
+            active_env: 'production',
+            roles: DEFAULT_ROLES,
+            tested: { production: false, testing: false },
+            portal_admin: null,
+        });
+
+        form.environments.production.base_url = 'https://moved.example.com';
+
+        expect(
+            validateSetupForm(
+                form,
+                { production: true, testing: false },
+                { production: saved },
+            ),
+        ).toEqual({
+            'environments.production.service_token': 'token_changed',
+        });
+    });
+});
+
+describe('errors no input shows', () => {
+    it('keeps what is not a field of the environment (a failed check, a form message)', () => {
+        expect(
+            unplacedEnvironmentErrors({
+                base_url: 'x',
+                service_token: 'y',
+                reachable: 'Could not connect.',
+                connection: 'Timed out.',
+                nats_token: 'z',
+            }),
+        ).toEqual([
+            { key: 'reachable', message: 'Could not connect.' },
+            { key: 'connection', message: 'Timed out.' },
+        ]);
+    });
+
+    it("reads the wizard's nested paths per environment", () => {
+        const errors = {
+            'environments.production.base_url': 'x',
+            'environments.production.service_credential': 'Rejected.',
+            'environments.testing.reachable': 'Down.',
+            active_env: 'x',
+        };
+
+        expect(
+            unplacedEnvironmentErrors(errors, 'environments.production.'),
+        ).toEqual([{ key: 'service_credential', message: 'Rejected.' }]);
+        expect(
+            unplacedEnvironmentErrors(errors, 'environments.testing.'),
+        ).toEqual([{ key: 'reachable', message: 'Down.' }]);
+    });
+
+    it('ignores empty messages', () => {
+        expect(unplacedEnvironmentErrors({ reachable: '' })).toEqual([]);
     });
 });
 

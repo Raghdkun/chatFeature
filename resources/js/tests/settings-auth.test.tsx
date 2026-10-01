@@ -527,9 +527,10 @@ describe('environment card', () => {
             <EnvironmentCard env={env('production')} isActive />,
         );
 
+        // Renaming does not move the credential anywhere, so no token is asked for again.
         await typeInto(
-            input(view, 'settings-auth-env-production-base-url'),
-            'https://new.example.com',
+            input(view, 'settings-auth-env-production-label'),
+            'Main portal',
         );
         await click(view.byTestId('settings-auth-env-production-save'));
 
@@ -539,8 +540,8 @@ describe('environment card', () => {
 
         expect(sent.url).toBe('/settings/auth/environments/production');
         expect(sent.data).toEqual({
-            label: 'Production',
-            base_url: 'https://new.example.com',
+            label: 'Main portal',
+            base_url: 'https://production.example.com',
             service_name: 'pne-chat',
             verify_tls: true,
             nats_url: null,
@@ -612,12 +613,316 @@ describe('environment card', () => {
             input(view, 'settings-auth-env-production-base-url'),
             'https://fine.example.com',
         );
+        await typeInto(
+            input(view, 'settings-auth-env-production-service-token'),
+            'confirm-secret',
+        );
         await click(view.byTestId('settings-auth-env-production-save'));
         await completeVisit(lastVisit('put'), {
             errors: { service_name: 'That service name is not registered.' },
         });
 
         expect(view.text()).toContain('That service name is not registered.');
+    });
+
+    describe('re-entering the service token', () => {
+        const token = (view: { container: HTMLElement }) =>
+            input(view, 'settings-auth-env-production-service-token');
+        const hint = (view: { byTestId: (id: string) => HTMLElement | null }) =>
+            view.byTestId('settings-auth-env-production-service-token-hint');
+        const labelOfToken = (view: { container: HTMLElement }) =>
+            view.container.querySelector(
+                'label[for="settings-auth-env-production-service-token"]',
+            )?.textContent;
+
+        it('is not asked for while nothing that points at the portal changed', async () => {
+            const view = await render(
+                <EnvironmentCard env={env('production')} isActive />,
+            );
+
+            expect(token(view)?.hasAttribute('aria-required')).toBe(false);
+            expect(labelOfToken(view)).toBe('Service token');
+            expect(hint(view)?.textContent).toContain(
+                'Leave this empty to keep it',
+            );
+
+            // Label, and a NATS address without a stored NATS token, do not count.
+            await typeInto(
+                input(view, 'settings-auth-env-production-label'),
+                'Main',
+            );
+            await typeInto(
+                input(view, 'settings-auth-env-production-nats-url'),
+                'nats://nats.example.com:4222',
+            );
+
+            expect(token(view)?.hasAttribute('aria-required')).toBe(false);
+        });
+
+        it('is required, with a hint, as soon as the portal address differs from the saved one', async () => {
+            const view = await render(
+                <EnvironmentCard env={env('production')} isActive />,
+            );
+
+            await typeInto(
+                input(view, 'settings-auth-env-production-base-url'),
+                'https://new.example.com',
+            );
+
+            expect(token(view)?.getAttribute('aria-required')).toBe('true');
+            expect(labelOfToken(view)).toBe('Service token (required)');
+            expect(hint(view)?.textContent).toBe(
+                'Re-enter the service token to change the portal address, service name or TLS verification.',
+            );
+
+            // Putting the address back makes it optional again.
+            await typeInto(
+                input(view, 'settings-auth-env-production-base-url'),
+                'https://production.example.com',
+            );
+
+            expect(token(view)?.hasAttribute('aria-required')).toBe(false);
+        });
+
+        it('is required for a changed service name and for turning certificate verification off, not on', async () => {
+            const view = await render(
+                <EnvironmentCard env={env('production')} isActive />,
+            );
+
+            await typeInto(
+                input(view, 'settings-auth-env-production-service-name'),
+                'other-name',
+            );
+
+            expect(token(view)?.getAttribute('aria-required')).toBe('true');
+
+            await typeInto(
+                input(view, 'settings-auth-env-production-service-name'),
+                'pne-chat',
+            );
+            await click(
+                view.byTestId('settings-auth-env-production-verify-tls'),
+            );
+
+            expect(token(view)?.getAttribute('aria-required')).toBe('true');
+            expect(
+                view.byTestId(
+                    'settings-auth-env-production-verify-tls-warning',
+                ),
+            ).not.toBeNull();
+
+            // Turning it back on leaves the saved state: nothing to re-enter.
+            await click(
+                view.byTestId('settings-auth-env-production-verify-tls'),
+            );
+
+            expect(token(view)?.hasAttribute('aria-required')).toBe(false);
+
+            const insecure = await render(
+                <EnvironmentCard
+                    env={env('testing', { verify_tls: false })}
+                    isActive={false}
+                />,
+            );
+
+            // Already off in the saved settings: still no token needed.
+            expect(
+                input(
+                    insecure,
+                    'settings-auth-env-testing-service-token',
+                )?.hasAttribute('aria-required'),
+            ).toBe(false);
+        });
+
+        it('is only asked for a stored NATS token when the NATS address changes to another one', async () => {
+            const view = await render(
+                <EnvironmentCard
+                    env={env('production', {
+                        has_nats_token: true,
+                        nats_url: 'nats://nats.example.com:4222',
+                    })}
+                    isActive
+                />,
+            );
+            const natsToken = () =>
+                input(view, 'settings-auth-env-production-nats-token');
+
+            expect(natsToken()?.hasAttribute('aria-required')).toBe(false);
+
+            await typeInto(
+                input(view, 'settings-auth-env-production-nats-url'),
+                'nats://other.example.com:4222',
+            );
+
+            expect(natsToken()?.getAttribute('aria-required')).toBe('true');
+            expect(
+                view.byTestId('settings-auth-env-production-nats-token-hint')
+                    ?.textContent,
+            ).toBe('Re-enter the NATS token to change the NATS address.');
+
+            // Removing the address (and so the token) needs nothing.
+            await typeInto(
+                input(view, 'settings-auth-env-production-nats-url'),
+                '',
+            );
+
+            expect(natsToken()?.hasAttribute('aria-required')).toBe(false);
+        });
+
+        it('blocks the save with the reason on the field until the token is typed, then sends it', async () => {
+            const view = await render(
+                <EnvironmentCard env={env('production')} isActive />,
+            );
+
+            await typeInto(
+                input(view, 'settings-auth-env-production-base-url'),
+                'https://new.example.com',
+            );
+            await click(view.byTestId('settings-auth-env-production-save'));
+
+            expect(routerMock.put).not.toHaveBeenCalled();
+            expect(token(view)?.getAttribute('aria-invalid')).toBe('true');
+            expect(view.text()).toContain(
+                'Re-enter the service token to change the portal address, service name or TLS verification.',
+            );
+
+            await typeInto(token(view), 'fresh-secret');
+            await click(view.byTestId('settings-auth-env-production-save'));
+
+            expect(routerMock.put).toHaveBeenCalledTimes(1);
+            expect(lastVisit('put').data).toMatchObject({
+                base_url: 'https://new.example.com',
+                service_token: 'fresh-secret',
+            });
+        });
+
+        it("shows the server's 422 on the token field inline (service_token / nats_token)", async () => {
+            const view = await render(
+                <EnvironmentCard
+                    env={env('production', {
+                        has_nats_token: true,
+                        nats_url: 'nats://nats.example.com:4222',
+                    })}
+                    isActive
+                />,
+            );
+
+            // The server may know better than this form (e.g. an older client state).
+            await typeInto(
+                input(view, 'settings-auth-env-production-label'),
+                'Renamed',
+            );
+            await click(view.byTestId('settings-auth-env-production-save'));
+            await completeVisit(lastVisit('put'), {
+                errors: {
+                    service_token:
+                        'Re-enter the service token to change the portal address',
+                    nats_token:
+                        'Re-enter the NATS token to change the NATS address.',
+                },
+            });
+
+            expect(view.text()).toContain(
+                'Re-enter the service token to change the portal address',
+            );
+            expect(view.text()).toContain(
+                'Re-enter the NATS token to change the NATS address.',
+            );
+            expect(token(view)?.getAttribute('aria-invalid')).toBe('true');
+            // Typing a token clears its message.
+            await typeInto(token(view), 'x');
+
+            expect(token(view)?.getAttribute('aria-invalid')).toBeNull();
+        });
+    });
+
+    describe('a save that fails the connection test', () => {
+        it('lists the failing checks with their fix hints (422 errors under the check keys)', async () => {
+            const view = await render(
+                <EnvironmentCard env={env('production')} isActive />,
+            );
+
+            await typeInto(
+                input(view, 'settings-auth-env-production-label'),
+                'Renamed',
+            );
+            await click(view.byTestId('settings-auth-env-production-save'));
+            await completeVisit(lastVisit('put'), {
+                errors: {
+                    reachable: 'Could not connect: connection refused.',
+                    'checks.service_credential': 'HTTP 401 from the portal.',
+                },
+            });
+
+            const problems = view.byTestId(
+                'settings-auth-env-production-problems',
+            );
+
+            expect(problems?.getAttribute('role')).toBe('alert');
+            expect(problems?.textContent).toContain(
+                'These details could not be saved',
+            );
+            expect(problems?.textContent).toContain(
+                'did not pass the connection test with these details, so nothing was changed',
+            );
+            expect(
+                view.byTestId('settings-auth-env-production-problems-reachable')
+                    ?.textContent,
+            ).toContain(
+                'Portal reachable: Could not connect: connection refused.',
+            );
+            expect(
+                view.byTestId(
+                    'settings-auth-env-production-problems-service_credential',
+                )?.textContent,
+            ).toContain('HTTP 401 from the portal.');
+            // Each failed check carries the "how to fix it" line.
+            expect(problems?.textContent).toContain(
+                'Check the portal address, DNS and firewall.',
+            );
+            expect(problems?.textContent).toContain(
+                "The portal rejected this app's service credential.",
+            );
+        });
+
+        it('shows any other message the server attaches to the form, and nothing for field errors', async () => {
+            const view = await render(
+                <EnvironmentCard env={env('production')} isActive />,
+            );
+
+            await typeInto(
+                input(view, 'settings-auth-env-production-label'),
+                'Renamed',
+            );
+            await click(view.byTestId('settings-auth-env-production-save'));
+            await completeVisit(lastVisit('put'), {
+                errors: { connection: 'The portal did not answer in time.' },
+            });
+
+            expect(
+                view.byTestId('settings-auth-env-production-problems-other')
+                    ?.textContent,
+            ).toBe('The portal did not answer in time.');
+
+            // A plain field error is shown at the field only.
+            await typeInto(
+                input(view, 'settings-auth-env-production-label'),
+                'Renamed again',
+            );
+            await click(view.byTestId('settings-auth-env-production-save'));
+            await completeVisit(lastVisit('put'), {
+                errors: {
+                    service_name: 'That service name is not registered.',
+                },
+            });
+
+            expect(
+                view.byTestId('settings-auth-env-production-problems'),
+            ).toBeNull();
+            expect(view.text()).toContain(
+                'That service name is not registered.',
+            );
+        });
     });
 
     it('tests the saved values only, and says to save first while there are unsaved edits', async () => {

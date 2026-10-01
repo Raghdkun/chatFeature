@@ -3,6 +3,7 @@ import { ChevronDown, CircleCheck, PlugZap, TriangleAlert } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import InputError from '@/components/input-error';
+import { EnvironmentProblems } from '@/components/setup/environment-problems';
 import {
     PortalTestResultPanel,
     IDLE_TEST,
@@ -32,10 +33,14 @@ import { useAuthFormSubmit } from '@/hooks/use-auth-form-submit';
 import { useTrans } from '@/hooks/use-trans';
 import {
     isEnvironmentFilled,
+    natsTokenRequired,
     PIZZASYS_ENV_KEYS,
+    serviceTokenRequired,
     setupFormValuesFrom,
     setupPizzasysPayload,
+    unplacedEnvironmentErrors,
     validateSetupForm,
+    type EnvBaseline,
     type EnvFormValues,
     type FieldIssues,
     type SavedTokens,
@@ -101,6 +106,10 @@ export function StepPizzasys({
         production: false,
         testing: false,
     });
+    // What this screen last sent, until the server's props catch up (the token rules compare against it).
+    const [sentHere, setSentHere] = useState<
+        Partial<Record<PizzasysEnvKey, EnvFormValues>>
+    >({});
     const formRef = useRef<HTMLFormElement>(null);
     const { errors, processing, submit, clearError } = useAuthFormSubmit();
     const testing = PIZZASYS_ENV_KEYS.some(
@@ -116,6 +125,28 @@ export function StepPizzasys({
     const savedTokens: SavedTokens = {
         production: hasServiceToken('production'),
         testing: hasServiceToken('testing'),
+    };
+    /** What the server holds for an environment, for the "re-enter the token" rules; `null` when nothing is saved. */
+    const baselineOf = (env: PizzasysEnvKey): EnvBaseline | null => {
+        const server = saved?.environments[env] ?? null;
+        const here = sentHere[env];
+
+        if (!server && !here) {
+            return null;
+        }
+
+        return {
+            base_url: here ? here.base_url.trim() : (server?.base_url ?? null),
+            service_name: here
+                ? here.service_name.trim()
+                : (server?.service_name ?? null),
+            nats_url: here
+                ? here.nats_url.trim() || null
+                : (server?.nats_url ?? null),
+            verify_tls: here ? here.verify_tls : (server?.verify_tls ?? true),
+            has_service_token: hasServiceToken(env),
+            has_nats_token: hasNatsToken(env),
+        };
     };
 
     useEffect(() => {
@@ -196,6 +227,21 @@ export function StepPizzasys({
 
             return next;
         });
+        setSentHere((current) => {
+            const next = { ...current };
+
+            for (const key of PIZZASYS_ENV_KEYS) {
+                // Testing is only sent when something was entered for it.
+                if (
+                    key === 'production' ||
+                    isEnvironmentFilled(form.environments[key])
+                ) {
+                    next[key] = form.environments[key];
+                }
+            }
+
+            return next;
+        });
         setEdited({ production: false, testing: false });
         setForm((current) => ({
             ...current,
@@ -215,7 +261,10 @@ export function StepPizzasys({
     };
 
     const validate = (): boolean => {
-        const found = validateSetupForm(form, savedTokens);
+        const found = validateSetupForm(form, savedTokens, {
+            production: baselineOf('production'),
+            testing: baselineOf('testing'),
+        });
 
         setIssues(found);
 
@@ -298,11 +347,27 @@ export function StepPizzasys({
 
         return (
             <div className="grid gap-5">
+                <EnvironmentProblems
+                    problems={unplacedEnvironmentErrors(
+                        errors,
+                        `${envPath(env, '')}`,
+                    )}
+                    testId={`setup-env-problems-${env}`}
+                />
+
                 <PizzasysEnvironmentFields
                     idPrefix={`setup-env-${env}`}
                     values={form.environments[env]}
                     hasServiceToken={hasServiceToken(env)}
                     hasNatsToken={hasNatsToken(env)}
+                    serviceTokenRequired={serviceTokenRequired(
+                        form.environments[env],
+                        baselineOf(env),
+                    )}
+                    natsTokenRequired={natsTokenRequired(
+                        form.environments[env],
+                        baselineOf(env),
+                    )}
                     autoFocus={env === 'production'}
                     disabled={processing}
                     onChange={(patch) => updateEnv(env, patch)}

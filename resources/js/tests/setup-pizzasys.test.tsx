@@ -1092,3 +1092,166 @@ describe('translations', () => {
         ).toBe('ltr');
     });
 });
+
+describe('re-entering the service token in the wizard', () => {
+    const saved = (overrides: Partial<PizzasysEnvironmentData> = {}) =>
+        pizzasysData({
+            environments: {
+                production: env('production', {
+                    configured: true,
+                    base_url: 'https://auth.example.com',
+                    service_name: 'pne-chat',
+                    has_service_token: true,
+                    ...overrides,
+                }),
+                testing: env('testing'),
+            },
+        });
+    const tokenOf = (view: { container: HTMLElement }) =>
+        input(view, 'setup-env-production-service-token');
+
+    it('asks for the token again as soon as the portal address, service name or TLS check differs from what is saved', async () => {
+        const view = await render(
+            <Setup {...portalSetup('pizzasys', saved())} />,
+        );
+
+        expect(tokenOf(view)?.hasAttribute('aria-required')).toBe(false);
+
+        await typeInto(
+            input(view, 'setup-env-production-base-url'),
+            'https://other.example.com',
+        );
+
+        expect(tokenOf(view)?.getAttribute('aria-required')).toBe('true');
+        expect(
+            view.byTestId('setup-env-production-service-token-hint')
+                ?.textContent,
+        ).toContain('Re-enter the service token to change the portal address');
+        expect(
+            view.container.querySelector(
+                'label[for="setup-env-production-service-token"]',
+            )?.textContent,
+        ).toBe('Service token (required)');
+
+        await typeInto(
+            input(view, 'setup-env-production-base-url'),
+            'https://auth.example.com',
+        );
+        await typeInto(
+            input(view, 'setup-env-production-service-name'),
+            'renamed',
+        );
+
+        expect(tokenOf(view)?.getAttribute('aria-required')).toBe('true');
+    });
+
+    it('blocks Continue with the reason on the field, then posts the token with the changed address', async () => {
+        const view = await render(
+            <Setup {...portalSetup('pizzasys', saved())} />,
+        );
+
+        await typeInto(
+            input(view, 'setup-env-production-base-url'),
+            'https://other.example.com',
+        );
+        await click(view.byTestId('setup-pizzasys-submit'));
+
+        expect(routerMock.post).not.toHaveBeenCalled();
+        expect(tokenOf(view)?.getAttribute('aria-invalid')).toBe('true');
+        expect(view.text()).toContain(
+            'Re-enter the service token to change the portal address',
+        );
+
+        await typeInto(tokenOf(view), 'new-secret');
+        await click(view.byTestId('setup-pizzasys-submit'));
+
+        const sent = lastVisit('post');
+
+        expect(
+            (sent.data.environments as Record<string, Record<string, unknown>>)
+                .production,
+        ).toMatchObject({
+            base_url: 'https://other.example.com',
+            service_token: 'new-secret',
+        });
+    });
+
+    it('does not ask again right after the change was saved, even before the server props catch up', async () => {
+        const view = await render(
+            <Setup {...portalSetup('pizzasys', saved())} />,
+        );
+
+        await typeInto(
+            input(view, 'setup-env-production-base-url'),
+            'https://other.example.com',
+        );
+        await typeInto(tokenOf(view), 'new-secret');
+        await click(view.byTestId('setup-pizzasys-submit'));
+        await completeVisit(lastVisit('post'));
+
+        // The token input was emptied after the save; the saved address is now the new one.
+        expect(tokenOf(view)?.value).toBe('');
+        expect(tokenOf(view)?.hasAttribute('aria-required')).toBe(false);
+    });
+
+    it('is only asked for a stored NATS token when the NATS address changes to another one', async () => {
+        const view = await render(
+            <Setup
+                {...portalSetup(
+                    'pizzasys',
+                    saved({
+                        nats_url: 'nats://nats.example.com:4222',
+                        has_nats_token: true,
+                    }),
+                )}
+            />,
+        );
+        const natsToken = () => input(view, 'setup-env-production-nats-token');
+
+        expect(natsToken()?.hasAttribute('aria-required')).toBe(false);
+
+        await typeInto(
+            input(view, 'setup-env-production-nats-url'),
+            'nats://other.example.com:4222',
+        );
+
+        expect(natsToken()?.getAttribute('aria-required')).toBe('true');
+
+        await click(view.byTestId('setup-pizzasys-submit'));
+
+        expect(routerMock.post).not.toHaveBeenCalled();
+        expect(view.text()).toContain(
+            'Re-enter the NATS token to change the NATS address.',
+        );
+    });
+
+    it("shows the server's refusal on the token and any non-field message of the environment", async () => {
+        const view = await render(
+            <Setup {...portalSetup('pizzasys', saved())} />,
+        );
+
+        await typeInto(
+            input(view, 'setup-env-production-service-name'),
+            'renamed',
+        );
+        await typeInto(tokenOf(view), 'secret');
+        await click(view.byTestId('setup-pizzasys-submit'));
+        await completeVisit(lastVisit('post'), {
+            errors: {
+                'environments.production.service_token':
+                    'Re-enter the service token to change the portal address',
+                'environments.production.reachable':
+                    'Could not connect: connection refused.',
+            },
+        });
+
+        expect(view.text()).toContain(
+            'Re-enter the service token to change the portal address',
+        );
+        expect(
+            view.byTestId('setup-env-problems-production')?.textContent,
+        ).toContain('Portal reachable: Could not connect: connection refused.');
+        // Testing has nothing to say.
+        expect(view.byTestId('setup-env-problems-testing')).toBeNull();
+    });
+});
