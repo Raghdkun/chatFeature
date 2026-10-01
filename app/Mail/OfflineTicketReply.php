@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Domain\Chat\Services\MessageText;
 use App\Models\Conversation;
 use App\Models\Message;
 use Illuminate\Bus\Queueable;
@@ -37,7 +38,8 @@ class OfflineTicketReply extends Mailable implements ShouldQueue
         return new Content(
             text: 'chat.offline_reply',
             with: [
-                'visitorName' => $this->conversation->visitor->name,
+                // One line whatever is stored (rows older than the model's own cleaning): a name must not add lines to the mail.
+                'visitorName' => MessageText::singleLine($this->conversation->visitor->name),
                 'agentName' => $this->reply->senderUser?->public_label,
                 'ticketNo' => $this->conversation->ticket_no,
                 'body' => (string) $this->reply->body,

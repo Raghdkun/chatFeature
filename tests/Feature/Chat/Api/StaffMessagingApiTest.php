@@ -17,7 +17,9 @@ use App\Models\Message;
 use App\Models\User;
 use App\Models\Widget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -257,6 +259,32 @@ class StaffMessagingApiTest extends TestCase
         $this->assertStringContainsString($ticket->ticket_no, $text);
         $this->assertSame('Re: your message (ticket '.$ticket->ticket_no.')', $mail->envelope()->subject);
         $this->assertSame('chat.offline_reply', $mail->content()->text);
+    }
+
+    public function test_the_greeting_of_the_reply_mail_is_one_line_whatever_the_stored_name(): void
+    {
+        $ticket = $this->offlineTicket();
+        // Older rows or rows written around the model: a line break and a header-looking line in the name.
+        DB::table('visitors')->where('id', $ticket->visitor_id)->update(['name' => "Ann\r\nBcc: victim@example.test\u{202E}"]);
+        $reply = Message::factory()->for($ticket)->fromAgent($this->agent)->create(['body' => 'Done.']);
+
+        $text = (new OfflineTicketReply($ticket->fresh(), $reply))->render();
+
+        $this->assertStringStartsWith('Hello Ann Bcc: victim@example.test,'."\n", $text);
+        $this->assertStringNotContainsString("\u{202E}", $text);
+    }
+
+    public function test_a_mail_that_cannot_be_queued_does_not_fail_the_reply(): void
+    {
+        $ticket = $this->offlineTicket();
+        Mail::shouldReceive('to')->andThrow(new \RuntimeException('smtp is down'));
+        Log::spy();
+
+        $response = $this->write($this->agent, ['body' => 'We refunded the invoice.'], $ticket)->assertCreated();
+
+        // The message is stored and visible; the failure is reported and logged, not a 500 the agent would answer by sending it again.
+        $this->assertSame('We refunded the invoice.', Message::query()->where('ulid', $response->json('data.ulid'))->sole()->body);
+        Log::shouldHaveReceived('warning')->withArgs(fn (string $message, array $context): bool => str_contains($message, 'could not be e-mailed') && $context['conversation'] === $ticket->ulid)->once();
     }
 
     public function test_a_visitor_without_an_address_gets_no_mail_and_an_unclaimed_ticket_takes_no_reply(): void

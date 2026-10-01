@@ -265,18 +265,18 @@ class ConversationModelTest extends TestCase
         $this->assertSame(13, $all);
 
         $this->assertSame($all, Conversation::query()->visibleTo($admin)->count());
+        // An offline ticket without any topic (its widget had none) is every active agent's.
         $this->assertEqualsCanonicalizing(
-            [$mine->id, $mineEnded->id, $offered->id, $ticketInMyCategory->id],
+            [$mine->id, $mineEnded->id, $offered->id, $ticketInMyCategory->id, $ticketWithoutCategory->id],
             Conversation::query()->visibleTo($agent)->pluck('id')->all(),
         );
         $this->assertEqualsCanonicalizing(
-            [$theirs->id, $offeredToColleague->id, $offeredButClaimedByOther->id],
+            [$theirs->id, $offeredToColleague->id, $offeredButClaimedByOther->id, $ticketWithoutCategory->id],
             Conversation::query()->visibleTo($colleague)->pluck('id')->all(),
         );
-        $this->assertSame([], Conversation::query()->visibleTo($stranger)->pluck('id')->all());
+        $this->assertSame([$ticketWithoutCategory->id], Conversation::query()->visibleTo($stranger)->pluck('id')->all());
         $this->assertNotContains($missed->id, Conversation::query()->visibleTo($agent)->pluck('id')->all());
         $this->assertNotContains($ticketElsewhere->id, Conversation::query()->visibleTo($agent)->pluck('id')->all());
-        $this->assertNotContains($ticketWithoutCategory->id, Conversation::query()->visibleTo($agent)->pluck('id')->all());
         $this->assertNotContains($liveInMyCategory->id, Conversation::query()->visibleTo($agent)->pluck('id')->all());
     }
 

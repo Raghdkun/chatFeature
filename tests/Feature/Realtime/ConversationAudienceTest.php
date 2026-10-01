@@ -50,6 +50,8 @@ class ConversationAudienceTest extends TestCase
         $conversations = [
             'queued live chat with offers' => $live,
             'queued offline ticket' => Conversation::factory()->offline()->forCategory($category)->create(),
+            'queued offline ticket without a topic' => Conversation::factory()->offline()->create(),
+            'active offline ticket without a topic' => Conversation::factory()->offline()->active($staff['assigned'])->create(),
             'active chat' => Conversation::factory()->active($staff['assigned'])->forCategory($category)->create(),
             'active chat of a deactivated agent' => Conversation::factory()->active($staff['inactiveAssigned'])->create(),
             'ended chat' => Conversation::factory()->ended($staff['assigned'])->create(),

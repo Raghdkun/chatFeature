@@ -11,6 +11,7 @@ use App\Models\Category;
 use App\Models\Conversation;
 use App\Models\ConversationOffer;
 use App\Models\Message;
+use App\Models\User;
 use App\Models\Widget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
@@ -87,6 +88,57 @@ class OfflineTicketApiTest extends TestCase
         $this->assertSame(ConversationStatus::Missed, $missed->fresh()->status);
         $this->assertSame($missed->ulid, $ticket->events()->where('type', 'created')->sole()->payload['origin']);
         $this->assertSame($this->billing->id, $ticket->category_id, 'the topic carries over');
+    }
+
+    public function test_a_ticket_without_a_topic_gets_the_first_active_topic_of_the_widget(): void
+    {
+        $sales = Category::factory()->create(['slug' => 'sales', 'name' => 'Sales']);
+        $this->widget->categories()->attach($sales->id, ['sort_order' => 5]);
+        $inactive = Category::factory()->create(['slug' => 'old', 'name' => 'Old', 'is_active' => false]);
+        $this->widget->categories()->attach($inactive->id, ['sort_order' => -1]);
+
+        $response = $this->leave($this->visitorSession($this->widget))->assertCreated()->assertJsonPath('data.category.slug', 'billing');
+
+        $this->assertSame($this->billing->id, Conversation::query()->where('ulid', $response->json('data.ulid'))->sole()->category_id);
+        // A topic that was sent wins; the missed chat's topic wins over the default.
+        $this->leave($this->visitorSession($this->widget), ['category' => 'sales'])->assertCreated()->assertJsonPath('data.category.slug', 'sales');
+        $token = $this->visitorSession($this->widget);
+        $missed = Conversation::factory()->missed()->forCategory($sales)->create(['widget_id' => $this->widget->id, 'visitor_id' => $token->session->visitor_id, 'visitor_session_id' => $token->session->id]);
+        $this->leave($token, ['missed_conversation' => $missed->ulid])->assertCreated()->assertJsonPath('data.category.slug', 'sales');
+    }
+
+    public function test_a_ticket_of_a_widget_without_topics_is_seen_and_taken_by_every_active_agent(): void
+    {
+        $this->widget->categories()->detach();
+        $token = $this->visitorSession($this->widget);
+
+        $response = $this->leave($token)->assertCreated()->assertJsonPath('data.category', null);
+        $ulid = $response->json('data.ulid');
+        $this->assertNull(Conversation::query()->where('ulid', $ulid)->sole()->category_id);
+
+        $anAgent = User::factory()->agent()->create();
+        $anotherAgent = User::factory()->agent()->create();
+        $inactive = User::factory()->agent()->inactive()->create();
+        $admin = User::factory()->admin()->create();
+
+        foreach ([$anAgent, $anotherAgent, $admin] as $user) {
+            $queue = array_column($this->actingAs($user, 'sanctum')->getJson('/api/v1/conversations/queue')->assertOk()->json('data'), 'ulid');
+            $this->assertContains($ulid, $queue, $user->name.' sees the queued ticket');
+            $this->actingAs($user, 'sanctum')->getJson("/api/v1/conversations/{$ulid}")->assertOk();
+        }
+
+        $this->assertNotContains($ulid, array_column($this->actingAs($inactive, 'sanctum')->getJson('/api/v1/conversations/queue')->json('data') ?? [], 'ulid'));
+        $this->actingAs($anAgent, 'sanctum')->postJson("/api/v1/conversations/{$ulid}/claim")->assertOk()->assertJsonPath('data.assignedAgent.id', $anAgent->id);
+        $this->actingAs($anotherAgent, 'sanctum')->getJson("/api/v1/conversations/{$ulid}")->assertForbidden();
+    }
+
+    public function test_the_visitors_name_is_stored_as_one_line(): void
+    {
+        $token = $this->visitorSession($this->widget, ['name' => null]);
+
+        $this->leave($token, ['name' => "Ann\r\nBcc: victim@example.test\u{202E}\t  Smith"])->assertCreated();
+
+        $this->assertSame('Ann Bcc: victim@example.test Smith', $token->session->visitor->fresh()->name);
     }
 
     public function test_only_the_visitors_own_missed_live_chat_can_be_named(): void
