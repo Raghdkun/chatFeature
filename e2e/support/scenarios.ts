@@ -11,8 +11,8 @@
  *
  * Ports the suite owns (everything else belongs to other suites or running agents):
  *   web servers      8110-8129 (8120-8129: mode 2)   8230-8249 (P3)   8260-8279 (P4)
- *   customer sites   8240-8247 (P3)                  8280-8289 (P4)
- *   Reverb (P4)      8340-8348
+ *   customer sites   8240-8247 (P3)                  8280-8289 (P4; `p4-poll`: 8291 / 8296)
+ *   Reverb (P4)      8340-8348 (`p4-staff`: 8344 / 8348)
  * P4 layout: a stateful scenario takes web `8260 + n` (desktop) and `8270 + n` (mobile twin), a customer site `8280 + n` / `8285 + n`
  * and Reverb `8340 + n` / `8345 + n`; `p4-chat` is n = 0, `p4-chat-views` n = 2, `p4-chat-views-rtl` n = 3. 8264-8269, 8274-8279,
  * 8284, 8289 and 8344/8348 are free for more P4 scenarios.

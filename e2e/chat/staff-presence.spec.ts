@@ -39,15 +39,18 @@ test('the selector sets online, away and offline, the choice survives a reload, 
     await expect(select).toHaveValue('offline');
     await expect(ann.inbox.tid('presence-offline-notice')).toBeVisible();
 
+    // Each change is awaited on the server before the next one: two requests in flight are handled by different PHP workers, in any order.
+    const stored = async (): Promise<string> =>
+        must<{ status: string }>(await ann.api.presence(), 'presence').status;
+
     await ann.inbox.tid('presence-go-online').click();
     await expect(select).toHaveValue('online');
     await expect(ann.inbox.tid('presence-offline-notice')).toHaveCount(0);
+    await expect.poll(stored).toBe('online');
 
     await select.selectOption('away');
     await expect(select).toHaveValue('away');
-    await expect
-        .poll(async () => must(await ann.api.presence(), 'presence').status)
-        .toBe('away');
+    await expect.poll(stored).toBe('away');
 
     await ann.page.reload();
     await expect(ann.inbox.tid('inbox')).toBeVisible();
@@ -55,9 +58,7 @@ test('the selector sets online, away and offline, the choice survives a reload, 
 
     await select.selectOption('offline');
     await expect(select).toHaveValue('offline');
-    await expect
-        .poll(async () => must(await ann.api.presence(), 'presence').status)
-        .toBe('offline');
+    await expect.poll(stored).toBe('offline');
     await expect(ann.inbox.tid('presence-offline-notice')).toBeVisible();
 });
 
@@ -237,9 +238,17 @@ test('two tabs of the same agent stay in step: presence, the offer, the accepted
 
     await second.goto();
 
+    // Both tabs are on the staff roster before anything is changed (the roster arrives with the subscription): an event published
+    // before a tab has subscribed is not replayed to it.
+    await expect(first.inbox.tid('roster-toggle')).toBeVisible();
+    await expect(second.tid('roster-toggle')).toBeVisible();
+
     // Presence chosen in one tab shows in the other (the `presence.changed` event on the staff roster).
     await first.inbox.tid('presence-select').selectOption('away');
     await expect(second.tid('presence-select')).toHaveValue('away');
+    await expect
+        .poll(async () => must(await first.api.presence(), 'presence').status)
+        .toBe('away');
     await second.tid('presence-select').selectOption('online');
     await expect(first.inbox.tid('presence-select')).toHaveValue('online');
 

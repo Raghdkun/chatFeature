@@ -1,6 +1,7 @@
 import { expect, test } from '../support/test';
 import { expectEventually } from '../support/wait';
 import { must, VisitorApi } from '../support/chat-api';
+import { SEED_ROUTING } from '../support/chat-seed';
 import { SocketGate } from '../support/realtime';
 import { startChat } from '../support/staff-flow';
 import { isPhone, readMessages, showList } from '../support/staff-ui';
@@ -13,6 +14,12 @@ import { isPhone, readMessages, showList } from '../support/staff-ui';
  * missed with `after_seq` and go live again. Own world per test (`world.ts`).
  */
 test.use({ scenario: 'p4-staff' });
+
+/** A queue that outlasts a few jumps of the page clock (the seeded 45 s would lapse the offer of the second visitor). */
+const LONG_QUEUE = {
+    settings: { queue_timeout_seconds: 600 },
+    config: { routing: { ...SEED_ROUTING, queueTimeoutSeconds: 600 } },
+};
 
 /** Chrome logs every refused / cut websocket as a console error: this is the very thing the specs cause. */
 const SOCKET_NOISE = [/WebSocket/i];
@@ -29,6 +36,8 @@ test('the dashboard loses its socket mid-chat: it says so, polls for the missed 
     const { agent, panel, ulid, world } = await startChat(
         { actors, adminApi, instance },
         {
+            // The page clock jumps by 15 s a poll: keep the waiting offer of the second visitor alive on it.
+            plan: LONG_QUEUE,
             allowAgent: SOCKET_NOISE,
             prepareAgent: async (actor) => {
                 gate = await SocketGate.install(actor.context, instance);
@@ -95,9 +104,13 @@ test('the dashboard loses its socket mid-chat: it says so, polls for the missed 
     // ... until the next poll tick: the open conversation asks for what came after the last message it holds, the lists are read again.
     const held = afterSeqCalls.length;
 
-    await agent.page.clock.fastForward(15_000);
+    await expect(async () => {
+        await agent.page.clock.fastForward(15_000);
+        await expect(
+            agent.inbox.message('Second message during the outage.').first(),
+        ).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000, intervals: [500] });
     await agent.inbox.expectMessage('First message during the outage.');
-    await agent.inbox.expectMessage('Second message during the outage.');
     expect(afterSeqCalls.length).toBeGreaterThan(held);
     expect(afterSeqCalls.slice(held).every((seq) => seq >= 1)).toBe(true);
 
@@ -108,16 +121,9 @@ test('the dashboard loses its socket mid-chat: it says so, polls for the missed 
         stored.map((_, index) => index + 1),
     );
 
-    // The offer of the second visitor is not on the agent's list yet ... it is on the next list poll.
-    await agent.page.clock.fastForward(15_000);
-    await agent.inbox.tid('inbox').waitFor();
-    // (on a phone the list is behind the back arrow)
-    const back = agent.inbox.tid('conversation-back');
-
-    if (await back.isVisible()) {
-        await back.click();
-    }
-
+    // The offer of the second visitor came with the same poll tick (the lists are read on the dashboard's own 15 s timer).
+    // On a phone the list is behind the back arrow.
+    await showList(agent);
     await agent.inbox.expectOffer(second.ulid);
 
     // The socket returns: let the client's retry through. The banner goes, and the next message is live again (no clock help).
