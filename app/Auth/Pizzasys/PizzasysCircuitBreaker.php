@@ -26,7 +26,10 @@ final class PizzasysCircuitBreaker
         return $this->store()->has($this->key($environment, 'open'));
     }
 
-    /** Only transport-level problems (timeout, connection, 5xx, rate limit) count as failures. */
+    /**
+     * Only a portal that is down counts: timeout, connection or TLS error, 5xx (see PortalFailure::countsAgainstBreaker;
+     * the gateway never reports a 401 / 422 / 429 or an `active:false` here).
+     */
     public function recordFailure(string $environment): void
     {
         $store = $this->store();

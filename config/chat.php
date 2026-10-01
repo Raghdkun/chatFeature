@@ -24,6 +24,17 @@ return [
      */
     'portal_allow_private_hosts' => (bool) env('PORTAL_ALLOW_PRIVATE_HOSTS', false),
 
+    /*
+     * Sign-in attempts a minute (the `login` rate limiter): per email + client address, per client address (one
+     * address spraying many emails) and per email across every address (one account attacked from many). A request over
+     * any of them is refused with 429.
+     */
+    'login_throttle' => [
+        'per_email_and_ip' => 5,
+        'per_ip' => 30,
+        'per_email' => 10,
+    ],
+
     /* Locales rendered right-to-left (drives the `direction` shared prop and <html dir>). */
     'rtl_locales' => ['ar', 'he', 'fa', 'ur'],
 ];

@@ -30,6 +30,19 @@ final class PortalFailure
         return 'http_'.$status;
     }
 
+    /**
+     * Does this failure say the portal itself is down (so it counts toward opening the circuit breaker)? Only a connect
+     * error, a timeout, a TLS failure or an HTTP 5xx does. A 401 / 422 / 429, any other 4xx, an unreadable answer or an
+     * address refused by the outbound guard is the portal answering (or us not asking): counting those would let anybody
+     * who can make the portal say "no" (a password spray, a rate limit) open the circuit for every signed-in user.
+     */
+    public static function countsAgainstBreaker(?string $reason): bool
+    {
+        return $reason === null
+            || in_array($reason, [self::TIMEOUT, self::CONNECTION, self::TLS], true)
+            || str_starts_with($reason, 'http_5');
+    }
+
     /** Whether the portal could not be reached at all (as opposed to answering something unexpected). */
     public static function isUnreachable(?string $reason): bool
     {

@@ -2,15 +2,19 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Auth\Pizzasys\PizzasysCircuitBreaker;
 use App\Auth\Pizzasys\PizzasysEndpoint;
 use App\Auth\Pizzasys\PortalGateway;
 use App\Auth\Pizzasys\PortalHealth;
 use App\Auth\Pizzasys\Results\PortalClaims;
+use App\Auth\Pizzasys\Results\PortalFailure;
 use App\Auth\Pizzasys\Results\PortalStatus;
 use App\Auth\Pizzasys\VerifyCache;
 use Illuminate\Cache\ArrayStore;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
 use ReflectionProperty;
 use Tests\Support\PizzasysMock;
@@ -287,5 +291,113 @@ class PortalGatewayTest extends TestCase
         $this->portal->recover();
         $this->gateway()->verify($this->endpoint, 'another-token');
         $this->assertSame('ok', $health->status('production'), 'a later success clears the failure');
+    }
+
+    // ---- the circuit breaker only counts a portal that is down ----------------------------------------------------------
+
+    /**
+     * Every call answers like this, whatever the path.
+     *
+     * @param  array<string, mixed>|string  $body
+     */
+    private function everyCallAnswers(int $status, array|string $body = []): void
+    {
+        Http::swap(new Factory);
+        Http::fake([PizzasysMock::BASE_URL.'/*' => Http::response($body, $status)]);
+    }
+
+    private function breaker(): PizzasysCircuitBreaker
+    {
+        return app(PizzasysCircuitBreaker::class);
+    }
+
+    public function test_a_portal_that_keeps_saying_429_never_opens_the_circuit(): void
+    {
+        $this->everyCallAnswers(429, ['message' => 'Too Many Attempts.']);
+
+        for ($i = 0; $i < 20; $i++) {
+            $login = $this->gateway()->login($this->endpoint, "u{$i}@example.test", 'pw');
+            $this->assertSame(PortalStatus::Unavailable, $login->status);
+            $this->assertSame('rate_limited', $login->reason);
+        }
+
+        $this->assertFalse($this->breaker()->isOpen('production'));
+        $this->assertSame(0, $this->breaker()->failures('production'));
+        $this->assertNotSame('down', app(PortalHealth::class)->status('production'));
+    }
+
+    public function test_a_login_spray_of_wrong_passwords_never_opens_the_circuit(): void
+    {
+        for ($i = 0; $i < 20; $i++) {
+            $this->assertSame(PortalStatus::Invalid, $this->gateway()->login($this->endpoint, 'agent@test.local', "wrong-{$i}")->status);
+        }
+
+        $this->assertFalse($this->breaker()->isOpen('production'));
+        $this->assertSame(PortalStatus::Ok, $this->gateway()->verify($this->endpoint, $this->token)->status, 'sessions keep being verified normally');
+    }
+
+    public function test_other_4xx_answers_and_unreadable_answers_do_not_count_either(): void
+    {
+        foreach ([[403, ['message' => 'Forbidden']], [404, 'Not found'], [418, []], [200, '<html>Maintenance</html>']] as [$status, $body]) {
+            $this->everyCallAnswers($status, $body);
+
+            for ($i = 0; $i < 8; $i++) {
+                $this->gateway()->login($this->endpoint, 'a@example.test', 'pw');
+                $this->gateway()->verify($this->endpoint, $this->token.$i, fresh: true);
+            }
+
+            $this->assertFalse($this->breaker()->isOpen('production'), "HTTP {$status}");
+            $this->assertSame(0, $this->breaker()->failures('production'), "HTTP {$status}");
+        }
+    }
+
+    public function test_429_on_verify_and_on_the_me_fallback_does_not_count(): void
+    {
+        $this->everyCallAnswers(429);
+
+        for ($i = 0; $i < 10; $i++) {
+            $this->gateway()->verify($this->endpoint, $this->token.$i, fresh: true);
+        }
+
+        $this->assertFalse($this->breaker()->isOpen('production'));
+    }
+
+    public function test_connect_errors_timeouts_tls_failures_and_5xx_still_open_the_circuit(): void
+    {
+        foreach (['connection', 'timeout', 'tls', 'server_error'] as $kind) {
+            $this->breaker()->reset('production');
+            $this->portal->outage($kind);
+
+            for ($i = 0; $i < PizzasysCircuitBreaker::FAILURE_THRESHOLD; $i++) {
+                $this->gateway()->login($this->endpoint, 'a@example.test', 'pw');
+            }
+
+            $this->assertTrue($this->breaker()->isOpen('production'), $kind);
+        }
+    }
+
+    public function test_a_rate_limited_answer_in_between_does_not_hide_a_real_outage_nor_cause_one(): void
+    {
+        $this->portal->outage('connection');
+        for ($i = 0; $i < 3; $i++) {
+            $this->gateway()->login($this->endpoint, 'a@example.test', 'pw');
+        }
+        $this->assertSame(3, $this->breaker()->failures('production'));
+
+        $this->portal->recover();
+        $this->assertSame(PortalStatus::Invalid, $this->gateway()->login($this->endpoint, 'nobody@example.test', 'pw')->status);
+
+        $this->assertSame(0, $this->breaker()->failures('production'), 'an answer from the portal proves it is up');
+    }
+
+    public function test_the_failure_classes(): void
+    {
+        foreach (['timeout', 'connection', 'tls', 'http_500', 'http_503', null] as $reason) {
+            $this->assertTrue(PortalFailure::countsAgainstBreaker($reason), (string) $reason);
+        }
+
+        foreach (['rate_limited', 'unexpected_response', 'circuit_open', 'not_configured', 'blocked', 'http_400', 'http_401', 'http_403', 'http_404', 'http_422', 'http_429'] as $reason) {
+            $this->assertFalse(PortalFailure::countsAgainstBreaker($reason), $reason);
+        }
     }
 }
