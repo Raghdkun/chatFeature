@@ -861,6 +861,29 @@ describe('realtime', () => {
     });
 });
 
+describe('the connection notice inside a conversation', () => {
+    it('shows that live updates are off (and how often the page checks) inside the open conversation, which phones never see the list column for', async () => {
+        const { view } = await mount(props(), { sockets: false });
+
+        const banner = view.byTestId('connection-banner-conversation');
+
+        expect(banner?.textContent).toContain('Live updates are off');
+        expect(banner?.textContent).toContain('15 seconds');
+        // it lives in the conversation column, outside the list column (the section that phones hide behind an open chat)
+        expect(banner?.closest('section')).toBeNull();
+        expect(
+            view.byTestId('connection-banner')?.closest('section'),
+        ).not.toBeNull();
+    });
+
+    it('is silent while the websocket is up', async () => {
+        const { view } = await mount();
+
+        expect(view.byTestId('connection-banner-conversation')).toBeNull();
+        expect(view.byTestId('connection-banner')).toBeNull();
+    });
+});
+
 describe('what the agent has read', () => {
     it("acknowledges the visitor's messages once the chat is on screen, and clears the unread badge", async () => {
         const p = props({ conversation: activeChat({ unseenByAgent: 2 }) });

@@ -195,6 +195,9 @@ describe('OfferCard', () => {
     });
 });
 
+const view_ = (view: { byTestId: (id: string) => HTMLElement | null }) =>
+    view.byTestId('connection-banner-conversation');
+
 describe('ConnectionBanner', () => {
     it('stays silent while connected, and while a first connection is still being made', async () => {
         vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
@@ -291,6 +294,46 @@ describe('ConnectionBanner', () => {
 
         expect(view.byTestId('connection-banner')?.textContent).toContain(
             'Live updates are off.',
+        );
+    });
+
+    it('has a compact variant for the open conversation: the same notice, its own test id, phones only', async () => {
+        const view = await render(
+            <ConnectionBanner status="unavailable" variant="conversation" />,
+        );
+        const banner = view.byTestId('connection-banner-conversation');
+
+        expect(view.byTestId('connection-banner')).toBeNull();
+        expect(banner?.textContent).toContain('Live updates are off.');
+        expect(banner?.textContent).toContain('every 15 seconds');
+        expect(banner?.getAttribute('role')).toBe('status');
+        expect(banner?.getAttribute('data-status')).toBe('unavailable');
+        // beside the list (md and up) the list's own banner is in view: the compact one would repeat it
+        expect(banner?.className).toContain('md:hidden');
+    });
+
+    it('the compact variant keeps the same grace period and stays silent while connected', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        const connected = await render(
+            <ConnectionBanner status="connected" variant="conversation" />,
+        );
+
+        await act(async () => {
+            vi.advanceTimersByTime(5000);
+        });
+        expect(view_(connected)).toBeNull();
+        await connected.unmount();
+
+        const reconnecting = await render(
+            <ConnectionBanner status="reconnecting" variant="conversation" />,
+        );
+
+        expect(view_(reconnecting)).toBeNull();
+        await act(async () => {
+            vi.advanceTimersByTime(2000);
+        });
+        expect(view_(reconnecting)?.textContent).toContain(
+            'Reconnecting to live updates.',
         );
     });
 });
