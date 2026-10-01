@@ -332,7 +332,7 @@ showAgent: boolean,
 };
 export type HolidayData = {
 date: string,
-label: string | null,
+label: string,
 };
 export type HoursConfigData = {
 mode: App.Domain.Widgets.Enums.OfflineMode,
@@ -450,7 +450,7 @@ export type ShadowLevel = 'none' | 'soft' | 'strong';
 export type ThemeMode = 'auto' | 'light' | 'dark';
 }
 namespace Identity {
-export type IdentityFailure = 'no_secret' | 'malformed' | 'unsupported_algorithm' | 'bad_signature' | 'wrong_issuer' | 'missing_expiry' | 'expired' | 'expiry_too_far' | 'not_yet_valid' | 'invalid_claims';
+export type IdentityFailure = 'no_secret' | 'malformed' | 'unsupported_algorithm' | 'bad_signature' | 'wrong_issuer' | 'missing_expiry' | 'expired' | 'expiry_too_far' | 'not_yet_valid' | 'invalid_claims' | 'replayed';
 }
 }
 }
