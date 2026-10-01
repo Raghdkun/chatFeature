@@ -6,6 +6,7 @@ import {
     settleWidget,
     widget,
 } from '../support/host';
+import { unique } from '../support/helpers';
 import { collectConsole, liveWidget } from '../support/loader';
 import { expect, test } from '../support/test';
 
@@ -612,8 +613,14 @@ test.describe('delivery and caching', () => {
         request,
         instance,
     }) => {
+        // A category of its own: the seeded ones are shared by every test of this scenario and must stay as they are.
+        const own = (
+            await adminApi.ok('POST', '/api/v1/categories', {
+                name: unique('Invoices'),
+            })
+        ).data as { ulid: string; slug: string; name: string };
         const { key, ulid } = await liveWidget(adminApi, instance, {
-            categories: ['general', 'billing'],
+            categories: ['general', own.slug],
         });
         const origin = hostOrigin(instance);
         const labels = async (query = '') => {
@@ -633,40 +640,33 @@ test.describe('delivery and caching', () => {
                 defaultLocale: data.config.defaultLocale as string,
             };
         };
-        const all = (await adminApi.ok('GET', '/api/v1/categories')).data as {
-            ulid: string;
-            slug: string;
-        }[];
-        const billing = all.find((category) => category.slug === 'billing')!;
+        const label = async (query = '') =>
+            (await labels(query)).labels[own.slug];
 
-        expect((await labels()).labels.billing).toBe('Billing');
+        expect(await label()).toBe(own.name);
 
         // Rename and translate: visitors get the new names without any Publish, in the language they ask for.
-        await adminApi.ok('PATCH', `/api/v1/categories/${billing.ulid}`, {
+        await adminApi.ok('PATCH', `/api/v1/categories/${own.ulid}`, {
             name: 'Billing and invoices',
             name_i18n: { ar: 'الفواتير', fr: 'Facturation' },
         });
-        expect((await labels()).labels.billing).toBe('Billing and invoices');
-        expect((await labels('?locale=ar')).labels.billing).toBe('الفواتير');
-        expect((await labels('?locale=ar-SA')).labels.billing).toBe('الفواتير');
-        expect((await labels('?locale=fr')).labels.billing).toBe('Facturation');
-        expect((await labels('?locale=de')).labels.billing).toBe(
-            'Billing and invoices',
-        );
+        expect(await label()).toBe('Billing and invoices');
+        expect(await label('?locale=ar')).toBe('الفواتير');
+        expect(await label('?locale=ar-SA')).toBe('الفواتير');
+        expect(await label('?locale=fr')).toBe('Facturation');
+        expect(await label('?locale=de')).toBe('Billing and invoices');
         // A malformed locale is not an error, just the default.
-        expect((await labels('?locale=xx-bogus!')).labels.billing).toBe(
-            'Billing and invoices',
-        );
+        expect(await label('?locale=xx-bogus!')).toBe('Billing and invoices');
 
         // The widget's own language (a setting, mirrored into the config) is picked up at once as well.
         await adminApi.ok('PATCH', `/api/v1/widgets/${ulid}`, { locale: 'fr' });
         const french = await labels();
 
         expect(french.defaultLocale).toBe('fr');
-        expect(french.labels.billing).toBe('Facturation');
+        expect(french.labels[own.slug]).toBe('Facturation');
 
         // A deleted category leaves the widget at once, and the counts of the dashboard follow.
-        await adminApi.ok('DELETE', `/api/v1/categories/${billing.ulid}`);
+        await adminApi.ok('DELETE', `/api/v1/categories/${own.ulid}`);
         expect(Object.keys((await labels()).labels)).toEqual(['general']);
         const listed = (await adminApi.ok('GET', '/api/v1/widgets')).data as {
             ulid: string;

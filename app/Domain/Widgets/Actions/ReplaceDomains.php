@@ -18,6 +18,12 @@ use Illuminate\Support\Facades\DB;
  */
 final class ReplaceDomains
 {
+    /**
+     * MySQL aborts one of two transactions that delete and insert rows next to each other in an index (gap locks, error 1213, e.g.
+     * two administrators saving the domains of different widgets at the same moment): the loser simply runs again.
+     */
+    private const ATTEMPTS = 3;
+
     public function __construct(
         private readonly AuditLogger $audit,
         private readonly WidgetCache $cache,
@@ -49,7 +55,7 @@ final class ReplaceDomains
                     ['is_wildcard'],
                 );
             }
-        });
+        }, self::ATTEMPTS);
 
         $this->cache->bust($widget);
         $this->audit->record('widget.domains_updated', $widget, ['domains' => $hosts], $actor);

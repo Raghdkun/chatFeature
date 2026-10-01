@@ -959,15 +959,26 @@ test.describe('builder: every tab saves and keeps its values', () => {
             page.getByTestId(`builder-category-add-${bySlug.general}`),
         ).toBeVisible();
 
-        // A deactivated category disappears from what visitors get (but stays selected in the builder).
-        await api.ok('PATCH', `/api/v1/categories/${bySlug.billing}`, {
+        // A deactivated category disappears from what visitors get (but stays selected in the builder). A category of its own:
+        // the seeded ones are shared by the other tests of this scenario.
+        const probe = (
+            await api.ok('POST', '/api/v1/categories', {
+                name: unique('Deactivation probe'),
+            })
+        ).data as { ulid: string; slug: string };
+
+        await api.ok('PUT', `/api/v1/widgets/${ulid}/categories`, {
+            category_ulids: [bySlug.sales, probe.ulid],
+        });
+        await expect.poll(slugs).toEqual(['sales', probe.slug]);
+        await api.ok('PATCH', `/api/v1/categories/${probe.ulid}`, {
             is_active: false,
         });
         await expect.poll(slugs).toEqual(['sales']);
-        await api.ok('PATCH', `/api/v1/categories/${bySlug.billing}`, {
+        await api.ok('PATCH', `/api/v1/categories/${probe.ulid}`, {
             is_active: true,
         });
-        await expect.poll(slugs).toEqual(['sales', 'billing']);
+        await expect.poll(slugs).toEqual(['sales', probe.slug]);
     });
 });
 
