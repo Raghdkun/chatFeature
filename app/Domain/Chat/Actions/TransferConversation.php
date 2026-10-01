@@ -4,6 +4,7 @@ namespace App\Domain\Chat\Actions;
 
 use App\Domain\Chat\Enums\ActorType;
 use App\Domain\Chat\Enums\ConversationStatus;
+use App\Domain\Chat\Enums\ConversationType;
 use App\Domain\Chat\Events\ConversationAssigned;
 use App\Domain\Chat\Events\ConversationQueued;
 use App\Domain\Chat\Events\ConversationTransferred;
@@ -11,6 +12,7 @@ use App\Domain\Chat\Events\QueueChanged;
 use App\Domain\Chat\Services\ConversationAccess;
 use App\Domain\Chat\Services\ConversationRequeuer;
 use App\Domain\Chat\Services\ConversationTimeline;
+use App\Domain\Chat\Services\TransferTargets;
 use App\Http\Exceptions\ApiProblemException;
 use App\Models\Category;
 use App\Models\Conversation;
@@ -23,12 +25,17 @@ use Illuminate\Validation\ValidationException;
  * (`ConversationRequeuer`): a transfer to a category is offered through the routing waves, to everyone who serves it except the
  * agent who let go; a transfer to a colleague offers it to that agent alone. The colleague must be an active agent who serves the
  * chat's category (they accept it like any other offer); the category must be active and enabled on the chat's widget.
+ *
+ * A LIVE chat is only handed to somebody who can take it right now (`TransferTargets`): an online / away colleague below their
+ * capacity, or a category with at least one such agent. Otherwise `409 no_agents` (`details.target`, `details.reason`) and the
+ * agent keeps the chat.
  */
 final class TransferConversation
 {
     public function __construct(
         private readonly ConversationAccess $access,
         private readonly ConversationRequeuer $requeuer,
+        private readonly TransferTargets $targets,
     ) {}
 
     public function handle(Conversation $conversation, User $actor, ?User $toAgent, ?Category $toCategory): Conversation
@@ -51,6 +58,18 @@ final class TransferConversation
 
         if ($toCategory !== null) {
             $this->assertCategoryUsable($conversation, $toCategory);
+        }
+
+        // A live chat is only handed to somebody who can take it now (else it would sit in the queue until it is `missed`): the
+        // transferring agent keeps the chat when nobody can. Offline tickets are found by category and wait for whoever comes.
+        if ($conversation->type === ConversationType::Live) {
+            if ($toAgent !== null) {
+                $this->targets->assertAgentReachable($toAgent);
+            }
+
+            if ($toCategory !== null) {
+                $this->targets->assertCategoryReachable($conversation, $toCategory, $actor);
+            }
         }
 
         $fromAgent = $conversation->assignedAgent;

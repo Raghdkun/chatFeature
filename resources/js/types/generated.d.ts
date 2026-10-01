@@ -259,6 +259,19 @@ export type StaffAgentRefData = {
 id: number,
 name: string,
 };
+export type TransferAgentData = {
+id: number,
+name: string,
+avatarUrl: string | null,
+status: App.Domain.Chat.Enums.PresenceStatus,
+activeChats: number,
+maxConcurrentChats: number,
+reachable: boolean,
+};
+export type TransferTargetsData = {
+agents: App.Data.Chat.TransferAgentData[],
+categories: App.Data.Chat.CategoryRefData[],
+};
 export type VisitorSummaryData = {
 ulid: string,
 name: string | null,

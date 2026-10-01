@@ -27,6 +27,7 @@ Route::middleware(['auth:sanctum', 'session.valid', 'chat.access', ChatThrottle:
 
     Route::prefix('conversations/{conversation}')->whereUlid('conversation')->group(function () {
         Route::get('/', [ChatStaffConversationController::class, 'show'])->name('api.conversations.show');
+        Route::get('transfer-targets', [ChatStaffConversationController::class, 'transferTargets'])->name('api.conversations.transfer-targets');
         Route::get('messages', [ChatStaffMessageController::class, 'index'])->name('api.conversations.messages.index');
         Route::post('messages', [ChatStaffMessageController::class, 'store'])->name('api.conversations.messages.store');
         Route::post('claim', [ChatClaimController::class, 'store'])->name('api.conversations.claim');
