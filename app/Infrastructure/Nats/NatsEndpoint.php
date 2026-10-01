@@ -4,7 +4,7 @@ namespace App\Infrastructure\Nats;
 
 /**
  * A NATS server address parsed from `nats://[user:pass@]host[:port]` (also `tls://`, or a bare `host[:port]`).
- * TLS is negotiated by the client library when the server announces it, so the scheme does not matter here.
+ * `tls` is true for a `tls://` address: that session must be encrypted ({@see TlsPolicy}).
  */
 final readonly class NatsEndpoint
 {
@@ -15,6 +15,7 @@ final readonly class NatsEndpoint
         public int $port = self::DEFAULT_PORT,
         public ?string $user = null,
         public ?string $password = null,
+        public bool $tls = false,
     ) {}
 
     /**
@@ -35,10 +36,12 @@ final readonly class NatsEndpoint
         }
 
         return new self(
-            $parts['host'],
+            // An IPv6 literal comes back in brackets; the host is kept bare.
+            trim($parts['host'], '[]'),
             $parts['port'] ?? self::DEFAULT_PORT,
             isset($parts['user']) ? rawurldecode($parts['user']) : null,
             isset($parts['pass']) ? rawurldecode($parts['pass']) : null,
+            strtolower((string) ($parts['scheme'] ?? '')) === 'tls',
         );
     }
 }

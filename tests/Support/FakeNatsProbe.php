@@ -11,7 +11,7 @@ use SensitiveParameter;
  */
 class FakeNatsProbe extends NatsProbe
 {
-    /** @var list<array{url: string, token: string|null, verify_tls: bool}> */
+    /** @var list<array{url: string, token: string|null, verify_tls: bool, ca_file: string|null}> */
     public array $probed = [];
 
     public function __construct(public bool $ok = true) {}
@@ -19,9 +19,9 @@ class FakeNatsProbe extends NatsProbe
     /**
      * @return array{ok: bool, message: string}
      */
-    public function probe(string $url, #[SensitiveParameter] ?string $token, bool $verifyTls = true): array
+    public function probe(string $url, #[SensitiveParameter] ?string $token, bool $verifyTls = true, ?string $caFile = null): array
     {
-        $this->probed[] = ['url' => $url, 'token' => $token, 'verify_tls' => $verifyTls];
+        $this->probed[] = ['url' => $url, 'token' => $token, 'verify_tls' => $verifyTls, 'ca_file' => $caFile];
 
         return ['ok' => $this->ok, 'message' => $this->ok ? 'NATS accepted the connection.' : 'NATS did not accept the connection.'];
     }

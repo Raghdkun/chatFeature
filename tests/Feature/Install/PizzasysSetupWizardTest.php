@@ -379,6 +379,8 @@ class PizzasysSetupWizardTest extends InstallTestCase
 
     public function test_plain_http_is_fine_for_local_hosts(): void
     {
+        // Loopback targets are only accepted on a private-network deployment (or APP_ENV=local).
+        config(['chat.portal_allow_private_hosts' => true]);
         $this->choosePizzasys();
 
         foreach (['http://localhost:8200', 'http://127.0.0.1:8200', 'http://portal.test'] as $url) {

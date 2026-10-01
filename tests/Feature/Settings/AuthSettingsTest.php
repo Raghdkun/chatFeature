@@ -275,6 +275,8 @@ class AuthSettingsTest extends TestCase
         $this->signIn();
         $url = route('settings.auth.environments.update', 'production');
 
+        // Loopback targets are only accepted on a private-network deployment (or APP_ENV=local).
+        config(['chat.portal_allow_private_hosts' => true]);
         $testing = route('settings.auth.environments.update', 'testing');
         // The addresses below are not the mock's: they must behave like unreachable hosts, never reach a real server
         // (a developer's local pizzasys on :8200 would otherwise answer and change the outcome). The testing

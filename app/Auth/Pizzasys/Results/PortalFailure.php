@@ -22,6 +22,9 @@ final class PortalFailure
 
     public const NOT_CONFIGURED = 'not_configured';
 
+    /** The address is refused by the outbound guard. Looks like "cannot connect" to everybody. */
+    public const BLOCKED = 'blocked';
+
     public static function http(int $status): string
     {
         return 'http_'.$status;
@@ -31,7 +34,7 @@ final class PortalFailure
     public static function isUnreachable(?string $reason): bool
     {
         return $reason === null
-            || in_array($reason, [self::TIMEOUT, self::CONNECTION, self::TLS, self::CIRCUIT_OPEN, self::NOT_CONFIGURED, self::RATE_LIMITED], true)
+            || in_array($reason, [self::TIMEOUT, self::CONNECTION, self::TLS, self::CIRCUIT_OPEN, self::NOT_CONFIGURED, self::RATE_LIMITED, self::BLOCKED], true)
             || str_starts_with($reason, 'http_5');
     }
 

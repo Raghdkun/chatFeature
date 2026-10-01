@@ -19,8 +19,14 @@ return [
     'stream' => env('NATS_STREAM', 'AUTH_EVENTS'),
     'ensure_stream' => (bool) env('NATS_ENSURE_STREAM', true),
     'environment_key' => env('NATS_ENVIRONMENT_KEY', 'production'),
-    /* CA bundle to verify a TLS server against; without it TLS is encrypted but the server is not authenticated. */
+    /*
+     * CA bundle the NATS server certificate is verified against (also for the active auth environment). Empty = the
+     * system CA store. Verification (certificate AND host name) follows the environment's "verify TLS" switch; with it
+     * on, a `tls://` address, or a `nats://` address to a public host, is refused unless TLS is really established.
+     */
     'tls_ca_file' => env('NATS_TLS_CA_FILE'),
+    /* Config-backed settings only (dev/tests): verify the server certificate. */
+    'verify_tls' => (bool) env('NATS_VERIFY_TLS', true),
 
     /* Subjects the durable consumer (and an ensured stream) listen to. */
     'subject_filter' => 'auth.v1.>',

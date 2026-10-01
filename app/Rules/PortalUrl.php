@@ -2,13 +2,16 @@
 
 namespace App\Rules;
 
+use App\Support\Network\OutboundUrlGuard;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 
 /**
- * Base URL of an auth portal: an https URL, or http only for local development hosts (localhost, 127.0.0.1, ::1, *.test).
- * No credentials, query or fragment. Cloud metadata / link-local addresses are refused because the server calls this URL
- * with a bearer token.
+ * Base URL of an auth portal. The server calls this URL with a bearer token, so it is judged by
+ * {@see OutboundUrlGuard}: an https URL (http only in local development or for localhost / 127.0.0.1 / ::1 / *.test /
+ * *.localhost), no credentials, query or fragment, only canonical address spellings, and a host that resolves to public
+ * addresses only unless private hosts are enabled (`PORTAL_ALLOW_PRIVATE_HOSTS`). Whatever the reason a host is refused
+ * for, the message is the same.
  */
 final class PortalUrl implements ValidationRule
 {
@@ -28,37 +31,22 @@ final class PortalUrl implements ValidationRule
             return;
         }
 
-        $scheme = strtolower($parts['scheme']);
-        $host = strtolower(trim($parts['host'], '[]'));
-
-        if (! in_array($scheme, ['http', 'https'], true)) {
+        if (! in_array(strtolower($parts['scheme']), ['http', 'https'], true)) {
             $fail(__('The portal address must start with https://.'));
 
             return;
         }
 
-        if ($scheme === 'http' && ! $this->isLocalDevelopmentHost($host)) {
-            $fail(__('Use https:// (plain http is only accepted for localhost, 127.0.0.1 and *.test).'));
+        $target = app(OutboundUrlGuard::class)->checkHttpUrl($value);
 
+        if ($target->ok) {
             return;
         }
 
-        if ($this->isMetadataHost($host)) {
-            $fail(__('That address is not allowed.'));
-        }
-    }
-
-    private function isLocalDevelopmentHost(string $host): bool
-    {
-        return in_array($host, ['localhost', '127.0.0.1', '::1'], true) || str_ends_with($host, '.test') || str_ends_with($host, '.localhost');
-    }
-
-    private function isMetadataHost(string $host): bool
-    {
-        if ($host === 'metadata.google.internal' || str_starts_with($host, '169.254.') || str_starts_with($host, 'fe80:')) {
-            return true;
-        }
-
-        return false;
+        $fail(match ($target->reason) {
+            'plain_http' => __('Use https:// (plain http is only accepted for localhost, 127.0.0.1 and *.test).'),
+            'malformed' => __('Enter a plain address such as https://auth.example.com (no credentials, query or fragment).'),
+            default => __('That address cannot be used. Enter the public https address of the portal.'),
+        });
     }
 }

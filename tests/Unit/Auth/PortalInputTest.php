@@ -19,11 +19,19 @@ class PortalInputTest extends TestCase
         return [
             'https host' => ['https://auth.example.com', true],
             'https with port and path' => ['https://auth.example.com:8443/portal', true],
-            'https private address' => ['https://10.0.0.5', true],
-            'http localhost' => ['http://localhost:8200', true],
-            'http loopback' => ['http://127.0.0.1:8200', true],
-            'http ipv6 loopback' => ['http://[::1]:8200', true],
+            'https private address' => ['https://10.0.0.5', false],
+            'https loopback' => ['https://127.0.0.1', false],
+            'http localhost' => ['http://localhost:8200', false],
+            'http loopback' => ['http://127.0.0.1:8200', false],
+            'http ipv6 loopback' => ['http://[::1]:8200', false],
             'http .test host' => ['http://portal.test', true],
+            'decimal ip' => ['https://2852039166', false],
+            'hex ip' => ['https://0xA9FEA9FE', false],
+            'mapped metadata' => ['https://[::ffff:169.254.169.254]', false],
+            'metadata name with root dot' => ['https://metadata.google.internal.', false],
+            'aws ipv6 metadata' => ['https://[fd00:ec2::254]', false],
+            'unspecified' => ['https://0.0.0.0', false],
+            'x.localhost with a port' => ['http://x.localhost:6379', false],
             'http real host' => ['http://auth.example.com', false],
             'http private address' => ['http://10.0.0.5', false],
             'ftp' => ['ftp://auth.example.com', false],
@@ -48,6 +56,32 @@ class PortalInputTest extends TestCase
         $this->assertSame($valid, $passes, $url);
     }
 
+    public function test_private_and_loopback_portals_are_accepted_on_a_private_network_deployment(): void
+    {
+        config(['chat.portal_allow_private_hosts' => true]);
+
+        foreach (['https://10.0.0.5', 'http://localhost:8200', 'http://127.0.0.1:8200', 'http://[::1]:8200', 'http://x.localhost:6379'] as $url) {
+            $this->assertTrue(Validator::make(['url' => $url], ['url' => [new PortalUrl]])->passes(), $url);
+        }
+
+        foreach (['https://169.254.169.254', 'https://2852039166', 'https://[::ffff:169.254.169.254]', 'https://metadata.google.internal.', 'http://10.0.0.5'] as $url) {
+            $this->assertFalse(Validator::make(['url' => $url], ['url' => [new PortalUrl]])->passes(), $url);
+        }
+    }
+
+    public function test_a_refused_address_gets_one_message_whatever_the_reason(): void
+    {
+        $messages = [];
+
+        foreach (['https://10.0.0.5', 'https://127.0.0.1', 'https://169.254.169.254', 'https://2852039166', 'https://metadata.google.internal', 'https://[fd00:ec2::254]', 'https://pizzasys', 'https://printer.local'] as $url) {
+            $messages[$url] = Validator::make(['url' => $url], ['url' => [new PortalUrl]])->errors()->first('url');
+        }
+
+        $this->assertCount(1, array_unique($messages), json_encode($messages));
+        $this->assertStringNotContainsString('private', (string) reset($messages));
+        $this->assertStringNotContainsString('resolve', (string) reset($messages));
+    }
+
     /**
      * @return array<string, array{0: string, 1: bool}>
      */
@@ -57,7 +91,11 @@ class PortalInputTest extends TestCase
             'nats' => ['nats://nats.example.com:4222', true],
             'nats without port' => ['nats://nats.example.com', true],
             'tls' => ['tls://nats.example.com:4222', true],
-            'ip' => ['nats://10.0.0.7:4222', true],
+            'public ip' => ['nats://8.8.8.8:4222', true],
+            'private ip' => ['nats://10.0.0.7:4222', false],
+            'loopback' => ['nats://127.0.0.1:4222', false],
+            'metadata' => ['nats://169.254.169.254:4222', false],
+            'decimal ip' => ['nats://2130706433:4222', false],
             'http' => ['http://nats.example.com', false],
             'credentials in the url' => ['nats://user:pass@nats.example.com:4222', false],
             'path' => ['nats://nats.example.com:4222/x', false],
