@@ -85,7 +85,7 @@ export function ChatList({
         <section
             data-testid="inbox-mine"
             aria-labelledby="inbox-mine-title"
-            className="grid gap-2 px-3 pb-3"
+            className="grid grid-cols-1 gap-2 px-3 pb-3"
         >
             <header className="px-1 pt-3">
                 <h2
@@ -169,7 +169,7 @@ export function ChatList({
                     {t('inbox.mine.no_match')}
                 </p>
             ) : (
-                <ul className="-mx-1 grid gap-0.5">
+                <ul className="-mx-1 grid min-w-0 grid-cols-1 gap-0.5">
                     {visible.map((chat) => (
                         <ChatRow
                             key={chat.ulid}

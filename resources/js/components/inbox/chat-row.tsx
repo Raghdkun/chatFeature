@@ -39,7 +39,7 @@ export function ChatRow({
             : null;
 
     return (
-        <li>
+        <li className="min-w-0">
             <Link
                 href={staffRoutes.pages.conversation(conversation.ulid)}
                 only={['conversation', 'messages']}

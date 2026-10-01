@@ -159,7 +159,7 @@ export function MessageBubble({
             )}
         >
             {startsGroup && message.sender.name && (
-                <span className="mb-1 px-1 text-xs text-muted-foreground">
+                <span className="mb-1 max-w-full truncate px-1 text-xs text-muted-foreground">
                     {message.sender.name}
                 </span>
             )}

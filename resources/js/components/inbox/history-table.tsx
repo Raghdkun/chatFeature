@@ -142,17 +142,21 @@ export function HistoryTable({
                 </Table>
             </div>
 
-            <ul className="grid divide-y md:hidden" data-testid="history-cards">
+            <ul
+                className="grid grid-cols-1 divide-y md:hidden"
+                data-testid="history-cards"
+            >
                 {conversations.map((conversation) => (
                     <li
                         key={conversation.ulid}
                         data-testid={`history-card-${conversation.ulid}`}
+                        className="min-w-0"
                     >
                         <Link
                             href={staffRoutes.pages.conversation(
                                 conversation.ulid,
                             )}
-                            className="grid gap-1.5 px-4 py-3 outline-none hover:bg-accent/50 focus-visible:bg-accent/60"
+                            className="grid grid-cols-1 gap-1.5 px-4 py-3 outline-none hover:bg-accent/50 focus-visible:bg-accent/60"
                         >
                             <span className="flex items-center justify-between gap-2">
                                 <span className="min-w-0 truncate font-medium">

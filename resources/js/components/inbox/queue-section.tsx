@@ -25,7 +25,7 @@ export function QueueSection({
         <section
             data-testid="inbox-queue"
             aria-labelledby="inbox-queue-title"
-            className="grid gap-2 px-3 pt-3"
+            className="grid grid-cols-1 gap-2 px-3 pt-3"
         >
             <header className="flex items-center justify-between gap-2 px-1">
                 <h2
@@ -57,7 +57,7 @@ export function QueueSection({
                     {t('inbox.queue.empty')}
                 </p>
             ) : (
-                <ul className="grid gap-2">
+                <ul className="grid min-w-0 grid-cols-1 gap-2">
                     {items.map((item) => (
                         <OfferCard
                             key={item.conversation}

@@ -111,7 +111,7 @@ export function OfferCard({
                     : { animationDelay: `${OFFER_EXIT_MS - 350}ms` }
             }
             className={cn(
-                'rounded-xl border bg-card p-3 shadow-xs',
+                'min-w-0 rounded-xl border bg-card p-3 shadow-xs',
                 'animate-in duration-200 ease-out-quart fade-in-0 slide-in-from-top-2 motion-reduce:animate-none',
                 open
                     ? 'border-primary/30'
@@ -152,7 +152,7 @@ export function OfferCard({
             {item.preview && (
                 <p
                     dir="auto"
-                    className="mt-2.5 line-clamp-2 text-sm break-words text-foreground/90"
+                    className="mt-2.5 line-clamp-2 text-sm text-foreground/90 [overflow-wrap:anywhere]"
                 >
                     {item.preview}
                 </p>

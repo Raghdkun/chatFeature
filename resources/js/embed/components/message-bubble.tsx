@@ -150,7 +150,7 @@ export function MessageBubble({
                 className={`flex max-w-[82%] min-w-0 flex-col ${mine ? 'items-end' : 'items-start'}`}
             >
                 {!mine && groupStart && message.sender.name ? (
-                    <span className="text-subtle mb-0.5 ps-1 text-[12px]">
+                    <span className="text-subtle mb-0.5 max-w-full truncate ps-1 text-[12px]">
                         {message.sender.name}
                     </span>
                 ) : null}

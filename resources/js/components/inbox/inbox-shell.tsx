@@ -93,7 +93,7 @@ export function InboxShell({
 
                 <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
                     {viewer.isAgent && (
-                        <div className="grid gap-2 px-3 pt-3">
+                        <div className="grid grid-cols-1 gap-2 px-3 pt-3">
                             <label
                                 htmlFor={presenceId}
                                 className="px-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
