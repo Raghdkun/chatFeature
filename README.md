@@ -51,7 +51,7 @@ Goal: starter kit and tooling. Exit: stock kit boots; SQLite (tests) and MySQL b
 ### P1 Install + shell (done, `v0.1.0`)
 - [x] 1A backend: `InstallState`/`InstallGate`/`InstallRunner` + steps, setup-token guard, typed encrypted settings, audit log, `AuthModeManager` + `FortifyDriver` + `LocalRoleResolver`, `Gate::before`, session-validity + chat-access middleware, role flags on `users`, `chat:install` / `chat:bootstrap-secrets` / `chat:install:reset`
 - [x] 1B frontend: wizard (token, environment check, mode, admin, basics, install, done), role-aware shell/nav, `useTrans` + RTL plumbing (`en` + partial `ar`), login variants, role-aware dashboard stub, `welcome` replaced by auth redirect
-- [x] 1C tests: Playwright e2e (132 specs, desktop + mobile, axe WCAG A/AA clean, RTL, 375px), PHPUnit 236, Vitest 135
+- [x] 1C tests: Playwright e2e (desktop + mobile, axe WCAG A/AA clean, RTL, 375px)
 - [x] Code review (10 findings, all fixed) and a manual security pass; e2e found and fixed 4 more bugs
 - Exit met: empty DB boots to `/setup`; wizard completes mode 1; `/setup` is 404 after; `/` goes to login.
 - Known gaps (backlog): `lang/ar.json` is a partial seed (29/150 keys); a throttled setup-token submit shows Inertia's generic error modal; the environment checklist is only revisitable via Back after the token step.
@@ -69,10 +69,10 @@ Goal: starter kit and tooling. Exit: stock kit boots; SQLite (tests) and MySQL b
 - [x] 3B loader: Shadow-DOM launcher, greeting scheduler + flip, precedence, JS API, bridge, Vitest, size-limit (<= 16 KB gz; was 15, the build is 15.65 KB)
 - [x] 3C dashboard UI: widget list, builder with live preview, categories, agents, "my support categories", embed-code tab
 - [x] Review and hardening round: strict origin/CORS/CSP rules, boot-trust checks in the loader, per-origin limits, identity `jti`
-- [ ] P3 e2e (builder, loader on a cross-origin host page)
-- Exit (unit/feature level): origin/CORS/CSP/JWT/rate-limit tests, loader and builder Vitest suites. The exit item "bubble + flip + popup + JS API on a real cross-origin host page" is the open e2e line above.
+- [x] P3 e2e: builder, live preview, the real loader on a cross-origin host page, origin/CORS/CSP, rate limits, concurrency, escaping, axe/375px/RTL
+- Exit (unit/feature level): origin/CORS/CSP/JWT/rate-limit tests, loader and builder Vitest suites. The exit item "bubble + flip + popup + JS API on a real cross-origin host page" is covered by the P3 e2e.
 - Known gaps: the embed panel is a stub until P4 (the loader handshake therefore times out against the real `/embed/{key}` today; it is tested against a mock panel); `availability.online` is false until P5 presence exists; the built-in public-suffix list used to reject `*.co.uk`-style wildcards is partial; the loader is at 15.65 KB of its 16 KB budget; `init.boot.categories` loses description/icon/colour in the loader.
-- Gate at `integrate/phase-2-3` (P1-P3 together): PHPUnit **1658** (7 groups skip without a harness or a NATS server), Vitest **1191** (the loader's tests under `resources/widget/test` are part of that run), Playwright **251** specs (mode 1: 132, mode 2: 119; P3 has none yet).
+- Gate at `v0.3.0` (P1-P3 together): `composer ci:check` green with PHPUnit **1667** (7 skip without a harness or a NATS server) and Vitest **1193** (the loader's tests under `resources/widget/test` are part of that run); Playwright **483** specs (480 pass, 3 skipped, 0 failed; mode 1, mode 2 against the local pizzasys clone, and P3).
 
 ### P4 Chat core
 - [ ] 4A domain + APIs: state machine, routing, claim, messages, attachments pipeline, idle/expiry jobs, offline tickets

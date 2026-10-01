@@ -6,9 +6,26 @@ All notable changes are recorded here, following [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-### Added (e2e, P3: catalog, widgets, loader)
-- Playwright specs for the Phase 3 screens and the embeddable widget, proven together in real Chrome for the first time: `catalog/categories.spec.ts`, `catalog/agents.spec.ts` (+ a `@pizzasys` case: the Agents page when roles come from the Auth Portal), `widgets/widgets-list-and-builder.spec.ts` (every builder tab, hours validation, draft vs published, going live/offline, domains, identity secret, snippets, time zones), `widgets/preview.spec.ts` (the live preview runs the real loader in three device frames, live edits, static fallback), `widgets/loader-host.spec.ts` and `widgets/loader-origin.spec.ts` (the real widget on a customer-site page of another origin: shadow DOM, hostile host CSS, overrides, greetings and their dismiss policies, the handshake watchdog and the phone full-screen trap, the JS API, origin whitelist / CORS / CSP `frame-ancestors`, caching, no cookies), `widgets/loader-limits.spec.ts` (429 with CORS headers, unknown-key probing), `widgets/concurrency.spec.ts` (16 administrators configuring widgets in parallel), `widgets/escaping.spec.ts` (HTML in every administrator-typed value stays text), `widgets/views.spec.ts` (axe, 375px and Arabic/RTL for every new screen and the widget) and `screenshots/p3.spec.ts` (`docs/screenshots/p3/`, 25 screens x desktop/mobile x light/dark).
+Nothing yet (P4 chat core is next).
+
+## [0.3.0] - 2026-10-01 (phase-3)
+
+Support categories, widgets, the embeddable loader and the builder. Developed in parallel with P2 and merged on `integrate/phase-2-3`.
+
+### Added
+- **Catalog and agents**: support categories (names per language, slug, order, active flag), staff management (create/edit/deactivate local agents, categories per agent, max concurrent chats), "My support categories" for agents. Agent categories are saved without range-locking the pivot table.
+- **Widgets**: public key, draft vs published config (`config_version`), per-widget domain allow-list, greeting pool (weights, agent name/avatar, per locale), idle timeout (default 120 min) and queue timeout, take offline / back online, rotatable identity secret (HS256 JWT, `iss` = widget key, `jti`), builder with live preview (real loader in a mock host in three device frames, LTR/RTL, light/dark), embed-code tab (script, generic loader, iframe, REST).
+- **Public delivery**: `/w/{key}.js` (boot config inlined, ETag), `/widget/v1/loader.js` (generic, reads `data-widget-key`), `/embed/{key}` (CSP `frame-ancestors` from the domain list), `GET /api/v1/public/widgets/{key}/config` and `/availability` behind `AuthorizeWidgetOrigin` (CORS echo for listed origins only, never cookies), per-widget and per-origin rate limits with CORS headers on 429.
+- **Loader** (`resources/widget`, vanilla TypeScript, 15.65 KB gz of a 16 KB budget): Shadow-DOM launcher, greeting scheduler with the 3D flip to the agent face, dismiss policies, config precedence (`published < data-* < ChatFeatureSettings < runtime update`; policy fields are restrict-only), JS API and DOM events, versioned postMessage bridge with origin checks, handshake watchdog, full-screen panel on phones.
+- Specs for the Phase 3 screens and the embeddable widget, proven together in real Chrome for the first time: `catalog/categories.spec.ts`, `catalog/agents.spec.ts` (+ a `@pizzasys` case: the Agents page when roles come from the Auth Portal), `widgets/widgets-list-and-builder.spec.ts` (every builder tab, hours validation, draft vs published, going live/offline, domains, identity secret, snippets, time zones), `widgets/preview.spec.ts` (the live preview runs the real loader in three device frames, live edits, static fallback), `widgets/loader-host.spec.ts` and `widgets/loader-origin.spec.ts` (the real widget on a customer-site page of another origin: shadow DOM, hostile host CSS, overrides, greetings and their dismiss policies, the handshake watchdog and the phone full-screen trap, the JS API, origin whitelist / CORS / CSP `frame-ancestors`, caching, no cookies), `widgets/loader-limits.spec.ts` (429 with CORS headers, unknown-key probing), `widgets/concurrency.spec.ts` (16 administrators configuring widgets in parallel), `widgets/escaping.spec.ts` (HTML in every administrator-typed value stays text), `widgets/views.spec.ts` (axe, 375px and Arabic/RTL for every new screen and the widget) and `screenshots/p3.spec.ts` (`docs/screenshots/p3/`, 25 screens x desktop/mobile x light/dark).
 - New scenarios `p3-categories`, `p3-agents`, `p3-widgets`, `p3-host`, `p3-views`, `p3-views-rtl`, `p3-limits` (ports 8230-8239 and 8246; `seed: 'staff' | 'demo'` creates staff, categories and a demo widget), a static cross-origin "customer site" server (`e2e/support/host-server.mjs`, ports 8240-8245, started by `webServer`), an `api` / `adminApi` fixture for the management API, and `globalSetup` now builds `public/build` and the loader bundle itself when they are missing or older than the sources. See `docs/testing.md`.
+
+
+### Changed
+- `/w/<key>.js` now answers `403` (a console warning, no bubble, `Cache-Control: no-store`, `Vary: Referer`) to a page whose `Referer` is not on the widget's domain list or this installation's own origin. A request without a `Referer` is still served (the config is public; the chat iframe and every API call stay origin-checked). Before, an unlisted site still got the bubble and its greeting.
+- Loader budget 15 KB -> 16 KB gz (boot-trust checks, per-origin handshake): the build is 15.65 KB. `.size-limit.json` and the loader build test follow.
+- Domain list limit is 255 characters per entry everywhere (the client had 260); `resources/js/lib/limits.test.ts` reads the PHP rules so a drift fails a test.
+- Replacing the domains, greetings or categories of a widget, and an agent's categories, now go through `App\Support\Database\DeadlockRetry`: up to 6 attempts with a short random, growing pause when MySQL aborts the transaction (1213/40001 or lock timeout 1205). Three immediate retries still lost 2 of 480 parallel saves.
 
 ### Fixed (found by the P3 e2e)
 - Widget builder: a widget whose time zone was saved under a legacy name (`Asia/Calcutta`, `US/Pacific`; the settings accept them) could never save its draft again (`422 The timezone field must be a valid timezone`): `WidgetConfigValidator` validated the mirrored `hours.timezone` with `timezone:all` while `UpdateWidgetRequest` uses `all_with_bc`. Both accept the legacy names now.
@@ -17,19 +34,40 @@ All notable changes are recorded here, following [Keep a Changelog](https://keep
 
 - `WidgetDeliveryTest::test_conditional_requests_and_etag_changes` failed when it ran in the half minute before 09:00 or 17:00 UTC on a weekday (the widget's availability flips at the default opening hours while `travel(30)` crosses the instant); the clock is pinned now.
 
-### Known, not fixed (found by the P3 e2e)
-- `/w/<key>.js` inlines the boot config, so a site that is NOT on the widget's domain list still gets the bubble and its greeting (only the generic loader asks the config endpoint, which answers `403 origin_not_allowed`); the chat iframe (CSP `frame-ancestors`) and every API call are refused there. Decide whether the script endpoint should check the `Referer`.
+### Known, not fixed
 - The builder preview shows `Chat` as the panel's accessible name after the `title` text is emptied; the saved widget gets the server's English default `Support`.
 - "Take widget offline ... right away" holds for the server; a browser or CDN that already has `/w/<key>.js` keeps using it for `max-age=60` + `stale-while-revalidate=300`.
+- The launcher's own label text key (`launcherLabel`) is not part of the server's `WidgetTexts`; the loader clamps ranges more loosely than the server; category description/icon/colour are not forwarded to the chat panel yet (P4); the public-suffix list used for wildcard domains is partial; `SupportCategoriesPageController` is gated client-side only; `lang/ar.json` is partial.
 
-### Added (e2e, mode 2 / Auth Portal)
-- Playwright specs for auth mode 2 against a real local pizzasys instance (the throwaway harness, started and stopped by `e2e/global-setup.ts`): the whole wizard in Auth Portal mode (`install/wizard-pizzasys.spec.ts`), sign-in/roles/revocation/role changes (`auth/login-pizzasys.spec.ts`), a portal outage with grace, 503 and recovery (`auth/portal-outage.spec.ts`, own `pizzasys-outage` project, runs last), Settings > Auth (`settings/auth-settings.spec.ts`), plus axe, 375px and RTL coverage of every mode-2 screen and `docs/screenshots/p2/` deck screenshots. New scenarios `fresh-pizzasys`, `installed-pizzasys`, `settings-pizzasys`, `wizard-views-pizzasys(-rtl)`, `installed-pizzasys-rtl`. The P1 wizard spec now asserts that the Auth Portal option is selectable. See `docs/testing.md`.
+### Notes
+- Review: read-only reviewer passes over the backend, the loader and the dashboard, a dedicated front-end/back-end contract audit and a manual security pass; every finding was fixed (for example `useFlashToast` mounted twice). The `/security-review` and `/simplify` skills cannot run on this machine (they shell out to the blocked system git).
+
+## [0.2.0] - 2026-10-01 (phase-2)
+
+External sign-in through the pizzasys Auth Portal (setup mode 2). Developed in parallel with P3, reviewed and integrated together with it: `v0.2.0` and `v0.3.0` are tags on the same commit.
+
+### Added
+- **Setup wizard, mode 2**: portal environment (production and an optional testing one), service client name + token (encrypted), live `token-verify` probe, a verified portal administrator before finishing, role mapping (admin permission `chat.admin`, agent permission `chat.agent`, super roles default `super-admin`), optional NATS.
+- **`PizzasysDriver`**: server-side login (the portal token never reaches the browser), `token-verify` on a 60 s cache with single-flight and a 15 s negative cache, circuit breaker, shadow users keyed by `(environment, sub)`, roles derived only from the portal (`PizzasysRoleResolver`), `EnsureSessionIsValid` revocation, degrade with a grace window then `503 auth_unavailable`, three login throttles (per email + address, per address, per email), best-effort upstream `logout` of the same token, `refresh-token` never called.
+- **Environments**: `auth_environments` (production / testing), Settings > Auth (edit, connection test with a verdict that survives a reload, role mapping, active-environment switch that needs admin credentials on the target and signs everybody out), `chat:auth:switch-env` / `set-env` / `test` / `reactivate` / `prune-*` break-glass commands.
+- **NATS consumer** `chat:auth:consume-nats`: durable consumer on `auth.v1.>`, stream ensured, de-duplicated on the envelope id, routing by CloudEvent `type`, dead-letter file, TLS verification, never trusts `user.updated.from`, never logs payloads. A NATS outage only lengthens the revocation lag to the verify TTL.
+- `docs/pizzasys-findings.md`: empirical behaviour of a local clone (tokens never expire, bad user token = HTTP 200 `active:false`, bad service credential = 401, `refresh-token` revokes every token, `super-admin` carries no `chat.*` permission, `user.updated` leaks a hash); `docs/contracts/auth-pizzasys.md`.
+- Specs for auth mode 2 against a real local pizzasys instance (the throwaway harness, started and stopped by `e2e/global-setup.ts`): the whole wizard in Auth Portal mode (`install/wizard-pizzasys.spec.ts`), sign-in/roles/revocation/role changes (`auth/login-pizzasys.spec.ts`), a portal outage with grace, 503 and recovery (`auth/portal-outage.spec.ts`, own `pizzasys-outage` project, runs last), Settings > Auth (`settings/auth-settings.spec.ts`), plus axe, 375px and RTL coverage of every mode-2 screen and `docs/screenshots/p2/` deck screenshots. New scenarios `fresh-pizzasys`, `installed-pizzasys`, `settings-pizzasys`, `wizard-views-pizzasys(-rtl)`, `installed-pizzasys-rtl`. The P1 wizard spec now asserts that the Auth Portal option is selectable. See `docs/testing.md`.
+
+
+### Changed
+- The sign-in page and the profile name the portal only when it is a public DNS name (`https://<host>`); a loopback/private portal (the local harness, a Docker service name) is never disclosed and never linked (`PortalLabel`). The e2e specs assert exactly that for the harness.
+- Changing the portal address, service name or TLS verification (or the NATS address) requires re-entering the stored token (`SecretReentry`), and saving a connection change on the live environment first runs a connection test: a pair the portal refuses is not saved, so nobody is locked out. Display name, role mapping and NATS block edits keep the stored token.
+- Setup-token takeover guard (loopback-only rule, per-session verification, throttling), SSRF guard on every outbound portal/NATS address (`OutboundUrlGuard`, `PORTAL_ALLOW_PRIVATE_HOSTS` for local development), `Http::preventStrayRequests()` in the shared test case.
 
 ### Fixed (found by the mode-2 e2e)
 - A rejected Auth Portal form (wizard or Settings > Auth) flashed the typed service/NATS tokens into the session store as "old input"; they are excluded from flashing now (`bootstrap/app.php`).
 - Inertia's local DevTools recorded the typed `service_token` / `nats_token` in clear text under `storage/inertia-devtools`; both keys are redacted now.
 - Settings > Auth write endpoints answered 422 instead of 404 in mode 1 when the payload was invalid; the 404 comes first now.
 - Auth Portal mode: Settings still linked to the Security page (a 404) and showed an editable profile form (saving answered 404) and "Delete account"; the Security link is gone and the profile is read-only with a pointer to the portal.
+
+### Notes
+- Verified against a local throwaway clone of the real pizzasys, not a production instance; the NATS part has never run against a real NATS server (Docker was not running). The public pizzasys repo's seeder creates a `super-admin` account with a known password: confirm it does not exist on the real instance.
 
 ## [0.1.0] - 2026-09-30 (phase-1)
 

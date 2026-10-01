@@ -102,17 +102,18 @@ OpenWA, optional mysql/redis) are in `docker/compose.dev.yml` behind profiles; *
     Mode-2 e2e tests carry the tag `@pizzasys`: `E2E_SKIP_PIZZASYS=1 npx playwright test --grep-invert @pizzasys` skips them and the harness. A real NATS server has never been run against the consumer.
 15. **Loader:** the bundle `public/widget/v1/loader.js` is git-ignored, so a fresh checkout/Docker image must run `npm run build:widget`; without it `/w/{key}.js` serves a stub and the builder falls back to its static preview.
     Budget 16 KB gzip (`npm run size`; 15.65 KB now). `resources/js/lib/limits.ts` repeats the PHP validation limits and `limits.test.ts` pins it to the PHP source; `resources/js/lib/widgets-routes.ts` holds plain URL strings
-    (Wayfinder output is git-ignored) pinned to the contract by a Vitest test only (not yet to the real routes: the P3 e2e is pending).
+    (Wayfinder output is git-ignored) pinned to the contract by a Vitest test and exercised against the real routes by the P3 e2e.
 16. **Env vars worth knowing:** `TRUSTED_PROXIES`, `SETUP_TOKEN` (skipped only for `APP_ENV=local` + loopback peer + no proxy header), `SANCTUM_EXPIRATION_MINUTES` (30 days), `PORTAL_ALLOW_PRIVATE_HOSTS` (portal/NATS on a private network),
     `NATS_TLS_CA_FILE` (the other `NATS_*` only feed the config-backed provider used in dev/tests: in production the active auth environment's NATS address in Settings > Auth switches the consumer on), `INSTALL_*` (install time only).
-17. **Frontend traps:** `Toaster` (`components/ui/sonner.tsx`) already registers `useFlashToast`: never mount it again. Widget `timezone` is validated `timezone:all_with_bc` on the settings PATCH and the wizard but `timezone:all` inside the draft config
-    (`WidgetConfigValidator`): a legacy name like `Asia/Calcutta` saved via the API makes the next draft save fail on `config.hours.timezone` (open issue; the UI sends canonical names).
+17. **Frontend traps:** `Toaster` (`components/ui/sonner.tsx`) already registers `useFlashToast`: never mount it again. Widget `timezone` is validated `timezone:all_with_bc` everywhere (settings PATCH, wizard, `WidgetConfigValidator`), so legacy names like `Asia/Calcutta` round-trip; the builder shows the canonical name (`lib/timezones.ts`).
 18. **Security headers:** `SecurityHeaders` (web group) sets `frame-ancestors 'self'`/`X-Frame-Options` on dashboard pages unless a response sets its own framing; `/embed/{key}`, `/c/{key}` and `/w/{key}.js` run WITHOUT the web group (no session, no cookies)
-    and send their own headers. See `docs/security.md`.
+    and send their own headers. `/w/{key}.js` also answers 403 to a `Referer` that is not on the widget's domain list (no `Referer` = served). See `docs/security.md`.
 19. **Parallel work (git worktrees):** every track/agent works in its own worktree and branch and edits only the files it owns; the merge rules are in `docs/contracts/ownership.md` "Parallel-merge rules". Highlights: tracks never commit the generated
     `resources/js/types/generated.d.ts` / `typescript-transformer-manifest.json` (type-check with `composer types:generate`, then `git checkout --` both files; the orchestrator regenerates once after merging); new `lang/en.json` keys only under your own prefix;
     shared files and `docs/contracts/*` change only through the orchestrator. The e2e suite owns ports 8110-8129 and the `chatfeature_e2e*` databases: start nothing else there. The external Rag volume can disconnect mid-session
     (it then looks like a deleted cwd): check `/Volumes` first and stop instead of guessing.
+20. **MySQL deadlocks:** actions that delete and re-insert rows of one parent (widget domains/greetings/categories, an agent's categories) run in `App\Support\Database\DeadlockRetry::transaction()` (6 attempts, random growing pause). Use it for any new replace-the-children action; Laravel's `DB::transaction($cb, $attempts)` retries instantly and re-collides under load.
+21. **Auth Portal page copy:** the sign-in page and profile name/link the portal only for a public DNS name (`PortalLabel`); a loopback/private portal (the e2e harness) shows no host and no link. Saving a changed portal address, service name or TLS setting needs the token re-entered, and on the live environment passes a connection test first.
 
 ## Security rules
 
@@ -134,8 +135,8 @@ OpenWA, optional mysql/redis) are in `docker/compose.dev.yml` behind profiles; *
 | Phase | State |
 |---|---|
 | P0 Scaffold + tooling | done (see `docs/changelog.md`) |
-| P1 Install gate, wizard, settings, mode-1 auth, shell | done (`v0.1.0`): 236 PHPUnit, 135 Vitest, 132 Playwright |
-| P2 Mode-2 pizzasys auth | done (`v0.2.0`), reviewed + hardened. Real NATS server never exercised; pizzasys facts from a local clone only |
-| P3 Widgets/loader/builder/categories/agents | done (`v0.3.0`), reviewed + hardened. **P3 e2e (builder, loader on a cross-origin host page) still open.** Panel is a stub until P4; `availability.online` false until P5; loader 15.65 of 16 KB |
-| Gate at `integrate/phase-2-3` | PHPUnit 1658 (7 skip groups need the harness / a NATS server), Vitest 1191 (incl. the loader tests), Playwright 251 (mode 1: 132, mode 2: 119) |
+| P1 Install gate, wizard, settings, mode-1 auth, shell | done (`v0.1.0`) |
+| P2 Mode-2 pizzasys auth | done (`v0.2.0`), reviewed + hardened, e2e against the local pizzasys clone. Real NATS server never exercised; pizzasys facts from a local clone only |
+| P3 Widgets/loader/builder/categories/agents | done (`v0.3.0`), reviewed + hardened, e2e on a cross-origin host page. Panel is a stub until P4; `availability.online` false until P5; loader 15.65 of 16 KB |
+| Gate at `v0.3.0` (`integrate/phase-2-3`) | `composer ci:check` green: PHPUnit 1667 (7 skip: harness / NATS server), Vitest 1193 (incl. the loader tests), PHPStan L7, Pint, `vp check`, `tsc`. Playwright 483 specs, 480 pass, 3 skipped, 0 failed (needs the harness on :8200, started by `global-setup`) |
 | P4 Chat core · P5 Presence/notifications · P6 WhatsApp · P7 Analytics/hardening · P8 Deploy/QA/deck | planned |
