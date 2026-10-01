@@ -1,11 +1,11 @@
 /**
  * The ONE place that knows the setup wizard URLs (docs/contracts/setup-wizard.md).
  *
- * Wayfinder cannot generate these until the backend routes (`routes/web/setup.php`)
- * are merged, so they are plain strings for now. Every route mirrors the Wayfinder
- * call shape (`route.url`, `route.form()`), which keeps the later swap to
- * `@/actions/App/Http/Controllers/Setup/SetupController` a change to this file only.
+ * Thin adapter over the generated Wayfinder actions so call sites keep a stable shape
+ * (`route.url` string, `route.form()` for `<Form>`, `run(step)`), and Wayfinder owns the URLs.
  */
+import SetupController from '@/actions/App/Http/Controllers/Setup/SetupController';
+import { login } from '@/routes';
 
 export type SetupRunStepKey =
     | 'run-migrations'
@@ -13,39 +13,38 @@ export type SetupRunStepKey =
     | 'create-admin'
     | 'write-lock';
 
-type FormDefinition = { action: string; method: 'post' };
-
-type SetupFormRoute = {
-    url: string;
-    method: 'post';
-    /** Same shape as Wayfinder's `Controller.method.form()`; spread it onto `<Form>`. */
-    form: () => FormDefinition;
-};
-
-function formRoute(url: string): SetupFormRoute {
-    return {
-        url,
-        method: 'post',
-        form: () => ({ action: url, method: 'post' }),
-    };
-}
-
 export const setupRoutes = {
     /** GET /setup (name: setup.index) */
-    index: { url: '/setup', method: 'get' },
+    index: { url: SetupController.index.url(), method: 'get' },
     /** POST /setup/token (setup.token) */
-    token: formRoute('/setup/token'),
+    token: {
+        url: SetupController.token.url(),
+        method: 'post',
+        form: () => SetupController.token.form(),
+    },
     /** POST /setup/mode (setup.mode) */
-    mode: formRoute('/setup/mode'),
+    mode: {
+        url: SetupController.mode.url(),
+        method: 'post',
+        form: () => SetupController.mode.form(),
+    },
     /** POST /setup/admin (setup.admin) */
-    admin: formRoute('/setup/admin'),
+    admin: {
+        url: SetupController.admin.url(),
+        method: 'post',
+        form: () => SetupController.admin.form(),
+    },
     /** POST /setup/basics (setup.basics) */
-    basics: formRoute('/setup/basics'),
+    basics: {
+        url: SetupController.basics.url(),
+        method: 'post',
+        form: () => SetupController.basics.form(),
+    },
     /** GET /setup/state (setup.state): JSON snapshot of SetupProps */
-    state: { url: '/setup/state', method: 'get' },
+    state: { url: SetupController.state.url(), method: 'get' },
     /** POST /setup/run/{step} (setup.run): JSON; `step` is one of {@link SetupRunStepKey}. */
-    run: (step: string): string => `/setup/run/${encodeURIComponent(step)}`,
+    run: (step: string): string => SetupController.run.url({ step }),
 } as const;
 
 /** Where the wizard sends people once the lock is written (`login` route). */
-export const LOGIN_URL = '/login';
+export const LOGIN_URL = login.url();

@@ -55,21 +55,8 @@ export type SetupRunRow = {
     code?: SetupRunFailureCode;
 };
 
-export type SetupState = {
-    step: SetupStepKey;
-    steps: SetupStepSummary[];
-    needsToken: boolean;
-    tokenVerified: boolean;
-    mode: SetupMode | null;
-    pizzasysAvailable: boolean;
-    environment: {
-        ok: boolean;
-        checks: SetupEnvironmentCheck[];
-    };
-    defaults: SetupDefaults;
-    admin: { name: string; email: string } | null;
-    run: SetupRunRow[];
-};
+/** Generated from `App\\Data\\Setup\\SetupData` (composer types:generate). */
+export type SetupState = App.Data.Setup.SetupData;
 
 export type SetupProps = {
     setup: SetupState;
