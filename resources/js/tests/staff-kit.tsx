@@ -9,7 +9,6 @@
  * `StaffRealtimeHost` (store, controller, Echo bindings) around the page under test.
  */
 import '@/tests/dom-polyfills';
-import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { act, type ReactElement } from 'react';
 import {
@@ -61,9 +60,11 @@ export const ADMIN: TestViewer = {
 /** Starts the fake management API for the tests of the current file; `backend` is replaced for every test (fresh state). */
 export function useStaffBackend(options: StaffBackendOptions = {}): {
     current: StaffBackend;
+    /** The MSW server, to override one route for a single test (`backend.server.use(http.post(...))`). */
+    server: ReturnType<typeof setupServer>;
 } {
-    const holder = { current: createStaffBackend(options) };
     const server = setupServer();
+    const holder = { current: createStaffBackend(options), server };
 
     beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
     beforeEach(() => {
@@ -75,11 +76,6 @@ export function useStaffBackend(options: StaffBackendOptions = {}): {
 
     return holder;
 }
-
-/** Make the backend a bare `ping` so a test that never calls the API still satisfies `onUnhandledRequest: 'error'`. */
-export const ping = http.get('/__ping', () =>
-    HttpResponse.json({ data: true }),
-);
 
 export type FakeSound = Omit<SoundPlayer, 'play' | 'unlock'> & {
     play: Mock<SoundPlayer['play']>;

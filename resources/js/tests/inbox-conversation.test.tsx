@@ -1,5 +1,6 @@
 import '@/tests/dom-polyfills';
 import { act } from 'react';
+import { http, HttpResponse } from 'msw';
 import { toast } from 'sonner';
 import {
     afterEach,
@@ -870,6 +871,48 @@ describe('ending, closing and transferring', () => {
         expect(
             view.byTestId('conversation-view')?.getAttribute('data-status'),
         ).toBe('ended');
+    });
+
+    it('reads the full conversation when an action answers with the public form only', async () => {
+        const { view } = await mount();
+        const original = activeChat();
+
+        // 4A may answer `end` with `ConversationPublic` (no visitor): the view must not crash, it re-reads the staff record.
+        backend.server.use(
+            http.post(`/api/v1/conversations/${CONVERSATION}/end`, () => {
+                backend.current.state.conversations.set(CONVERSATION, {
+                    ...original,
+                    status: 'ended',
+                });
+
+                return HttpResponse.json({
+                    data: {
+                        ulid: CONVERSATION,
+                        ticketNo: 'K7M2QX',
+                        status: 'ended',
+                        type: 'live',
+                        category: null,
+                        agent: null,
+                        createdAt: fakeTime(0),
+                        endedAt: fakeTime(9),
+                        ratingRequested: true,
+                        lastSeq: 3,
+                    },
+                });
+            }),
+        );
+
+        await click(view.byTestId('end-chat'));
+        await click(body.byTestId('end-chat-confirm'));
+        await waitFor(() =>
+            expect(view.byTestId('composer-disabled')?.textContent).toBe(
+                'This chat has ended.',
+            ),
+        );
+
+        expect(view.byTestId('conversation-name')?.textContent).toBe(
+            'Vera Visitor',
+        );
     });
 
     it('closes an offline ticket without a rating', async () => {

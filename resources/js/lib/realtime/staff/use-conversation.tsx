@@ -233,11 +233,15 @@ export function useConversation({
         return () => clearInterval(timer);
     }, [connection, catchUp]);
 
-    // Back in the foreground: timers were throttled, so look now.
+    // Back in the foreground (not the first paint: the props are fresh): timers were throttled, so look now.
+    const wasVisible = useRef(visible);
+
     useEffect(() => {
-        if (visible) {
+        if (visible && !wasVisible.current) {
             void catchUp();
         }
+
+        wasVisible.current = visible;
     }, [visible, catchUp]);
 
     /* ---------------------------------------------------------------- */
@@ -440,7 +444,10 @@ export function useConversation({
             call: () => Promise<ConversationStaff>,
         ): Promise<ConversationStaff | null> => {
             try {
-                const next = await call();
+                const answer = await call();
+                // The staff form of a conversation carries the visitor; if the answer is the public form, read the full record.
+                const next =
+                    'visitor' in answer ? answer : await api.conversation(ulid);
 
                 dispatch({ type: 'conversation', conversation: next });
                 store.dispatch({
@@ -456,7 +463,7 @@ export function useConversation({
                 return null;
             }
         },
-        [store, viewer, t],
+        [store, viewer, t, api, ulid],
     );
 
     const end = useCallback(() => act(() => api.end(ulid)), [act, api, ulid]);

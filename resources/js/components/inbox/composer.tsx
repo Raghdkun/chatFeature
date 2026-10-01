@@ -27,15 +27,10 @@ import { cn } from '@/lib/utils';
 const MAX_HEIGHT_PX = 176;
 
 /**
- * Where canned replies will plug in (a later phase). It renders a quiet, disabled control so the layout and the keyboard order are
- * settled now; `onPick` is the contract for whoever fills it.
+ * Where canned replies will plug in (a later phase). It renders a quiet, disabled control (not on phones, where the width is
+ * needed for the message) so the layout and the keyboard order are settled now.
  */
-export function CannedRepliesSlot({
-    disabled,
-}: {
-    onPick?: (text: string) => void;
-    disabled?: boolean;
-}) {
+export function CannedRepliesSlot() {
     const { t } = useTrans();
 
     return (
@@ -49,7 +44,7 @@ export function CannedRepliesSlot({
             title={t('inbox.composer.canned_soon')}
             disabled
             aria-disabled
-            className={cn(disabled && 'hidden')}
+            className="hidden sm:inline-flex"
         >
             <MessageSquareText aria-hidden />
         </Button>

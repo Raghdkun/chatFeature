@@ -59,13 +59,25 @@ const mineOf = (overrides: Partial<ConversationStaff> = {}) =>
         ...overrides,
     });
 
-const shell = (overrides: Partial<InboxPageProps> = {}): InboxPageProps => ({
-    queue: [],
-    mine: [],
-    presence: { status: 'online' },
-    categories: CATEGORIES,
-    ...overrides,
-});
+/** The page props; the fake API is seeded with the same lists (the page re-reads them over REST when it opens). */
+const shell = (overrides: Partial<InboxPageProps> = {}): InboxPageProps => {
+    const props: InboxPageProps = {
+        queue: [],
+        mine: [],
+        presence: { status: 'online' },
+        categories: CATEGORIES,
+        ...overrides,
+    };
+
+    [...props.queue, ...props.mine].forEach((conversation) =>
+        backend.current.state.conversations.set(
+            conversation.ulid,
+            conversation,
+        ),
+    );
+
+    return props;
+};
 
 beforeEach(() => resetFixtures());
 afterEach(() => {

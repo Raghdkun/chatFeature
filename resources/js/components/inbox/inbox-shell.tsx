@@ -1,6 +1,6 @@
 import { router } from '@inertiajs/react';
 import { MessagesSquare } from 'lucide-react';
-import { useId, useLayoutEffect, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, type ReactNode } from 'react';
 import { ChatList } from '@/components/inbox/chat-list';
 import { ConnectionBanner } from '@/components/inbox/connection-banner';
 import { RosterPopover, SoundToggle } from '@/components/inbox/inbox-toolbar';
@@ -54,6 +54,11 @@ export function InboxShell({
     useLayoutEffect(() => {
         store.dispatch({ type: 'presence', status: presence.status });
     }, [store, presence.status]);
+
+    // The props can be older than the store (the browser's Back button restores a page as it was): look again, in the background.
+    useEffect(() => {
+        void controller.sync();
+    }, [controller]);
 
     const accept = async (ulid: string): Promise<void> => {
         const outcome = await controller.claim(ulid);

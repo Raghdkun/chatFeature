@@ -139,6 +139,9 @@ export function createStaffController(deps: StaffControllerDeps) {
         }
 
         syncing = (async () => {
+            // Whatever the events change while the requests are out is newer than the snapshot they bring back.
+            const since = store.getState().clock;
+
             try {
                 const [queue, active, queuedTickets, activeTickets] =
                     await Promise.all([
@@ -171,6 +174,7 @@ export function createStaffController(deps: StaffControllerDeps) {
                             ticket.assignedAgent?.id === viewer.id,
                     ),
                     keepFinished: true,
+                    since,
                 });
             } catch {
                 // Offline or signed out: the next tick tries again; the 401 handler of the api client deals with sign-out.
@@ -308,10 +312,12 @@ export function createStaffController(deps: StaffControllerDeps) {
 
         try {
             const saved = await api.setPresence(status);
+            // The answer carries the stored status; an empty answer means the request itself is the confirmation.
+            const stored = saved?.status ?? status;
 
-            store.dispatch({ type: 'presence', status: saved.status });
+            store.dispatch({ type: 'presence', status: stored });
 
-            if (saved.status !== 'offline') {
+            if (stored !== 'offline') {
                 void sendHeartbeat();
             }
 

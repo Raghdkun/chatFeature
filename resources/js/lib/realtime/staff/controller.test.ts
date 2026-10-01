@@ -667,6 +667,34 @@ describe('REST snapshots', () => {
         expect(api.queue).toHaveBeenCalledTimes(2);
     });
 
+    it('does not undo a claim that finished while the snapshot was on its way', async () => {
+        const { api, store, controller } = rig();
+        const offer = makeOffer();
+        const claimed = makeActiveConversationStaff({
+            ulid: offer.conversation,
+            assignedAgent: { id: ME.id, name: 'Me' },
+        });
+        let answer: (rows: unknown[]) => void = () => undefined;
+
+        controller.handle('chat.offered', offer);
+        api.queue.mockImplementationOnce(
+            () => new Promise((resolve) => (answer = resolve)),
+        );
+        api.claim.mockResolvedValue(claimed);
+
+        const syncing = controller.sync();
+
+        await controller.claim(offer.conversation);
+        // The slow answer still lists the chat as waiting, as the server saw it before the claim.
+        answer([makeConversationStaff({ ulid: offer.conversation })]);
+        await syncing;
+
+        expect(store.getState().mine.map((c) => c.ulid)).toEqual([
+            offer.conversation,
+        ]);
+        expect(store.getState().queue).toEqual([]);
+    });
+
     it('survives a failing request and tries again on the next trigger', async () => {
         const { api, store, controller } = rig();
 
@@ -858,6 +886,15 @@ describe('presence', () => {
             'error',
             'The status is invalid.',
         );
+    });
+
+    it('accepts an empty answer to the status change as the confirmation', async () => {
+        const { api, store, controller } = rig();
+
+        api.setPresence.mockResolvedValue(null);
+
+        expect(await controller.setPresence('away')).toBe(true);
+        expect(store.getState().presence).toBe('away');
     });
 
     it('does not beat when going offline', async () => {

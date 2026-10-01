@@ -60,6 +60,13 @@ export type InboxState = {
     presence: PresenceStatus | null;
     roster: PresenceMemberData[];
     connection: ConnectionState;
+    /**
+     * A counter bumped by every change to a conversation, and the value it had when each conversation last changed. A REST snapshot
+     * remembers the clock it was requested at (`hydrate.since`), so an event that arrived while it was in flight is never overwritten
+     * by the older picture the snapshot describes.
+     */
+    clock: number;
+    touched: Record<string, number>;
 };
 
 export const EMPTY_INBOX: InboxState = {
@@ -70,6 +77,8 @@ export const EMPTY_INBOX: InboxState = {
     presence: null,
     roster: [],
     connection: 'connecting',
+    clock: 0,
+    touched: {},
 };
 
 export type InboxAction =
@@ -83,6 +92,8 @@ export type InboxAction =
            * dropping them.
            */
           keepFinished?: boolean;
+          /** The store's `clock` when the snapshot was requested: conversations that changed since keep their live copy. */
+          since?: number;
       }
     | { type: 'offered'; offer: OfferData; nowMs: number }
     | { type: 'taken'; conversation: string; by: string | null }
@@ -353,66 +364,125 @@ function sameList<T>(a: T[], b: T[]): boolean {
     return a.length === b.length && a.every((item, index) => item === b[index]);
 }
 
+/** The conversation an action is about (what `touched` tracks), when it is about one. */
+function conversationOf(action: InboxAction): string | null {
+    switch (action.type) {
+        case 'offered':
+            return action.offer.conversation;
+        case 'conversationUpdated':
+            return action.conversation.ulid;
+        case 'taken':
+        case 'unread':
+        case 'seen':
+        case 'removed':
+            return action.conversation;
+        default:
+            return null;
+    }
+}
+
 export function inboxReducer(
     state: InboxState,
     action: InboxAction,
 ): InboxState {
-    switch (action.type) {
-        case 'hydrate': {
-            const queue =
-                action.queue === undefined
-                    ? state.queue
-                    : [
-                          ...action.queue.map((conversation) =>
-                              itemFromConversation(
-                                  conversation,
-                                  state.queue.find(
-                                      (item) =>
-                                          item.conversation ===
-                                          conversation.ulid,
-                                  ),
-                              ),
-                          ),
-                          // A card that is mid-exit stays until its timer removes it.
-                          ...state.queue.filter(
-                              (item) =>
-                                  item.state !== 'open' &&
-                                  !action.queue?.some(
-                                      (conversation) =>
-                                          conversation.ulid ===
-                                          item.conversation,
-                                  ),
-                          ),
-                      ].sort(byWaiting);
+    const next = reduce(state, action);
+    const ulid = conversationOf(action);
 
-            return {
-                ...state,
-                // The queue / my chats are known once a snapshot carried them (the offline tickets page only brings tickets).
-                hydrated:
-                    state.hydrated ||
-                    action.queue !== undefined ||
-                    action.mine !== undefined,
-                queue: sameList(queue, state.queue) ? state.queue : queue,
-                mine:
-                    action.mine === undefined
-                        ? state.mine
-                        : [
-                              ...action.mine,
-                              ...(action.keepFinished
-                                  ? state.mine.filter(
-                                        (item) =>
-                                            (item.status === 'ended' ||
-                                                item.status === 'closed') &&
-                                            !action.mine?.some(
-                                                (fresh) =>
-                                                    fresh.ulid === item.ulid,
-                                            ),
-                                    )
-                                  : []),
-                          ].sort(byActivity),
-                tickets: action.tickets ?? state.tickets,
-            };
-        }
+    if (next === state || ulid === null) {
+        return next;
+    }
+
+    const clock = state.clock + 1;
+
+    return { ...next, clock, touched: { ...next.touched, [ulid]: clock } };
+}
+
+type SnapshotAction = Extract<InboxAction, { type: 'hydrate' }>;
+
+/**
+ * Apply a snapshot (the page props, or a REST read). With `since`, whatever changed after the snapshot was requested stays as the live
+ * events left it; the rest is replaced by the snapshot, which is the truth for everything it describes.
+ */
+function applySnapshot(state: InboxState, action: SnapshotAction): InboxState {
+    const newer = (ulid: string): boolean =>
+        action.since !== undefined && (state.touched[ulid] ?? 0) > action.since;
+    const queueRows = action.queue?.filter((row) => !newer(row.ulid));
+    const mineRows = action.mine?.filter((row) => !newer(row.ulid));
+    const ticketRows = action.tickets?.filter((row) => !newer(row.ulid));
+
+    const queue =
+        queueRows === undefined
+            ? state.queue
+            : [
+                  ...queueRows.map((conversation) =>
+                      itemFromConversation(
+                          conversation,
+                          state.queue.find(
+                              (item) => item.conversation === conversation.ulid,
+                          ),
+                      ),
+                  ),
+                  // A card that is mid-exit stays until its timer removes it; one that changed since stays as it is.
+                  ...state.queue.filter(
+                      (item) =>
+                          newer(item.conversation) ||
+                          (item.state !== 'open' &&
+                              !queueRows.some(
+                                  (row) => row.ulid === item.conversation,
+                              )),
+                  ),
+              ].sort(byWaiting);
+
+    const mine =
+        mineRows === undefined
+            ? state.mine
+            : [
+                  ...mineRows,
+                  ...state.mine.filter(
+                      (item) =>
+                          newer(item.ulid) ||
+                          (action.keepFinished === true &&
+                              (item.status === 'ended' ||
+                                  item.status === 'closed') &&
+                              !mineRows.some((row) => row.ulid === item.ulid)),
+                  ),
+              ].sort(byActivity);
+
+    const tickets =
+        ticketRows === undefined
+            ? state.tickets
+            : [
+                  ...ticketRows,
+                  ...state.tickets.filter((item) => newer(item.ulid)),
+              ].sort(
+                  (a, b) => parseMs(a.createdAt, 0) - parseMs(b.createdAt, 0),
+              );
+
+    return {
+        ...state,
+        // The queue / my chats are known once a snapshot carried them (the offline tickets page only brings tickets).
+        hydrated:
+            state.hydrated ||
+            action.queue !== undefined ||
+            action.mine !== undefined,
+        queue: sameList(queue, state.queue) ? state.queue : queue,
+        mine,
+        tickets,
+        touched:
+            action.since === undefined
+                ? state.touched
+                : Object.fromEntries(
+                      Object.entries(state.touched).filter(
+                          ([, at]) => at > (action.since as number),
+                      ),
+                  ),
+    };
+}
+
+function reduce(state: InboxState, action: InboxAction): InboxState {
+    switch (action.type) {
+        case 'hydrate':
+            return applySnapshot(state, action);
 
         case 'offered': {
             const existing = state.queue.find(

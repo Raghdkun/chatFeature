@@ -601,3 +601,76 @@ describe('createInboxStore', () => {
         );
     });
 });
+
+describe('a snapshot that was in flight while events arrived', () => {
+    it('lets the newer event win for the conversations it touched, and applies the rest', () => {
+        const mine = makeActiveConversationStaff({
+            assignedAgent: { id: me.id, name: 'Me' },
+            status: 'active',
+        });
+        const waiting = makeOffer();
+        const other = makeConversationStaff();
+        const base = run(EMPTY_INBOX, {
+            type: 'offered',
+            offer: waiting,
+            nowMs: NOW,
+        });
+        const since = base.clock;
+
+        // While the REST request is out: somebody takes the waiting chat, and a chat of mine is updated.
+        const during = run(
+            base,
+            { type: 'taken', conversation: waiting.conversation, by: 'Omar' },
+            { type: 'conversationUpdated', conversation: mine, viewer: me },
+        );
+        // The snapshot describes the world before that: the chat still queued, my chat not yet listed.
+        const applied = run(during, {
+            type: 'hydrate',
+            queue: [
+                makeConversationStaff({ ulid: waiting.conversation }),
+                other,
+            ],
+            mine: [],
+            since,
+        });
+
+        expect(
+            applied.queue.map((item) => [item.conversation, item.state]),
+        ).toEqual(
+            expect.arrayContaining([
+                [waiting.conversation, 'taken'],
+                [other.ulid, 'open'],
+            ]),
+        );
+        expect(applied.mine.map((c) => c.ulid)).toEqual([mine.ulid]);
+    });
+
+    it('applies a snapshot in full when nothing changed since it was requested', () => {
+        const chat = makeActiveConversationStaff({
+            assignedAgent: { id: me.id, name: 'Me' },
+        });
+        const state = run(EMPTY_INBOX, {
+            type: 'conversationUpdated',
+            conversation: chat,
+            viewer: me,
+        });
+        const applied = run(state, {
+            type: 'hydrate',
+            queue: [],
+            mine: [],
+            since: state.clock,
+        });
+
+        expect(applied.mine).toEqual([]);
+        expect(applied.touched).toEqual({});
+    });
+
+    it('counts a change only when the state really changed', () => {
+        const state = run(EMPTY_INBOX, {
+            type: 'seen',
+            conversation: 'unknown',
+        });
+
+        expect(state.clock).toBe(0);
+    });
+});

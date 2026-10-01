@@ -51,7 +51,7 @@ export function ConversationHeader({
     return (
         <header
             data-testid="conversation-header"
-            className="flex items-center gap-2 border-b px-2 py-2.5 sm:px-4"
+            className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b px-2 py-2.5 sm:px-4"
         >
             <Button asChild variant="ghost" size="icon" className="md:hidden">
                 <Link
@@ -65,7 +65,7 @@ export function ConversationHeader({
 
             <VisitorAvatar name={visitor.name} />
 
-            <div className="min-w-0 flex-1">
+            <div className="min-w-32 flex-1">
                 <h1 className="flex items-center gap-1.5 text-sm font-semibold sm:text-base">
                     <span className="truncate" data-testid="conversation-name">
                         {name}
@@ -111,7 +111,7 @@ export function ConversationHeader({
                 </Button>
             )}
 
-            <div className="flex items-center gap-0.5">
+            <div className="ms-auto flex items-center gap-0.5">
                 <Button
                     type="button"
                     variant="ghost"
