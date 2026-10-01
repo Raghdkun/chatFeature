@@ -33,7 +33,7 @@
 | `not_installed` | 503 | Before the wizard finished (install gate). The body is the bare `{"error":"not_installed"}`, **not** the envelope (`InstallGate` runs before the exception renderer) |
 | `widget_not_found` | 404 | Public widget endpoints: unknown, deleted or disabled key (indistinguishable) |
 | `origin_not_allowed` | 403 | Public widget endpoints: browser `Origin` not whitelisted (no CORS headers), or no `Origin` and the widget does not allow non-browser clients |
-| `category_in_use` | 409 | Deleting a category used by an active conversation (guard returns false until P4) |
+| `category_in_use` | 409 | Deleting a category used by a queued or active conversation (live or offline; `ConversationCategoryUsageChecker`, P4) |
 | `slug_taken` | 409 | Category slug already used (also when lost in a race) |
 | `managed_by_auth_portal` | 409 | Mode 2: creating accounts or changing `is_active` / `is_agent` |
 | `cannot_deactivate_self` | 409 | An admin deactivating their own account |
@@ -79,7 +79,7 @@ Hosted page `GET /c/{key}` sends `frame-ancestors 'none'`.
 
 | Method + path | Notes |
 |---|---|
-| `GET /categories` (any staff), `POST /categories`, `GET/PATCH/DELETE /categories/{ulid}` (admin) | Agents only see active categories, admins all. `POST` -> `201 CategoryData`. Delete is soft (frees the slug), `204`; rejected with `409 category_in_use` while an active conversation uses it. |
+| `GET /categories` (any staff), `POST /categories`, `GET/PATCH/DELETE /categories/{ulid}` (admin) | Agents only see active categories, admins all. `POST` -> `201 CategoryData`. Delete is soft (frees the slug), `204`; rejected with `409 category_in_use` while a queued or active conversation uses it. |
 | `GET/PUT /me/categories` (agents, `is_agent`) | Agent self-selection of served categories (replaces the set, active categories only). Both return `{ "data": { "category_ulids": [...] } }`. Staff without `is_agent` (admins who do not take chats) get `403`. |
 | `PATCH /agents/{id}/categories` | Admin assigns categories to an agent (mode 1 and mode 2; role flags come from the auth driver). Returns `AgentListItemData`; `409 not_an_agent` when the account does not take chats. |
 | `GET /agents`, `POST /agents` (mode 1), `PATCH /agents/{id}` | See dashboard-pages-p3.md; `409 managed_by_auth_portal` in mode 2 for accounts and `is_active` / `is_agent`. |

@@ -18,6 +18,7 @@
 | [rest-shapes.md](rest-shapes.md) | P3, P4 | conventions + P3 endpoints **implemented in P3, reviewed**; P4 chat endpoints written (plan) |
 | [chat-ui-p4.md](chat-ui-p4.md) | P4 (4C, 4D) | written (ahead of P4) |
 | [realtime-events.md](realtime-events.md) | P4, P5, P6 | written (ahead of P4) |
+| [chat-data-p4.md](chat-data-p4.md) | P4 (4A, 4B, 4C, 4D) | **implemented by the P4 spine**: tables, enums, state machine, policy, visitor tokens, Data classes, domain events, shared TypeScript helpers |
 
 ## Rules
 
@@ -48,3 +49,5 @@ Where the shipped code differs from (or sharpens) what was written before the ph
 - **auth-pizzasys.md** (P2): token re-entry rule (422 on `service_token` / `nats_token`, dotted wizard keys), pre-flight `TestPortalConnection` before saving the ACTIVE environment (`errors.connection|base_url|service_token`, `checks[]`), role mapping cannot remove the saver's own admin access, activation error codes, wizard/settings throttles,
   `user.deleted` deactivates only the identity (`chat:auth:reactivate`), `portalUrl` is a public `https://host` or null, outbound URL guard (`PORTAL_ALLOW_PRIVATE_HOSTS`), NATS TLS verification (`NATS_TLS_CA_FILE`), setup token skipped only for `APP_ENV=local` + loopback peer, `login_throttle`, one live identity per (user, environment), `service_credential_rejected` health flag.
 - **auth-driver.md** (P2): `SessionVerdict::Unavailable` and the `503 auth_unavailable` degrade with its exemptions (not the role mapping), middleware aliases `session.valid` / `chat.access` / `admin`, one live identity per (user, environment), login throttles, `chat:install` exists.
+- **realtime-events.md / rest-shapes.md / dashboard-pages-p3.md** (P4 spine): `conversation.ended.endedBy` may be `system`, `conversation.closed.reason` may be `cancelled` (the visitor left the queue); `category_in_use` now guards queued **and** active conversations through the real `ConversationCategoryUsageChecker`;
+  every payload has a PHP class (`app/Data/Chat`, `app/Data/Chat/Events`), see [chat-data-p4.md](chat-data-p4.md).

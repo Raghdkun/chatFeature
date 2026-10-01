@@ -36,13 +36,14 @@ Why per-agent offer channels (not per-category channels): the eligible set is co
 | `message.created` | `conversation.{ulid}` | `{v, message: Message}` | **now** (`ShouldBroadcastNow`, latency) |
 | `message.seen` | `conversation.{ulid}` | `{v, upToSeq: int, by: 'visitor'\|'agent', at}` | queued |
 | `client-typing` (whisper) | `conversation.{ulid}` | `{actor: 'visitor'\|'agent', typing: bool}` — debounce 3 s, auto-expire 5 s | client event |
-| `conversation.ended` | `conversation.{ulid}` | `{v, endedBy: 'visitor'\|'agent'\|'admin', ratingRequested: bool}` | queued |
-| `conversation.closed` | `conversation.{ulid}` | `{v, reason: 'rated'\|'skipped'\|'idle'\|'timeout'\|'system'}` | queued |
+| `conversation.ended` | `conversation.{ulid}` | `{v, endedBy: 'visitor'\|'agent'\|'admin'\|'system', ratingRequested: bool}` | queued |
+| `conversation.closed` | `conversation.{ulid}` | `{v, reason: 'rated'\|'skipped'\|'idle'\|'timeout'\|'system'\|'cancelled'}` | queued |
 | `conversation.transferred` | `conversation.{ulid}` | `{v}` (visitor sees "connecting you to another agent…") | queued |
 | `offline-ticket.created` | `admin` | `{v, conversation: ConversationStaff}` | queued |
 | `conversation.rated` | `admin` | `{v, conversation, score: 1..5}` | queued |
 
 Visitor-facing payloads never contain integer ids, agent ids, emails of staff or internal notes (`Message.sender` for agents is `{type:'agent', name, avatarUrl}`).
+The PHP classes behind every payload below (`MessageData`, `ConversationStaffData`, `OfferData`, `app/Data/Chat/Events/*Payload`, ...), the domain events and the shared TypeScript helpers are listed in [chat-data-p4.md](chat-data-p4.md).
 
 ## Payload shapes
 
