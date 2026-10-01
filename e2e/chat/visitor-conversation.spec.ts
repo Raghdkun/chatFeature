@@ -233,16 +233,18 @@ test('rapid sends from both sides keep their order everywhere: panel, inbox and 
     await expect
         .poll(
             () =>
-                panel.messageList
-                    .locator(PEOPLE)
-                    .evaluateAll((nodes) =>
-                        nodes.map((node) =>
-                            (node.textContent ?? '').replace(
-                                /\d{1,2}:\d{2}.*$/,
-                                '',
-                            ),
-                        ),
-                    ),
+                panel.messageList.locator(PEOPLE).evaluateAll((nodes) =>
+                    nodes.map((node) => {
+                        // the text of the bubble without its time and receipt (a "1:05 PM" would otherwise swallow a trailing digit)
+                        const copy = node.cloneNode(true) as HTMLElement;
+
+                        copy.querySelectorAll(
+                            'time, [data-testid="message-receipt"]',
+                        ).forEach((element) => element.remove());
+
+                        return (copy.textContent ?? '').trim();
+                    }),
+                ),
             { message: 'the panel lists the messages in the stored order' },
         )
         .toEqual(expected.map((text) => expect.stringContaining(text!)));
