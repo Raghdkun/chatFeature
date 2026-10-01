@@ -1,0 +1,520 @@
+/*
+ * Launcher, greeting popup and panel frame. Lives inside an open shadow root, so nothing here leaks out and
+ * host CSS cannot leak in (the host element is additionally reset with `all: initial` from JS).
+ *
+ * Motion rules: only `transform` and `opacity` animate. Entrances use a strong ease-out (starts fast, feels
+ * responsive); the flip uses an ease-in-out because it moves on screen. Exits are quicker than entrances.
+ * Corner placement is physical (`right`/`left`, configurable); everything inside uses logical properties.
+ */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+.root {
+    --ease: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-io: cubic-bezier(0.77, 0, 0.175, 1);
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    font: 400 14px/1.45 var(--font);
+    color: var(--text);
+    text-align: start;
+}
+
+button {
+    all: unset;
+    box-sizing: border-box;
+    cursor: pointer;
+    font: inherit;
+    -webkit-tap-highlight-color: transparent;
+}
+
+svg {
+    display: block;
+    flex: none;
+}
+
+/* ---------------------------------------------------------------- dock */
+
+.dock {
+    position: fixed;
+    inset-block-end: calc(var(--oy) + env(safe-area-inset-bottom, 0px));
+    display: flex;
+    align-items: flex-end;
+}
+
+[data-pos='bottom-right'] .dock {
+    right: calc(var(--ox) + env(safe-area-inset-right, 0px));
+    flex-direction: row-reverse;
+}
+
+[data-pos='bottom-left'] .dock {
+    left: calc(var(--ox) + env(safe-area-inset-left, 0px));
+    flex-direction: row;
+}
+
+/* ------------------------------------------------------------ launcher */
+
+.launcher {
+    position: relative;
+    display: block;
+    flex: none;
+    pointer-events: auto;
+    border-radius: 999px;
+    color: var(--primary-text);
+    background: var(--primary);
+    box-shadow: var(--shadow);
+    perspective: 700px;
+    touch-action: manipulation;
+    transition: transform 160ms var(--ease);
+}
+
+.launcher:active {
+    transform: scale(0.96);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .launcher:hover {
+        transform: scale(1.05);
+    }
+
+    .launcher:active {
+        transform: scale(0.97);
+    }
+}
+
+.launcher:focus-visible,
+.greet button:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 3px;
+}
+
+.card {
+    position: relative;
+    display: grid;
+    min-block-size: var(--size);
+    border-radius: inherit;
+    transform-style: preserve-3d;
+    transition: transform 520ms var(--ease-io);
+}
+
+.launcher[data-style='bubble'] .card {
+    inline-size: var(--size);
+}
+
+.card[data-face='front'] {
+    transition-duration: 420ms;
+}
+
+.card[data-face='agent'] {
+    transform: rotateY(180deg);
+}
+
+.face {
+    grid-area: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-inline-size: var(--size);
+    border-radius: inherit;
+    background: var(--primary);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+}
+
+.launcher[data-style='pill'] .face {
+    padding-inline: calc(var(--size) * 0.32);
+}
+
+.back {
+    transform: rotateY(180deg);
+    overflow: hidden;
+}
+
+.launcher[data-style='pill'] .back {
+    padding-inline: 6px calc(var(--size) * 0.32);
+}
+
+.icons {
+    position: relative;
+    inline-size: calc(var(--size) * 0.46);
+    block-size: calc(var(--size) * 0.46);
+    flex: none;
+}
+
+.icons > * {
+    position: absolute;
+    inset: 0;
+    inline-size: 100%;
+    block-size: 100%;
+    object-fit: contain;
+    transition:
+        transform 220ms var(--ease),
+        opacity 160ms var(--ease);
+}
+
+.ico-close {
+    opacity: 0;
+    transform: rotate(-90deg) scale(0.6);
+}
+
+.launcher[aria-expanded='true'] .ico-main {
+    opacity: 0;
+    transform: rotate(90deg) scale(0.6);
+}
+
+.launcher[aria-expanded='true'] .ico-close {
+    opacity: 1;
+    transform: none;
+}
+
+.lbl {
+    font: 600 15px/1 var(--font);
+    white-space: nowrap;
+}
+
+.av {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 100%;
+    block-size: 100%;
+    object-fit: cover;
+    font: 700 calc(var(--size) * 0.36) / 1 var(--font);
+    background: var(--accent);
+    color: var(--accent-text);
+}
+
+.launcher[data-style='pill'] .av {
+    inline-size: calc(var(--size) - 12px);
+    block-size: calc(var(--size) - 12px);
+    border-radius: 50%;
+    font-size: calc(var(--size) * 0.32);
+}
+
+.nm {
+    font: 600 14px/1.2 var(--font);
+    white-space: nowrap;
+    max-inline-size: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ring {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    border: 2px solid var(--primary);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.badge {
+    position: absolute;
+    inset-block-start: -3px;
+    inset-inline-end: -3px;
+    min-inline-size: 20px;
+    block-size: 20px;
+    padding-inline: 6px;
+    border-radius: 10px;
+    background: var(--accent);
+    color: var(--accent-text);
+    font: 700 11px/20px var(--font);
+    text-align: center;
+    pointer-events: none;
+    opacity: 0;
+    transform: scale(0.5);
+    transition:
+        transform 200ms var(--ease),
+        opacity 160ms var(--ease);
+}
+
+.badge[data-show='true'] {
+    opacity: 1;
+    transform: scale(1);
+}
+
+/* New message while closed: an expanding ring (transform + opacity only). */
+.launcher[data-alert='true'] .ring {
+    animation: ring 1400ms var(--ease) 2;
+}
+
+@keyframes ring {
+    from {
+        opacity: 0.55;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(1.55);
+    }
+}
+
+/* ------------------------------------------------------- greeting popup */
+
+.live {
+    display: flex;
+    align-self: flex-end;
+}
+
+.greet {
+    --from: 10px;
+    position: relative;
+    pointer-events: auto;
+    display: flex;
+    max-inline-size: min(300px, calc(100vw - var(--size) - var(--ox) - 36px));
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: var(--shadow);
+    opacity: 0;
+    transform: translateX(var(--from)) scale(0.96);
+    transition:
+        opacity 160ms var(--ease),
+        transform 160ms var(--ease);
+}
+
+[data-pos='bottom-right'] .greet {
+    margin-right: 12px;
+    transform-origin: right bottom;
+}
+
+[data-pos='bottom-left'] .greet {
+    --from: -10px;
+    margin-left: 12px;
+    transform-origin: left bottom;
+}
+
+/* Starts while the flip is mid-air so the two read as one gesture. */
+.greet[data-state='open'] {
+    opacity: 1;
+    transform: none;
+    transition:
+        opacity 240ms var(--ease) 140ms,
+        transform 260ms var(--ease) 140ms;
+}
+
+.greet::after {
+    content: '';
+    position: absolute;
+    inset-block-end: calc(var(--size) / 2 - 6px);
+    inline-size: 12px;
+    block-size: 12px;
+    background: var(--surface);
+    transform: rotate(45deg);
+    border-radius: 2px;
+}
+
+[data-pos='bottom-right'] .greet::after {
+    right: -5px;
+}
+
+[data-pos='bottom-left'] .greet::after {
+    left: -5px;
+}
+
+.g-main {
+    display: flex;
+    flex: 1;
+    align-items: flex-start;
+    gap: 10px;
+    min-inline-size: 0;
+    padding: 12px 36px 12px 14px;
+    border-radius: inherit;
+    text-align: start;
+}
+
+[dir='rtl'] .g-main {
+    padding: 12px 14px 12px 36px;
+}
+
+.g-av {
+    flex: none;
+    inline-size: 36px;
+    block-size: 36px;
+    border-radius: 50%;
+    overflow: hidden;
+}
+
+.g-av .av {
+    font-size: 15px;
+}
+
+.g-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-inline-size: 0;
+}
+
+.g-name {
+    font-weight: 600;
+    font-size: 13px;
+    opacity: 0.8;
+}
+
+.g-body {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 6;
+    line-clamp: 6;
+    overflow: hidden;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.g-x {
+    position: absolute;
+    inset-block-start: 6px;
+    inset-inline-end: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 26px;
+    block-size: 26px;
+    border-radius: 50%;
+    opacity: 0.6;
+    transition:
+        opacity 120ms ease,
+        transform 160ms var(--ease);
+}
+
+.g-ico {
+    inline-size: 14px;
+    block-size: 14px;
+}
+
+/* Bigger touch target than the visible circle. */
+.g-x::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+}
+
+.g-x:active {
+    transform: scale(0.92);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .g-x:hover {
+        opacity: 1;
+    }
+}
+
+/* -------------------------------------------------------------- panel */
+
+.panel {
+    position: fixed;
+    pointer-events: auto;
+    inset-block-end: calc(
+        var(--oy) + var(--size) + 12px + env(safe-area-inset-bottom, 0px)
+    );
+    inline-size: min(var(--pw), calc(100vw - 2 * var(--ox)));
+    block-size: min(var(--ph), calc(100vh - var(--oy) - var(--size) - 28px));
+    block-size: min(var(--ph), calc(100dvh - var(--oy) - var(--size) - 28px));
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    visibility: hidden;
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+    transition:
+        opacity 140ms var(--ease),
+        transform 160ms var(--ease),
+        visibility 0s linear 160ms;
+}
+
+[data-pos='bottom-right'] .panel {
+    right: calc(var(--ox) + env(safe-area-inset-right, 0px));
+    transform-origin: right bottom;
+}
+
+[data-pos='bottom-left'] .panel {
+    left: calc(var(--ox) + env(safe-area-inset-left, 0px));
+    transform-origin: left bottom;
+}
+
+.panel[data-open='true'] {
+    visibility: visible;
+    opacity: 1;
+    transform: none;
+    transition:
+        opacity 200ms var(--ease),
+        transform 260ms var(--ease),
+        visibility 0s;
+}
+
+.panel[data-mode='fullscreen'] {
+    inset: 0;
+    inline-size: 100%;
+    block-size: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    transform-origin: center bottom;
+}
+
+.panel iframe {
+    display: block;
+    inline-size: 100%;
+    block-size: 100%;
+    border: 0;
+    background: transparent;
+}
+
+[data-fullscreen='true'] .launcher {
+    visibility: hidden;
+}
+
+/* ------------------------------------------------------ mobile layout */
+
+@media (max-width: 479.98px) {
+    /* Bottom sheet above the launcher instead of a card beside it. */
+    .greet {
+        --from: 0px;
+        position: fixed;
+        inset-inline: 12px;
+        inset-block-end: calc(
+            var(--oy) + var(--size) + 14px + env(safe-area-inset-bottom, 0px)
+        );
+        max-inline-size: none;
+        margin: 0 !important;
+        transform: translateY(18px) scale(0.98);
+        transform-origin: center bottom !important;
+    }
+
+    .greet::after {
+        display: none;
+    }
+}
+
+/* ------------------------------------------------------ reduced motion */
+
+/* No movement at all: the flip becomes a crossfade, panels/popups just fade, the ring is dropped
+   (the badge still signals a new message). */
+[data-motion='reduced'] * {
+    animation: none !important;
+}
+
+[data-motion='reduced']
+    :is(.launcher, .card, .face, .icons > *, .badge, .greet, .panel) {
+    transform: none !important;
+}
+
+[data-motion='reduced'] .face {
+    transition: opacity 220ms ease;
+}
+
+[data-motion='reduced'] .back,
+[data-motion='reduced'] [data-face='agent'] .front {
+    opacity: 0;
+}
+
+[data-motion='reduced'] [data-face='agent'] .back {
+    opacity: 1;
+}
