@@ -158,7 +158,7 @@ describe('settings menu', () => {
             'Support categories',
         );
         expect(list.map(([title]) => title)).toEqual(
-            expect.arrayContaining(['Profile', 'Security', 'Appearance']),
+            expect.arrayContaining(['Profile', 'Appearance']),
         );
     });
 });

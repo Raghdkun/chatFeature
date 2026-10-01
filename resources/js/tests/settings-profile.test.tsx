@@ -77,7 +77,12 @@ describe('Settings in Auth Portal mode', () => {
             </SettingsLayout>,
         );
 
-        expect(navTexts(view)).toEqual(['Profile', 'Appearance']);
+        // The test user is an agent, so the support-categories entry follows the account pages.
+        expect(navTexts(view)).toEqual([
+            'Profile',
+            'Appearance',
+            'Support categories',
+        ]);
     });
 
     it('keeps the Security page in local mode', async () => {
@@ -87,7 +92,12 @@ describe('Settings in Auth Portal mode', () => {
             </SettingsLayout>,
         );
 
-        expect(navTexts(view)).toEqual(['Profile', 'Security', 'Appearance']);
+        expect(navTexts(view)).toEqual([
+            'Profile',
+            'Security',
+            'Appearance',
+            'Support categories',
+        ]);
     });
 
     it('shows the profile read-only, with a link to the portal and nothing to save or delete', async () => {
