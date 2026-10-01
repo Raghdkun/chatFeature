@@ -487,11 +487,12 @@ export type DomainCheck =
 const LABEL = /^[a-z0-9_]([a-z0-9_-]*[a-z0-9_])?$/i;
 
 /**
- * Mirrors the server rules (contract): lower-case host, punycode, no scheme / path / userinfo,
- * `*.` only as the first label, optional port. The server stays the authority.
+ * Mirrors the server rules (contract): lower-case host, punycode, no path / userinfo, `*.` only as the first label,
+ * optional port. An `https://` prefix is dropped (https is the default), an `http://` prefix is kept: it is the
+ * admin's explicit permission for a site served without https (OriginMatcher). The server stays the authority.
  */
 export function normaliseDomainEntry(raw: string): DomainCheck {
-    const text = raw.trim().toLowerCase();
+    let text = raw.trim().toLowerCase();
 
     if (text === '') {
         return { ok: false, reason: 'empty' };
@@ -500,6 +501,14 @@ export function normaliseDomainEntry(raw: string): DomainCheck {
     if (text.length > LIMITS.domainEntryLength) {
         return { ok: false, reason: 'invalid' };
     }
+
+    const prefix = /^(https?):\/\//.exec(text);
+
+    if (prefix) {
+        text = text.slice(prefix[0].length);
+    }
+
+    const plainHttp = prefix?.[1] === 'http';
 
     if (text.includes('://') || /^[a-z][a-z0-9+.-]*:\/\//.test(text)) {
         return { ok: false, reason: 'scheme' };
@@ -552,7 +561,7 @@ export function normaliseDomainEntry(raw: string): DomainCheck {
         return { ok: false, reason: 'wildcard' };
     }
 
-    const value = `${wildcard ? '*.' : ''}${host}${portPart !== undefined ? `:${Number(portPart)}` : ''}`;
+    const value = `${plainHttp ? 'http://' : ''}${wildcard ? '*.' : ''}${host}${portPart !== undefined ? `:${Number(portPart)}` : ''}`;
 
     return { ok: true, value };
 }

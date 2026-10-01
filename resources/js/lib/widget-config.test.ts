@@ -297,10 +297,24 @@ describe('domain entries', () => {
         expect(ok('münchen.de')).toBe('xn--mnchen-3ya.de');
     });
 
-    it('rejects schemes, userinfo, paths and bad wildcards', () => {
+    it('drops an https:// prefix (the default) and keeps http:// (a site served without https)', () => {
+        expect(ok('https://Example.com')).toBe('example.com');
+        expect(ok('https://*.example.com:8443')).toBe('*.example.com:8443');
+        expect(ok('http://Legacy.Example.org')).toBe(
+            'http://legacy.example.org',
+        );
+        expect(ok('HTTP://*.example.org:8080')).toBe(
+            'http://*.example.org:8080',
+        );
+        expect(ok('http://example.com/path')).toBe('error:path');
+        expect(ok('http://user@example.com')).toBe('error:userinfo');
+        expect(ok('http://')).toBe('error:invalid');
+    });
+
+    it('rejects other schemes, userinfo, paths and bad wildcards', () => {
         expect(ok('')).toBe('error:empty');
-        expect(ok('https://example.com')).toBe('error:scheme');
         expect(ok('ftp://example.com')).toBe('error:scheme');
+        expect(ok('http://https://example.com')).toBe('error:scheme');
         expect(ok('user:pass@example.com')).toBe('error:userinfo');
         expect(ok('example.com/path')).toBe('error:path');
         expect(ok('example.com?x=1')).toBe('error:path');
