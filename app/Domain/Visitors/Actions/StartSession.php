@@ -29,8 +29,9 @@ use Illuminate\Validation\ValidationException;
  *   from now, in the same transaction, and never extended again: after that window it is `401 session_revoked`, so a stale or
  *   stolen token cannot outlive a rotation (nor take over the open chat by rotating itself). A previous verified visitor is only
  *   continued with a fresh identity proof.
- * - Only a still-open live chat (`queued` / `active`) is resumed: it moves to the new session, and the session that held it is
- *   revoked at once, so a chat is never reachable from two tokens. Everything else starts clean (a new visit is a new ticket).
+ * - Only a still-open live chat (`queued` / `active`) is resumed: it moves to the new session, so a chat is never reachable from two
+ *   tokens (a session that held it and is not the token being rotated is revoked at once; the rotated token keeps only its overlap
+ *   window). Everything else starts clean (a new visit is a new ticket).
  */
 final class StartSession
 {
@@ -72,7 +73,7 @@ final class StartSession
                 $this->capOverlap($previous);
             }
 
-            return new StartedSession($issued, $this->resume($visitor, $issued->session));
+            return new StartedSession($issued, $this->resume($visitor, $issued->session, $previous));
         });
 
         return $started;
@@ -207,9 +208,11 @@ final class StartSession
     }
 
     /**
-     * The visitor's open live chat moves to the new session; the session that held it is revoked.
+     * The visitor's open live chat moves to the new session. The session that held it is revoked at once, unless it is the token
+     * this very rotation replaces: that one only gets the overlap window (already applied), like every previous token. It cannot
+     * reach the chat any more either way (`VisitorSession::owns` follows `visitor_session_id`).
      */
-    private function resume(Visitor $visitor, VisitorSession $session): ?Conversation
+    private function resume(Visitor $visitor, VisitorSession $session, ?VisitorSession $previous): ?Conversation
     {
         $conversation = Conversation::query()
             ->where('visitor_id', $visitor->id)
@@ -228,7 +231,7 @@ final class StartSession
         $conversation->visitor_session_id = $session->id;
         $conversation->save();
 
-        if ($holder !== null) {
+        if ($holder !== null && $holder->id !== $previous?->id) {
             $this->tokens->revoke($holder);
         }
 

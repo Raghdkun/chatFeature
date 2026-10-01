@@ -181,11 +181,16 @@ class PublicSessionApiTest extends TestCase
         $this->assertNotSame($first->plaintext, $second);
         $response->assertJsonPath('data.conversation.ulid', $chat->ulid)->assertJsonPath('data.conversation.status', 'queued');
 
-        // Same visitor, the chat moved to the new session, the old token is dead.
+        // Same visitor, the chat moved to the new session. The replaced token has its overlap window like any previous token, but the chat
+        // is no longer reachable with it; after the window it is dead.
         $this->assertSame(1, Visitor::query()->count());
         $this->assertSame(VisitorTokenService::hash($second), VisitorSession::query()->find($chat->fresh()->visitor_session_id)->token_hash);
-        $this->withToken($first->plaintext)->getJson('/api/v1/public/conversation')->assertStatus(401)->assertJsonPath('error.code', 'session_revoked');
+        $this->withToken($first->plaintext)->getJson('/api/v1/public/conversation')->assertOk()->assertJsonPath('data.ulid', null);
+        $this->withToken($first->plaintext)->getJson("/api/v1/public/conversations/{$chat->ulid}/messages")->assertNotFound();
         $this->withToken($second)->getJson('/api/v1/public/conversation')->assertOk()->assertJsonPath('data.ulid', $chat->ulid);
+        $this->travel(61)->seconds();
+        $this->withToken($first->plaintext)->getJson('/api/v1/public/conversation')->assertStatus(401)->assertJsonPath('error.code', 'session_revoked');
+        $this->travelBack();
 
         // Once the chat is over a returning token starts clean: a new visit is a new ticket.
         $chat->forceFill(['status' => ConversationStatus::Closed, 'close_reason' => ConversationCloseReason::Skipped])->save();
@@ -224,6 +229,23 @@ class PublicSessionApiTest extends TestCase
         $this->open(headers: $this->bearer($stolen))->assertCreated()->assertJsonPath('data.conversation', null);
         $this->withToken($victim)->getJson('/api/v1/public/conversation')->assertOk()->assertJsonPath('data.ulid', $chat->ulid);
         $this->assertSame($this->tokenFor($victim)->session->id, $chat->fresh()->visitor_session_id);
+    }
+
+    public function test_a_replaced_token_cannot_start_a_second_chat_during_its_overlap_window(): void
+    {
+        $category = $this->widget->categories()->first();
+        $first = $this->visitorSession($this->widget);
+        $chat = $this->queuedChat($first, $category);
+        $this->availableAgent($category);
+
+        $second = $this->open(headers: $this->bearer($first))->assertCreated()->assertJsonPath('data.conversation.ulid', $chat->ulid)->json('data.visitorToken');
+
+        // The chat belongs to the new token; the replaced one is still alive for a minute but this visitor already has a chat.
+        $this->withToken($first->plaintext)->postJson('/api/v1/public/conversations', ['category' => 'billing'])
+            ->assertStatus(409)->assertJsonPath('error.code', 'conversation_exists');
+        $this->withToken($second)->postJson('/api/v1/public/conversations', ['category' => 'billing'])
+            ->assertStatus(409)->assertJsonPath('error.code', 'conversation_exists');
+        $this->assertSame(1, Conversation::query()->count());
     }
 
     public function test_a_returning_visitor_without_an_open_chat_does_not_pile_up_active_sessions(): void
