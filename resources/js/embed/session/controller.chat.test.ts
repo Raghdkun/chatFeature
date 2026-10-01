@@ -427,6 +427,8 @@ describe('queued', () => {
         const h = createHarness({ backend: useBackend() });
 
         await activate(h);
+        // the server re-queues the chat (and the watchdog poll must agree with the event)
+        h.backend.state.conversation = { ...(h.backend.state.conversation as object), status: 'queued', agent: null } as never;
         h.socket()?.emit('conversation.transferred', { v: 1 });
         expect(h.state()).toMatchObject({ phase: 'queued', transferred: true });
         expect(h.state().messages).toHaveLength(1);

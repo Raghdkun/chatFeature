@@ -153,7 +153,64 @@ describe('REST polling fallback', () => {
     });
 });
 
+describe('without a realtime server', () => {
+    it('a session without a ws block (Reverb not configured) runs the whole chat over REST polling', async () => {
+        const backend = useBackend({ noWs: true });
+        const h = createHarness({ backend, pollMs: 20 });
+
+        await h.init();
+        h.open();
+        h.controller.submitPrechat(FORM);
+        h.controller.chooseCategory('billing');
+        await until(() => h.state().phase === 'queued');
+
+        expect(h.sockets).toHaveLength(0);
+        expect(h.state().connection).toBe('reconnecting');
+
+        backend.claim('Sam');
+        await until(() => h.state().phase === 'active');
+        h.controller.send({ body: 'Hi over REST' });
+        await until(() => h.state().messages.at(-1)?.status === 'sent');
+        backend.agentSays('Hello back');
+        await until(() => h.state().messages.some((m) => m.body === 'Hello back'));
+    });
+
+    it('a channel subscription the server refuses (503) keeps the chat on polling instead of waiting for events that never come', async () => {
+        const backend = useBackend();
+        const h = createHarness({ backend, pollMs: 20 });
+
+        await h.init();
+        h.open();
+        h.controller.submitPrechat(FORM);
+        h.controller.chooseCategory('billing');
+        await until(() => h.state().phase === 'queued');
+        await until(() => h.socket() !== null);
+
+        h.socket()?.authErrorHandler?.(503);
+        expect(h.state().connection).toBe('reconnecting');
+
+        backend.claim('Sam');
+        await until(() => h.state().phase === 'active');
+        // a 401 / 403 is different: that ends the session
+        h.socket()?.authErrorHandler?.(403);
+        await until(() => h.state().phase === 'closed');
+        expect(h.state().closedReason).toBe('expired');
+    });
+});
+
 describe('typing', () => {
+    it('shows the agent typing from the server\'s REST-typing fallback event as well as the whisper', async () => {
+        const h = createHarness({ backend: useBackend() });
+
+        await active(h);
+        h.socket()?.emit('typing', { v: 1, actor: 'agent', typing: true });
+        expect(h.state().typing).toBe(true);
+        h.socket()?.emit('typing', { v: 1, actor: 'agent', typing: false });
+        expect(h.state().typing).toBe(false);
+        h.socket()?.emit('client-typing', { actor: 'agent', typing: true });
+        expect(h.state().typing).toBe(true);
+    });
+
     it('whispers client-typing at most every 3 s and sends false when the draft is emptied', async () => {
         const h = createHarness({ backend: useBackend() });
 

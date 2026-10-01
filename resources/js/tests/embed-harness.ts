@@ -37,7 +37,11 @@ type Handler = (payload: unknown) => void;
 export class FakeSocket implements ConversationSocket {
     handlers = new Map<string, Handler[]>();
     statusHandlers: ((status: SocketStatus) => void)[] = [];
+    subscribedHandler: (() => void) | null = null;
+    /** The channel subscription failed with this HTTP status (401 / 403: session gone; 503: Reverb not configured). */
     authErrorHandler: ((status: number) => void) | null = null;
+    /** Do not confirm the channel subscription after `connected` (tests of a refused subscription). */
+    holdSubscription = false;
     whispers: { event: string; payload: Record<string, unknown> }[] = [];
     current: SocketStatus = 'connecting';
     closed = false;
@@ -65,7 +69,16 @@ export class FakeSocket implements ConversationSocket {
         return this.current;
     }
 
-    onAuthError(handler: (status: number) => void): void {
+    onSubscribed(handler: () => void): void {
+        this.subscribedHandler = handler;
+
+        // The fake connects before the manager has bound its handlers: confirm what it missed.
+        if (this.current === 'connected' && !this.holdSubscription) {
+            queueMicrotask(() => handler());
+        }
+    }
+
+    onSubscriptionError(handler: (status: number) => void): void {
         this.authErrorHandler = handler;
     }
 
@@ -88,6 +101,16 @@ export class FakeSocket implements ConversationSocket {
         for (const handler of this.statusHandlers) {
             handler(status);
         }
+
+        // A real connection subscribes to the channel right after it is up (and again after every reconnect).
+        if (status === 'connected' && !this.holdSubscription) {
+            this.subscribedHandler?.();
+        }
+    }
+
+    /** The channel subscription succeeded (after `holdSubscription`). */
+    confirmSubscription(): void {
+        this.subscribedHandler?.();
     }
 }
 

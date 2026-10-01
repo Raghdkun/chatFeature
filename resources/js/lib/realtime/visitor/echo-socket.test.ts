@@ -7,7 +7,7 @@ const created: {
     disconnected: boolean;
     listeners: Map<string, ((p: unknown) => void)[]>;
     whispers: [string, unknown][];
-    errorHandler: ((e: unknown) => void) | null;
+    errorHandler: ((e: unknown) => void) | null; subscribedHandler: (() => void) | null;
     statusHandlers: ((s: string) => void)[];
     status: string;
 }[] = [];
@@ -29,6 +29,7 @@ vi.mock('laravel-echo', () => ({
                 listeners: new Map(),
                 whispers: [],
                 errorHandler: null,
+                subscribedHandler: null,
                 statusHandlers: [],
                 status: 'connecting',
             };
@@ -61,6 +62,11 @@ vi.mock('laravel-echo', () => ({
                 },
                 error(cb: (e: unknown) => void) {
                     record.errorHandler = cb;
+
+                    return channel;
+                },
+                subscribed(cb: () => void) {
+                    record.subscribedHandler = cb;
 
                     return channel;
                 },
@@ -151,15 +157,21 @@ describe('echo socket', () => {
         expect(socket.status()).toBe('connecting');
     });
 
-    it('reports a 401 / 403 subscription error as an auth failure, and ignores others', async () => {
+    it('reports the subscription outcome: success, and the status of a refused subscription', async () => {
         const socket = await createEchoSocket(INPUT);
         const failures: number[] = [];
+        let subscribed = 0;
 
-        socket.onAuthError((status) => failures.push(status));
+        socket.onSubscribed(() => void subscribed++);
+        socket.onSubscriptionError((status) => failures.push(status));
+
+        created[0].subscribedHandler?.();
         created[0].errorHandler?.({ type: 'AuthError', status: 403 });
-        created[0].errorHandler?.({ status: 500 });
+        created[0].errorHandler?.({ status: 503 });
         created[0].errorHandler?.('nonsense');
-        expect(failures).toEqual([403]);
+
+        expect(subscribed).toBe(1);
+        expect(failures).toEqual([403, 503, 0]);
     });
 
     it('close leaves the channel and disconnects', async () => {

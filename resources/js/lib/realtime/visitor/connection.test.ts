@@ -157,11 +157,28 @@ describe('events', () => {
         realtime.close();
     });
 
-    it('reports an auth refusal', async () => {
+    it('reports a refused session (401 / 403 on the channel auth)', async () => {
         const { socket, calls, realtime } = await open();
 
         socket.authErrorHandler?.(403);
-        expect(calls.authFailures).toBe(1);
+        socket.authErrorHandler?.(401);
+        expect(calls.authFailures).toBe(2);
+
+        realtime.close();
+    });
+
+    it('binds the server\'s REST typing fallback (`typing`) next to the whisper (`client-typing`)', async () => {
+        const { socket, calls, realtime } = await open();
+
+        socket.setStatus('connected');
+        socket.emit('typing', { v: 1, actor: 'agent', typing: true });
+        socket.emit('typing', { v: 1, actor: 'visitor', typing: true });
+        socket.emit('client-typing', { actor: 'agent', typing: false });
+
+        expect(calls.typing).toEqual([
+            { actor: 'agent', typing: true },
+            { actor: 'agent', typing: false },
+        ]);
 
         realtime.close();
     });
@@ -173,7 +190,7 @@ describe('status and catch-up', () => {
 
         socket.setStatus('connected');
 
-        expect(calls.statuses).toEqual(['connecting', 'connecting', 'online']);
+        expect(calls.statuses).toEqual(['connecting', 'online']);
         expect(calls.syncs).toEqual(['connect']);
         expect(realtime.isUp()).toBe(true);
 
@@ -228,6 +245,68 @@ describe('status and catch-up', () => {
         document.dispatchEvent(new Event('visibilitychange'));
         window.dispatchEvent(new Event('online'));
         expect(calls.syncs).toEqual(['visible', 'visible']);
+
+        realtime.close();
+    });
+});
+
+describe('channel subscription', () => {
+    it('is only up once the channel subscription went through, and syncs then (not before)', async () => {
+        const { socket, calls, realtime } = await open();
+
+        socket.holdSubscription = true;
+        socket.setStatus('connected');
+        expect(realtime.isUp()).toBe(false);
+        expect(calls.syncs).toEqual([]);
+        expect(calls.statuses.at(-1)).toBe('connecting');
+
+        socket.confirmSubscription();
+        expect(realtime.isUp()).toBe(true);
+        expect(calls.statuses.at(-1)).toBe('online');
+        expect(calls.syncs).toEqual(['connect']);
+
+        realtime.close();
+    });
+
+    it('a subscription the server refuses (503 realtime_unavailable) counts as down: reconnecting, polling covers it', async () => {
+        vi.useFakeTimers();
+
+        try {
+            const { socket, calls, realtime } = await open(1000);
+
+            socket.holdSubscription = true;
+            socket.setStatus('connected');
+            socket.authErrorHandler?.(503);
+
+            expect(realtime.isUp()).toBe(false);
+            expect(calls.statuses.at(-1)).toBe('reconnecting');
+            expect(calls.authFailures).toBe(0);
+            expect(realtime.whisperTyping(true)).toBe(false);
+
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(calls.syncs).toEqual(['poll']);
+
+            // a later reconnect that subscribes fine recovers
+            socket.setStatus('disconnected');
+            socket.setStatus('connected');
+            socket.confirmSubscription();
+            expect(calls.statuses.at(-1)).toBe('online');
+            expect(calls.syncs.at(-1)).toBe('connect');
+
+            realtime.close();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('re-subscribing after a reconnect syncs as a reconnect', async () => {
+        const { socket, calls, realtime } = await open();
+
+        socket.setStatus('connected');
+        socket.setStatus('disconnected');
+        socket.setStatus('connected');
+
+        expect(calls.syncs).toEqual(['connect', 'reconnect']);
 
         realtime.close();
     });

@@ -36,6 +36,8 @@ export type RecordedCall = {
 export type BackendOptions = {
     /** `POST /conversations` answers `409 no_agents`. */
     noAgents?: boolean;
+    /** Sessions come back without a `ws` block (Reverb not configured on the server). */
+    noWs?: boolean;
     /** Required fields of `POST /conversations` besides `category` (server-side pre-chat rules). */
     requireName?: boolean;
     requireEmail?: boolean;
@@ -199,6 +201,7 @@ export function createVisitorBackend(options: BackendOptions = {}) {
             options.availability ??
             (bootConfig().availability as Record<string, unknown>),
         noAgents: options.noAgents ?? false,
+        wsEnabled: !(options.noWs ?? false),
         requireName: options.requireName ?? false,
         requireEmail: options.requireEmail ?? false,
         /** token -> expiry; a token that is not here is unknown. */
@@ -406,7 +409,7 @@ export function createVisitorBackend(options: BackendOptions = {}) {
                                     isOpen() && mine(returning)
                                         ? state.conversation
                                         : null,
-                                ws,
+                                ws: state.wsEnabled ? ws : null,
                             },
                         },
                         { status: 201 },
@@ -426,7 +429,7 @@ export function createVisitorBackend(options: BackendOptions = {}) {
                             visitorToken: fresh,
                             expiresAt,
                             conversation: null,
-                            ws,
+                            ws: state.wsEnabled ? ws : null,
                         },
                     },
                     { status: 201 },
