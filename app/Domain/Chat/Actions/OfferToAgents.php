@@ -22,6 +22,11 @@ use Illuminate\Support\Facades\DB;
  * `start()` runs wave 1 at once (or after its own delay when the widget configured one), schedules the later waves as delayed
  * jobs and the queue timeout (`ExpireQueuedConversation`); `wave()` is one step and is safe to repeat: an agent who already has a
  * row is never offered the chat twice, and it does nothing once the chat left the queue or its timeout passed.
+ *
+ * A delayed job can be lost (a failed job, the `sync` queue driver that runs it at once and so too early), so `OfferDueWaves`
+ * (`chat:offer-waves`, every minute) runs any wave that is due and has not been made; and a job from an earlier trip through the
+ * queue (the chat was claimed and transferred since) carries the `claim_version` it was dispatched for (its queue epoch) and is
+ * ignored by `wave()` when the chat is in a later one.
  */
 final class OfferToAgents
 {
@@ -44,7 +49,7 @@ final class OfferToAgents
             if ($delay <= 0) {
                 $this->wave($conversation, $wave);
             } else {
-                OfferNextWave::dispatch($conversation->id, $wave, now()->addSeconds($delay)->getTimestamp())->delay($delay)->afterCommit();
+                OfferNextWave::dispatch($conversation->id, $wave, now()->addSeconds($delay)->getTimestamp(), (int) $conversation->claim_version)->delay($delay)->afterCommit();
             }
         }
 
@@ -54,18 +59,20 @@ final class OfferToAgents
     /**
      * Offer the chat to the available agents of wave `$wave` (1-based) that have not been offered it yet. The conversation row is
      * locked while it is checked and the offers are written, so a claim that wins in the meantime is not followed by offers for a
-     * chat that is no longer waiting.
+     * chat that is no longer waiting. `$epoch` (the `claim_version` the caller was scheduled for) makes a call from an earlier trip
+     * through the queue a no-op.
      *
      * @return Collection<int, ConversationOffer> the offers made now
      */
-    public function wave(Conversation $conversation, int $wave): Collection
+    public function wave(Conversation $conversation, int $wave, ?int $epoch = null): Collection
     {
-        return DB::transaction(function () use ($conversation, $wave): Collection {
+        return DB::transaction(function () use ($conversation, $wave, $epoch): Collection {
             $locked = Conversation::query()->with(['widget', 'category', 'visitor'])->whereKey($conversation->id)->lockForUpdate()->first();
 
             if ($locked === null
                 || $locked->status !== ConversationStatus::Queued
                 || $locked->type !== ConversationType::Live
+                || ($epoch !== null && (int) $locked->claim_version !== $epoch)
                 || $locked->queue_expires_at === null
                 || $locked->queue_expires_at->lte(now())) {
                 return new Collection;

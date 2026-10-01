@@ -229,7 +229,7 @@ class ChatSweepsTest extends TestCase
         $events = collect(app(Schedule::class)->events());
         $find = fn (string $command): ScheduledEvent => $events->first(fn (ScheduledEvent $event): bool => str_contains((string) $event->command, $command)) ?? $this->fail("{$command} is not scheduled");
 
-        foreach (['chat:expire-queued', 'chat:close-idle', 'chat:close-unrated'] as $command) {
+        foreach (['chat:expire-queued', 'chat:offer-waves', 'chat:close-idle', 'chat:close-unrated'] as $command) {
             $event = $find($command);
             $this->assertSame('* * * * *', $event->expression, $command);
             $this->assertTrue($event->withoutOverlapping, $command);
