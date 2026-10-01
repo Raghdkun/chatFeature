@@ -15,4 +15,5 @@ enum IdentityFailure: string
     case ExpiryTooFar = 'expiry_too_far';
     case NotYetValid = 'not_yet_valid';
     case InvalidClaims = 'invalid_claims';
+    case Replayed = 'replayed';
 }

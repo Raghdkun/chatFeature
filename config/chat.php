@@ -18,4 +18,10 @@ return [
 
     /* Locales rendered right-to-left (drives the `direction` shared prop and <html dir>). */
     'rtl_locales' => ['ar', 'he', 'fa', 'ur'],
+
+    /* Signed visitor identities (HS256 JWT minted by the host website). */
+    'identity' => [
+        /* `exp` may lie at most this many seconds ahead; tokens living longer are refused. */
+        'max_lifetime_seconds' => 300,
+    ],
 ];
