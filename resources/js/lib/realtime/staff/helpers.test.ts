@@ -66,8 +66,11 @@ describe('channel authorization', () => {
         expect(auth.headersProvider()).not.toHaveProperty('X-XSRF-TOKEN');
     });
 
-    it('uses the websocket only when the build has the Reverb key', () => {
+    it('uses the websocket only when the build has the Reverb key and the server does not say otherwise', () => {
         expect(socketsConfigured({ VITE_REVERB_APP_KEY: 'abc' })).toBe(true);
+        expect(socketsConfigured({ VITE_REVERB_APP_KEY: 'abc' }, null)).toBe(
+            false,
+        );
         expect(socketsConfigured({ VITE_REVERB_APP_KEY: '' })).toBe(false);
         expect(socketsConfigured({})).toBe(false);
     });
@@ -100,7 +103,28 @@ describe('where the websocket connects', () => {
         );
     });
 
-    it('falls back to the VITE values when the prop is absent or unusable', () => {
+    it('falls back to the VITE values only when the prop is entirely ABSENT (an older server)', () => {
+        const env = {
+            VITE_REVERB_APP_KEY: 'build-key',
+            VITE_REVERB_HOST: 'build.example',
+            VITE_REVERB_PORT: '8080',
+            VITE_REVERB_SCHEME: 'http',
+        };
+        const fromBuild = {
+            key: 'build-key',
+            host: 'build.example',
+            port: 8080,
+            forceTLS: false,
+        };
+
+        expect(reverbSettings(undefined, env)).toEqual(fromBuild);
+        expect(
+            reverbSettings(undefined, { ...env, VITE_REVERB_PORT: '' }),
+        ).toEqual({ ...fromBuild, port: 443 });
+        expect(socketsConfigured(env, undefined)).toBe(true);
+    });
+
+    it("lets the server's answer win: null means realtime is off, whatever this build was compiled with", () => {
         const env = {
             VITE_REVERB_APP_KEY: 'build-key',
             VITE_REVERB_HOST: 'build.example',
@@ -108,30 +132,41 @@ describe('where the websocket connects', () => {
             VITE_REVERB_SCHEME: 'http',
         };
 
+        expect(reverbSettings(null, env)).toBeNull();
+        expect(socketsConfigured(env, null)).toBe(false);
+        // the Echo options then carry no address of the build either
+        const options = staffEchoOptions(null, env);
+
+        expect(options).not.toHaveProperty('key');
+        expect(options).not.toHaveProperty('wsHost');
+        expect(options).toHaveProperty('channelAuthorization');
+    });
+
+    it('an unusable address from the server is "off" as well, not a reason to look at the build', () => {
+        const env = { VITE_REVERB_APP_KEY: 'build-key' };
+
         for (const unusable of [
-            null,
-            undefined,
             { ...prop, key: '' },
             { ...prop, host: ' ' },
             { ...prop, port: 0 },
+            { ...prop, port: 1.5 },
         ]) {
-            expect(reverbSettings(unusable, env)).toEqual({
-                key: 'build-key',
-                host: 'build.example',
-                port: 8080,
-                forceTLS: false,
-            });
+            expect(reverbSettings(unusable, env)).toBeNull();
+            expect(socketsConfigured(env, unusable)).toBe(false);
         }
     });
 
     it('is nowhere when neither source has an address, and socketsConfigured says exactly that', () => {
-        expect(reverbSettings(null, {})).toBeNull();
-        expect(reverbSettings(null, { VITE_REVERB_APP_KEY: '' })).toBeNull();
+        expect(reverbSettings(undefined, {})).toBeNull();
+        expect(
+            reverbSettings(undefined, { VITE_REVERB_APP_KEY: '' }),
+        ).toBeNull();
+        expect(socketsConfigured({}, undefined)).toBe(false);
         expect(socketsConfigured({}, null)).toBe(false);
         // the prop alone is enough (an installation built without VITE_REVERB_*)
         expect(socketsConfigured({}, prop)).toBe(true);
         expect(socketsConfigured({ VITE_REVERB_APP_KEY: 'abc' }, null)).toBe(
-            true,
+            false,
         );
     });
 
@@ -155,7 +190,7 @@ describe('where the websocket connects', () => {
                 channelAuthorization: { endpoint: '/broadcasting/auth' },
             });
             expect(
-                staffEchoOptions(null, {
+                staffEchoOptions(undefined, {
                     VITE_REVERB_APP_KEY: 'build-key',
                     VITE_REVERB_HOST: 'build.example',
                     VITE_REVERB_PORT: '443',
@@ -168,7 +203,7 @@ describe('where the websocket connects', () => {
             });
 
             // nothing known: only the authorisation (the library's own defaults apply, and no socket is opened)
-            const none = staffEchoOptions(null, {});
+            const none = staffEchoOptions(undefined, {});
 
             expect(none).not.toHaveProperty('key');
             expect(none).toHaveProperty('channelAuthorization');

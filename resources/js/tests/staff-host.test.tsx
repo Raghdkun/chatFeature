@@ -136,6 +136,62 @@ describe('who gets a session', () => {
         await view.unmount();
     });
 
+    it('falls back to the build-time address only when the server sent no realtime prop at all', async () => {
+        vi.stubEnv('VITE_REVERB_APP_KEY', 'build-key');
+        vi.stubEnv('VITE_REVERB_HOST', 'build.example');
+
+        const view = await render(
+            <StaffRealtimeHost
+                initialPage={page(staffUser)}
+                sound={fakeSound()}
+            >
+                <Probe />
+            </StaffRealtimeHost>,
+        );
+
+        expect(fakeEcho.channels()).toContain(`private:staff.${AGENT.id}`);
+        await view.unmount();
+        vi.unstubAllEnvs();
+    });
+
+    it('polls silently when the server says realtime is off (realtime: null), even in a build that has a Reverb address', async () => {
+        vi.stubEnv('VITE_REVERB_APP_KEY', 'build-key');
+        vi.stubEnv('VITE_REVERB_HOST', 'build.example');
+
+        const errors = vi
+            .spyOn(console, 'error')
+            .mockImplementation(() => undefined);
+        const warnings = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+
+        try {
+            const view = await render(
+                <StaffRealtimeHost
+                    initialPage={{
+                        props: { ...page(staffUser).props, realtime: null },
+                    }}
+                    sound={fakeSound()}
+                >
+                    <Probe />
+                </StaffRealtimeHost>,
+            );
+
+            // no channel subscribed, no connection attempt: the dashboard polls and says so
+            expect(fakeEcho.channels()).toEqual([]);
+            expect(
+                view.byTestId('probe')?.getAttribute('data-connection'),
+            ).toBe('unavailable');
+            expect(errors).not.toHaveBeenCalled();
+            expect(warnings).not.toHaveBeenCalled();
+            await view.unmount();
+        } finally {
+            errors.mockRestore();
+            warnings.mockRestore();
+            vi.unstubAllEnvs();
+        }
+    });
+
     it('stays on REST polling when neither the prop nor the build has an address', async () => {
         vi.stubEnv('VITE_REVERB_APP_KEY', '');
 

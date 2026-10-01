@@ -14,12 +14,11 @@ import { openCustomerSite } from '../support/panel';
  * Everything works with NO websocket server at all (`p4-poll`: `BROADCAST_CONNECTION=null`, no Reverb): the visitor's panel gets no
  * `ws` block and polls every 10 s, the dashboard polls every 15 s and says so. Time is the page's own clock (`page.clock`: a poll
  * interval passes at once, as often as needed), the server's clock is real, so a poll tick is exactly what the browser would do.
- * The scenario is shared by the tests of this file only, which therefore use the seeded Alice and the seeded widget.
+ * The scenario is shared by the tests of this file only, which therefore use the seeded Alice and the seeded widget. The server says
+ * so in the shared `realtime` prop (`null`), which wins over the Reverb address baked into the build: the dashboard makes no connection
+ * attempt at all, so no spec here tolerates a console error.
  */
 test.use({ scenario: 'p4-poll' });
-
-/** The dashboard tries the Reverb address baked into the build (the dev `.env`) and fails: that is the point of this scenario. */
-const NO_SOCKET = [/WebSocket/i, /ws:\/\//i];
 
 /** Runs `check` until it holds, letting one poll interval of page time pass between attempts. */
 async function afterPolls(
@@ -57,10 +56,7 @@ test('the whole chat works over REST polling on both sides: queue, accept, messa
 }) => {
     test.setTimeout(150_000);
 
-    const alice = await actors.staff('alice', {
-        presence: 'online',
-        allow: NO_SOCKET,
-    });
+    const alice = await actors.staff('alice', { presence: 'online' });
     const visitor = await actors.visitor();
 
     await alice.page.clock.install();
@@ -176,10 +172,7 @@ test('a chat nobody accepts is noticed over polling: the offer leaves the dashbo
 }) => {
     test.setTimeout(120_000);
 
-    const alice = await actors.staff('alice', {
-        presence: 'online',
-        allow: NO_SOCKET,
-    });
+    const alice = await actors.staff('alice', { presence: 'online' });
     const visitor = await actors.visitor();
 
     await alice.page.clock.install();
