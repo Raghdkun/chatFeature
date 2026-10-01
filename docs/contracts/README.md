@@ -8,6 +8,8 @@
 |---|---|---|
 | [inertia-shared-props.md](inertia-shared-props.md) | P1 (all tracks) | written (P0) |
 | [install-steps.md](install-steps.md) | P1, P2 | written (P0) |
+| [setup-wizard.md](setup-wizard.md) | P1 (1A backend, 1B frontend, 1C e2e) | written (P1) |
+| [auth-driver.md](auth-driver.md) | P1, P2 | written (P0) |
 | [ownership.md](ownership.md) | every phase | written (P0), extended per phase |
 | `realtime-events.md` | P4, P5, P6 | to write before P4 |
 | `rest-shapes.md` | P3, P4 | to write before P3 |
