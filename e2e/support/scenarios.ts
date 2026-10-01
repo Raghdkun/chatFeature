@@ -38,7 +38,14 @@ export type ScenarioName =
     | 'settings-pizzasys'
     | 'wizard-views-pizzasys'
     | 'wizard-views-pizzasys-rtl'
-    | 'installed-pizzasys-rtl';
+    | 'installed-pizzasys-rtl'
+    // P3 (catalog, agents, widgets, the real loader on a cross-origin host page). Ports 8230-8249.
+    | 'p3-categories'
+    | 'p3-agents'
+    | 'p3-widgets'
+    | 'p3-host'
+    | 'p3-views'
+    | 'p3-views-rtl';
 
 export type ProjectName = 'desktop' | 'mobile' | 'pizzasys-outage';
 
@@ -52,7 +59,23 @@ type Definition = {
     /** UI locale (APP_LOCALE before install, INSTALL_LOCALE for installed scenarios). */
     locale?: 'en' | 'ar';
     /** Stateful scenarios get a second instance (own port/database) for the `mobile` project. */
-    perProject?: { mobilePort: number; mobileDbSuffix: string };
+    perProject?: {
+        mobilePort: number;
+        mobileDbSuffix: string;
+        /** Scenarios with a host page server: the mobile project's own host port. */
+        mobileHostPort?: number;
+    };
+    /**
+     * Test data created right after the install (see `SEED_P3` in global-setup.ts): `staff` adds the staff accounts and
+     * three more categories, `demo` additionally a fully configured, published widget "Acme Storefront" (with domains,
+     * greetings and categories).
+     */
+    seed?: 'staff' | 'demo';
+    /**
+     * Port of a tiny static "customer site" (e2e/support/host-server.mjs) on ANOTHER origin than the app
+     * (`http://localhost:<port>` vs `http://127.0.0.1:<app port>`): the cross-origin embed tests drive it.
+     */
+    hostPort?: number;
     /** Only started when E2E_SCREENSHOTS=1. */
     screenshotsOnly?: boolean;
     /**
@@ -163,6 +186,71 @@ const DEFINITIONS: Record<ScenarioName, Definition> = {
         auth: 'pizzasys',
         testingEnvironment: true,
     },
+    // P3. Mutating specs get their own server per project; the read-only ones (axe, 375px, RTL, screenshots) share one.
+    'p3-categories': {
+        kind: 'installed',
+        port: 8230,
+        dbSuffix: '_p3_categories',
+        mode: 'local',
+        seed: 'staff',
+        perProject: {
+            mobilePort: 8231,
+            mobileDbSuffix: '_p3_categories_mobile',
+        },
+    },
+    'p3-agents': {
+        kind: 'installed',
+        port: 8232,
+        dbSuffix: '_p3_agents',
+        mode: 'local',
+        seed: 'staff',
+        perProject: { mobilePort: 8233, mobileDbSuffix: '_p3_agents_mobile' },
+    },
+    // Widget list + builder + preview (admin UI): every test creates its own widgets.
+    'p3-widgets': {
+        kind: 'installed',
+        port: 8234,
+        dbSuffix: '_p3_widgets',
+        mode: 'local',
+        seed: 'staff',
+        hostPort: 8240,
+        perProject: {
+            mobilePort: 8235,
+            mobileDbSuffix: '_p3_widgets_mobile',
+            mobileHostPort: 8241,
+        },
+    },
+    // The real loader on a cross-origin host page.
+    'p3-host': {
+        kind: 'installed',
+        port: 8236,
+        dbSuffix: '_p3_host',
+        mode: 'local',
+        seed: 'staff',
+        hostPort: 8242,
+        perProject: {
+            mobilePort: 8237,
+            mobileDbSuffix: '_p3_host_mobile',
+            mobileHostPort: 8243,
+        },
+    },
+    'p3-views': {
+        kind: 'installed',
+        port: 8238,
+        dbSuffix: '_p3_views',
+        mode: 'local',
+        seed: 'demo',
+        hostPort: 8244,
+    },
+    'p3-views-rtl': {
+        kind: 'installed',
+        port: 8239,
+        dbSuffix: '_p3_views_rtl',
+        mode: 'local',
+        locale: 'ar',
+        seed: 'demo',
+        hostPort: 8245,
+    },
     // Real wizard runs, in token mode, that the screenshot spec walks through for the deck.
     'shots-desktop': {
         kind: 'fresh',
@@ -207,6 +295,11 @@ export type Instance = {
     auth: 'local' | 'pizzasys';
     /** Mode 2: a Testing environment is configured next to Production. */
     testingEnvironment: boolean;
+    /** P3 test data (see `Definition.seed`). */
+    seed: 'staff' | 'demo' | null;
+    /** The cross-origin host page server (`http://localhost:<port>`), when the scenario has one. */
+    hostPort: number | null;
+    hostUrl: string | null;
     /** Environment shared by the web server and every artisan call made for this instance. */
     env: Record<string, string>;
 };
@@ -217,6 +310,7 @@ function build(
     key: string,
     port: number,
     dbSuffix: string,
+    hostPort: number | null = definition.hostPort ?? null,
 ): Instance {
     const url = `http://127.0.0.1:${port}`;
     const dir = `${ROOT}storage/e2e-${key}`;
@@ -266,6 +360,9 @@ function build(
         screenshotsOnly: definition.screenshotsOnly === true,
         auth: definition.auth ?? 'local',
         testingEnvironment: definition.testingEnvironment === true,
+        seed: definition.seed ?? null,
+        hostPort,
+        hostUrl: hostPort === null ? null : `http://localhost:${hostPort}`,
         env,
     };
 }
@@ -289,6 +386,9 @@ function expand(): Instance[] {
                     `${name}-mobile`,
                     definition.perProject.mobilePort,
                     definition.perProject.mobileDbSuffix,
+                    definition.perProject.mobileHostPort ??
+                        definition.hostPort ??
+                        null,
                 ),
             );
         }
@@ -343,7 +443,7 @@ export function instanceFor(scenario: ScenarioName, project: string): Instance {
  * directories that belong to the e2e suite.
  */
 export function assertSafe(instance: Instance): void {
-    if (!/^chatfeature_e2e[a-z_]*$/.test(instance.database)) {
+    if (!/^chatfeature_e2e[a-z0-9_]*$/.test(instance.database)) {
         throw new Error(
             `Refusing to touch database "${instance.database}": e2e databases must be named chatfeature_e2e*.`,
         );

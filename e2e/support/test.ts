@@ -3,7 +3,8 @@
  *
  *   test.use({ scenario: 'installed' })  -> baseURL of that scenario's server (per project where the
  *                                          scenario is stateful, see scenarios.ts)
- *   test.use({ role: 'admin' })          -> start with the saved session of that role (installed scenarios)
+ *   test.use({ role: 'admin' })          -> start with the saved session of that role (installed scenarios;
+ *                                          `admin-only` = an administrator who does not take chats, P3 scenarios)
  */
 import { test as base, expect } from '@playwright/test';
 import {
@@ -12,16 +13,19 @@ import {
     type Instance,
     type ScenarioName,
 } from './scenarios';
-import { authStatePath } from './users';
+import { Api } from './api';
+import { authStatePath, type Role } from './users';
 
 type Options = {
     scenario: ScenarioName | undefined;
-    role: 'admin' | 'agent' | undefined;
+    role: Role | undefined;
 };
 
 type Fixtures = {
     /** The instance (port, database, state directory) this test talks to. */
     instance: Instance;
+    /** The management API with the session of `page` (cookies are shared with the browser context). */
+    api: Api;
 };
 
 export const test = base.extend<Options & Fixtures>({
@@ -36,6 +40,10 @@ export const test = base.extend<Options & Fixtures>({
         }
 
         await use(instanceFor(scenario, testInfo.project.name));
+    },
+
+    api: async ({ page, instance }, use) => {
+        await use(new Api(page.request, instance.url));
     },
 
     baseURL: async ({ scenario }, use, testInfo) => {
