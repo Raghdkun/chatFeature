@@ -11,10 +11,10 @@
 | [setup-wizard.md](setup-wizard.md) | P1 (1A backend, 1B frontend, 1C e2e) | written (P1) |
 | [auth-driver.md](auth-driver.md) | P1, P2 | written (P0) |
 | [ownership.md](ownership.md) | every phase | written (P0), extended per phase |
-| `realtime-events.md` | P4, P5, P6 | to write before P4 |
 | [widget-config.md](widget-config.md) | P3 (3A, 3B, 3C), P4 (4D) | written (ahead of P3) |
 | [postmessage-protocol.md](postmessage-protocol.md) | P3 (3B), P4 (4D) | written (ahead of P3) |
-| [rest-shapes.md](rest-shapes.md) | P3, P4 | conventions + P3 widget endpoints written; P4 extends before its fan-out |
+| [rest-shapes.md](rest-shapes.md) | P3, P4 | conventions + P3 widget endpoints + P4 chat endpoints written |
+| [realtime-events.md](realtime-events.md) | P4, P5, P6 | written (ahead of P4) |
 
 ## Rules
 

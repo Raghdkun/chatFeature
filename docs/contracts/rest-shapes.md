@@ -53,3 +53,42 @@ Cached in Redis for 5–10 s; same origin rules as `config`.
 | `PUT /widgets/{ulid}/domains`, `PUT /widgets/{ulid}/greetings`, `PUT /widgets/{ulid}/categories` | Replace sets. |
 | `POST /widgets/{ulid}/rotate-secret` | Returns the new `identity_secret` **once**. |
 | `GET /widgets/{ulid}/snippet` | `{ script, iframe, hosted }` embed codes for the dashboard. |
+
+## Chat endpoints (P4) — written ahead of the P4 fan-out
+
+Resource shapes (`Message`, `ConversationPublic`, `ConversationStaff`) are defined in [realtime-events.md](realtime-events.md).
+
+### Public (visitor bearer `vt_…`, `widget` group)
+
+| Method + path | Request | Response |
+|---|---|---|
+| `POST /public/sessions` | `{ identity_token?, visitor?: {name?,email?,phone?,meta?}, page: {url,title,referrer}, locale }` | `201 { data: { visitorToken, expiresAt, conversation: ConversationPublic \| null, ws: { key, host, port, scheme } } }`. The plaintext token is returned **once**; only its sha256 is stored. A returning token resumes only a still-open conversation. |
+| `DELETE /public/sessions` | — | `204` (revokes the token). |
+| `GET /public/conversation` | — | `200 { data: ConversationPublic \| null }` (the current session's conversation only — visitors never list history). |
+| `POST /public/conversations` | `{ category: slug, name?, email?, phone?, message?, consent?: bool }` (pre-chat rules from widget config are enforced server-side) | `201 { data: ConversationPublic }` queued · `409 no_agents` (offer the offline form) · `409 conversation_exists` · `422`. |
+| `POST /public/conversations/{ulid}/offline` | `{ name, email, message, category? }` | `201 { data: ConversationPublic }` with `type: 'offline'`. |
+| `GET /public/conversations/{ulid}/messages` | `?after_seq=&limit=` | `{ data: Message[], meta: { next_cursor } }` ordered by `seq`. |
+| `POST /public/conversations/{ulid}/messages` | `{ client_msg_id, body?, attachments?: ulid[] }` (needs body or attachment) | `201 { data: Message }` (replay of the same `client_msg_id` → `200` original). |
+| `POST /public/conversations/{ulid}/attachments` | multipart `file` (jpeg/png/webp/gif, ≤ 5 MB default, ≤ 4096 px; mime sniffed with `finfo`, EXIF stripped by re-encode, SVG rejected) | `201 { data: { ulid, mime, size, width, height, url, thumbUrl } }`; referenced from the next message. |
+| `POST /public/conversations/{ulid}/receipts` | `{ delivered_upto?, seen_upto? }` | `204`. |
+| `POST /public/conversations/{ulid}/typing` | `{ typing: bool }` | `204` (fallback when whispers are unavailable). |
+| `POST /public/conversations/{ulid}/end` | — | `200 { data: ConversationPublic }` (`ended`, `ratingRequested: true`). |
+| `POST /public/conversations/{ulid}/rating` | `{ score: 1..5, comment? (≤ 2000) }` | `201`; conversation becomes `closed`. One rating per conversation. |
+| `POST /public/broadcasting/auth` | Pusher form `socket_id`, `channel_name` | Pusher auth JSON (visitor channels only). |
+| `GET /public/attachments/{ulid}` | signed URL | `302` to a short-lived storage URL. |
+
+A visitor token is bound to **one** visitor session and at most one open conversation; every `{ulid}` is checked against it (cross-visitor access = `404`, not `403`).
+
+### Management (Sanctum)
+
+| Method + path | Notes |
+|---|---|
+| `GET /conversations` | filters `status, category, widget, agent, type, q (FULLTEXT), from, to`, cursor paging. Agents are scoped server-side to conversations assigned to them (admins see all). WhatsApp chats are **not** conversations and never appear here. |
+| `GET /conversations/queue` | queued chats currently offered to the caller (agent) or all (admin). |
+| `GET /conversations/{ulid}` · `GET …/messages?after_seq=` | policy: admin, or assigned agent, or offered-while-queued. |
+| `POST /conversations/{ulid}/claim` | atomic accept → `200 ConversationStaff` or `409 already_claimed`. Also requires category eligibility and `active_chats < max_concurrent_chats`. |
+| `POST …/messages` · `POST …/attachments` · `POST …/receipts` · `POST …/typing` | same shapes as public, authored as the agent. |
+| `POST …/end` | agent/admin ends the chat (`ratingRequested: true`). |
+| `POST …/transfer` | `{ agent_id } \| { category }` → re-queued with assignee cleared, history kept in `conversation_events`. |
+| `GET /conversations/export` | admin only; streamed CSV/JSON, queued for large ranges. |
+| `GET /me/presence` · `PUT /me/presence {status}` · `POST /me/presence/heartbeat` | status `online\|away\|offline`; heartbeat every 30 s. |
