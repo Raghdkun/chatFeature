@@ -19,7 +19,7 @@ final class DefaultSettings
             new SettingDefinition('app.name', SettingGroup::App, SettingType::String, fn (): mixed => config('app.name'), ['required', 'string', 'max:100']),
             new SettingDefinition('app.url', SettingGroup::App, SettingType::String, fn (): mixed => config('app.url'), ['required', 'string', 'url:http,https', 'max:255']),
             new SettingDefinition('app.locale', SettingGroup::App, SettingType::String, fn (): mixed => config('app.locale'), ['required', 'string', Rule::in((array) config('chat.locales', ['en']))]),
-            new SettingDefinition('app.timezone', SettingGroup::App, SettingType::String, 'UTC', ['required', 'string', 'timezone:all']),
+            new SettingDefinition('app.timezone', SettingGroup::App, SettingType::String, 'UTC', ['required', 'string', 'timezone:all_with_bc']),
             new SettingDefinition('app.installed', SettingGroup::App, SettingType::Bool, false, ['boolean']),
             new SettingDefinition('auth.mode', SettingGroup::Auth, SettingType::String, 'fortify', ['required', 'string', Rule::in(['fortify', 'pizzasys'])]),
             new SettingDefinition('auth.allow_registration', SettingGroup::Auth, SettingType::Bool, false, ['boolean']),

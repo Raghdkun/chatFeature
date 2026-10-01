@@ -26,7 +26,7 @@ class UpdateWidgetRequest extends FormRequest
             'idle_timeout_minutes' => ['sometimes', 'integer', 'between:5,10080'],
             'queue_timeout_seconds' => ['sometimes', 'integer', 'between:15,600'],
             'offline_mode' => ['sometimes', Rule::enum(OfflineMode::class)],
-            'timezone' => ['sometimes', 'required', 'string', 'timezone:all'],
+            'timezone' => ['sometimes', 'required', 'string', 'timezone:all_with_bc'],
             'allow_non_browser_clients' => ['sometimes', 'boolean'],
         ];
     }

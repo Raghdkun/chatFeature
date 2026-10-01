@@ -8,7 +8,9 @@ use App\Models\AuthEnvironment;
 use App\Models\User;
 use App\Models\UserExternalIdentity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Support\InteractsWithPortal;
 use Tests\Support\PizzasysMock;
@@ -270,6 +272,10 @@ class AuthSettingsTest extends TestCase
     {
         $this->signIn();
         $url = route('settings.auth.environments.update', 'production');
+
+        // The addresses below are not the mock's: they must behave like unreachable hosts, never reach a real server
+        // (a developer's local pizzasys on :8200 would otherwise answer and change the outcome).
+        Http::fake(['*' => fn () => throw new ConnectionException('Stray request blocked in tests.')]);
 
         foreach (['http://localhost:8200', 'http://127.0.0.1:8200', 'http://portal.test', 'https://auth.example.com/'] as $address) {
             $this->putJson($url, $this->environmentPayload(['base_url' => $address]))->assertRedirect();
