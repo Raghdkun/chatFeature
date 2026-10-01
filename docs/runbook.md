@@ -111,7 +111,7 @@ Changing the address, the service name or the NATS address always asks for the m
 | Image uploads fail with 422 `file` | Over `chat.attachment_max_bytes` / `chat.attachment_max_dimension`, not a real jpeg / png / webp / gif, an animated GIF (refused: send a still), too many pixels for PHP's `memory_limit` (a 4096 x 4096 image needs about 150 MB while it is processed), or `attachment_quota_exceeded`: the conversation holds `chat.attachment_max_total_bytes` (30 MiB) of images already |
 | Visitors get `429 rate_limited` when starting chats | The chat-start guards: 3 starts a minute per widget and client network (`chat.rate_limits.start_per_widget_network`), a 10 s cooldown after cancelling a queued chat, at most 3 chats waiting per network (`chat.max_queued_per_network`); behind a proxy make sure `TRUSTED_PROXIES` is set, otherwise every visitor shares the proxy's address. A large office NAT needs the limits raised in `config/chat.php` |
 | Chat attachments pile up on disk | `chat:prune-visitor-sessions` (daily) deletes uploads no message referenced for 24 h; sent attachments live with their conversation |
-| The chat panel never opens (P3 only) | Expected until P4: the panel is a stub, so the loader's handshake times out |
+| The chat panel never opens | Check that `public/build` contains the embed entry (`npm run build`) and that the page's origin is on the widget's domain list; the loader's handshake times out when the iframe never answers (blocked by CSP `frame-ancestors`, or the host page is not on the list) |
 
 - [ ] TBD (P5/P8): realtime (Reverb), presence sweep and push symptoms
 

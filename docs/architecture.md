@@ -39,7 +39,7 @@ app/
   Infrastructure/Nats/       NATS JetStream consumer (OpenWa, Storage, Broadcasting follow in later phases)
   Support/Network/           OutboundUrlGuard (SSRF guard for admin-typed addresses)
 routes/        web.php + web/<ctx>.php, api/management/<ctx>.php, api/public/<ctx>.php, webhooks/<ctx>.php (loaded by RouteFiles)
-resources/js/  pages, components, hooks, lib, nav, embed (panel stub until P4), types
+resources/js/  pages, components, hooks, lib, nav, embed (the visitor chat panel), types
 resources/widget/{src,test,dev}   vanilla-TS IIFE loader (<= 16 KB gz), its Vitest suites and a dev host page
 public/widget/v1/loader.js        build output of `npm run build:widget` (git-ignored)
 docker/  docs/  e2e/

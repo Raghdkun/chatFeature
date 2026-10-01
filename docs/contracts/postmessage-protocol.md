@@ -1,6 +1,6 @@
 # postMessage protocol (host page <-> chat iframe)
 
-> Status: contract v1, **host side implemented in P3 and reviewed** (loader `resources/widget/src/`, 3B); the iframe side (4D embed panel) is **not built yet**: `resources/js/embed/main.tsx` is a stub that never says `ready`, so until P4 the real handshake is only exercised against `resources/widget/dev/panel-mock.html` and the Vitest bridge tests.
+> Status: contract v1, **host side implemented in P3 and reviewed** (loader `resources/widget/src/`, 3B); the iframe side (4D embed panel) is **implemented in P4, reviewed** (see "P4 implemented additions" at the end): `resources/js/embed/main.tsx` is a stub that never says `ready`, so until P4 the real handshake is only exercised against `resources/widget/dev/panel-mock.html` and the Vitest bridge tests.
 > Final names here override the drafts in `docs/widget-embed-api.md`.
 
 The loader (vanilla TS, Shadow DOM launcher) and the React chat panel (`/embed/{key}` iframe) talk **only** through `postMessage`.
@@ -107,3 +107,13 @@ A page-level `Escape` (not default-prevented) on the **host document** closes an
 
 Below 480 px viewport width (`max-width: 479.98px`) the loader handles `resize: fullscreen` itself (iframe `position:fixed; inset:0`, locks host scroll — unlocked again on close, handshake timeout or shutdown)
 and forwards `visualViewport` changes as `viewport` messages so the panel can keep the composer above the iOS keyboard (`100dvh`, safe-area insets).
+
+## P4 implemented additions (the panel side exists; these deltas were added during P4)
+
+1. **Compare-and-clear session drop.** The iframe's `session` message gains a form `{ drop: <token> }`: the loader removes `chatfeature:<key>:session` only while it still holds exactly that token. If another tab stored a newer session meanwhile, the loader answers host -> iframe `session { token, expiresAt }` and the stale panel adopts it; if it cleared, it answers `session {}`. The panel waits 1.5 s and treats silence as "cleared" (older loaders). `session null` still clears unconditionally (legacy; used by `newChat` and `shutdown`).
+2. **New host -> iframe message `session`**: `{ token, expiresAt }` or `{}`, sent only as the answer to a drop.
+3. `init.page.title` is capped at **255** characters (the server's limit; it was 300).
+4. `init.boot.categories` entries are `{ slug, label, description?, icon?, color? }` (the loader no longer drops description/icon/colour).
+5. `init.visitor` is sanitised to the server's limits: `email` kept only when valid and <= 190 characters, `phone` only when it matches `^[0-9+().\- ]{3,40}$`, `name` cut to 120.
+6. **Panel-side trust**: in launcher mode the panel ignores `init.boot.api.*` and the font origin unless they name the inlined `window.__PNE_EMBED__.appOrigin`; the API base and font origin are derived from the inlined value, so a hostile script on a whitelisted page cannot redirect the visitor's token or PII.
+7. A visitor session rotation (the panel adopts the new token returned by `POST /public/widgets/{key}/sessions`) re-emits `session { token, expiresAt }` to the loader; the previous token stays valid for 60 s only.
