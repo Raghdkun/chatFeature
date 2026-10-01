@@ -592,18 +592,38 @@ test.describe('delivery and caching', () => {
             expect(response.headers()['set-cookie'], path).toBeUndefined();
         }
 
-        // A whole visit: the page, the widget, an opened chat. The browser ends up with no cookie of the app.
+        // A whole visit: the page, the widget, an opened chat with the real panel (it asks the app for its availability and its
+        // texts as it boots). The browser ends up with no cookie of the app, and no response of the app tried to set one.
+        const setCookies: Promise<string | null>[] = [];
+
+        page.on('response', (response) => {
+            if (response.url().startsWith(instance.url)) {
+                setCookies.push(
+                    response
+                        .allHeaders()
+                        .then((headers) =>
+                            headers['set-cookie'] === undefined
+                                ? null
+                                : response.url(),
+                        )
+                        .catch(() => null),
+                );
+            }
+        });
         await page.goto(
             hostPage(instance, { key, attrs: { greetings: 'off' } }),
         );
         await widget(page).launcher.click();
         await expect(widget(page).iframe).toHaveCount(1);
         await expect(
-            widget(page)
-                .iframe.contentFrame()
-                .getByText('Chat panel (coming in P4)'),
+            widget(page).iframe.contentFrame().getByTestId('chat-panel'),
         ).toBeVisible();
+        await expect
+            .poll(() => chatFeature(page, 'getState'))
+            .toMatchObject({ panelReady: true });
 
+        expect(setCookies.length).toBeGreaterThan(0);
+        expect((await Promise.all(setCookies)).filter(Boolean)).toEqual([]);
         expect(
             (await context.cookies()).filter((cookie) =>
                 cookie.domain.includes('127.0.0.1'),
@@ -968,6 +988,15 @@ test.describe('how the loader gets its config', () => {
         await expect(widget(page).launcher).toBeVisible();
         await chatFeature(page, 'open');
         await expect(widget(page).panel).toHaveAttribute('data-open', 'true');
+        // The real panel has answered and told the loader its state before anybody forges one: nobody is online in this scenario, so
+        // the widget is `offline`.
+        await expect
+            .poll(() => chatFeature(page, 'getState'))
+            .toMatchObject({ panelReady: true, status: 'offline' });
+        const before = await chatFeature<Record<string, unknown>>(
+            page,
+            'getState',
+        );
 
         // The host page itself (or a script of it, or any other window) speaks the protocol: wrong source, so nothing happens.
         await page.evaluate(() => {
@@ -994,17 +1023,38 @@ test.describe('how the loader gets its config', () => {
                 );
             }
         });
-        await page.waitForTimeout(500);
+        // The loader's own listener was registered first, so it has seen every forged message once this one arrives.
+        await page.evaluate(
+            () =>
+                new Promise<void>((resolve) => {
+                    window.addEventListener(
+                        'message',
+                        (event) => {
+                            if (event.data === 'forged-messages-delivered') {
+                                resolve();
+                            }
+                        },
+                        { once: false },
+                    );
+                    window.postMessage('forged-messages-delivered', '*');
+                }),
+        );
 
         await expect(widget(page).panel).toHaveAttribute('data-open', 'true');
         await expect(widget(page).panel).toHaveAttribute('data-mode', 'panel');
-        expect(
-            await chatFeature<Record<string, unknown>>(page, 'getState'),
-        ).toMatchObject({
-            status: 'idle',
+        const after = await chatFeature<Record<string, unknown>>(
+            page,
+            'getState',
+        );
+
+        // What the REAL panel reported itself stands (a widget nobody is online for says `offline`), nothing of Mallory's.
+        expect(after).toMatchObject({
+            status: before.status,
             unread: 0,
             open: true,
         });
+        expect(after.status).not.toBe('active');
+        expect(JSON.stringify(after)).not.toContain('Mallory');
         expect(
             (
                 await page.evaluate(
