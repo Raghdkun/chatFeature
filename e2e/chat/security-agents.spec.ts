@@ -3,6 +3,7 @@ import type { StaffActor } from '../support/actors';
 import { expect, test } from '../support/test';
 import { must, VisitorApi } from '../support/chat-api';
 import type { Instance } from '../support/scenarios';
+import { png } from '../support/staff-ui';
 import { createWorld } from '../support/world';
 
 /**
@@ -23,6 +24,8 @@ async function startFor(
     key: string,
     category: string,
     name: string,
+    /** The code word in the visitor's first message (each chat of a test has its own, so a leak is attributable). */
+    secret = 'plain-words',
 ): Promise<{ visitor: VisitorApi; chat: Chat }> {
     const visitor = await VisitorApi.start(instance, { key });
     const chat = must<Chat>(
@@ -30,7 +33,7 @@ async function startFor(
             category,
             name,
             email: `${name.toLowerCase().replace(/\W+/g, '.')}@example.test`,
-            message: `The code word is ${SECRET} for ${name}.`,
+            message: `The code word is ${secret} for ${name}.`,
         }),
         `${name} starts a chat`,
     );
@@ -62,20 +65,53 @@ function endpoints(
         ['POST', `${base}/end`],
         ['POST', `${base}/close`],
         ['POST', `${base}/transfer`, { category }],
-        ['POST', `${base}/attachments`, {}],
         ['GET', `${base}/transfer-targets`],
     ];
+}
+
+/** A real image upload as that staff member (multipart + the session's XSRF token, like the dashboard's composer). */
+async function uploadAs(
+    actor: StaffActor,
+    instance: Instance,
+    ulid: string,
+): Promise<number> {
+    const state = await actor.context.storageState();
+    const xsrf = state.cookies.find((cookie) => cookie.name === 'XSRF-TOKEN');
+    const response = await actor.context.request.post(
+        `${instance.url}/api/v1/conversations/${ulid}/attachments`,
+        {
+            headers: {
+                Accept: 'application/json',
+                Origin: instance.url,
+                Referer: `${instance.url}/`,
+                'X-XSRF-TOKEN': decodeURIComponent(xsrf?.value ?? ''),
+            },
+            multipart: {
+                file: {
+                    name: 'proof.png',
+                    mimeType: 'image/png',
+                    buffer: png(16, 16),
+                },
+            },
+            failOnStatusCode: false,
+        },
+    );
+
+    return response.status();
 }
 
 async function expectRefusedEverywhere(
     api: Api,
     ulid: string,
     category: string,
+    /** An agent who WAS offered the chat gets the documented `409 already_claimed` for a late claim, everybody else a 403. */
+    wasOffered: boolean,
 ): Promise<void> {
     for (const [method, path, body] of endpoints(ulid, category)) {
         const result = await api.request(method as 'GET' | 'POST', path, body);
+        const expected = wasOffered && path.endsWith('/claim') ? 409 : 403;
 
-        expect(result.status, `${method} ${path}`).toBe(403);
+        expect(result.status, `${method} ${path}`).toBe(expected);
         expect(
             JSON.stringify(result.body ?? ''),
             `${method} ${path} leaks nothing`,
@@ -106,6 +142,7 @@ test("agent B cannot reach agent A's chat: the page, every endpoint, the lists, 
         world.widget.key,
         mainSlug,
         'Secret Sam',
+        SECRET,
     );
     const y = await startFor(
         instance,
@@ -126,7 +163,12 @@ test("agent B cannot reach agent A's chat: the page, every endpoint, the lists, 
             stranger.api.api,
             x.chat.ulid,
             world.categories.other.slug,
+            stranger === ann2,
         );
+        expect(
+            await uploadAs(stranger, instance, x.chat.ulid),
+            `${stranger.name} uploading into X`,
+        ).toBe(403);
     }
 
     // The owner and the administrator can (the positive controls).

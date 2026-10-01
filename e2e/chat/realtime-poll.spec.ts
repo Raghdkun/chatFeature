@@ -129,6 +129,14 @@ test('the whole chat works over REST polling on both sides: queue, accept, messa
             ),
         ).toHaveCount(1, { timeout: 1_500 }),
     );
+
+    // And the other way round: Alice has the chat open, so her receipt marks the visitor's message as seen, which the visitor's
+    // next poll shows.
+    await afterPolls(visitor.page, VISITOR_POLL_MS, () =>
+        expect(
+            panel.message('polling works for me', 'visitor').first(),
+        ).toHaveAttribute('data-status', 'seen', { timeout: 1_500 }),
+    );
     await expectCalmPanel(panel);
 
     // Alice ends the chat; the visitor's poll shows the rating card, the rating closes it.

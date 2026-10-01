@@ -117,10 +117,10 @@ test('delivered, then seen: a visitor with the panel closed has received the mes
         instance,
     });
 
-    // The visitor minimises the chat (the launcher closes the panel), the agent writes.
+    // The visitor minimises the chat (the panel's own X: on a phone the full-screen panel covers the launcher), the agent writes.
     const frame = panel.page.locator('pne-chat-widget .panel');
 
-    await panel.launcher.click();
+    await panel.frame.getByRole('button', { name: 'Close chat' }).click();
     await expect(frame).toHaveAttribute('data-open', 'false');
     await agent.inbox.send('Are you still there?');
 
@@ -168,7 +168,7 @@ test.fixme('the agent sees "delivered" live, without a reload, when the visitor 
 }) => {
     const { agent, panel } = await startChat({ actors, adminApi, instance });
 
-    await panel.launcher.click();
+    await panel.frame.getByRole('button', { name: 'Close chat' }).click();
     await expect(panel.page.locator('pne-chat-widget .panel')).toHaveAttribute(
         'data-open',
         'false',

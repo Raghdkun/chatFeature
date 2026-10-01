@@ -3,7 +3,7 @@ import { expectEventually } from '../support/wait';
 import { must, VisitorApi } from '../support/chat-api';
 import { SocketGate } from '../support/realtime';
 import { startChat } from '../support/staff-flow';
-import { readMessages } from '../support/staff-ui';
+import { isPhone, readMessages, showList } from '../support/staff-ui';
 
 /**
  * The websocket fails in the middle of a session and comes back. Only the browser of ONE person loses its socket
@@ -57,11 +57,22 @@ test('the dashboard loses its socket mid-chat: it says so, polls for the missed 
     await agent.inbox.expectMessage('Before the outage.');
     expect(gate.attempts).toBeGreaterThan(0);
 
-    // The socket is cut and cannot come back.
+    // The socket is cut and cannot come back. The banner lives in the list column: on a phone that is the screen behind the open
+    // conversation (BUG E2-3 below), so step back to read it and go into the chat again.
     await gate.block();
+
+    if (isPhone(agent.page)) {
+        await showList(agent);
+    }
+
     await expect(banner).toBeVisible();
     await expect(banner).toContainText('every 15 seconds');
     await expect(banner).not.toHaveAttribute('data-status', 'connected');
+
+    if (isPhone(agent.page)) {
+        await agent.inbox.chatRow(ulid).click();
+        await expect(agent.inbox.conversation).toBeVisible();
+    }
 
     // While it is down the visitor writes twice and a second visitor asks for a chat: nothing arrives live ...
     await panel.send('First message during the outage.');
@@ -134,6 +145,35 @@ test('the dashboard loses its socket mid-chat: it says so, polls for the missed 
     );
 
     await other.dispose();
+});
+
+// BUG E2-3 (open): the "live updates are off / checks every 15 seconds" notice is part of the list column. On a phone the list and an
+// open conversation are separate screens, so an agent inside a chat gets no sign that the page is no longer live (messages arrive up to
+// 15 s late). On a desktop the list is next to the chat and the notice is in view.
+test('the notice that live updates are off stays in view while a conversation is open (BUG E2-3 on phones)', async ({
+    actors,
+    adminApi,
+    instance,
+}, testInfo) => {
+    test.fixme(
+        testInfo.project.name === 'mobile',
+        'BUG E2-3: on a phone the connection banner is only in the list column, not inside an open conversation',
+    );
+
+    let gate!: SocketGate;
+    const { agent } = await startChat(
+        { actors, adminApi, instance },
+        {
+            allowAgent: SOCKET_NOISE,
+            prepareAgent: async (actor) => {
+                gate = await SocketGate.install(actor.context, instance);
+            },
+        },
+    );
+
+    await expect(agent.inbox.conversation).toBeVisible();
+    await gate.block();
+    await expect(agent.inbox.tid('connection-banner')).toBeVisible();
 });
 
 test('the visitor\'s panel loses its socket mid-chat: "Reconnecting…", the agent\'s messages arrive by polling, and the panel recovers', async ({
