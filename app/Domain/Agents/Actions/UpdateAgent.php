@@ -5,6 +5,8 @@ namespace App\Domain\Agents\Actions;
 use App\Auth\Enums\UserRole;
 use App\Domain\Agents\AuthModeGuard;
 use App\Domain\Audit\AuditLogger;
+use App\Domain\Chat\Enums\SessionRevokeReason;
+use App\Domain\Chat\Events\StaffSessionRevoked;
 use App\Http\Exceptions\ApiProblemException;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -57,8 +59,26 @@ final class UpdateAgent
             });
 
             $this->audit->record('agent.updated', $target, $changes, $actor);
+            $this->announceLostAccess($target);
         }
 
         return $target->refresh();
+    }
+
+    /**
+     * A deactivated account, or one that stopped taking chats, tells the person's open dashboards (`session.revoked`); the Chat
+     * context requeues their active chats from the same event.
+     */
+    private function announceLostAccess(User $target): void
+    {
+        $reason = match (true) {
+            $target->wasChanged('is_active') && ! $target->is_active => SessionRevokeReason::Deactivated,
+            $target->wasChanged('is_agent') && ! $target->is_agent => SessionRevokeReason::RoleRemoved,
+            default => null,
+        };
+
+        if ($reason !== null) {
+            StaffSessionRevoked::dispatch($target->id, $reason);
+        }
     }
 }

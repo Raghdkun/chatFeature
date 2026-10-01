@@ -5,6 +5,8 @@ namespace App\Auth\Roles;
 use App\Auth\Contracts\RoleResolver;
 use App\Auth\Enums\UserRole;
 use App\Auth\Pizzasys\AuthEnvironmentRepository;
+use App\Domain\Chat\Enums\SessionRevokeReason;
+use App\Domain\Chat\Events\StaffSessionRevoked;
 use App\Domain\Settings\SettingsRepository;
 use App\Models\User;
 use App\Models\UserExternalIdentity;
@@ -105,6 +107,17 @@ final class PizzasysRoleResolver implements RoleResolver
             return;
         }
 
+        $wasAdmin = $user->is_admin;
+        $wasAgent = $user->is_agent;
+
         $user->forceFill(['is_admin' => $decision->isAdmin, 'is_agent' => $decision->isAgent, 'role' => $role])->save();
+
+        // A demotion ends what the person's open dashboards were doing: an agent who stopped being one gets their chats requeued
+        // (`role_removed`), an admin who stays an agent only has to reload (`auth_revoked`). Promotions announce nothing.
+        if ($wasAgent && ! $decision->isAgent) {
+            StaffSessionRevoked::dispatch($user->id, SessionRevokeReason::RoleRemoved);
+        } elseif ($wasAdmin && ! $decision->isAdmin) {
+            StaffSessionRevoked::dispatch($user->id, SessionRevokeReason::AuthRevoked);
+        }
     }
 }

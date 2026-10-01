@@ -3,6 +3,8 @@
 namespace App\Auth\Pizzasys;
 
 use App\Auth\Support\SessionContext;
+use App\Domain\Chat\Enums\SessionRevokeReason;
+use App\Domain\Chat\Events\StaffSessionRevoked;
 use App\Models\ExternalSession;
 use App\Models\User;
 use App\Models\UserExternalIdentity;
@@ -20,6 +22,13 @@ use Throwable;
  */
 final class ExternalSessionStore
 {
+    /**
+     * Revocations the person did not ask for tell their other open dashboards (`session.revoked`). Not announced here: `logout` and
+     * `expired` (nobody is waiting), and `no_chat_access` / `upstream_deleted`, whose own code announces them (a role that was
+     * removed, an account that was deleted upstream: PizzasysRoleResolver, ExternalIdentityInvalidator).
+     */
+    private const SILENT_REASONS = ['logout', 'expired', 'no_chat_access', 'upstream_deleted'];
+
     public function __construct(
         private readonly PortalGateway $gateway,
         private readonly SessionManager $sessions,
@@ -76,6 +85,10 @@ final class ExternalSessionStore
 
         if ($session->sanctum_token_id !== null) {
             PersonalAccessToken::query()->whereKey($session->sanctum_token_id)->delete();
+        }
+
+        if (! in_array($reason, self::SILENT_REASONS, true)) {
+            StaffSessionRevoked::dispatch($session->user_id, $reason === 'deactivated' ? SessionRevokeReason::Deactivated : SessionRevokeReason::AuthRevoked);
         }
 
         $this->destroyBrowserSession($session->laravel_session_id);
