@@ -1,10 +1,15 @@
+import type { PizzasysSetupData } from '@/types/pizzasys';
+
 /**
- * Props for `pages/setup/index.tsx`. Mirrors docs/contracts/setup-wizard.md.
+ * Props for `pages/setup/index.tsx`. Mirrors docs/contracts/setup-wizard.md and the mode-2
+ * additions in docs/contracts/auth-pizzasys.md (`pizzasys` and `portal-admin`).
  */
 export type SetupStepKey =
     | 'welcome'
     | 'mode'
     | 'admin'
+    | 'pizzasys'
+    | 'portal-admin'
     | 'basics'
     | 'run'
     | 'done';
@@ -55,8 +60,20 @@ export type SetupRunRow = {
     code?: SetupRunFailureCode;
 };
 
-/** Generated from `App\\Data\\Setup\\SetupData` (composer types:generate). */
-export type SetupState = App.Data.Setup.SetupData;
+/**
+ * Generated from `App\\Data\\Setup\\SetupData` (composer types:generate), widened for the mode-2
+ * step keys and the `pizzasys` block until the regenerated type carries them. After the
+ * backend merges, this collapses to `App.Data.Setup.SetupData`.
+ */
+export type SetupState = Omit<
+    App.Data.Setup.SetupData,
+    'step' | 'steps' | 'pizzasys'
+> & {
+    step: SetupStepKey;
+    steps: SetupStepSummary[];
+    /** Non-null only when `mode === 'pizzasys'` (optional here so mode-1 fixtures stay valid). */
+    pizzasys?: PizzasysSetupData | null;
+};
 
 export type SetupProps = {
     setup: SetupState;

@@ -23,15 +23,26 @@ export const STEP_ORDER: readonly SetupStepKey[] = [
     'welcome',
     'mode',
     'admin',
+    'pizzasys',
+    'portal-admin',
     'basics',
     'run',
     'done',
 ];
 
-/** The admin step only exists for the local (Fortify) auth mode. */
+/** Steps that only exist for the Auth Portal mode (docs/contracts/auth-pizzasys.md). */
+const PORTAL_ONLY_STEPS: readonly SetupStepKey[] = ['pizzasys', 'portal-admin'];
+
+/**
+ * Local (Fortify) mode, and "no mode chosen yet", walk welcome, mode, admin, basics, run, done.
+ * The Auth Portal mode swaps the admin step for `pizzasys` (environments, roles, connection
+ * test) and `portal-admin` (a verified portal login), then rejoins at basics.
+ */
 export function visibleStepKeys(mode: SetupMode | null): SetupStepKey[] {
-    return STEP_ORDER.filter(
-        (key) => !(key === 'admin' && mode === 'pizzasys'),
+    return STEP_ORDER.filter((key) =>
+        mode === 'pizzasys'
+            ? key !== 'admin'
+            : !PORTAL_ONLY_STEPS.includes(key),
     );
 }
 
@@ -194,22 +205,22 @@ export type ExecuteRunResult = {
 
 /**
  * Rows for the progress list. The server list wins; before the server has one we fall
- * back to the contract's fixed sequence. A stale `running` (page reloaded mid-run) is
- * shown as pending because the client is no longer driving it.
+ * back to the contract's fixed sequence (the same four steps in both auth modes: mode 2's
+ * `create-admin` creates the shadow user for the verified portal admin). A stale `running`
+ * (page reloaded mid-run) is shown as pending because the client is no longer driving it.
  */
-export function initialRunRows(
-    serverRows: SetupRunRow[],
-    mode: SetupMode | null,
-): SetupRunRow[] {
+export function initialRunRows(serverRows: SetupRunRow[]): SetupRunRow[] {
     if (serverRows.length > 0) {
         return serverRows.map((row) =>
             row.status === 'running' ? { ...row, status: 'pending' } : row,
         );
     }
 
-    return RUN_STEP_KEYS.filter(
-        (key) => !(key === 'create-admin' && mode === 'pizzasys'),
-    ).map((key) => ({ key, label: key, status: 'pending' }));
+    return RUN_STEP_KEYS.map((key) => ({
+        key,
+        label: key,
+        status: 'pending',
+    }));
 }
 
 export function firstIncompleteIndex(rows: SetupRunRow[]): number {

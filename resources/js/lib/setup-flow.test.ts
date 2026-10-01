@@ -56,17 +56,57 @@ describe('step transitions', () => {
         expect(visibleStepKeys(null)).toEqual(all);
     });
 
-    it('drops the admin step for the Auth Portal mode', () => {
-        expect(visibleStepKeys('pizzasys')).not.toContain('admin');
+    it('swaps the admin step for the portal steps in the Auth Portal mode', () => {
+        expect(visibleStepKeys('pizzasys')).toEqual([
+            'welcome',
+            'mode',
+            'pizzasys',
+            'portal-admin',
+            'basics',
+            'run',
+            'done',
+        ]);
+    });
+
+    it('never shows the portal steps for the local mode or before a mode is chosen', () => {
+        expect(visibleStepKeys('fortify')).not.toContain('pizzasys');
+        expect(visibleStepKeys('fortify')).not.toContain('portal-admin');
+        expect(visibleStepKeys(null)).not.toContain('pizzasys');
     });
 
     it('moves forward and backward along the visible steps', () => {
         expect(nextStep('welcome', 'fortify')).toBe('mode');
         expect(nextStep('mode', 'fortify')).toBe('admin');
-        expect(nextStep('mode', 'pizzasys')).toBe('basics');
+        expect(nextStep('mode', 'pizzasys')).toBe('pizzasys');
         expect(nextStep('run', 'fortify')).toBe('done');
         expect(previousStep('basics', 'fortify')).toBe('admin');
-        expect(previousStep('basics', 'pizzasys')).toBe('mode');
+        expect(previousStep('basics', 'pizzasys')).toBe('portal-admin');
+    });
+
+    it('walks the whole Auth Portal flow forward, skipping admin', () => {
+        const walked: SetupStepKey[] = ['welcome'];
+
+        for (
+            let next = nextStep('welcome', 'pizzasys');
+            next !== null;
+            next = nextStep(next, 'pizzasys')
+        ) {
+            walked.push(next);
+        }
+
+        expect(walked).toEqual(visibleStepKeys('pizzasys'));
+    });
+
+    it('goes back from every portal step towards the mode step', () => {
+        expect(previousStep('portal-admin', 'pizzasys')).toBe('pizzasys');
+        expect(previousStep('pizzasys', 'pizzasys')).toBe('mode');
+        expect(nextStep('pizzasys', 'pizzasys')).toBe('portal-admin');
+        expect(nextStep('portal-admin', 'pizzasys')).toBe('basics');
+    });
+
+    it('has no way into a portal step from the local flow', () => {
+        expect(nextStep('mode', null)).toBe('admin');
+        expect(previousStep('pizzasys', 'fortify')).toBeNull();
     });
 
     it('has no step after done or before welcome', () => {
@@ -78,9 +118,16 @@ describe('step transitions', () => {
         expect(canGoBack('welcome')).toBe(false);
         expect(canGoBack('done')).toBe(false);
         expect(
-            (['mode', 'admin', 'basics', 'run'] as SetupStepKey[]).every(
-                canGoBack,
-            ),
+            (
+                [
+                    'mode',
+                    'admin',
+                    'pizzasys',
+                    'portal-admin',
+                    'basics',
+                    'run',
+                ] as SetupStepKey[]
+            ).every(canGoBack),
         ).toBe(true);
     });
 });
@@ -100,6 +147,22 @@ describe('resolveView', () => {
         expect(resolveView('run', { from: 'basics', view: 'mode' })).toBe(
             'run',
         );
+    });
+
+    it('lets the Auth Portal flow look back at its own steps and resume at the server step', () => {
+        // Back from basics to the verified portal login, then to the environments.
+        expect(
+            resolveView('basics', { from: 'basics', view: 'portal-admin' }),
+        ).toBe('portal-admin');
+        expect(
+            resolveView('basics', { from: 'basics', view: 'pizzasys' }),
+        ).toBe('pizzasys');
+        // A reload (resume) has no override: the server's step wins.
+        expect(resolveView('portal-admin', null)).toBe('portal-admin');
+        // Saving the environments moves the server on, which retires the look-back.
+        expect(
+            resolveView('portal-admin', { from: 'pizzasys', view: 'mode' }),
+        ).toBe('portal-admin');
     });
 });
 
@@ -226,24 +289,60 @@ describe('idle timeout', () => {
 
 describe('initialRunRows', () => {
     it('uses the server rows and treats a stale running as pending', () => {
-        const rows = initialRunRows(
-            [row('run-migrations', 'done'), row('seed-defaults', 'running')],
-            'fortify',
-        );
+        const rows = initialRunRows([
+            row('run-migrations', 'done'),
+            row('seed-defaults', 'running'),
+        ]);
 
         expect(statuses(rows)).toEqual(['done', 'pending']);
     });
 
-    it('falls back to the contract sequence, without create-admin for the portal mode', () => {
-        expect(initialRunRows([], 'fortify').map((r) => r.key)).toEqual([
+    it('falls back to the contract sequence: the same four steps in both auth modes', () => {
+        // Mode 2 keeps `create-admin` (it creates the shadow user for the verified portal admin).
+        expect(initialRunRows([]).map((r) => r.key)).toEqual([
             'run-migrations',
             'seed-defaults',
             'create-admin',
             'write-lock',
         ]);
-        expect(initialRunRows([], 'pizzasys').map((r) => r.key)).toEqual([
+    });
+});
+
+describe('executeRun in the Auth Portal mode', () => {
+    it('runs the same four steps in order and resumes after a failure', async () => {
+        const calls: string[] = [];
+        let failOnce = true;
+        const runStep: RunStepClient = async (step) => {
+            calls.push(step);
+
+            if (step === 'create-admin' && failOnce) {
+                failOnce = false;
+
+                return { status: 'failed', message: 'Portal unreachable' };
+            }
+
+            return step === 'write-lock'
+                ? { status: 'ok', next: null, redirect: '/login' }
+                : { status: 'ok', next: 'x' };
+        };
+
+        const first = await executeRun({
+            rows: initialRunRows([]),
+            runStep,
+        });
+
+        expect(first.outcome).toBe('failed');
+        expect(first.failedKey).toBe('create-admin');
+
+        const second = await executeRun({ rows: first.rows, runStep });
+
+        expect(second.outcome).toBe('completed');
+        expect(calls).toEqual([
             'run-migrations',
             'seed-defaults',
+            'create-admin',
+            // resumed at the failed step, finished ones are not repeated
+            'create-admin',
             'write-lock',
         ]);
     });
