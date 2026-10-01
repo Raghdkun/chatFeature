@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Replaces a widget's greeting pool: entries with a known ULID are updated in place, entries without one are
- * created, and everything not mentioned is removed.
+ * created, and everything not mentioned is removed. Serialised per widget by a row lock.
  */
 final class ReplaceGreetings
 {
@@ -28,6 +28,8 @@ final class ReplaceGreetings
     public function handle(Widget $widget, array $items, ?User $actor = null): Collection
     {
         DB::transaction(function () use ($widget, $items): void {
+            Widget::query()->lockForUpdate()->findOrFail($widget->getKey());
+
             $existing = $widget->greetings()->get()->keyBy('ulid');
             $keep = [];
 

@@ -7,9 +7,11 @@ use App\Domain\Widgets\Support\WidgetCache;
 use App\Models\Category;
 use App\Models\User;
 use App\Models\Widget;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Replaces the categories enabled on a widget; the order of the ULIDs is the display order.
+ * Serialised per widget by a row lock: two overlapping replacements cannot collide in the `(widget_id, category_id)` key.
  */
 final class ReplaceCategories
 {
@@ -35,7 +37,11 @@ final class ReplaceCategories
             }
         }
 
-        $widget->categories()->sync($sync);
+        DB::transaction(function () use ($widget, $sync): void {
+            Widget::query()->lockForUpdate()->findOrFail($widget->getKey());
+
+            $widget->categories()->sync($sync);
+        });
 
         $this->cache->bust($widget);
         $this->audit->record('widget.categories_updated', $widget, ['category_ulids' => $categoryUlids], $actor);
