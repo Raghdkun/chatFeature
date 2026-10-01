@@ -1,0 +1,225 @@
+/**
+ * Test harness for the embed panel: a controller wired to a recording host, a scriptable fake socket and the MSW-backed fake API.
+ *
+ *   const h = createHarness({ backend });
+ *   await h.init();            // the loader's `init` (boot config rebuilt the way the loader does it)
+ *   h.open();                  // host `open`
+ *   ...
+ *   h.socket()?.emit('message.created', {...})
+ */
+import { afterEach } from 'vite-plus/test';
+import {
+    ChatController,
+    type ControllerDeps,
+    type StoredSession,
+} from '@/embed/session/controller';
+import type {
+    InitPayload,
+    PanelMessage,
+    StatePayload,
+} from '@/embed/protocol/messages';
+import type { Messages } from '@/embed/i18n';
+import {
+    API,
+    bootConfig,
+    createVisitorBackend,
+    type VisitorBackend,
+} from '@/tests/msw/chat-visitor';
+import type {
+    ConversationSocket,
+    SocketFactory,
+    SocketInput,
+    SocketStatus,
+} from '@/lib/realtime/visitor/types';
+
+type Handler = (payload: unknown) => void;
+
+export class FakeSocket implements ConversationSocket {
+    handlers = new Map<string, Handler[]>();
+    statusHandlers: ((status: SocketStatus) => void)[] = [];
+    authErrorHandler: ((status: number) => void) | null = null;
+    whispers: { event: string; payload: Record<string, unknown> }[] = [];
+    current: SocketStatus = 'connecting';
+    closed = false;
+
+    constructor(readonly input: SocketInput) {}
+
+    listen(event: string, handler: Handler): void {
+        this.handlers.set(event, [
+            ...(this.handlers.get(event) ?? []),
+            handler,
+        ]);
+    }
+
+    whisper(event: string, payload: Record<string, unknown>): void {
+        this.whispers.push({ event, payload });
+    }
+
+    onStatus(handler: (status: SocketStatus) => void): () => void {
+        this.statusHandlers.push(handler);
+
+        return () => undefined;
+    }
+
+    status(): SocketStatus {
+        return this.current;
+    }
+
+    onAuthError(handler: (status: number) => void): void {
+        this.authErrorHandler = handler;
+    }
+
+    close(): void {
+        this.closed = true;
+    }
+
+    /** Deliver a server event, named as on the wire (`message.created`, `chat.claimed`, `client-typing`...). */
+    emit(event: string, payload: unknown): void {
+        const name = event.startsWith('client-') ? event : `.${event}`;
+
+        for (const handler of this.handlers.get(name) ?? []) {
+            handler(payload);
+        }
+    }
+
+    setStatus(status: SocketStatus): void {
+        this.current = status;
+
+        for (const handler of this.statusHandlers) {
+            handler(status);
+        }
+    }
+}
+
+/** The boot config as the loader hands it to the panel: categories reduced to `{slug, label}`. */
+export function loaderBoot(
+    overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+    const full = bootConfig(overrides);
+
+    return {
+        ...full,
+        categories: (full.categories as { slug: string; label: string }[]).map(
+            (c) => ({
+                slug: c.slug,
+                label: c.label,
+            }),
+        ),
+    };
+}
+
+export function makeInit(
+    options: Partial<InitPayload> & { boot?: Record<string, unknown> } = {},
+): InitPayload {
+    return {
+        boot: options.boot ?? loaderBoot(),
+        ...(options.visitorSession === undefined
+            ? {}
+            : { visitorSession: options.visitorSession }),
+        ...(options.identityToken === undefined
+            ? {}
+            : { identityToken: options.identityToken }),
+        ...(options.visitor === undefined ? {} : { visitor: options.visitor }),
+        page: options.page ?? {
+            url: 'https://shop.example/pricing',
+            title: 'Pricing',
+            referrer: '',
+        },
+        overrides: options.overrides ?? {},
+        embedMode: 'launcher',
+        viewport: options.viewport ?? {
+            width: 1280,
+            height: 800,
+            keyboardInset: 0,
+        },
+    };
+}
+
+export type HarnessOptions = {
+    backend?: VisitorBackend;
+    deps?: Partial<ControllerDeps>;
+    /** Built-in messages for non-English locales (default: none). */
+    builtin?: (locale: string) => Promise<Messages>;
+    pollMs?: number;
+};
+
+const created: ChatController[] = [];
+
+// A controller from an earlier test would keep polling (and answering receipts) against the next test's fake backend.
+afterEach(() => {
+    for (const controller of created.splice(0)) {
+        controller.dispose();
+    }
+});
+
+export function createHarness(options: HarnessOptions = {}) {
+    const backend = options.backend ?? createVisitorBackend();
+    const sent: PanelMessage[] = [];
+    const sessions: (StoredSession | null)[] = [];
+    const sockets: FakeSocket[] = [];
+    const pings: number[] = [];
+    const factory: SocketFactory = async (input) => {
+        const socket = new FakeSocket(input);
+
+        sockets.push(socket);
+        queueMicrotask(() => socket.setStatus('connected'));
+
+        return socket;
+    };
+    const controller = new ChatController({
+        host: { send: (message) => void sent.push(message) },
+        persistSession: (session) => void sessions.push(session),
+        socketFactory: factory,
+        sound: { ping: () => void pings.push(Date.now()) },
+        navigatorLanguages: ['en-US'],
+        loadBuiltin: options.builtin ?? (async () => ({})),
+        pollMs: options.pollMs ?? 20,
+        configTimeoutMs: 500,
+        ...options.deps,
+    });
+
+    created.push(controller);
+
+    return {
+        controller,
+        backend,
+        sent,
+        sessions,
+        sockets,
+        pings,
+        api: API,
+        socket: (): FakeSocket | null => sockets.at(-1) ?? null,
+        state: () => controller.getState(),
+        snapshot: () => controller.getSnapshot(),
+        init: (init: InitPayload = makeInit()) => controller.handleInit(init),
+        open: () => controller.handleHostMessage({ type: 'open' }),
+        close: () => controller.handleHostMessage({ type: 'close' }),
+        hostStates: (): StatePayload[] =>
+            sent.flatMap((m) => (m.type === 'state' ? [m.payload] : [])),
+        events: (): string[] =>
+            sent.flatMap((m) => (m.type === 'event' ? [m.payload.name] : [])),
+    };
+}
+
+export type Harness = ReturnType<typeof createHarness>;
+
+/** Let microtasks, resolved fetches and a few timer ticks settle. */
+export async function settle(ms = 30): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Waits (polling) until `predicate` is true or fails after `timeout` ms. */
+export async function until(
+    predicate: () => boolean,
+    timeout = 2000,
+): Promise<void> {
+    const start = Date.now();
+
+    while (!predicate()) {
+        if (Date.now() - start > timeout) {
+            throw new Error('Timed out waiting for the condition.');
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+}
