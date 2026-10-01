@@ -1,7 +1,12 @@
 <?php
 
+use App\Http\Middleware\EnforceAuthFeatures;
+use App\Http\Middleware\EnsureChatAccess;
+use App\Http\Middleware\EnsureSessionIsValid;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\InstallGate;
+use App\Http\Middleware\SetLocale;
 use App\Support\RouteFiles;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -31,7 +36,15 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Not installed yet: web -> /setup, API -> 503 not_installed. First in the global stack.
+        $middleware->prepend(InstallGate::class);
+
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
+
+        $middleware->alias([
+            // For API groups: signed-in users without admin/agent access are turned away.
+            'chat.access' => EnsureChatAccess::class,
+        ]);
 
         // Bearer-only group for the public widget API and webhooks (deliberately NOT stateful).
         $middleware->group('widget', [
@@ -40,11 +53,18 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->web(append: [
             HandleAppearance::class,
+            SetLocale::class,
+            EnforceAuthFeatures::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
+            EnsureSessionIsValid::class,
+            EnsureChatAccess::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // The setup token must never be flashed back into a form.
+        $exceptions->dontFlash(['token']);
+
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );

@@ -4,14 +4,18 @@ namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
+use App\Auth\Contracts\AuthDriver;
+use App\Auth\Enums\AuthOutcome;
+use App\Auth\Support\AuthResult;
+use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
-use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
 
 class FortifyServiceProvider extends ServiceProvider
@@ -30,6 +34,7 @@ class FortifyServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureActions();
+        $this->configureAuthentication();
         $this->configureViews();
         $this->configureRateLimiting();
     }
@@ -44,14 +49,54 @@ class FortifyServiceProvider extends ServiceProvider
     }
 
     /**
+     * Sign-in is delegated to the active AuthDriver (settings `auth.mode`).
+     *
+     * Fortify may call this twice per login (2FA redirect step, then the attempt itself), so the
+     * driver's verdict is memoised on the request. The driver never logs the user in; the
+     * Fortify pipeline does, after any second factor.
+     */
+    private function configureAuthentication(): void
+    {
+        Fortify::authenticateUsing(function (Request $request): ?User {
+            $result = $request->attributes->get('auth.attempt');
+
+            if (! $result instanceof AuthResult) {
+                $result = app(AuthDriver::class)->attempt($request);
+                $request->attributes->set('auth.attempt', $result);
+            }
+
+            if ($result->outcome === AuthOutcome::Ok) {
+                return $result->user;
+            }
+
+            // Plain wrong credentials (Invalid, no message) fall through to Fortify's generic error
+            // and lockout accounting; every other verdict carries a message the user should see.
+            if ($result->message !== null) {
+                throw ValidationException::withMessages([Fortify::username() => [$result->message]]);
+            }
+
+            if ($result->outcome === AuthOutcome::Unavailable) {
+                throw ValidationException::withMessages([Fortify::username() => [__('Sign-in is temporarily unavailable. Please try again shortly.')]]);
+            }
+
+            return null;
+        });
+    }
+
+    /**
      * Configure Fortify views.
      */
     private function configureViews(): void
     {
-        Fortify::loginView(fn (Request $request) => Inertia::render('auth/login', [
-            'canResetPassword' => Features::enabled(Features::resetPasswords()),
-            'status' => $request->session()->get('status'),
-        ]));
+        Fortify::loginView(function (Request $request) {
+            $capabilities = app(AuthDriver::class)->capabilities();
+
+            return Inertia::render('auth/login', [
+                'canResetPassword' => $capabilities->canResetPassword,
+                'canRegister' => $capabilities->canRegister,
+                'status' => $request->session()->get('status'),
+            ]);
+        });
 
         Fortify::resetPasswordView(fn (Request $request) => Inertia::render('auth/reset-password', [
             'email' => $request->email,
