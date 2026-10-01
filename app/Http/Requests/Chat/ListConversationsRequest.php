@@ -6,6 +6,7 @@ use App\Domain\Chat\Enums\ConversationStatus;
 use App\Domain\Chat\Enums\ConversationType;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Pagination\Cursor;
 use Illuminate\Validation\Rule;
 
 /**
@@ -56,6 +57,16 @@ class ListConversationsRequest extends FormRequest
                     if (ConversationStatus::tryFrom($status) === null) {
                         $validator->errors()->add('status', __('Unknown status ":status".', ['status' => $status]));
                     }
+                }
+            },
+            function (Validator $validator): void {
+                $encoded = $this->query('cursor');
+
+                // An undecodable cursor is no cursor (the first page). One that decodes must be one of ours: the pager reads the ordering
+                // key `conversations.id` from it and fails with a 500 when it is not there (a hand-made cursor).
+                if (is_string($encoded) && ($cursor = Cursor::fromEncoded($encoded)) !== null
+                    && ! is_numeric($cursor->toArray()['conversations.id'] ?? null)) {
+                    $validator->errors()->add('cursor', __('The cursor is not valid.'));
                 }
             },
         ];

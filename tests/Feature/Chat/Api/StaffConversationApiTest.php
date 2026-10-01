@@ -286,6 +286,32 @@ class StaffConversationApiTest extends TestCase
         $this->assertNull($third->json('meta.next_cursor'));
     }
 
+    public function test_a_hand_made_cursor_is_a_validation_error_not_a_server_error(): void
+    {
+        $this->chat('closed', $this->agent);
+
+        $forged = [
+            ['assigned_agent_id' => $this->agent->id, '_pointsToNextItems' => true],
+            ['conversations.id' => 'abc', '_pointsToNextItems' => true],
+            ['conversations.id' => ['1'], '_pointsToNextItems' => true],
+        ];
+
+        foreach ($forged as $parameters) {
+            $cursor = rtrim(strtr(base64_encode((string) json_encode($parameters)), '+/', '-_'), '=');
+
+            $this->actingAs($this->agent, 'sanctum')->getJson('/api/v1/conversations?cursor='.urlencode($cursor))
+                ->assertStatus(422)
+                ->assertJsonPath('error.code', 'validation_failed')
+                ->assertJsonValidationErrors('cursor', 'error.details');
+        }
+
+        // Junk that does not decode (or decodes to nothing) is simply no cursor, and a cursor of ours with any number still works.
+        $this->actingAs($this->agent, 'sanctum')->getJson('/api/v1/conversations?cursor=not-a-cursor')->assertOk();
+        $this->actingAs($this->agent, 'sanctum')->getJson('/api/v1/conversations?cursor='.urlencode(rtrim(strtr(base64_encode('[]'), '+/', '-_'), '=')))->assertOk();
+        $far = rtrim(strtr(base64_encode((string) json_encode(['conversations.id' => 999_999, '_pointsToNextItems' => true])), '+/', '-_'), '=');
+        $this->actingAs($this->agent, 'sanctum')->getJson('/api/v1/conversations?cursor='.urlencode($far))->assertOk();
+    }
+
     public function test_the_queue_lists_what_can_be_accepted_oldest_first(): void
     {
         $older = $this->chat('queued', attributes: ['queued_at' => now()->subMinutes(5)]);
