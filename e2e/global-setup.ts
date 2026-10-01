@@ -11,21 +11,40 @@
  * (e2e/support/harness.ts): it is started first (and stopped again in the teardown), `seeded` ones get
  * mode-2 wizard answers, `installed` ones a real `chat:install --mode=pizzasys` against it.
  *
+ * P4 (`seed: 'chat'`): the agents Alice and Bob, the categories and the widget "Acme Storefront" are created (`SEED_P4`) and what was
+ * created is written to `<instance dir>/seed.json` (e2e/support/chat-seed.ts). The Reverb servers of those scenarios are `webServer`s
+ * too, so they are already listening while the databases are prepared. The dashboard build is made with the e2e Reverb address
+ * (`ensureBuilt`).
+ *
  * Note: Playwright starts the `webServer`s BEFORE `globalSetup`. That is fine because the
  * servers are only waited for on a static file (no Laravel boot) and the tests start after this
  * function returned.
  */
 import { execFile } from 'node:child_process';
-import { readdir, mkdir, rm, stat } from 'node:fs/promises';
+import {
+    readdir,
+    mkdir,
+    readFile,
+    rm,
+    stat,
+    writeFile,
+} from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { request } from '@playwright/test';
 import { artisan, tinker } from './support/artisan';
 import {
     ACTIVE_INSTANCES,
     assertSafe,
+    DASHBOARD_REVERB,
     ROOT,
     type Instance,
 } from './support/scenarios';
+import {
+    seedPath,
+    SEED_ROUTING,
+    SEED_WIDGET_NAME,
+    type ChatSeed,
+} from './support/chat-seed';
 import {
     bootHarness,
     ensureHarnessUsers,
@@ -36,9 +55,12 @@ import {
     ADMIN,
     ADMIN_ONLY,
     AGENT,
+    ALICE,
     authStatePath,
+    BOB,
     EXTRA_USERS,
     P3_CATEGORIES,
+    P4_CATEGORIES,
     portalSessionUser,
     portalUsers,
     SARA,
@@ -78,32 +100,40 @@ foreach (json_decode((string) getenv('E2E_USERS_JSON'), true) as $user) {
 `;
 
 /**
- * P3 `seed: 'staff'`: the staff accounts and three more categories (General comes from the installer); Sara serves
- * Billing + Sales, Tariq Technical support, everybody else nothing.
+ * `seed: 'staff'` (P3) and `seed: 'chat'` (P4): the staff accounts and the categories (General comes from the installer, so it is
+ * only updated). `E2E_CATEGORIES` lists `servedBy` names, `E2E_STAFF_JSON` the accounts with the name they `serve` under. P3: Sara serves
+ * Billing + Sales, Tariq Technical support; P4: Alice Billing + General, Bob Sales + General; everybody else nothing. Prints the
+ * user ids as JSON (`{"<email>": id}`) on the last line.
  */
-const SEED_P3_STAFF = `
-foreach (json_decode((string) getenv('E2E_P3_CATEGORIES'), true) as $position => $row) {
+const SEED_STAFF = `
+foreach (json_decode((string) getenv('E2E_CATEGORIES'), true) as $position => $row) {
     \\App\\Models\\Category::query()->updateOrCreate(['slug' => $row['slug']], [
         'name' => $row['name'], 'icon' => $row['icon'], 'color' => $row['color'], 'sort_order' => $position + 1, 'is_active' => true,
     ]);
 }
-$served = ['sara' => [], 'tariq' => []];
-foreach (json_decode((string) getenv('E2E_P3_CATEGORIES'), true) as $row) {
+$served = [];
+foreach (json_decode((string) getenv('E2E_CATEGORIES'), true) as $row) {
     foreach ($row['servedBy'] as $who) { $served[$who][] = $row['slug']; }
 }
-foreach (json_decode((string) getenv('E2E_P3_STAFF_JSON'), true) as $user) {
+$ids = [];
+foreach (json_decode((string) getenv('E2E_STAFF_JSON'), true) as $user) {
     $factory = \\App\\Models\\User::factory();
     $factory = match ($user['kind']) {
         'admin-only' => $factory->admin()->state(['is_agent' => false]),
         default => $factory->agent(),
     };
     $model = $factory->create(['name' => $user['name'], 'email' => $user['email'], 'password' => $user['password']]);
+    $ids[$user['email']] = $model->id;
     $who = $user['serves'] ?? null;
     if ($who !== null) {
-        $ulids = \\App\\Models\\Category::query()->whereIn('slug', $served[$who])->pluck('ulid')->all();
+        $ulids = \\App\\Models\\Category::query()->whereIn('slug', $served[$who] ?? [])->pluck('ulid')->all();
         app(\\App\\Domain\\Catalog\\Actions\\SyncUserCategories::class)->handle($model, $ulids, $model);
     }
 }
+if (getenv('E2E_ADMIN_EMAIL')) {
+    $ids[(string) getenv('E2E_ADMIN_EMAIL')] = \\App\\Models\\User::query()->where('email', getenv('E2E_ADMIN_EMAIL'))->value('id');
+}
+echo "\\nE2E_IDS=".json_encode($ids)."\\n";
 `;
 
 /** Mode 2: portal environment, roles and a verified portal administrator, so every wizard screen can be opened. */
@@ -175,7 +205,9 @@ async function prepare(instance: Instance): Promise<void> {
             await installWithCli(instance);
         }
 
-        if (instance.seed !== null) {
+        if (instance.seed === 'chat') {
+            await seedChatStaff(instance);
+        } else if (instance.seed !== null) {
             await seedStaff(instance);
         }
     }
@@ -183,14 +215,116 @@ async function prepare(instance: Instance): Promise<void> {
 
 /** P3 test data (`seed: 'staff'`): staff accounts, more categories, who serves what. */
 async function seedStaff(instance: Instance): Promise<void> {
-    await tinker(instance, SEED_P3_STAFF, {
-        E2E_P3_CATEGORIES: JSON.stringify(P3_CATEGORIES),
-        E2E_P3_STAFF_JSON: JSON.stringify([
+    await tinker(instance, SEED_STAFF, {
+        E2E_CATEGORIES: JSON.stringify(P3_CATEGORIES),
+        E2E_STAFF_JSON: JSON.stringify([
             { ...SARA, serves: 'sara' },
             { ...TARIQ, serves: 'tariq' },
             ADMIN_ONLY,
         ]),
     });
+}
+
+/** The user ids a staff seed printed (`E2E_IDS={"<email>": id}`). */
+function seededIds(output: string): Record<string, number> {
+    const line = output.split('\n').find((row) => row.startsWith('E2E_IDS='));
+
+    if (!line) {
+        throw new Error(`The staff seed printed no ids:\n${output}`);
+    }
+
+    return JSON.parse(line.slice('E2E_IDS='.length));
+}
+
+/** The user ids of the P4 staff, kept for `seedChatWidget` (which writes `seed.json`). */
+const chatUserIds = new Map<string, ChatSeed['users']>();
+
+/** P4 `seed: 'chat'`: Alice (Billing + General), Bob (Sales + General), the three categories. */
+async function seedChatStaff(instance: Instance): Promise<void> {
+    const output = await tinker(instance, SEED_STAFF, {
+        E2E_CATEGORIES: JSON.stringify(P4_CATEGORIES),
+        E2E_STAFF_JSON: JSON.stringify([
+            { ...ALICE, serves: 'alice' },
+            { ...BOB, serves: 'bob' },
+        ]),
+        E2E_ADMIN_EMAIL: ADMIN.email,
+    });
+    const ids = seededIds(output);
+
+    chatUserIds.set(instance.key, {
+        admin: ids[ADMIN.email],
+        alice: ids[ALICE.email],
+        bob: ids[BOB.email],
+    });
+}
+
+/**
+ * P4 `seed: 'chat'`: the published, enabled widget "Acme Storefront" for the instance's customer site: open around the clock, General +
+ * Billing + Sales, the routing of `SEED_ROUTING`. The queue timeout, the opening mode and the locale are sent as settings AND inside the
+ * draft config: publishing copies the config's values back over the columns. Writes `seed.json` next to the instance's state.
+ */
+async function seedChatWidget(instance: Instance): Promise<void> {
+    const context = await request.newContext({
+        baseURL: instance.url,
+        storageState: authStatePath(instance, 'admin'),
+    });
+
+    try {
+        const api = new Api(context, instance.url);
+        const widget = await createWidget(api, {
+            name: SEED_WIDGET_NAME,
+            domains: [`localhost:${instance.hostPort}`],
+            categories: P4_CATEGORIES.map((category) => category.slug),
+            settings: {
+                offline_mode: 'always_online',
+                queue_timeout_seconds: SEED_ROUTING.queueTimeoutSeconds,
+                // The RTL scenario's widget speaks Arabic (the panel then renders right to left), like its dashboard.
+                ...(instance.locale === 'en'
+                    ? {}
+                    : { locale: instance.locale }),
+            },
+            config: {
+                ...(instance.locale === 'en'
+                    ? {}
+                    : { defaultLocale: instance.locale }),
+                hours: { mode: 'always_online' },
+                routing: SEED_ROUTING,
+                // A greeting popup would cover the launcher the specs click.
+                greetings: { enabled: false },
+            },
+        });
+        const categories = (await api.ok('GET', '/api/v1/categories')).data as {
+            ulid: string;
+            slug: string;
+            name: string;
+        }[];
+        const category = (slug: string) => {
+            const found = categories.find((item) => item.slug === slug);
+
+            if (!found) {
+                throw new Error(`Seed category "${slug}" is missing.`);
+            }
+
+            return { ulid: found.ulid, name: found.name };
+        };
+        const seed: ChatSeed = {
+            widget: {
+                ulid: widget.ulid,
+                key: widget.key,
+                name: SEED_WIDGET_NAME,
+            },
+            categories: {
+                general: category('general'),
+                billing: category('billing'),
+                sales: category('sales'),
+            },
+            users: chatUserIds.get(instance.key)!,
+        };
+
+        await writeFile(seedPath(instance), JSON.stringify(seed, null, 2));
+    } finally {
+        await context.dispose();
+    }
 }
 
 /**
@@ -387,6 +521,42 @@ async function modified(path: string): Promise<number> {
 }
 
 /**
+ * The dashboard's Echo reads its Reverb address from `VITE_REVERB_*` AT BUILD TIME. The e2e build therefore bakes in the e2e address
+ * (`DASHBOARD_REVERB`: a fixed key, and a port nothing listens on) whatever the developer's `.env` says, and the suite relays the
+ * staff sockets to the instance's own Reverb (`relayStaffSockets()` in e2e/support/realtime.ts). A build made with another address
+ * (a plain `npm run build` with a dev `.env`) is rebuilt.
+ */
+async function builtForE2e(): Promise<boolean> {
+    const baked = (name: string, value: string | number) =>
+        new RegExp(`${name}:\\s*["'\`]${value}["'\`]`);
+    const wanted = [
+        baked('VITE_REVERB_APP_KEY', DASHBOARD_REVERB.key),
+        baked('VITE_REVERB_HOST', DASHBOARD_REVERB.host),
+        baked('VITE_REVERB_PORT', DASHBOARD_REVERB.port),
+    ];
+
+    try {
+        const assets = `${ROOT}public/build/assets`;
+
+        for (const file of await readdir(assets)) {
+            if (!file.endsWith('.js')) {
+                continue;
+            }
+
+            const code = await readFile(`${assets}/${file}`, 'utf8');
+
+            if (wanted.every((pattern) => pattern.test(code))) {
+                return true;
+            }
+        }
+    } catch {
+        // no build yet
+    }
+
+    return false;
+}
+
+/**
  * The specs drive the BUILT assets (`public/build`, `public/widget/v1/loader.js`, both git-ignored): build them when they
  * are missing or older than the sources, instead of failing with "Unable to locate file in Vite manifest" mid-run.
  */
@@ -410,11 +580,22 @@ async function ensureBuilt(): Promise<void> {
         const sourceTimes = await Promise.all(
             sources.map((source) => newest(`${ROOT}${source}`)),
         );
+        const wrongReverb = script === 'build' && !(await builtForE2e());
 
-        if (built === 0 || Math.max(...sourceTimes) > built) {
-            console.log(`e2e: npm run ${script} (assets missing or stale)`);
+        if (built === 0 || Math.max(...sourceTimes) > built || wrongReverb) {
+            console.log(
+                `e2e: npm run ${script} (${wrongReverb ? 'built for another Reverb address' : 'assets missing or stale'})`,
+            );
             await run('npm', ['run', script], {
                 cwd: ROOT,
+                // The process environment wins over `.env` for `VITE_*` variables.
+                env: {
+                    ...process.env,
+                    VITE_REVERB_APP_KEY: DASHBOARD_REVERB.key,
+                    VITE_REVERB_HOST: DASHBOARD_REVERB.host,
+                    VITE_REVERB_PORT: String(DASHBOARD_REVERB.port),
+                    VITE_REVERB_SCHEME: DASHBOARD_REVERB.scheme,
+                },
                 maxBuffer: 16 * 1024 * 1024,
                 timeout: 300_000,
             });
@@ -483,7 +664,11 @@ async function prepareAll(): Promise<void> {
             await saveLogin(instance, ADMIN, 'admin');
             await saveLogin(instance, AGENT, 'agent');
 
-            if (instance.seed !== null) {
+            if (instance.seed === 'chat') {
+                await saveLogin(instance, ALICE, 'alice');
+                await saveLogin(instance, BOB, 'bob');
+                await seedChatWidget(instance);
+            } else if (instance.seed !== null) {
                 await saveLogin(instance, ADMIN_ONLY, 'admin-only');
             }
 

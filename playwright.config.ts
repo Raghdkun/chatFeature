@@ -12,6 +12,8 @@
  *   `auth/portal-outage.spec.ts` STOPS that harness mid-test, so it runs alone in the last project
  *   (`pizzasys-outage`), after every other project finished.
  * - P3: scenarios with a `hostPort` also start a static "customer site" on another origin (e2e/support/host-server.mjs).
+ * - P4: scenarios with a `reverbPort` also start a real Reverb server (`php artisan reverb:start`) with the instance's environment,
+ *   waited for on its `/up` route; the queue stays `sync` (docs/testing.md, "Realtime and the queue").
  * - `E2E_SCREENSHOTS=1` additionally starts the screenshot scenarios and runs
  *   e2e/screenshots/p1.spec.ts, p2.spec.ts and p3.spec.ts (write docs/screenshots/p1|p2|p3/*.png).
  */
@@ -88,6 +90,27 @@ export default defineConfig({
             stderr: 'ignore' as const,
             gracefulShutdown: { signal: 'SIGTERM' as const, timeout: 5_000 },
         })),
+        // The realtime server of the chat specs (one per instance that has a `reverbPort`), next to the app it belongs to.
+        ...ACTIVE_INSTANCES.flatMap((instance) =>
+            instance.reverb === null
+                ? []
+                : [
+                      {
+                          command: `php artisan reverb:start --host=127.0.0.1 --port=${instance.reverb.port}`,
+                          // Reverb's own health route: answers once the socket server is accepting connections.
+                          url: `${instance.reverb.url}/up`,
+                          env: instance.env,
+                          reuseExistingServer: false,
+                          timeout: 60_000,
+                          stdout: 'ignore' as const,
+                          stderr: 'ignore' as const,
+                          gracefulShutdown: {
+                              signal: 'SIGTERM' as const,
+                              timeout: 5_000,
+                          },
+                      },
+                  ],
+        ),
         // The cross-origin "customer site" of the embed specs (one per instance that has a `hostPort`).
         ...ACTIVE_INSTANCES.filter(
             (instance) => instance.hostPort !== null,

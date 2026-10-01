@@ -81,6 +81,46 @@ export const P3_CATEGORIES = [
     },
 ] as const;
 
+/**
+ * Staff of the P4 scenarios (`seed: 'chat'`): Alice serves Billing + General, Bob Sales + General. Both are plain agents (not
+ * administrators); the administrator is the installer's `ADMIN`. Each has a saved login (`role: 'alice' | 'bob'`).
+ */
+export const ALICE = account(
+    'Alice Carter',
+    'alice.carter@example.test',
+    'agent',
+);
+export const BOB = account(
+    'Bob Mitchell',
+    'bob.mitchell@example.test',
+    'agent',
+);
+
+/** The categories of the P4 scenarios, with who serves them (`servedBy` names the `serves` key of the seeded staff). */
+export const P4_CATEGORIES = [
+    {
+        slug: 'general',
+        name: 'General',
+        icon: 'message-circle',
+        color: '#0f766e',
+        servedBy: ['alice', 'bob'],
+    },
+    {
+        slug: 'billing',
+        name: 'Billing',
+        icon: 'credit-card',
+        color: '#2563eb',
+        servedBy: ['alice'],
+    },
+    {
+        slug: 'sales',
+        name: 'Sales',
+        icon: 'shopping-cart',
+        color: '#d97706',
+        servedBy: ['bob'],
+    },
+] as const;
+
 export const NO_ACCESS = account(
     'Lina Karim',
     'lina.karim@example.test',
@@ -118,7 +158,8 @@ export const EXTRA_USERS: TestUser[] = [
     ),
 ];
 
-export type Role = 'admin' | 'agent' | 'admin-only';
+/** `alice` / `bob`: the P4 agents (`seed: 'chat'`). */
+export type Role = 'admin' | 'agent' | 'admin-only' | 'alice' | 'bob';
 
 /** Where the saved session (Playwright storageState) of a role lives for an instance. */
 export function authStatePath(instance: Instance, role: Role): string {

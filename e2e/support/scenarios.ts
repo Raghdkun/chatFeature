@@ -7,8 +7,15 @@
  * environment. Nothing here touches the developer's real `chatfeature` database: every database
  * name must start with `chatfeature_e2e` (enforced in `assertSafe`).
  *
- * Add a scenario: append it to `DEFINITIONS` (the suite owns ports 8110-8129 and 8230-8249; 8120-8129 are the mode-2 ones, 8230-8249 the P3 ones), then point a spec at it
- * with `test.use({ scenario: '<name>' })`. See docs/testing.md.
+ * Add a scenario: append it to `DEFINITIONS`, then point a spec at it with `test.use({ scenario: '<name>' })`. See docs/testing.md.
+ *
+ * Ports the suite owns (everything else belongs to other suites or running agents):
+ *   web servers      8110-8129 (8120-8129: mode 2)   8230-8249 (P3)   8260-8279 (P4)
+ *   customer sites   8240-8247 (P3)                  8280-8289 (P4)
+ *   Reverb (P4)      8340-8348, and 8349 = the address baked into the dashboard build (nothing listens there, see `DASHBOARD_REVERB`)
+ * P4 layout: a stateful scenario takes web `8260 + n` (desktop) and `8270 + n` (mobile twin), a customer site `8280 + n` / `8285 + n`
+ * and Reverb `8340 + n` / `8345 + n`; `p4-chat` is n = 0, `p4-chat-views` n = 2, `p4-chat-views-rtl` n = 3. 8264-8269, 8274-8279,
+ * 8284, 8289 and 8344/8348 are free for more P4 scenarios.
  */
 import { fileURLToPath } from 'node:url';
 
@@ -46,7 +53,11 @@ export type ScenarioName =
     | 'p3-host'
     | 'p3-views'
     | 'p3-views-rtl'
-    | 'p3-limits';
+    | 'p3-limits'
+    // P4 (live chat: real Reverb, the visitor panel, the agent inbox). Ports 8260-8279, 8280-8289, 8340-8349.
+    | 'p4-chat'
+    | 'p4-chat-views'
+    | 'p4-chat-views-rtl';
 
 export type ProjectName = 'desktop' | 'mobile' | 'pizzasys-outage';
 
@@ -65,18 +76,28 @@ type Definition = {
         mobileDbSuffix: string;
         /** Scenarios with a host page server: the mobile project's own host port. */
         mobileHostPort?: number;
+        /** Scenarios with a Reverb server: the mobile project's own Reverb port. */
+        mobileReverbPort?: number;
     };
     /**
      * Test data created right after the install (see `SEED_P3` in global-setup.ts): `staff` adds the staff accounts and
      * three more categories, `demo` additionally a fully configured, published widget "Acme Storefront" (with domains,
-     * greetings and categories).
+     * greetings and categories). P4's `chat`: the administrator, the agents Alice (Billing + General) and Bob (Sales + General),
+     * the categories Billing / Sales / General and a published, enabled "Acme Storefront" that may run on the scenario's customer site
+     * (`SEED_P4` in global-setup.ts, constants in `e2e/support/chat-seed.ts`).
      */
-    seed?: 'staff' | 'demo';
+    seed?: 'staff' | 'demo' | 'chat';
     /**
      * Port of a tiny static "customer site" (e2e/support/host-server.mjs) on ANOTHER origin than the app
      * (`http://localhost:<port>` vs `http://127.0.0.1:<app port>`): the cross-origin embed tests drive it.
      */
     hostPort?: number;
+    /**
+     * Port of a real Reverb server (`php artisan reverb:start`, started by Playwright's `webServer` next to the app) the instance
+     * publishes to and the visitor panel connects to. The instance then runs with `BROADCAST_CONNECTION=reverb`; the queue stays
+     * `sync` (docs/testing.md, "Realtime and the queue").
+     */
+    reverbPort?: number;
     /** Extra environment of the instance's server and artisan calls (after the defaults). */
     env?: Record<string, string>;
     /** Only started when E2E_SCREENSHOTS=1. */
@@ -266,6 +287,48 @@ const DEFINITIONS: Record<ScenarioName, Definition> = {
         // never meets the budget an earlier attempt spent).
         env: { TRUSTED_PROXIES: '*' },
     },
+    // P4: the live chat. A real Reverb per instance, the `chat` seed (admin, Alice, Bob, three categories, the widget "Acme Storefront"),
+    // the customer site on another origin. Stateful: its own server per project.
+    'p4-chat': {
+        kind: 'installed',
+        port: 8260,
+        dbSuffix: '_p4_chat',
+        mode: 'local',
+        seed: 'chat',
+        hostPort: 8280,
+        reverbPort: 8340,
+        // Chat starts are limited per client network (3 a minute per widget): the browsers of the specs each present an own address
+        // through X-Forwarded-For (`Actors.visitor()`), which the server only believes when it trusts the proxy.
+        env: { TRUSTED_PROXIES: '*' },
+        perProject: {
+            mobilePort: 8270,
+            mobileDbSuffix: '_p4_chat_mobile',
+            mobileHostPort: 8285,
+            mobileReverbPort: 8345,
+        },
+    },
+    // Read-only views of the chat (axe, 375px, RTL): shared by both projects, nothing may change state that others rely on.
+    'p4-chat-views': {
+        kind: 'installed',
+        port: 8262,
+        dbSuffix: '_p4_chat_views',
+        mode: 'local',
+        seed: 'chat',
+        hostPort: 8282,
+        reverbPort: 8342,
+        env: { TRUSTED_PROXIES: '*' },
+    },
+    'p4-chat-views-rtl': {
+        kind: 'installed',
+        port: 8263,
+        dbSuffix: '_p4_chat_views_rtl',
+        mode: 'local',
+        locale: 'ar',
+        seed: 'chat',
+        hostPort: 8283,
+        reverbPort: 8343,
+        env: { TRUSTED_PROXIES: '*' },
+    },
     // Real wizard runs, in token mode, that the screenshot spec walks through for the deck.
     'shots-desktop': {
         kind: 'fresh',
@@ -289,6 +352,25 @@ export const SETUP_TOKEN = 'e2e-setup-token';
 /** Deterministic, test-only APP_KEY so the suite does not depend on the developer's `.env`. */
 const APP_KEY = `base64:${Buffer.from('pne-chat-e2e-test-key-0123456789').toString('base64')}`;
 
+/** The address the DASHBOARD's Echo was built with (`VITE_REVERB_*`, baked into `public/build` by `npm run build`): see `relayStaffSockets()`. */
+export const DASHBOARD_REVERB = {
+    key: 'e2e-reverb-key',
+    host: '127.0.0.1',
+    // Reserved and never listened on: staff sockets are relayed to the instance's own Reverb by `e2e/support/realtime.ts`.
+    port: 8349,
+    scheme: 'http',
+} as const;
+
+export type ReverbServer = {
+    port: number;
+    /** What clients connect to (the visitor panel gets it in the `ws` block of its session). */
+    url: string;
+    appId: string;
+    /** The same for every instance (it is public and baked into the dashboard build); the secret is per instance. */
+    key: string;
+    secret: string;
+};
+
 export type Instance = {
     /** Unique key; `fresh-local` for desktop, `fresh-local-mobile` for the mobile project. */
     key: string;
@@ -310,11 +392,13 @@ export type Instance = {
     auth: 'local' | 'pizzasys';
     /** Mode 2: a Testing environment is configured next to Production. */
     testingEnvironment: boolean;
-    /** P3 test data (see `Definition.seed`). */
-    seed: 'staff' | 'demo' | null;
+    /** P3 / P4 test data (see `Definition.seed`). */
+    seed: 'staff' | 'demo' | 'chat' | null;
     /** The cross-origin host page server (`http://localhost:<port>`), when the scenario has one. */
     hostPort: number | null;
     hostUrl: string | null;
+    /** The instance's Reverb server (P4), or null: the app then broadcasts to nothing (`BROADCAST_CONNECTION=null`). */
+    reverb: ReverbServer | null;
     /** Environment shared by the web server and every artisan call made for this instance. */
     env: Record<string, string>;
 };
@@ -326,6 +410,7 @@ function build(
     port: number,
     dbSuffix: string,
     hostPort: number | null = definition.hostPort ?? null,
+    reverbPort: number | null = definition.reverbPort ?? null,
 ): Instance {
     const url = `http://127.0.0.1:${port}`;
     const dir = `${ROOT}storage/e2e-${key}`;
@@ -355,6 +440,37 @@ function build(
         PHP_CLI_SERVER_WORKERS: '4',
     };
 
+    // A real Reverb for this instance: the app publishes to it (inline, the queue stays `sync`), the panel connects to it.
+    const reverb: ReverbServer | null =
+        reverbPort === null
+            ? null
+            : {
+                  port: reverbPort,
+                  url: `http://127.0.0.1:${reverbPort}`,
+                  appId: String(reverbPort),
+                  key: DASHBOARD_REVERB.key,
+                  secret: `e2e-reverb-secret-${reverbPort}`,
+              };
+
+    if (reverb !== null) {
+        Object.assign(env, {
+            BROADCAST_CONNECTION: 'reverb',
+            REVERB_APP_ID: reverb.appId,
+            REVERB_APP_KEY: reverb.key,
+            REVERB_APP_SECRET: reverb.secret,
+            // The public address clients use, and the one the Reverb process binds to: the same here (no proxy in between).
+            REVERB_HOST: '127.0.0.1',
+            REVERB_PORT: String(reverb.port),
+            REVERB_SCHEME: 'http',
+            REVERB_SERVER_HOST: '127.0.0.1',
+            REVERB_SERVER_PORT: String(reverb.port),
+            // The panel's iframe is served by the app (127.0.0.1) so the app host is allowed anyway; the customer site is listed too.
+            ...(hostPort === null
+                ? {}
+                : { REVERB_ALLOWED_ORIGINS: 'localhost' }),
+        });
+    }
+
     Object.assign(env, definition.env ?? {});
 
     if (definition.mode === 'token') {
@@ -380,6 +496,7 @@ function build(
         seed: definition.seed ?? null,
         hostPort,
         hostUrl: hostPort === null ? null : `http://localhost:${hostPort}`,
+        reverb,
         env,
     };
 }
@@ -405,6 +522,9 @@ function expand(): Instance[] {
                     definition.perProject.mobileDbSuffix,
                     definition.perProject.mobileHostPort ??
                         definition.hostPort ??
+                        null,
+                    definition.perProject.mobileReverbPort ??
+                        definition.reverbPort ??
                         null,
                 ),
             );

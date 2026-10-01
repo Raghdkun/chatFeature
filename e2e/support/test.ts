@@ -4,7 +4,12 @@
  *   test.use({ scenario: 'installed' })  -> baseURL of that scenario's server (per project where the
  *                                          scenario is stateful, see scenarios.ts)
  *   test.use({ role: 'admin' })          -> start with the saved session of that role (installed scenarios;
- *                                          `admin-only` = an administrator who does not take chats, P3 scenarios)
+ *                                          `admin-only` = an administrator who does not take chats, P3 scenarios;
+ *                                          `alice` / `bob` = the agents of the P4 `chat` scenarios)
+ *
+ * P4 (scenarios with a Reverb): the `page` / `context` of a staff `role` already talk to the instance's Reverb (`relayStaffSockets`),
+ * `actors` builds several people in separate browser contexts for one test (`e2e/support/actors.ts`), `seed` is what the `chat`
+ * seed created (`e2e/support/chat-seed.ts`).
  */
 import { test as base, expect } from '@playwright/test';
 import {
@@ -13,7 +18,10 @@ import {
     type Instance,
     type ScenarioName,
 } from './scenarios';
+import { Actors } from './actors';
 import { Api } from './api';
+import { readSeed, type ChatSeed } from './chat-seed';
+import { relayStaffSockets } from './realtime';
 import { authStatePath, type Role } from './users';
 
 type Options = {
@@ -31,6 +39,10 @@ type Fixtures = {
      * visitor on a customer's site (no cookies of the dashboard in that browser).
      */
     adminApi: Api;
+    /** Several isolated people (visitor, Alice, Bob, admin) for one test; closed, and checked for page errors / 5xx, when it ends. */
+    actors: Actors;
+    /** `chat` scenarios: the widget key / ulid, category ulids and the staff user ids. */
+    seed: ChatSeed;
 };
 
 export const test = base.extend<Options & Fixtures>({
@@ -59,6 +71,41 @@ export const test = base.extend<Options & Fixtures>({
 
         await use(new Api(context, instance.url));
         await context.dispose();
+    },
+
+    actors: async ({ browser, instance }, use, testInfo) => {
+        const actors = new Actors(browser, instance, testInfo);
+
+        await use(actors);
+
+        const problems = actors.problems();
+
+        await actors.closeAll();
+
+        // A failing test already says why; a passing one must not hide a crash or a 5xx behind its assertions.
+        if (
+            testInfo.status === testInfo.expectedStatus &&
+            problems.length > 0
+        ) {
+            throw new Error(
+                `Unexpected errors while the test ran:\n${problems.join('\n')}`,
+            );
+        }
+    },
+
+    seed: async ({ instance }, use) => {
+        await use(readSeed(instance));
+    },
+
+    context: async ({ context, scenario }, use, testInfo) => {
+        if (scenario) {
+            await relayStaffSockets(
+                context,
+                instanceFor(scenario, testInfo.project.name),
+            );
+        }
+
+        await use(context);
     },
 
     baseURL: async ({ scenario }, use, testInfo) => {
