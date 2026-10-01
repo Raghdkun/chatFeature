@@ -224,15 +224,63 @@ export class VisitorApi {
         );
     }
 
+    /**
+     * The public API as the visitor a browser plays: `token` is the bearer the loader keeps (`panel.visitorToken()`), `address` the
+     * browser's client address (`VisitorActor.address`). Nothing is rotated: the browser's own token keeps working.
+     */
+    static async withToken(
+        instance: Instance,
+        token: string,
+        address: string = clientAddress(),
+        origin: string = hostOrigin(instance),
+    ): Promise<VisitorApi> {
+        const context = await request.newContext({
+            baseURL: instance.url,
+            extraHTTPHeaders: {
+                Accept: 'application/json',
+                Origin: origin,
+                'X-Forwarded-For': address,
+            },
+        });
+
+        return new VisitorApi(context, token, undefined, address);
+    }
+
     async request(
         method: 'GET' | 'POST' | 'DELETE',
         path: string,
         body?: unknown,
     ): Promise<ApiResult> {
-        const response = await this.context.fetch(`/api/v1/public${path}`, {
+        return this.call(path, {
             method,
-            headers: { Authorization: `Bearer ${this.token}` },
             data: body === undefined ? undefined : body,
+        });
+    }
+
+    /** `POST .../attachments` (multipart `file`): the answer is the `Attachment` (`201`) or a refusal (`422`, `403`, `409`, `429`). */
+    upload = (
+        ulid: string,
+        file: { name: string; mimeType: string; buffer: Buffer },
+    ) =>
+        this.call(`/conversations/${ulid}/attachments`, {
+            method: 'POST',
+            multipart: { file },
+        });
+
+    private async call(
+        path: string,
+        options: {
+            method: 'GET' | 'POST' | 'DELETE';
+            data?: unknown;
+            multipart?: Record<
+                string,
+                { name: string; mimeType: string; buffer: Buffer }
+            >;
+        },
+    ): Promise<ApiResult> {
+        const response = await this.context.fetch(`/api/v1/public${path}`, {
+            ...options,
+            headers: { Authorization: `Bearer ${this.token}` },
             failOnStatusCode: false,
         });
         const text = await response.text();

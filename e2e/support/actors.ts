@@ -124,7 +124,7 @@ export class StaffActor extends Actor {
     private beat: ReturnType<typeof setInterval> | null = null;
 
     constructor(
-        name: StaffName,
+        name: string,
         readonly user: TestUser,
         context: BrowserContext,
         page: Page,
@@ -215,10 +215,38 @@ export class Actors {
             storageState: authStatePath(this.instance, role),
         });
 
+        return this.finishStaff(who, user, context, options);
+    }
+
+    /**
+     * A staff member a spec created (`createTeam()` in chat-flows.ts) and who has no saved login: a fresh browser context signed in
+     * through the login endpoint (the form is throttled to 5 attempts a minute per account: one sign-in per account and test).
+     */
+    async staffLogin(
+        user: TestUser,
+        options: StaffOptions = {},
+    ): Promise<StaffActor> {
+        const context = await this.browser.newContext({
+            ...contextOptions(this.testInfo, options.device),
+            baseURL: this.instance.url,
+            storageState: { cookies: [], origins: [] },
+        });
+
+        await signInApi(context, this.instance, user);
+
+        return this.finishStaff(user.name, user, context, options);
+    }
+
+    private async finishStaff(
+        name: string,
+        user: TestUser,
+        context: BrowserContext,
+        options: StaffOptions,
+    ): Promise<StaffActor> {
         const page = await context.newPage();
-        const watch = watchContext(context, who, options.allow);
+        const watch = watchContext(context, name, options.allow);
         const actor = new StaffActor(
-            who,
+            name,
             user,
             context,
             page,
