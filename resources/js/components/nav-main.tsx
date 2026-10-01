@@ -18,7 +18,7 @@ export function NavMain({
     /** Already translated group label. */
     label: string;
 }) {
-    const { isCurrentUrl } = useCurrentUrl();
+    const { isCurrentUrl, isCurrentOrParentUrl } = useCurrentUrl();
     const { t, has } = useTrans();
 
     if (items.length === 0) {
@@ -39,12 +39,17 @@ export function NavMain({
                         <SidebarMenuItem key={item.title}>
                             <SidebarMenuButton
                                 asChild
-                                isActive={isCurrentUrl(item.href)}
+                                isActive={
+                                    item.activeOnChildren
+                                        ? isCurrentOrParentUrl(item.href)
+                                        : isCurrentUrl(item.href)
+                                }
                                 tooltip={{ children: title }}
                             >
                                 <Link href={item.href} prefetch>
                                     {item.icon && <item.icon />}
                                     <span>{title}</span>
+                                    {item.badge && <item.badge />}
                                 </Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>

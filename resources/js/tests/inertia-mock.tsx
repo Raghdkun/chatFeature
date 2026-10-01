@@ -21,6 +21,8 @@ const routerHandlers = new Map<string, Set<RouterHandler>>();
 export const routerMock = {
     reload: vi.fn(),
     visit: vi.fn(),
+    /** `router.get(url, data, options)`: recorded (the history filters use it). */
+    get: vi.fn(),
     /** `router.post|put(url, data, options)`: recorded; tests finish them with {@link completeVisit}. */
     post: vi.fn(),
     put: vi.fn(),
@@ -118,25 +120,36 @@ function Link({
     href,
     children,
     className,
+    data,
     ...rest
 }: {
     href: string | { url: string };
     children?: ReactNode;
     className?: string;
+    /** A GET visit's query data: shown in the `href`, as Inertia would request it. */
+    data?: Record<string, string>;
     [key: string]: unknown;
 }) {
     const passthrough = Object.fromEntries(
         Object.entries(rest).filter(([key]) =>
-            ['tabIndex', 'data-test', 'data-testid', 'aria-label'].includes(
-                key,
-            ),
+            [
+                'tabIndex',
+                'data-test',
+                'data-testid',
+                'aria-label',
+                'aria-current',
+                'data-unseen',
+            ].includes(key),
         ),
     );
+
+    const base = typeof href === 'string' ? href : href.url;
+    const query = data ? new URLSearchParams(data).toString() : '';
 
     return createElement(
         'a',
         {
-            href: typeof href === 'string' ? href : href.url,
+            href: query === '' ? base : `${base}?${query}`,
             className,
             ...passthrough,
         },
@@ -171,6 +184,7 @@ export function resetInertiaMock(props: Record<string, unknown> = {}) {
     inertiaState.formProcessing = false;
     routerMock.reload.mockClear();
     routerMock.visit.mockClear();
+    routerMock.get.mockClear();
     routerMock.post.mockClear();
     routerMock.put.mockClear();
 }
