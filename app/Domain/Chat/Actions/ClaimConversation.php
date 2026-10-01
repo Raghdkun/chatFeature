@@ -185,6 +185,16 @@ final class ClaimConversation
         }
 
         if (! $this->policy->claim($actor, $conversation)) {
+            // The winner's accept may have committed between the read above and this check, which looks at the offers again (the
+            // winner closes them as taken): an agent who held an offer lost the race, a 409 their client acts on, not a refusal.
+            $current = Conversation::query()->find($conversation->id);
+
+            if ($current !== null
+                && ($current->status !== ConversationStatus::Queued || $current->assigned_agent_id !== null)
+                && ConversationOffer::query()->where('conversation_id', $conversation->id)->where('user_id', $actor->id)->exists()) {
+                throw $this->lost($conversation->id);
+            }
+
             throw ApiProblemException::forbidden('forbidden', __('This chat was not offered to you.'));
         }
 
