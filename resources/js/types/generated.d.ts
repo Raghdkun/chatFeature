@@ -327,6 +327,12 @@ export type MessageCreatedPayload = {
 v: number,
 message: App.Data.Chat.MessageData,
 };
+export type MessageDeliveredPayload = {
+v: number,
+upToSeq: number,
+by: App.Domain.Chat.Enums.SenderType,
+at: string,
+};
 export type MessageSeenPayload = {
 v: number,
 upToSeq: number,
@@ -519,7 +525,7 @@ export type SenderType = 'visitor' | 'agent' | 'system';
 export type SessionRevokeReason = 'role_removed' | 'deactivated' | 'auth_revoked';
 }
 namespace Realtime {
-export type RealtimeEvent = 'chat.offered' | 'chat.taken' | 'chat.assigned' | 'chat.claimed' | 'conversation.updated' | 'unread.updated' | 'queue.updated' | 'session.revoked' | 'presence.changed' | 'message.created' | 'message.seen' | 'conversation.ended' | 'conversation.closed' | 'conversation.missed' | 'conversation.transferred' | 'offline-ticket.created' | 'conversation.rated' | 'typing';
+export type RealtimeEvent = 'chat.offered' | 'chat.taken' | 'chat.assigned' | 'chat.claimed' | 'conversation.updated' | 'unread.updated' | 'queue.updated' | 'session.revoked' | 'presence.changed' | 'message.created' | 'message.delivered' | 'message.seen' | 'conversation.ended' | 'conversation.closed' | 'conversation.missed' | 'conversation.transferred' | 'offline-ticket.created' | 'conversation.rated' | 'typing';
 }
 }
 namespace Settings {

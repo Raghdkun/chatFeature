@@ -7,6 +7,7 @@ use App\Domain\Chat\Enums\SenderType;
 use App\Domain\Chat\Enums\SessionRevokeReason;
 use App\Domain\Chat\Events\ConversationUpdated;
 use App\Domain\Chat\Events\MessageCreated;
+use App\Domain\Chat\Events\MessagesDelivered;
 use App\Domain\Chat\Events\MessagesSeen;
 use App\Domain\Chat\Events\QueueChanged;
 use App\Domain\Chat\Events\StaffSessionRevoked;
@@ -77,8 +78,9 @@ class RealtimeFailureIsolationTest extends TestCase
         StaffSessionRevoked::dispatch(999_999, SessionRevokeReason::Deactivated);
         TypingBroadcast::dispatch($this->conversation->ulid, SenderType::Visitor, true);
         MessagesSeen::dispatch($this->conversation, 1, SenderType::Visitor);
+        MessagesDelivered::dispatch($this->conversation, 1, SenderType::Visitor);
 
-        Exceptions::assertReportedCount(3);
+        Exceptions::assertReportedCount(4);
     }
 
     public function test_a_queue_that_cannot_be_reached_does_not_fail_the_request_either(): void

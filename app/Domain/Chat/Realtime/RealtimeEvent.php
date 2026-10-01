@@ -18,6 +18,7 @@ enum RealtimeEvent: string
     case SessionRevoked = 'session.revoked';
     case PresenceChanged = 'presence.changed';
     case MessageCreated = 'message.created';
+    case MessageDelivered = 'message.delivered';
     case MessageSeen = 'message.seen';
     case ConversationEnded = 'conversation.ended';
     case ConversationClosed = 'conversation.closed';

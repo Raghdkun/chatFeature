@@ -5,6 +5,7 @@ namespace Tests\Feature\Chat\Api;
 use App\Domain\Chat\Enums\SenderType;
 use App\Domain\Chat\Events\ConversationUpdated;
 use App\Domain\Chat\Events\MessageCreated;
+use App\Domain\Chat\Events\MessagesDelivered;
 use App\Domain\Chat\Events\MessagesSeen;
 use App\Domain\Chat\Events\UnseenCountChanged;
 use App\Domain\Chat\Realtime\Broadcasts\TypingBroadcast;
@@ -256,7 +257,7 @@ class PublicMessagesApiTest extends TestCase
 
     public function test_the_visitor_reports_receipts_for_the_agents_messages(): void
     {
-        Event::fake([MessagesSeen::class, UnseenCountChanged::class]);
+        Event::fake([MessagesDelivered::class, MessagesSeen::class, UnseenCountChanged::class]);
         $a = Message::factory()->for($this->chat)->fromAgent($this->agent)->create();
         $b = Message::factory()->for($this->chat)->fromAgent($this->agent)->create();
         $own = Message::factory()->for($this->chat)->create();
@@ -267,6 +268,8 @@ class PublicMessagesApiTest extends TestCase
         $this->assertNotNull($b->fresh()->delivered_at);
         $this->assertNull($a->fresh()->seen_at);
         Event::assertNotDispatched(MessagesSeen::class);
+        Event::assertDispatchedTimes(MessagesDelivered::class, 1);
+        Event::assertDispatched(MessagesDelivered::class, fn (MessagesDelivered $event): bool => $event->upToSeq === 2 && $event->by === SenderType::Visitor && $event->conversation->is($this->chat));
 
         $this->withToken($this->token->plaintext)->postJson("/api/v1/public/conversations/{$this->chat->ulid}/receipts", ['seen_upto' => 1])->assertNoContent();
         $this->assertNotNull($a->fresh()->seen_at);
@@ -282,9 +285,10 @@ class PublicMessagesApiTest extends TestCase
         $this->assertSame(0, $this->chat->fresh()->unseen_by_visitor);
         Event::assertDispatchedTimes(MessagesSeen::class, 2);
 
-        // Repeating a receipt changes nothing and dispatches nothing.
+        // Repeating a receipt changes nothing and dispatches nothing; reading was already announced as seen, not as delivered again.
         $this->withToken($this->token->plaintext)->postJson("/api/v1/public/conversations/{$this->chat->ulid}/receipts", ['seen_upto' => 999])->assertNoContent();
         Event::assertDispatchedTimes(MessagesSeen::class, 2);
+        Event::assertDispatchedTimes(MessagesDelivered::class, 1);
         // The agent's unseen counter is for agent receipts only.
         Event::assertNotDispatched(UnseenCountChanged::class);
     }

@@ -12,6 +12,7 @@ use App\Data\Chat\Events\ConversationMissedPayload;
 use App\Data\Chat\Events\ConversationRatedPayload;
 use App\Data\Chat\Events\ConversationTransferredPayload;
 use App\Data\Chat\Events\MessageCreatedPayload;
+use App\Data\Chat\Events\MessageDeliveredPayload;
 use App\Data\Chat\Events\MessageSeenPayload;
 use App\Data\Chat\Events\PresenceChangedPayload;
 use App\Data\Chat\Events\SessionRevokedPayload;
@@ -30,6 +31,7 @@ use App\Domain\Chat\Events\ConversationRated;
 use App\Domain\Chat\Events\ConversationTransferred;
 use App\Domain\Chat\Events\ConversationUpdated;
 use App\Domain\Chat\Events\MessageCreated;
+use App\Domain\Chat\Events\MessagesDelivered;
 use App\Domain\Chat\Events\MessagesSeen;
 use App\Domain\Chat\Events\OfflineTicketCreated;
 use App\Domain\Chat\Events\PresenceChanged;
@@ -78,6 +80,7 @@ final class ChatEventSubscriber
             ConversationAssigned::class => 'conversationAssigned',
             ConversationUpdated::class => 'conversationUpdated',
             MessageCreated::class => 'messageCreated',
+            MessagesDelivered::class => 'messagesDelivered',
             MessagesSeen::class => 'messagesSeen',
             ConversationEnded::class => 'conversationEnded',
             ConversationClosed::class => 'conversationClosed',
@@ -162,6 +165,19 @@ final class ChatEventSubscriber
             $payload = new MessageCreatedPayload(MessageData::fromModel($message));
 
             event(new ImmediatePayloadBroadcast(RealtimeEvent::MessageCreated, [RealtimeChannels::conversation($message->conversation->ulid)], $payload->toArray()));
+        });
+    }
+
+    public function messagesDelivered(MessagesDelivered $event): void
+    {
+        $this->guard(function () use ($event): void {
+            if ($event->by === SenderType::System) {
+                return;
+            }
+
+            $payload = new MessageDeliveredPayload($event->upToSeq, $event->by, (string) Timestamps::iso(now()));
+
+            event(new PayloadBroadcast(RealtimeEvent::MessageDelivered, [RealtimeChannels::conversation($event->conversation->ulid)], $payload->toArray()));
         });
     }
 
