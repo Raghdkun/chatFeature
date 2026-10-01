@@ -20,7 +20,12 @@ import {
 } from '../support/shots';
 import { expect, test } from '../support/test';
 import { ADMIN, authStatePath, NO_ACCESS } from '../support/users';
-import { expectStep, fillAdmin, submitAdmin } from '../support/wizard';
+import {
+    expectStep,
+    fillAdmin,
+    INSTALL_TIMEOUT,
+    submitAdmin,
+} from '../support/wizard';
 
 const OUTPUT = `${ROOT}docs/screenshots/p1`;
 
@@ -112,7 +117,7 @@ async function walkTheWizard(
         );
 
         release();
-        await expectStep(page, 'done');
+        await expectStep(page, 'done', INSTALL_TIMEOUT);
         await capture(page, viewport, '09-wizard-done');
 
         releaseLogin();

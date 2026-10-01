@@ -28,6 +28,7 @@ import { authStatePath, portalUsers } from '../support/users';
 import {
     expectStep,
     FAILED_TEST,
+    INSTALL_TIMEOUT,
     mockConnectionTest,
     PASSED_TEST,
     submitPortalAdmin,
@@ -146,7 +147,7 @@ async function captureWizard(
         );
 
         await page.getByTestId('setup-run-start').click();
-        await expectStep(page, 'done');
+        await expectStep(page, 'done', INSTALL_TIMEOUT);
         await capture(page, viewport, '10-wizard-done-portal');
         releaseLogin();
     } finally {

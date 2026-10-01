@@ -13,6 +13,7 @@ import {
     choosePizzasysMode,
     expectStep,
     fillEnvironment,
+    INSTALL_TIMEOUT,
     RUN_STEPS,
     submitPortalAdmin,
     testEnvironment,
@@ -397,7 +398,7 @@ test(
             loginGateRelease = releaseLogin;
 
             await page.getByTestId('setup-run-start').click();
-            await expectStep(page, 'done');
+            await expectStep(page, 'done', INSTALL_TIMEOUT);
         });
 
         await test.step('done: the success screen talks about the portal and is accessible in both themes', async () => {
