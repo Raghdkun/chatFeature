@@ -747,6 +747,33 @@ describe('realtime', () => {
         );
     });
 
+    it("picks up the visitor's receipts for my messages when it catches up (nothing is replayed after a drop, or while polling)", async () => {
+        const p = props();
+
+        seed(p);
+        const { view } = await renderStaff(<InboxShow {...p} />);
+        const status = () =>
+            view
+                .byTestId(`message-${fakeUlid(6002)}`)
+                ?.getAttribute('data-status');
+
+        expect(status()).toBe('sent');
+
+        // The visitor read it while the socket was down: the server has the receipt, nobody told this page.
+        backend.current.state.messages.set(CONVERSATION, [
+            p.messages[0],
+            agentMsg(2, 'Sure, let me look', {
+                deliveredAt: fakeTime(25),
+                seenAt: fakeTime(26),
+            }),
+            p.messages[2],
+        ]);
+        await act(async () => fakeEcho.setConnection('reconnecting'));
+        await act(async () => fakeEcho.setConnection('connected'));
+
+        await waitFor(() => expect(status()).toBe('seen'));
+    });
+
     it('catches up when the tab comes back to the foreground', async () => {
         const p = props();
 

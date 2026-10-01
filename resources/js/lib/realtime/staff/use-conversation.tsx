@@ -208,55 +208,82 @@ export function useConversation({
 
     const catching = useRef<Promise<void> | null>(null);
     const catchAgain = useRef(false);
+    const catchAgainWithReceipts = useRef(false);
 
-    const catchUp = useCallback((): Promise<void> => {
-        if (catching.current) {
-            catchAgain.current = true;
+    /** `receipts`: also refresh the ticks of the agent's own messages (a poll, a reconnect, the tab coming back). */
+    const catchUp = useCallback(
+        (receipts = false): Promise<void> => {
+            if (catching.current) {
+                catchAgain.current = true;
+                catchAgainWithReceipts.current ||= receipts;
+
+                return catching.current;
+            }
+
+            catching.current = (async () => {
+                try {
+                    const held = latest.current.messages;
+                    const top = highestSeq(held);
+                    // Start at the first hole when there is one (a missed broadcast), else right after the newest message ...
+                    let after = findGap(held, top)?.afterSeq ?? top;
+                    // ... or earlier, when receipts may have been missed: the ticks of this agent's own messages change without any
+                    // new message, and nothing replays an event that happened while the socket was down (or at all, when polling).
+                    // Read again from the oldest of their messages that is not seen yet (at most one page back).
+                    const unread = receipts
+                        ? held.find(
+                              (message) =>
+                                  message.sender.type === 'agent' &&
+                                  message.seq !== null &&
+                                  message.status !== 'seen',
+                          )
+                        : undefined;
+
+                    if (unread?.seq != null) {
+                        after = Math.min(
+                            after,
+                            Math.max(unread.seq - 1, top - PAGE_LIMIT),
+                        );
+                    }
+
+                    for (let page = 0; page < MAX_PAGES; page++) {
+                        const batch = await api.messages(ulid, {
+                            afterSeq: after,
+                            limit: PAGE_LIMIT,
+                        });
+
+                        if (batch.length > 0) {
+                            dispatch({ type: 'received', messages: batch });
+                            after = Math.max(after, ...batch.map((m) => m.seq));
+                        }
+
+                        if (batch.length < PAGE_LIMIT) {
+                            break;
+                        }
+                    }
+
+                    dispatch({
+                        type: 'conversation',
+                        conversation: await api.conversation(ulid),
+                    });
+                } catch {
+                    // The next trigger (poll tick, reconnect, visibility) retries.
+                } finally {
+                    catching.current = null;
+
+                    if (catchAgain.current) {
+                        const again = catchAgainWithReceipts.current;
+
+                        catchAgain.current = false;
+                        catchAgainWithReceipts.current = false;
+                        void catchUp(again);
+                    }
+                }
+            })();
 
             return catching.current;
-        }
-
-        catching.current = (async () => {
-            try {
-                const held = latest.current.messages;
-                const top = highestSeq(held);
-                // Start at the first hole when there is one (a missed broadcast), else right after the newest message.
-                let after = findGap(held, top)?.afterSeq ?? top;
-
-                for (let page = 0; page < MAX_PAGES; page++) {
-                    const batch = await api.messages(ulid, {
-                        afterSeq: after,
-                        limit: PAGE_LIMIT,
-                    });
-
-                    if (batch.length > 0) {
-                        dispatch({ type: 'received', messages: batch });
-                        after = Math.max(after, ...batch.map((m) => m.seq));
-                    }
-
-                    if (batch.length < PAGE_LIMIT) {
-                        break;
-                    }
-                }
-
-                dispatch({
-                    type: 'conversation',
-                    conversation: await api.conversation(ulid),
-                });
-            } catch {
-                // The next trigger (poll tick, reconnect, visibility) retries.
-            } finally {
-                catching.current = null;
-
-                if (catchAgain.current) {
-                    catchAgain.current = false;
-                    void catchUp();
-                }
-            }
-        })();
-
-        return catching.current;
-    }, [api, ulid]);
+        },
+        [api, ulid],
+    );
 
     // A hole in `seq` (a missed broadcast) is fetched as soon as it is noticed, at most once per distinct hole.
     const gapAttempt = useRef<string | null>(null);
@@ -288,7 +315,7 @@ export function useConversation({
             return;
         }
 
-        const timer = setInterval(() => void catchUp(), POLL_INTERVAL_MS);
+        const timer = setInterval(() => void catchUp(true), POLL_INTERVAL_MS);
 
         return () => clearInterval(timer);
     }, [connection, catchUp]);
@@ -298,7 +325,7 @@ export function useConversation({
 
     useEffect(() => {
         if (visible && !wasVisible.current) {
-            void catchUp();
+            void catchUp(true);
         }
 
         wasVisible.current = visible;
@@ -634,7 +661,7 @@ export function useConversation({
                 tracker.receive(incoming);
                 refreshTyping();
             },
-            connected: () => void catchUp(),
+            connected: () => void catchUp(true),
             setWhisper: (fn) => {
                 whisper.current = fn;
             },

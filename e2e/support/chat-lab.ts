@@ -343,7 +343,7 @@ export class Lab {
         const watch = watchContext(context, 'administrator');
         const actor = new StaffActor(
             'admin',
-            { name: 'Amira Hassan', email: '', password: '', kind: 'admin' },
+            { name: 'Amira Hassan', email: '', password: '' },
             context,
             page,
             watch,

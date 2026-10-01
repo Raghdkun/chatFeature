@@ -12,7 +12,7 @@ import {
     type FrameLocator,
     type Locator,
     type Page,
-    type Response,
+    type Request,
 } from '@playwright/test';
 import { hostPage, settleWidget, type HostOptions } from './host';
 import type { Instance } from './scenarios';
@@ -132,70 +132,102 @@ export class Panel {
      * answer of `POST /public/conversations`.
      */
     async startChat(options: StartChatOptions): Promise<StartedChat> {
-        // The answer of `POST /public/conversations`, if the panel sent one: the state only changes after it arrived, and a panel that
-        // goes to `offline` without asking (nobody is there, or the widget is closed) never sends it, so nothing waits for it.
-        let created: Response | null = null;
-        const onResponse = (response: Response): void => {
-            if (
-                new URL(response.url()).pathname ===
-                    '/api/v1/public/conversations' &&
-                response.request().method() === 'POST'
-            ) {
-                created = response;
-            }
-        };
+        // Never rejects (a spec that fails earlier must not leave an unhandled "page closed" error behind), and resolves to `null` when
+        // no conversation is created (the panel shows the offline form without asking the server).
+        const created = this.page
+            .waitForResponse(
+                (response) =>
+                    new URL(response.url()).pathname ===
+                        '/api/v1/public/conversations' &&
+                    response.request().method() === 'POST',
+                { timeout: 30_000 },
+            )
+            .catch(() => null);
         let last: PanelState | null = null;
 
-        this.page.on('response', onResponse);
-
-        try {
-            for (let step = 0; step < 8; step += 1) {
-                if (last !== null) {
-                    await expect(this.stateElement).not.toHaveAttribute(
-                        'data-state',
-                        last,
-                        { timeout: 25_000 },
-                    );
-                }
-
-                await this.expectState([
-                    'idle',
-                    'prechat',
-                    'category',
-                    'queued',
-                    'offline',
-                    'active',
-                ]);
-
-                const state = await this.state();
-
-                if (
-                    state === 'queued' ||
-                    state === 'offline' ||
-                    state === 'active'
-                ) {
-                    break;
-                }
-
-                if (state === 'idle') {
-                    await this.tid('idle-start').click();
-                } else if (state === 'prechat') {
-                    await this.fillPrechat(options);
-                } else if (state === 'category') {
-                    await this.tid(
-                        `category-option-${options.category}`,
-                    ).click();
-                }
-
-                last = state;
+        for (let step = 0; step < 8; step += 1) {
+            if (last !== null) {
+                await expect(this.stateElement).not.toHaveAttribute(
+                    'data-state',
+                    last,
+                    { timeout: 30_000 },
+                );
             }
 
-            await this.expectState(['queued', 'offline', 'active']);
-        } finally {
-            this.page.off('response', onResponse);
+            await this.expectState([
+                'idle',
+                'prechat',
+                'category',
+                'queued',
+                'offline',
+                'active',
+            ]);
+
+            const state = await this.state();
+
+            if (
+                state === 'queued' ||
+                state === 'offline' ||
+                state === 'active'
+            ) {
+                break;
+            }
+
+            if (state === 'idle') {
+                await this.tid('idle-start').click();
+            } else if (state === 'prechat') {
+                // A submit that lands before the panel has hydrated does nothing (a loaded machine): submit again until the panel
+                // reacts (it leaves `prechat`, or the chat request leaves the browser). Once it has reacted never submit twice.
+                let requested = false;
+                const seen = (request: Request): void => {
+                    if (
+                        request.method() === 'POST' &&
+                        new URL(request.url()).pathname ===
+                            '/api/v1/public/conversations'
+                    ) {
+                        requested = true;
+                    }
+                };
+
+                this.page.on('request', seen);
+
+                try {
+                    for (let attempt = 0; attempt < 6; attempt += 1) {
+                        await this.fillPrechat(options);
+
+                        const reacted = await expect
+                            .poll(
+                                async () =>
+                                    requested ||
+                                    (await this.state()) !== 'prechat',
+                                { timeout: 4_000, intervals: [100] },
+                            )
+                            .toBe(true)
+                            .then(() => true)
+                            .catch(() => false);
+
+                        if (reacted) {
+                            break;
+                        }
+                    }
+                } finally {
+                    this.page.off('request', seen);
+                }
+            } else if (state === 'category') {
+                await this.tid(`category-option-${options.category}`).click();
+            }
+
+            last = state;
         }
 
-        const response = created as Response | null;
+        await this.expectState(['queued', 'offline', 'active']);
+
+        const response = await Promise.race([
+            created,
+            new Promise<null>((resolve) =>
+                setTimeout(() => resolve(null), 3_000),
+            ),
+        ]);
         const data = response
             ? ((await response.json().catch(() => ({}))) as { data?: any }).data
             : undefined;
@@ -225,7 +257,7 @@ export class Panel {
             await consent.check();
         }
 
-        await form.locator('button[type="submit"]').click();
+        await form.locator('button[type="submit"]').click({ timeout: 5_000 });
     }
 
     /** Types into the composer and sends (the send button, as a visitor would). */

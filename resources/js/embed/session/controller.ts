@@ -140,6 +140,8 @@ const SYNC_STALE_MS = 45_000;
 /** After the signed attachment URLs were refreshed, a picture that still fails is genuinely broken: no second refresh for a while. */
 const URL_REFRESH_COOLDOWN_MS = 20_000;
 const ATTACHMENT_LIMIT = 4;
+/** How many messages back a poll / reconnect looks for read receipts it may have missed (one page of the messages API). */
+const RECEIPT_LOOKBACK = 100;
 
 export const MAX_ATTACHMENTS = ATTACHMENT_LIMIT;
 
@@ -238,6 +240,8 @@ export class ChatController {
     private viewport: ViewportPayload | null = null;
     private unavailable = false;
     private limits: SessionLimits | null = null;
+    /** The visitor's own `POST .../cancel` of a queued chat is in flight: a sync that already sees the chat closed must not call it a missed queue. */
+    private cancelling = false;
     private booted = false;
     private disposed = false;
     /** `startChat` from the host that arrived while the panel was still booting (the loader flushes it right after `init:result`). */
@@ -255,8 +259,6 @@ export class ChatController {
     private sessionPromise: Promise<void> | null = null;
     private rotation: Promise<void> | null = null;
     private rotatedAt = 0;
-    /** The visitor's own `POST .../cancel` is on its way: a sync that already sees the chat closed must not call it a missed queue. */
-    private cancelling = false;
     /** A refused token is being dropped (the host is asked whether another tab holds a newer one). */
     private dropping = false;
 
@@ -1619,15 +1621,36 @@ export class ChatController {
         return this.urlRefresh;
     }
 
-    /** Where a catch-up fetch starts: the first hole in what we have, else the end of it. */
-    private catchUpFrom(): number {
+    /**
+     * Where a catch-up fetch starts: the first hole in what we have, else the end of it. With `receipts` (a poll, a reconnect, the tab
+     * coming back) it starts earlier, at the oldest of the visitor's own messages the agent has not read yet: a receipt that
+     * happened while the socket was down (or the whole time, when polling) is never replayed, and without it the ticks stay at "sent".
+     */
+    private catchUpFrom(receipts = false): number {
         const { conversation, messages } = this.state;
         const known = Math.max(
             conversation?.lastSeq ?? 0,
             highestSeq(messages),
         );
+        const gap = findGap(messages, known);
 
-        return findGap(messages, known)?.afterSeq ?? highestSeq(messages);
+        if (gap !== null) {
+            return gap.afterSeq;
+        }
+
+        const top = highestSeq(messages);
+        const unread = receipts
+            ? messages.find(
+                  (message) =>
+                      message.sender.type === 'visitor' &&
+                      message.seq !== null &&
+                      message.status !== 'seen',
+              )
+            : undefined;
+
+        return unread?.seq != null
+            ? Math.max(unread.seq - 1, top - RECEIPT_LOOKBACK)
+            : top;
     }
 
     private async catchUpMessages(): Promise<void> {
@@ -1745,7 +1768,7 @@ export class ChatController {
             if (isLiveChat(this.state) || this.state.phase === 'ended') {
                 const messages = await this.fetchMessagesAfter(
                     conversation.ulid,
-                    this.catchUpFrom(),
+                    this.catchUpFrom(true),
                 );
 
                 this.dispatch({ type: 'MESSAGES', messages });
@@ -1760,6 +1783,10 @@ export class ChatController {
         const { phase, conversation } = this.state;
 
         if (conversation === null) {
+            return;
+        }
+
+        if (this.cancelling && phase === 'queued') {
             return;
         }
 
@@ -2073,6 +2100,8 @@ export class ChatController {
             return;
         }
 
+        // While the cancel is in flight a poll can already see the chat `closed`: that is the visitor's own doing, not a missed queue
+        // (which would show the offline form). The cancel's answer decides.
         this.cancelling = true;
 
         try {

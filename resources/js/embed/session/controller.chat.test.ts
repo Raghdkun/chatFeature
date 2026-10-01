@@ -1,7 +1,8 @@
+import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vite-plus/test';
 import { makeAgentMessage, makeMessage } from '@/lib/chat/fixtures';
 import { bootConfig } from '@/tests/msw/chat-visitor';
-import { useBackend } from '@/tests/msw/server';
+import { server, useBackend } from '@/tests/msw/server';
 import {
     createHarness,
     loaderBoot,
@@ -505,6 +506,38 @@ describe('queued', () => {
 
         release();
         await cancelling;
+
+        expect(h.state()).toMatchObject({
+            phase: 'closed',
+            closedReason: 'cancelled',
+        });
+    });
+
+    it("a poll that finds the chat closed while the visitor's own cancel is still in flight does not turn it into a missed queue", async () => {
+        const backend = useBackend();
+        const h = createHarness({ backend });
+
+        await queue(h);
+
+        // The server has already processed the cancel, but its answer is slow ...
+        server.use(
+            http.post('*/conversations/:ulid/cancel', async () => {
+                backend.state.conversation = {
+                    ...(backend.state.conversation as object),
+                    status: 'closed',
+                } as typeof backend.state.conversation;
+                await new Promise((resolve) => setTimeout(resolve, 80));
+
+                return HttpResponse.json({ data: backend.state.conversation });
+            }),
+        );
+
+        const cancel = h.controller.cancelQueued();
+
+        // ... and the watchdog poll lands first: the chat is closed, which is what the visitor asked for, not "nobody came".
+        await h.controller.syncConversation();
+        expect(h.state().phase).toBe('queued');
+        await cancel;
 
         expect(h.state()).toMatchObject({
             phase: 'closed',

@@ -124,6 +124,32 @@ describe('REST polling fallback', () => {
         expect(h.state().messages.at(-1)?.sender.type).toBe('agent');
     });
 
+    it("picks up the agent's read receipts for the visitor's own messages by polling (a receipt is never replayed)", async () => {
+        const backend = useBackend();
+        const h = createHarness({ backend, pollMs: 20 });
+
+        await active(h);
+        h.controller.send({ body: 'Please read this' });
+        await until(() =>
+            h.state().messages.some((m) => m.body === 'Please read this'),
+        );
+        await until(() => h.state().messages.every((m) => m.seq !== null));
+        h.socket()?.setStatus('reconnecting');
+
+        const mine = () =>
+            h.state().messages.find((m) => m.body === 'Please read this');
+
+        expect(mine()?.status).not.toBe('seen');
+
+        // The agent read it while this panel could not hear about it: only the server knows.
+        backend.state.messages = backend.state.messages.map((m) =>
+            m.sender.type === 'visitor'
+                ? { ...m, deliveredAt: 'x', seenAt: 'x' }
+                : m,
+        );
+        await until(() => mine()?.status === 'seen');
+    });
+
     it('works without any websocket at all (the libraries fail to load)', async () => {
         const backend = useBackend();
         const h = createHarness({

@@ -11,8 +11,8 @@
  *
  * Ports the suite owns (everything else belongs to other suites or running agents):
  *   web servers      8110-8129 (8120-8129: mode 2)   8230-8249 (P3)   8260-8279 (P4)
- *   customer sites   8240-8247 (P3)                  8280-8289, 8292-8293 (P4)
- *   Reverb (P4)      8340-8348, 8350-8351
+ *   customer sites   8240-8247 (P3)                  8280-8289, 8292-8293 (P4; `p4-poll`: 8291 / 8296)
+ *   Reverb (P4)      8340-8348, 8350-8351 (`p4-staff`: 8344 / 8348)
  * P4 layout: a stateful scenario takes web `8260 + n` (desktop) and `8270 + n` (mobile twin), a customer site `8280 + n` / `8285 + n`
  * and Reverb `8340 + n` / `8345 + n`; `p4-chat` is n = 0, `p4-chat-views` n = 2, `p4-chat-views-rtl` n = 3. 8264-8269, 8274-8279,
  * 8284, 8289 and 8344/8348 are free for more P4 scenarios. The deck-screenshot scenario `p4-shots` (n = 6) uses 8266 / 8276, customer
@@ -59,7 +59,10 @@ export type ScenarioName =
     | 'p4-chat'
     | 'p4-chat-views'
     | 'p4-chat-views-rtl'
-    | 'p4-shots';
+    | 'p4-shots'
+    // P4 staff side (E2): the inbox, the permission matrices and the realtime resilience specs.
+    | 'p4-staff'
+    | 'p4-poll';
 
 export type ProjectName = 'desktop' | 'mobile' | 'pizzasys-outage';
 
@@ -348,6 +351,39 @@ const DEFINITIONS: Record<ScenarioName, Definition> = {
             mobileDbSuffix: '_p4_shots_mobile',
             mobileHostPort: 8293,
             mobileReverbPort: 8351,
+        },
+    },
+    // P4 staff side (E2): `p4-staff` is the staff inbox / permissions / realtime-resilience scenario (real Reverb, n = 4); `p4-poll` is the
+    // same installed chat instance WITHOUT any websocket server (`BROADCAST_CONNECTION=null`: both sides run on REST polling). Their ports
+    // (the customer site of `p4-poll` sits at 8291 / 8296) were assigned to this block by the orchestrator.
+    'p4-staff': {
+        kind: 'installed',
+        port: 8264,
+        dbSuffix: '_p4_staff',
+        mode: 'local',
+        seed: 'chat',
+        hostPort: 8284,
+        reverbPort: 8344,
+        env: { TRUSTED_PROXIES: '*' },
+        perProject: {
+            mobilePort: 8274,
+            mobileDbSuffix: '_p4_staff_mobile',
+            mobileHostPort: 8289,
+            mobileReverbPort: 8348,
+        },
+    },
+    'p4-poll': {
+        kind: 'installed',
+        port: 8265,
+        dbSuffix: '_p4_poll',
+        mode: 'local',
+        seed: 'chat',
+        hostPort: 8291,
+        env: { TRUSTED_PROXIES: '*' },
+        perProject: {
+            mobilePort: 8275,
+            mobileDbSuffix: '_p4_poll_mobile',
+            mobileHostPort: 8296,
         },
     },
     // Real wizard runs, in token mode, that the screenshot spec walks through for the deck.
