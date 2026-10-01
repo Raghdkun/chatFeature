@@ -30,6 +30,13 @@ import type { OsNotificationOptions } from '@/lib/realtime/staff/os-notification
 /** The REST polling interval while the websocket is down, and the presence heartbeat interval (docs/contracts/rest-shapes.md). */
 export const POLL_INTERVAL_MS = 15_000;
 export const HEARTBEAT_INTERVAL_MS = 30_000;
+/**
+ * The management API does not extend the session lifetime (it never writes the session), so an inbox left open all shift would be
+ * signed out when the lifetime runs out: `GET /session/keepalive` is sent every 20 minutes and when a tab that was hidden for more
+ * than 10 minutes comes back (its timers were throttled and the lifetime may be close).
+ */
+export const KEEPALIVE_INTERVAL_MS = 20 * 60_000;
+export const KEEPALIVE_AFTER_HIDDEN_MS = 10 * 60_000;
 /** `setTimeout` takes a 32-bit delay; a longer wait (a deadline days away) fires early and is simply re-planned. */
 const MAX_TIMER_MS = 2_000_000_000;
 /** Coalesces a burst of `queue.updated` events into one refetch. */
@@ -119,6 +126,8 @@ export function createStaffController(deps: StaffControllerDeps) {
     let expiryAt: number | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
+    let hiddenSince: number | null = null;
     let unsubscribe: (() => void) | null = null;
     const exitTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -365,6 +374,23 @@ export function createStaffController(deps: StaffControllerDeps) {
     }
 
     /**
+     * Extends the session lifetime. A failure proves nothing (offline, a hiccup: the next tick tries again) except `401` / `419`: the
+     * session is over, which is handled like a confirmed revocation.
+     */
+    async function keepAlive(): Promise<void> {
+        try {
+            await api.keepAlive();
+        } catch (error) {
+            if (
+                isApiError(error) &&
+                (error.status === 401 || error.status === 419)
+            ) {
+                effects.signOut('auth_revoked');
+            }
+        }
+    }
+
+    /**
      * `session.revoked` reaches every open tab of that person, whichever session was revoked. So the event is only a hint: ask the
      * server (any authenticated call) and leave only when it confirms THIS session is over (`401`, or `403 no_chat_access` once the
      * role is gone). A call that succeeds means another session was revoked; one that fails for any other reason proves nothing, and
@@ -584,14 +610,28 @@ export function createStaffController(deps: StaffControllerDeps) {
         }
     }
 
+    /** The tab went to the background: remember since when, to know on its return whether the session needs a keep-alive. */
+    function sleep(): void {
+        if (started && hiddenSince === null) {
+            hiddenSince = now();
+        }
+    }
+
     /** The tab came back to the foreground: timers may have been throttled, so catch up now. */
     function wake(): void {
         if (!started) {
             return;
         }
 
+        const away = hiddenSince === null ? 0 : now() - hiddenSince;
+
+        hiddenSince = null;
         void sync();
         void sendHeartbeat();
+
+        if (away > KEEPALIVE_AFTER_HIDDEN_MS) {
+            void keepAlive();
+        }
     }
 
     function start(): void {
@@ -610,6 +650,10 @@ export function createStaffController(deps: StaffControllerDeps) {
         heartbeatTimer = setInterval(
             () => void sendHeartbeat(),
             HEARTBEAT_INTERVAL_MS,
+        );
+        keepAliveTimer = setInterval(
+            () => void keepAlive(),
+            KEEPALIVE_INTERVAL_MS,
         );
         void loadPresence();
 
@@ -643,6 +687,13 @@ export function createStaffController(deps: StaffControllerDeps) {
             heartbeatTimer = null;
         }
 
+        if (keepAliveTimer !== null) {
+            clearInterval(keepAliveTimer);
+            keepAliveTimer = null;
+        }
+
+        hiddenSince = null;
+
         exitTimers.forEach((timer) => clearTimeout(timer));
         exitTimers.clear();
     }
@@ -656,6 +707,7 @@ export function createStaffController(deps: StaffControllerDeps) {
         claim,
         setPresence,
         setConnection,
+        sleep,
         /** Exposed for tests. */
         heartbeat: sendHeartbeat,
     };

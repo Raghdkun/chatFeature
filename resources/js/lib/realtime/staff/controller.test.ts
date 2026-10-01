@@ -18,6 +18,8 @@ import { interpolate } from '@/lib/i18n';
 import {
     createStaffController,
     HEARTBEAT_INTERVAL_MS,
+    KEEPALIVE_AFTER_HIDDEN_MS,
+    KEEPALIVE_INTERVAL_MS,
     offerTag,
     POLL_INTERVAL_MS,
     SYNC_DEBOUNCE_MS,
@@ -44,6 +46,7 @@ type Rig = {
                 | 'setPresence'
                 | 'presence'
                 | 'heartbeat'
+                | 'keepAlive'
         ]: ReturnType<typeof vi.fn>;
     };
     effects: { [K in keyof StaffEffects]: ReturnType<typeof vi.fn> };
@@ -61,6 +64,7 @@ function rig(viewer = ME): Rig {
         setPresence: vi.fn(),
         presence: vi.fn(),
         heartbeat: vi.fn().mockResolvedValue(null),
+        keepAlive: vi.fn().mockResolvedValue(null),
     };
     const effects = {
         playSound: vi.fn(),
@@ -809,6 +813,122 @@ describe('polling fallback and reconnects', () => {
 
         expect(api.queue).not.toHaveBeenCalled();
         expect(api.heartbeat).not.toHaveBeenCalled();
+    });
+});
+
+describe('session keep-alive', () => {
+    it('asks for the keep-alive page every 20 minutes, and stops with the controller', async () => {
+        const { api, controller } = rig();
+
+        controller.start();
+        await vi.advanceTimersByTimeAsync(KEEPALIVE_INTERVAL_MS - 1);
+        expect(api.keepAlive).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(api.keepAlive).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(KEEPALIVE_INTERVAL_MS);
+        expect(api.keepAlive).toHaveBeenCalledTimes(2);
+
+        controller.stop();
+        await vi.advanceTimersByTimeAsync(KEEPALIVE_INTERVAL_MS * 3);
+        expect(api.keepAlive).toHaveBeenCalledTimes(2);
+    });
+
+    it('asks as soon as a tab that was hidden for more than 10 minutes is visible again', async () => {
+        const { api, controller } = rig();
+
+        controller.start();
+        await flush();
+        controller.sleep();
+        await vi.advanceTimersByTimeAsync(KEEPALIVE_AFTER_HIDDEN_MS + 1);
+        controller.wake();
+        await flush();
+
+        expect(api.keepAlive).toHaveBeenCalledTimes(1);
+
+        // Back for good: a second return with no absence in between asks for nothing.
+        controller.wake();
+        await flush();
+        expect(api.keepAlive).toHaveBeenCalledTimes(1);
+        controller.stop();
+    });
+
+    it('does not ask after a short absence', async () => {
+        const { api, controller } = rig();
+
+        controller.start();
+        await flush();
+        controller.sleep();
+        await vi.advanceTimersByTimeAsync(KEEPALIVE_AFTER_HIDDEN_MS);
+        controller.wake();
+        await flush();
+
+        expect(api.keepAlive).not.toHaveBeenCalled();
+        controller.stop();
+    });
+
+    it('counts the absence from the first time the tab went hidden', async () => {
+        const { api, controller } = rig();
+
+        controller.start();
+        await flush();
+        controller.sleep();
+        await vi.advanceTimersByTimeAsync(KEEPALIVE_AFTER_HIDDEN_MS / 2);
+        controller.sleep();
+        await vi.advanceTimersByTimeAsync(KEEPALIVE_AFTER_HIDDEN_MS / 2 + 1);
+        controller.wake();
+        await flush();
+
+        expect(api.keepAlive).toHaveBeenCalledTimes(1);
+        controller.stop();
+    });
+
+    it('does nothing before start() and after stop()', async () => {
+        const { api, controller } = rig();
+
+        controller.sleep();
+        await vi.advanceTimersByTimeAsync(KEEPALIVE_AFTER_HIDDEN_MS + 1);
+        controller.wake();
+        await flush();
+        expect(api.keepAlive).not.toHaveBeenCalled();
+    });
+
+    it('signs out when the server says the session is over (401, 419) and ignores every other failure', async () => {
+        const { api, effects, controller } = rig();
+
+        controller.start();
+        api.keepAlive.mockRejectedValueOnce(
+            new ApiError({ status: 0, code: 'network', message: 'offline' }),
+        );
+        await vi.advanceTimersByTimeAsync(KEEPALIVE_INTERVAL_MS);
+        api.keepAlive.mockRejectedValueOnce(
+            new ApiError({
+                status: 503,
+                code: 'server_error',
+                message: 'down',
+            }),
+        );
+        await vi.advanceTimersByTimeAsync(KEEPALIVE_INTERVAL_MS);
+        expect(effects.signOut).not.toHaveBeenCalled();
+
+        api.keepAlive.mockRejectedValueOnce(
+            new ApiError({
+                status: 401,
+                code: 'session_revoked',
+                message: 'Your session has ended.',
+            }),
+        );
+        await vi.advanceTimersByTimeAsync(KEEPALIVE_INTERVAL_MS);
+        expect(effects.signOut).toHaveBeenCalledTimes(1);
+        expect(effects.signOut).toHaveBeenCalledWith('auth_revoked');
+
+        api.keepAlive.mockRejectedValueOnce(
+            new ApiError({ status: 419, code: 'request_failed', message: 'x' }),
+        );
+        await vi.advanceTimersByTimeAsync(KEEPALIVE_INTERVAL_MS);
+        expect(effects.signOut).toHaveBeenCalledTimes(2);
+        controller.stop();
     });
 });
 

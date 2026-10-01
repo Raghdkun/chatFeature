@@ -427,6 +427,13 @@ export function createStaffBackend(options: StaffBackendOptions = {}) {
 
             return down() ?? new HttpResponse(null, { status: 204 });
         }),
+
+        // The page route that extends the session lifetime (the API does not).
+        http.get('/session/keepalive', ({ request }) => {
+            record(request);
+
+            return down() ?? new HttpResponse(null, { status: 204 });
+        }),
     ];
 
     return {
