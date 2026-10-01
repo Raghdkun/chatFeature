@@ -117,7 +117,7 @@ export class Panel {
 
     async expectState(
         state: PanelState | PanelState[],
-        timeout = 15_000,
+        timeout = 20_000,
     ): Promise<void> {
         await expect(this.stateElement).toHaveAttribute(
             'data-state',
@@ -154,6 +154,7 @@ export class Panel {
                     await expect(this.stateElement).not.toHaveAttribute(
                         'data-state',
                         last,
+                        { timeout: 25_000 },
                     );
                 }
 
@@ -251,7 +252,9 @@ export class Panel {
         text: string | RegExp,
         from?: 'visitor' | 'agent' | 'system',
     ): Promise<void> {
-        await expect(this.message(text, from).first()).toBeVisible();
+        await expect(this.message(text, from).first()).toBeVisible({
+            timeout: 20_000,
+        });
     }
 
     /** "End chat" in the header and its confirmation dialog. */

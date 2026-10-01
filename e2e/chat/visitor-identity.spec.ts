@@ -17,6 +17,8 @@ import { openCustomerSite } from '../support/panel';
  * resumed from another browser. Every test has its own widget, so its identity secret is its own.
  */
 test.use({ scenario: 'p4-chat' });
+// Several browsers per test, and the machine also runs other suites: the per-test budget is generous (a test takes 3-12 s on a quiet machine).
+test.setTimeout(120_000);
 
 type StaffConversation = {
     visitor: {

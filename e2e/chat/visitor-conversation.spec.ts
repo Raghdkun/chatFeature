@@ -10,6 +10,8 @@ import { expectEventually } from '../support/wait';
  * and a failed send that is retried. Each test is its own isolated team (`soloChat()`), so nothing else in the scenario interferes.
  */
 test.use({ scenario: 'p4-chat' });
+// Several browsers per test, and the machine also runs other suites: the per-test budget is generous (a test takes 3-12 s on a quiet machine).
+test.setTimeout(120_000);
 
 /** The bubbles of the two people in the panel's list (the system lines such as "joined the chat" are not messages of theirs). */
 const PEOPLE =

@@ -18,6 +18,8 @@ import { expectEventually } from '../support/wait';
  * the stored messages and the number of conversations are the persisted truth.
  */
 test.use({ scenario: 'p4-chat' });
+// Several browsers per test, and the machine also runs other suites: the per-test budget is generous (a test takes 3-12 s on a quiet machine).
+test.setTimeout(120_000);
 
 const bodies = (messages: Message[], sender: Message['sender']['type']) =>
     messages
@@ -270,9 +272,18 @@ test('two tabs of the same visitor: the second tab resumes the chat and rotates 
 
     // The visitor goes back to tab A: the browser tells its panel it is visible again and the panel reads the chat from the server.
     // It must not decide "the chat is over" because its old session has no conversation any more.
+    // The first read (old token) answers "no conversation"; the second, with the session the panel adopted, answers the chat.
+    const adopted = visitor.page.waitForResponse(
+        async (response) =>
+            new URL(response.url()).pathname ===
+                '/api/v1/public/conversation' &&
+            ((await response.json().catch(() => null))?.data ?? null) !== null,
+    );
+
     await tabA.frame.locator('body').evaluate(() => {
         document.dispatchEvent(new Event('visibilitychange'));
     });
+    await adopted;
     await expect(tabA.message('Message from tab B', 'visitor')).toBeVisible();
     await tabA.expectState('active');
     await expect(tabA.frame.getByText('This chat has ended.')).toHaveCount(0);

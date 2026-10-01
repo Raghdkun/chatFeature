@@ -60,13 +60,21 @@ function contextOptions(testInfo: TestInfo, device: DeviceOptions['device']) {
     };
 }
 
-/** Signs a staff user in through the dashboard's login endpoint (Fortify, JSON) and returns the cookie-holding context's API. */
+/**
+ * Signs a staff user in through the dashboard's login endpoint (Fortify, JSON) and returns the cookie-holding context's API.
+ * `address` is the client address the server should see (`X-Forwarded-For`, believed by the scenarios that trust the proxy): the
+ * login limiter also counts per address (30 a minute), which one machine running many specs at once would use up.
+ */
 export async function signInApi(
     context: BrowserContext,
     instance: Instance,
     user: Pick<TestUser, 'email' | 'password'>,
+    address?: string,
 ): Promise<Api> {
-    await context.request.get(`${instance.url}/login`);
+    const forwarded =
+        address === undefined ? {} : { 'X-Forwarded-For': address };
+
+    await context.request.get(`${instance.url}/login`, { headers: forwarded });
 
     const state = await context.storageState();
     const xsrf = state.cookies.find((cookie) => cookie.name === 'XSRF-TOKEN');
@@ -74,6 +82,7 @@ export async function signInApi(
         headers: {
             Accept: 'application/json',
             'X-XSRF-TOKEN': decodeURIComponent(xsrf?.value ?? ''),
+            ...forwarded,
         },
         data: { email: user.email, password: user.password },
         failOnStatusCode: false,
@@ -232,7 +241,7 @@ export class Actors {
             storageState: { cookies: [], origins: [] },
         });
 
-        await signInApi(context, this.instance, user);
+        await signInApi(context, this.instance, user, clientAddress());
 
         return this.finishStaff(user.name, user, context, options);
     }

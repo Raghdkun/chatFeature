@@ -15,6 +15,8 @@ import { expectEventually } from '../support/wait';
  * language with the right-to-left layout of an Arabic visitor. Every test uses a widget of its own (`createTeam()` with a config).
  */
 test.use({ scenario: 'p4-chat' });
+// Several browsers per test, and the machine also runs other suites: the per-test budget is generous (a test takes 3-12 s on a quiet machine).
+test.setTimeout(120_000);
 
 const PRECHAT = {
     fields: {

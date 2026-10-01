@@ -24,6 +24,8 @@ import { expectEventually } from '../support/wait';
  * seeded Alice and Bob of the other files.
  */
 test.use({ scenario: 'p4-chat' });
+// Several browsers per test, and the machine also runs other suites: the per-test budget is generous (a test takes 3-12 s on a quiet machine).
+test.setTimeout(120_000);
 
 test('a missed chat becomes an offline ticket: form, ticket linked to the missed chat, claimed on /offline-tickets, answered by mail, closed', async ({
     actors,

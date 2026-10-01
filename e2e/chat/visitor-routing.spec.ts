@@ -21,6 +21,8 @@ import { expectEventually } from '../support/wait';
  * Time moves with `ageConversation({ by: 25 })` + `runSweep('chat:offer-waves')`.
  */
 test.use({ scenario: 'p4-chat' });
+// Several browsers per test, and the machine also runs other suites: the per-test budget is generous (a test takes 3-12 s on a quiet machine).
+test.setTimeout(120_000);
 
 test('only an away agent exists: nobody is offered the chat until the second routing wave is due', async ({
     actors,

@@ -29,6 +29,8 @@ import { expectEventually } from '../support/wait';
  * from `createTeam()` so nothing here changes what the other files of this scenario see.
  */
 test.use({ scenario: 'p4-chat' });
+// Several browsers per test, and the machine also runs other suites: the per-test budget is generous (a test takes 3-12 s on a quiet machine).
+test.setTimeout(120_000);
 
 test('the visitor ends the chat and rates it 4 with a comment: stored, and the administrator sees the score in the history', async ({
     actors,
@@ -480,4 +482,77 @@ test('a widget with the rating feature off: ending the chat goes straight to clo
         close_reason: 'skipped',
         ended_by: 'agent',
     });
+});
+
+test('the rating API: every score from 1 to 5 is stored with its comment, a bad score or comment is refused, and a chat is rated once', async ({
+    actors,
+    adminApi,
+    chats,
+    instance,
+}) => {
+    const team = await createTeam(adminApi, instance, { agents: ['Rae'] });
+    const rae = await actors.staffLogin(team.agents[0], {
+        presence: 'online',
+        keepAlive: true,
+    });
+
+    for (const score of [1, 2, 3, 4, 5]) {
+        const visitor = await VisitorApi.start(instance, {
+            key: team.widget.key,
+        });
+        const chat = must<{ ulid: string }>(
+            await visitor.startChat({
+                category: team.category.slug,
+                name: `Rater ${score}`,
+            }),
+            `chat ${score} starts`,
+        );
+
+        chats.track(chat.ulid);
+        must(await rae.api.claim(chat.ulid), `Rae takes chat ${score}`);
+        must(await rae.api.end(chat.ulid), `Rae ends chat ${score}`);
+
+        if (score === 1) {
+            // What the server refuses, on a chat that is waiting for its rating.
+            for (const bad of [0, 6, 2.5, -1]) {
+                const refused = await visitor.rate(chat.ulid, bad);
+
+                expect(refused.status, `score ${bad}`).toBe(422);
+                expect(refused.error?.code).toBe('validation_failed');
+            }
+
+            const long = await visitor.rate(chat.ulid, 3, 'x'.repeat(2001));
+
+            expect(long.status).toBe(422);
+        }
+
+        const rated = await visitor.rate(
+            chat.ulid,
+            score,
+            `Comment for ${score} stars`,
+        );
+
+        expect(rated.status).toBe(201);
+        expect(rated.data).toMatchObject({
+            score,
+            comment: `Comment for ${score} stars`,
+        });
+
+        const row = await readConversationRow(instance, chat.ulid);
+
+        expect(row.rating).toMatchObject({
+            score,
+            comment: `Comment for ${score} stars`,
+        });
+        expect(row.conversation).toMatchObject({
+            status: 'closed',
+            close_reason: 'rated',
+        });
+
+        // Rated once: a second rating (or a skip) finds nothing left to rate.
+        const again = await visitor.rate(chat.ulid, 5);
+
+        expect(again.status).toBe(409);
+        await visitor.dispose();
+    }
 });

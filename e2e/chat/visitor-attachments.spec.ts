@@ -19,6 +19,8 @@ import { expectEventually } from '../support/wait';
  * Each test is its own isolated team (`soloChat()`).
  */
 test.use({ scenario: 'p4-chat' });
+// Several browsers per test, and the machine also runs other suites: the per-test budget is generous (a test takes 3-12 s on a quiet machine).
+test.setTimeout(120_000);
 
 type StoredAttachment = {
     ulid: string;
@@ -137,7 +139,11 @@ test('the visitor sends a JPEG, a PNG and a WebP in one message: previews while 
 
     // The signed URL works without any login and is served as an inert image; a tampered signature is refused.
     const anonymous = await request.newContext();
-    const first = stored!.attachments[0];
+    // The JPEG (800 px wide), wherever the server listed it.
+    const jpegIndex = stored!.attachments.findIndex(
+        (item) => item.mime === 'image/jpeg',
+    );
+    const first = stored!.attachments[jpegIndex];
     const full = await anonymous.get(first.url);
 
     expect(full.status()).toBe(200);
@@ -163,7 +169,7 @@ test('the visitor sends a JPEG, a PNG and a WebP in one message: previews while 
     await anonymous.dispose();
 
     // The lightbox on the visitor's side shows the full picture (800 px wide) and closes with its button and with Escape.
-    await sent.getByTestId('message-image').first().click();
+    await sent.getByTestId('message-image').nth(jpegIndex).click();
 
     const lightbox = panel.tid('lightbox');
 
@@ -177,7 +183,7 @@ test('the visitor sends a JPEG, a PNG and a WebP in one message: previews while 
         .toBe(800);
     await panel.tid('lightbox-close').click();
     await expect(lightbox).toHaveCount(0);
-    await sent.getByTestId('message-image').first().click();
+    await sent.getByTestId('message-image').nth(jpegIndex).click();
     await expect(lightbox).toBeVisible();
     await visitor.page.keyboard.press('Escape');
     await panel.frame.locator('body').press('Escape');
