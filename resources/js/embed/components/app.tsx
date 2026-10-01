@@ -81,10 +81,33 @@ function Panel() {
     const root = useRef<HTMLDivElement>(null);
     const dark = usePrefersDark();
     const [overlay, setOverlay] = useState<Overlay>(null);
+    const opener = useRef<HTMLElement | null>(null);
     const scheme = resolveScheme(config?.theme.mode ?? 'auto', dark);
     const keyboard = viewport?.keyboardInset ?? 0;
     // The footer already clears the home indicator: what sits above it (composer, rating card) must not add the inset a second time.
     const footerShown = config?.features.poweredBy === true && keyboard === 0;
+
+    // Opening a dialog makes everything behind it inert, and an inert subtree drops focus at once: the control that opened the dialog
+    // is remembered BEFORE that (a dialog cannot ask afterwards: focus is already on the page) and gets focus back when it closes.
+    const show = (next: Overlay): void => {
+        opener.current =
+            document.activeElement instanceof HTMLElement
+                ? document.activeElement
+                : null;
+        setOverlay(next);
+    };
+
+    useEffect(() => {
+        const control = opener.current;
+
+        if (overlay === null && control !== null) {
+            opener.current = null;
+
+            if (control.isConnected) {
+                control.focus({ preventScroll: true });
+            }
+        }
+    }, [overlay]);
 
     useFontLink(config?.theme.fontUrl ?? null);
     useScreenFocus(root, state.phase, state.open);
@@ -133,8 +156,8 @@ function Panel() {
             value={{
                 overlay,
                 openImage: (url, alt, ulid) =>
-                    setOverlay({ type: 'image', url, alt, ulid }),
-                openEnd: () => setOverlay({ type: 'end' }),
+                    show({ type: 'image', url, alt, ulid }),
+                openEnd: () => show({ type: 'end' }),
                 close: () => setOverlay(null),
             }}
         >
@@ -151,7 +174,7 @@ function Panel() {
                     inert={modal || undefined}
                     className="flex min-h-0 flex-1 flex-col"
                 >
-                    <Header onEndChat={() => setOverlay({ type: 'end' })} />
+                    <Header onEndChat={() => show({ type: 'end' })} />
                     <main
                         data-testid="chat-state"
                         data-state={state.phase}

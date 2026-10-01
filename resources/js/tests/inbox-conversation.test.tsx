@@ -286,6 +286,20 @@ describe('the conversation', () => {
         expect(link.target).toBe('_blank');
     });
 
+    it('gives a message its own direction (dir="auto"): the transcript mixes languages', async () => {
+        const { view } = await mount(
+            props({
+                messages: [visitorMsg(1, 'مرحبا، أين طلبي رقم 48213؟')],
+                conversation: activeChat({ lastSeq: 1 }),
+            }),
+        );
+        const bubble = view.byTestId(
+            `message-${fakeUlid(6001)}`,
+        ) as HTMLElement;
+
+        expect(bubble.querySelector('p')?.getAttribute('dir')).toBe('auto');
+    });
+
     it('shows system lines and image attachments, and opens an image in a lightbox', async () => {
         const attachment = makeAttachment({
             ulid: 'att1',

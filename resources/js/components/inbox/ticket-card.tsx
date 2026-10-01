@@ -51,7 +51,7 @@ export function TicketCard({
         <li
             data-testid={`ticket-${ticket.ulid}`}
             data-status={ticket.status}
-            className="rounded-xl border bg-card p-4 shadow-xs"
+            className="min-w-0 rounded-xl border bg-card p-4 shadow-xs"
         >
             <div className="flex items-start gap-3">
                 <VisitorAvatar name={ticket.visitor.name} />
@@ -66,7 +66,7 @@ export function TicketCard({
                         {ticket.visitor.email && (
                             <a
                                 href={`mailto:${ticket.visitor.email}`}
-                                className="inline-flex items-center gap-1 underline-offset-2 hover:underline"
+                                className="inline-flex items-center gap-1 [overflow-wrap:anywhere] underline-offset-2 hover:underline"
                             >
                                 <Mail className="size-3" aria-hidden />
                                 {ticket.visitor.email}
@@ -92,7 +92,10 @@ export function TicketCard({
             </div>
 
             {ticket.lastMessagePreview && (
-                <p className="mt-3 line-clamp-3 text-sm break-words text-foreground/90">
+                <p
+                    dir="auto"
+                    className="mt-3 line-clamp-3 text-sm [overflow-wrap:anywhere] text-foreground/90"
+                >
                     {ticket.lastMessagePreview}
                 </p>
             )}

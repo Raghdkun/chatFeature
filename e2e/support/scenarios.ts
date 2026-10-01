@@ -11,11 +11,12 @@
  *
  * Ports the suite owns (everything else belongs to other suites or running agents):
  *   web servers      8110-8129 (8120-8129: mode 2)   8230-8249 (P3)   8260-8279 (P4)
- *   customer sites   8240-8247 (P3)                  8280-8289 (P4)
- *   Reverb (P4)      8340-8348
+ *   customer sites   8240-8247 (P3)                  8280-8289, 8292-8293 (P4)
+ *   Reverb (P4)      8340-8348, 8350-8351
  * P4 layout: a stateful scenario takes web `8260 + n` (desktop) and `8270 + n` (mobile twin), a customer site `8280 + n` / `8285 + n`
  * and Reverb `8340 + n` / `8345 + n`; `p4-chat` is n = 0, `p4-chat-views` n = 2, `p4-chat-views-rtl` n = 3. 8264-8269, 8274-8279,
- * 8284, 8289 and 8344/8348 are free for more P4 scenarios.
+ * 8284, 8289 and 8344/8348 are free for more P4 scenarios. The deck-screenshot scenario `p4-shots` (n = 6) uses 8266 / 8276, customer
+ * sites 8292 / 8293 and Reverb 8350 / 8351.
  */
 import { fileURLToPath } from 'node:url';
 
@@ -57,7 +58,8 @@ export type ScenarioName =
     // P4 (live chat: real Reverb, the visitor panel, the agent inbox). Ports 8260-8279, 8280-8289, 8340-8349.
     | 'p4-chat'
     | 'p4-chat-views'
-    | 'p4-chat-views-rtl';
+    | 'p4-chat-views-rtl'
+    | 'p4-shots';
 
 export type ProjectName = 'desktop' | 'mobile' | 'pizzasys-outage';
 
@@ -328,6 +330,25 @@ const DEFINITIONS: Record<ScenarioName, Definition> = {
         hostPort: 8283,
         reverbPort: 8343,
         env: { TRUSTED_PROXIES: '*' },
+    },
+    // The deck screenshots of the live chat (`screenshots/p4.spec.ts`, E2E_SCREENSHOTS=1 only): the `chat` seed, one stateful instance per
+    // viewport (`p4-shots` for the desktop pictures, `p4-shots-mobile` for the phone ones, so both can run at the same time).
+    'p4-shots': {
+        kind: 'installed',
+        port: 8266,
+        dbSuffix: '_p4_shots',
+        mode: 'local',
+        seed: 'chat',
+        hostPort: 8292,
+        reverbPort: 8350,
+        env: { TRUSTED_PROXIES: '*' },
+        screenshotsOnly: true,
+        perProject: {
+            mobilePort: 8276,
+            mobileDbSuffix: '_p4_shots_mobile',
+            mobileHostPort: 8293,
+            mobileReverbPort: 8351,
+        },
     },
     // Real wizard runs, in token mode, that the screenshot spec walks through for the deck.
     'shots-desktop': {

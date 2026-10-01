@@ -150,7 +150,7 @@ export function MessageBubble({
                 className={`flex max-w-[82%] min-w-0 flex-col ${mine ? 'items-end' : 'items-start'}`}
             >
                 {!mine && groupStart && message.sender.name ? (
-                    <span className="text-subtle mb-0.5 ps-1 text-[12px]">
+                    <span className="text-subtle mb-0.5 max-w-full truncate ps-1 text-[12px]">
                         {message.sender.name}
                     </span>
                 ) : null}
@@ -199,14 +199,32 @@ export function MessageBubble({
                                             onLoad={onImageLoad}
                                             onError={onImageError}
                                             className="block h-auto max-h-48 w-auto max-w-full object-cover"
-                                            style={{ maxInlineSize: '220px' }}
+                                            style={{
+                                                maxInlineSize: '220px',
+                                                // Until it has loaded a picture of unknown size is 0 x 0 (the CSS width/height auto beat the
+                                                // attributes), and Chrome never fetches a `loading="lazy"` picture of no size at the end of a
+                                                // scroller: it stayed blank. Reserve the room from the size the server told us.
+                                                ...(attachment.width &&
+                                                attachment.height
+                                                    ? {
+                                                          inlineSize: `${Math.min(attachment.width, 220)}px`,
+                                                          aspectRatio: `${attachment.width} / ${attachment.height}`,
+                                                      }
+                                                    : {}),
+                                            }}
                                         />
                                     </button>
                                 );
                             })}
                         </div>
                     ) : null}
-                    {message.body ? <MessageText body={message.body} /> : null}
+                    {message.body ? (
+                        // A message takes the direction of what it says, not of the page around it (an English sentence in an Arabic
+                        // panel, an Arabic one on an English site): punctuation and alignment then land on the right side.
+                        <p dir="auto" className="m-0">
+                            <MessageText body={message.body} />
+                        </p>
+                    ) : null}
                 </div>
                 {failed && message.clientMsgId !== null ? (
                     <div className="text-danger mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-[12px]">

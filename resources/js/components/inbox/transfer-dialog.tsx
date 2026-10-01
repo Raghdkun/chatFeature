@@ -194,16 +194,19 @@ export function TransferDialog({
                         setTab(value as 'agent' | 'category')
                     }
                 >
+                    {/* The kit's inactive tab (60% foreground on the muted track) measures 4.46:1; 75% clears WCAG AA's 4.5:1 with room. */}
                     <TabsList className="w-full">
                         <TabsTrigger
                             value="agent"
                             data-testid="transfer-tab-agent"
+                            className="text-foreground/75"
                         >
                             {t('inbox.transfer.to_agent')}
                         </TabsTrigger>
                         <TabsTrigger
                             value="category"
                             data-testid="transfer-tab-category"
+                            className="text-foreground/75"
                         >
                             {t('inbox.transfer.to_category')}
                         </TabsTrigger>

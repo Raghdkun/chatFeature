@@ -100,7 +100,7 @@ export function HistoryFiltersBar({
                 />
             </div>
 
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-8">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                 <Field label={t('history.filters.status')}>
                     <NativeSelect
                         aria-label={t('history.filters.status')}
@@ -198,7 +198,7 @@ export function HistoryFiltersBar({
                         onChange={(event) => set('to')(event.target.value)}
                     />
                 </Field>
-                <div className="col-span-2 flex items-end justify-end gap-2 md:col-span-4 xl:col-span-1">
+                <div className="col-span-2 flex items-end justify-end gap-2 md:col-span-4">
                     <Button
                         type="button"
                         variant="ghost"

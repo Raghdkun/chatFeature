@@ -7,15 +7,6 @@ import {
 import { X } from '@/embed/components/icons';
 import { Button } from '@/embed/components/ui';
 
-/** Remembers what had focus before an overlay opened and gives it back when the overlay goes away. */
-function useRestoreFocus(): void {
-    useEffect(() => {
-        const before = document.activeElement as HTMLElement | null;
-
-        return () => before?.focus?.({ preventScroll: true });
-    }, []);
-}
-
 /** Full-size image over the panel. Escape closes the lightbox only (the panel's own Escape handler never sees it). */
 export function Lightbox({
     url,
@@ -38,7 +29,6 @@ export function Lightbox({
                   .find((attachment) => attachment.ulid === ulid)?.url ?? url);
     const closeButton = useRef<HTMLButtonElement>(null);
 
-    useRestoreFocus();
     useEffect(() => closeButton.current?.focus(), []);
 
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -101,7 +91,6 @@ export function EndChatDialog({ onConfirm }: { onConfirm: () => void }) {
     const keep = useRef<HTMLButtonElement>(null);
     const confirm = useRef<HTMLButtonElement>(null);
 
-    useRestoreFocus();
     useEffect(() => keep.current?.focus(), []);
 
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -110,8 +99,9 @@ export function EndChatDialog({ onConfirm }: { onConfirm: () => void }) {
             event.stopPropagation();
             close();
         } else if (event.key === 'Tab') {
-            const first = keep.current;
-            const last = confirm.current;
+            // In document order: the confirm button comes first (the primary action reads first), "Keep chatting" last.
+            const first = confirm.current;
+            const last = keep.current;
 
             if (event.shiftKey && document.activeElement === first) {
                 event.preventDefault();

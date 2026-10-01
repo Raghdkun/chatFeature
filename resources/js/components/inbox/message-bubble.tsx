@@ -98,6 +98,9 @@ function Attachments({
                         style={
                             attachment.width && attachment.height
                                 ? {
+                                      // The room is reserved from the size the server told us: a lazy picture of no size at the end
+                                      // of a scroller is never fetched (Chrome), so it would stay blank.
+                                      inlineSize: `${Math.min(attachment.width, 320)}px`,
                                       aspectRatio: `${attachment.width} / ${attachment.height}`,
                                   }
                                 : undefined
@@ -159,7 +162,7 @@ export function MessageBubble({
             )}
         >
             {startsGroup && message.sender.name && (
-                <span className="mb-1 px-1 text-xs text-muted-foreground">
+                <span className="mb-1 max-w-full truncate px-1 text-xs text-muted-foreground">
                     {message.sender.name}
                 </span>
             )}

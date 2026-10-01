@@ -109,7 +109,7 @@ export default function OfflineTicketsIndex({
                         >
                             {plural('tickets.unclaimed', unclaimed)}
                         </h2>
-                        <ul className="grid gap-3 md:grid-cols-2">
+                        <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
                             {tickets.map((ticket) => (
                                 <TicketCard
                                     key={ticket.ulid}

@@ -169,6 +169,20 @@ describe('message list', () => {
         expect(text(list)).toContain('https://user:pass@evil.test/');
     });
 
+    it('gives each message its own direction, so an English sentence in an Arabic panel (and the reverse) reads correctly', async () => {
+        const { c } = await activeChat((backend) => {
+            backend.agentSays('Where is my order #48213?');
+            backend.agentSays('مرحبا، أحتاج مساعدة بخصوص طلبي.');
+        });
+        const list = byTestId(c, 'message-list') as HTMLElement;
+        const bodies = Array.from(list.querySelectorAll('p[dir="auto"]'));
+
+        expect(bodies.map((body) => body.textContent)).toEqual([
+            'Where is my order #48213?',
+            'مرحبا، أحتاج مساعدة بخصوص طلبي.',
+        ]);
+    });
+
     it('shows the agent typing (visually and to screen readers) until it stops', async () => {
         const { h, c } = await activeChat();
 
@@ -565,6 +579,9 @@ describe('lightbox', () => {
             'https://files.test/thumb.webp',
         );
         expect(thumb?.getAttribute('alt')).toBe('Image from Sam');
+        // The room is reserved from the server's size (a lazy picture of no size is never fetched at the end of a scroller).
+        expect(thumb?.style.inlineSize).toBe('220px');
+        expect(thumb?.style.aspectRatio.replace(/\s/g, '')).toBe('320/200');
 
         const trigger = byTestId(c, 'message-image') as HTMLElement;
 
@@ -601,6 +618,15 @@ describe('end chat confirmation', () => {
         expect(byTestId(c, 'end-chat-dialog')?.getAttribute('role')).toBe(
             'alertdialog',
         );
+        expect(document.activeElement).toBe(byTestId(c, 'end-chat-keep'));
+
+        // The two buttons are the whole tab cycle, in document order (confirm, then keep): Tab from the last one wraps to the first
+        // and Shift+Tab from the first wraps to the last, instead of leaving the dialog.
+        await press(byTestId(c, 'end-chat-keep'), 'Tab');
+        expect(document.activeElement).toBe(byTestId(c, 'end-chat-confirm'));
+        await press(byTestId(c, 'end-chat-confirm'), 'Tab', {
+            shiftKey: true,
+        });
         expect(document.activeElement).toBe(byTestId(c, 'end-chat-keep'));
 
         await press(byTestId(c, 'end-chat-keep'), 'Escape');

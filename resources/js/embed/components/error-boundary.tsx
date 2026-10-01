@@ -12,7 +12,31 @@ type Props = {
     resetKey?: string;
 };
 
-type State = { failed: boolean; attempt: number };
+type State = {
+    failed: boolean;
+    attempt: number;
+    /** The failure was a chunk that could not be imported: only a reload of the page can fetch it again (see `isChunkFailure`). */
+    reloadNeeded: boolean;
+};
+
+/**
+ * Chromium remembers a FAILED dynamic import for the life of the page: importing the same chunk again fails at once, whatever the
+ * network does now (Firefox and Safari fetch it again). So "Try again" cannot recover a missing chunk in place there: the panel reloads
+ * itself instead. Nothing is lost by that: the loader hands the stored visitor session back on the new handshake and the chat resumes.
+ */
+export function isChunkFailure(error: unknown): boolean {
+    return (
+        error instanceof Error &&
+        /dynamically imported module|importing a module script failed|loading chunk|chunkloaderror/i.test(
+            `${error.name} ${error.message}`,
+        )
+    );
+}
+
+/** Reloading the panel's own document (a seam for the tests: jsdom cannot navigate). */
+export const panelPage = {
+    reload: (): void => window.location.reload(),
+};
 
 /** What the visitor sees when a screen or a lazily loaded chunk fails: never a blank panel. */
 function Failed({
@@ -49,10 +73,10 @@ function Failed({
 }
 
 export class PanelErrorBoundary extends Component<Props, State> {
-    state: State = { failed: false, attempt: 0 };
+    state: State = { failed: false, attempt: 0, reloadNeeded: false };
 
-    static getDerivedStateFromError(): Partial<State> {
-        return { failed: true };
+    static getDerivedStateFromError(error: unknown): Partial<State> {
+        return { failed: true, reloadNeeded: isChunkFailure(error) };
     }
 
     componentDidUpdate(previous: Props): void {
@@ -62,6 +86,12 @@ export class PanelErrorBoundary extends Component<Props, State> {
     }
 
     private retry = (): void => {
+        if (this.state.reloadNeeded) {
+            panelPage.reload();
+
+            return;
+        }
+
         reloadLazy();
         this.setState((state) => ({
             failed: false,

@@ -39,7 +39,7 @@ export function ChatRow({
             : null;
 
     return (
-        <li>
+        <li className="min-w-0">
             <Link
                 href={staffRoutes.pages.conversation(conversation.ulid)}
                 only={['conversation', 'messages']}
@@ -85,6 +85,7 @@ export function ChatRow({
                     </span>
                     <span className="mt-0.5 flex items-center justify-between gap-2">
                         <span
+                            dir="auto"
                             className={cn(
                                 'line-clamp-1 text-sm break-words',
                                 unseen > 0
