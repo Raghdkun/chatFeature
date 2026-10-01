@@ -375,12 +375,7 @@ test("a transfer to a category goes through that category's routing; a transfer 
         emptyCategories: ['Second line'],
     });
     const [ann, ben, cy] = team.agents;
-    const second = (
-        must<{ ulid: string; slug: string; name: string }[]>(
-            await adminApi.get('/api/v1/categories'),
-            'categories',
-        ) as { ulid: string; slug: string; name: string }[]
-    ).find((category) => category.name.startsWith('Second line'))!;
+    const second = team.categories[1];
 
     // Ben serves the second line as well; Cy serves only the first category and stays offline.
     must(

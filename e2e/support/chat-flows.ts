@@ -155,6 +155,8 @@ export type TeamMember = TestUser & { id: number };
 
 export type Team = {
     category: { ulid: string; slug: string; name: string };
+    /** The team's category first, then the `emptyCategories` (no agents serve them) in the order given. */
+    categories: { ulid: string; slug: string; name: string }[];
     agents: TeamMember[];
     widget: { ulid: string; key: string };
 };
@@ -255,6 +257,7 @@ export async function createTeam(
 
     return {
         category: categories[0],
+        categories,
         agents,
         widget: { ulid: widget.ulid, key: widget.key },
     };
