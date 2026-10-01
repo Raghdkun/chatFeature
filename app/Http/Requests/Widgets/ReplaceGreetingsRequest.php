@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Widgets;
 
+use App\Domain\Widgets\Config\LocaleResolver;
 use App\Domain\Widgets\Rules\SafeAssetUrl;
 use App\Models\Widget;
 use Illuminate\Contracts\Validation\Validator;
@@ -31,7 +32,7 @@ class ReplaceGreetingsRequest extends FormRequest
             'greetings.*.body' => ['required', 'string', 'max:2000', 'regex:/^[^\x00-\x08\x0B\x0C\x0E-\x1F\x7F]*$/uD'],
             'greetings.*.agent_name' => ['sometimes', 'nullable', 'string', 'max:120'],
             'greetings.*.agent_avatar_url' => ['sometimes', 'nullable', new SafeAssetUrl],
-            'greetings.*.locale' => ['sometimes', 'nullable', 'string', 'regex:/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/D'],
+            'greetings.*.locale' => ['sometimes', 'nullable', 'string', 'max:'.LocaleResolver::MAX_LENGTH, 'regex:/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/D'],
             'greetings.*.weight' => ['sometimes', 'integer', 'between:1,100'],
             'greetings.*.is_active' => ['sometimes', 'boolean'],
             'greetings.*.sort_order' => ['sometimes', 'integer', 'between:0,100000'],

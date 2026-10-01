@@ -28,7 +28,11 @@ use Throwable;
  * - scalar types are exact (`"16"` is not an integer), colours are 3/6/8-digit hex, URLs are https or relative,
  *   numbers outside their range are rejected with a field error (never silently clamped);
  * - everything missing is filled from the contract's defaults, so the result is always complete;
- * - `null` for a field that has a non-null default means "use the default" (an emptied text input falls back).
+ * - `null` for a field that has a non-null default means "use the default" (an emptied text input falls back);
+ * - locale codes (`defaultLocale`, the keys of `texts`) are at most LocaleResolver::MAX_LENGTH characters, the width of
+ *   the `widgets.locale` column they are mirrored into;
+ * - error messages name fields the way the builder does ("panel height", not `config.theme.panelHeight`) while the
+ *   error KEYS stay the dotted paths of the config (`config.theme.panelHeight`).
  *
  * The rule table is the single source of the schema: the set of allowed keys is derived from it.
  */
@@ -47,6 +51,83 @@ final class WidgetConfigValidator
     private const FONT_FAMILY = '/^[\p{L}\p{N} ,\'"._-]+$/uD';
 
     private const MAX_LOCALES = 20;
+
+    /**
+     * Human names of config fields, by rule path (`*` stands for a list index / locale). Paths missing here fall back to
+     * the last segment in lower-case words ("panel height").
+     */
+    private const LABELS = [
+        'v' => 'config version',
+        'defaultLocale' => 'default language',
+        'localeDetect' => 'browser language detection',
+        'theme' => 'theme',
+        'theme.mode' => 'colour mode',
+        'theme.primary' => 'primary colour',
+        'theme.primaryText' => 'primary text colour',
+        'theme.accent' => 'accent colour',
+        'theme.surface' => 'surface colour',
+        'theme.text' => 'text colour',
+        'theme.fontFamily' => 'font family',
+        'theme.fontUrl' => 'font URL',
+        'theme.radius' => 'corner radius',
+        'theme.launcherSize' => 'launcher size',
+        'theme.panelWidth' => 'panel width',
+        'theme.panelHeight' => 'panel height',
+        'theme.position' => 'panel position',
+        'theme.offsetX' => 'horizontal offset',
+        'theme.offsetY' => 'vertical offset',
+        'theme.zIndex' => 'stacking order (z-index)',
+        'launcher.style' => 'launcher style',
+        'launcher.icon' => 'launcher icon',
+        'launcher.iconUrl' => 'launcher icon URL',
+        'launcher.label' => 'launcher label',
+        'launcher.avatarUrl' => 'default agent picture URL',
+        'texts' => 'texts',
+        'texts.*' => 'texts of a language',
+        'features' => 'features',
+        'features.attachments' => 'attachments option',
+        'features.rating' => 'rating option',
+        'features.sounds' => 'sounds option',
+        'features.preChat' => 'pre-chat form option',
+        'features.whatsapp' => 'WhatsApp option',
+        'features.offlineForm' => 'offline form option',
+        'features.titleBadge' => 'tab title badge option',
+        'features.endChatByVisitor' => 'visitors can end the chat option',
+        'features.poweredBy' => '"Powered by" option',
+        'preChat' => 'pre-chat form',
+        'preChat.fields' => 'pre-chat fields',
+        'preChat.consentText' => 'consent text',
+        'greetings' => 'greetings',
+        'greetings.enabled' => 'greetings option',
+        'greetings.onPageLoad' => 'greet on page load option',
+        'greetings.delaySeconds' => 'greeting delay',
+        'greetings.intervalMinutes' => 'greeting interval',
+        'greetings.autoHideSeconds' => 'greeting auto-hide time',
+        'greetings.dismissPolicy' => 'greeting dismiss behaviour',
+        'greetings.showAgent' => 'show agent option',
+        'hours' => 'opening hours',
+        'hours.mode' => 'availability mode',
+        'hours.timezone' => 'timezone',
+        'hours.schedule' => 'weekly schedule',
+        'hours.schedule.*' => 'schedule entry',
+        'hours.schedule.*.day' => 'day of the week',
+        'hours.schedule.*.start' => 'opening time',
+        'hours.schedule.*.end' => 'closing time',
+        'hours.holidays' => 'holidays',
+        'hours.holidays.*' => 'holiday',
+        'hours.holidays.*.date' => 'holiday date',
+        'hours.holidays.*.label' => 'holiday name',
+        'routing' => 'routing',
+        'routing.waves' => 'routing waves',
+        'routing.waves.*' => 'routing wave',
+        'routing.waves.*.afterSeconds' => 'wave start time',
+        'routing.waves.*.statuses' => 'wave agent statuses',
+        'routing.waves.*.statuses.*' => 'agent status',
+        'routing.wakeOfflineViaPush' => 'wake offline agents option',
+        'routing.queueTimeoutSeconds' => 'queue timeout',
+        'session' => 'session',
+        'session.idleTimeoutMinutes' => 'idle timeout',
+    ];
 
     /** Keys whose value is a list, not an object. */
     private const LISTS = ['hours.schedule', 'hours.holidays', 'routing.waves', 'routing.waves.*.statuses'];
@@ -71,8 +152,8 @@ final class WidgetConfigValidator
         $validator = Validator::make(
             [$field => $input],
             $this->prefixed($this->rules(), $field),
-            [],
-            [],
+            $this->messages($field),
+            $this->attributeNames($field),
         );
 
         $merged = [];
@@ -93,7 +174,7 @@ final class WidgetConfigValidator
                 return;
             }
 
-            $merged = $this->withoutEmptyTextBlocks($this->merge($defaults, $input));
+            $merged = $this->normalise($this->merge($defaults, $input));
 
             foreach ($this->crossFieldErrors($merged, $field) as $path => $message) {
                 $validator->errors()->add($path, $message);
@@ -118,7 +199,7 @@ final class WidgetConfigValidator
         $defaults = (new WidgetConfigData)->toArray();
 
         try {
-            return WidgetConfigData::from($this->withoutEmptyTextBlocks($this->merge($defaults, $this->stripNulls($stored ?? [], $defaults))));
+            return WidgetConfigData::from($this->normalise($this->merge($defaults, $this->stripNulls($stored ?? [], $defaults))));
         } catch (Throwable $exception) {
             report($exception);
 
@@ -135,7 +216,7 @@ final class WidgetConfigValidator
         $asset = ['nullable', new SafeAssetUrl];
         $fontHosts = ['fonts.googleapis.com', 'fonts.bunny.net', $this->appOrigin->host()];
         $flag = ['boolean:strict'];
-        $locale = ['string', 'regex:'.self::LOCALE];
+        $locale = ['string', 'max:'.LocaleResolver::MAX_LENGTH, 'regex:'.self::LOCALE];
 
         $rules = [
             'v' => ['integer:strict', 'in:1'],
@@ -229,6 +310,75 @@ final class WidgetConfigValidator
     }
 
     /**
+     * Display names for the validation messages, keyed like the rules (`config.theme.panelHeight`, wildcards included).
+     *
+     * @return array<string, string>
+     */
+    private function attributeNames(string $field): array
+    {
+        $names = [$field => 'config'];
+
+        foreach (array_keys($this->rules()) as $path) {
+            $names[$field.'.'.$path] = $this->labelFor($path);
+        }
+
+        return $names;
+    }
+
+    private function labelFor(string $path): string
+    {
+        if (isset(self::LABELS[$path])) {
+            return self::LABELS[$path];
+        }
+
+        $segments = explode('.', $path);
+        $last = end($segments);
+
+        if (str_starts_with($path, 'texts.*.')) {
+            return $this->words($last).' text';
+        }
+
+        if (preg_match('/^preChat\.fields\.([a-z]+)(?:\.(enabled|required))?$/D', $path, $parts) === 1) {
+            return match ($parts[2] ?? null) {
+                'enabled' => $parts[1].' field visibility',
+                'required' => $parts[1].' field requirement',
+                default => $parts[1].' field',
+            };
+        }
+
+        return $this->words($last);
+    }
+
+    /** `panelHeight` => `panel height`. */
+    private function words(string $camelCase): string
+    {
+        return strtolower((string) preg_replace('/(?<=[a-z0-9])(?=[A-Z])/', ' ', $camelCase));
+    }
+
+    /**
+     * Messages for the rules whose stock wording ("format is invalid") says nothing useful.
+     *
+     * @return array<string, string>
+     */
+    private function messages(string $field): array
+    {
+        $messages = [
+            $field.'.defaultLocale.regex' => 'The :attribute must be a language code such as "en" or "pt-BR".',
+            $field.'.theme.fontFamily.regex' => 'The :attribute may only contain letters, digits, spaces and the characters , . _ - \' ".',
+            $field.'.hours.schedule.*.start.regex' => 'The :attribute must be a time such as 09:00 (24-hour clock).',
+            $field.'.hours.schedule.*.end.regex' => 'The :attribute must be a time such as 17:00 (24-hour clock; 24:00 is allowed).',
+            $field.'.hours.holidays.*.date.date_format' => 'The :attribute must be a date written as YYYY-MM-DD.',
+            $field.'.hours.holidays.*.date.distinct' => 'The :attribute is listed twice.',
+        ];
+
+        foreach (['primary', 'primaryText', 'accent', 'surface', 'text'] as $colour) {
+            $messages[$field.'.theme.'.$colour.'.regex'] = 'The :attribute must be a hex colour such as #0f766e (3, 6 or 8 digits).';
+        }
+
+        return $messages;
+    }
+
+    /**
      * @param  array<string, list<mixed>>  $rules
      * @return array<string, list<mixed>>
      */
@@ -305,8 +455,8 @@ final class WidgetConfigValidator
             $childPath = $path.'.'.$segment;
 
             if ($isMap) {
-                if ($pattern === 'texts' && preg_match(self::LOCALE, $segment) !== 1) {
-                    $errors[$childPath] = 'This is not a valid locale code.';
+                if ($pattern === 'texts' && (strlen($segment) > LocaleResolver::MAX_LENGTH || preg_match(self::LOCALE, $segment) !== 1)) {
+                    $errors[$childPath] = 'This is not a valid locale code (for example "en" or "pt-BR", at most '.LocaleResolver::MAX_LENGTH.' characters).';
 
                     continue;
                 }
@@ -389,15 +539,24 @@ final class WidgetConfigValidator
     }
 
     /**
-     * A locale with no texts at all is no locale (it would serialise as `[]` instead of `{}`).
+     * Last touches on a merged config: a locale with no texts at all is no locale (it would serialise as `[]` instead of
+     * `{}`), and a holiday without a name has the empty string as its name, never null (the TypeScript type is `string`).
      *
      * @param  array<array-key, mixed>  $config
      * @return array<array-key, mixed>
      */
-    private function withoutEmptyTextBlocks(array $config): array
+    private function normalise(array $config): array
     {
         if (isset($config['texts']) && is_array($config['texts'])) {
             $config['texts'] = array_filter($config['texts'], static fn (mixed $block): bool => ! is_array($block) || $block !== []);
+        }
+
+        if (isset($config['hours']['holidays']) && is_array($config['hours']['holidays'])) {
+            foreach ($config['hours']['holidays'] as $index => $holiday) {
+                if (is_array($holiday) && ($holiday['label'] ?? null) === null) {
+                    $config['hours']['holidays'][$index]['label'] = '';
+                }
+            }
         }
 
         return $config;

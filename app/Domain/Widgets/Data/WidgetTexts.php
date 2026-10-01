@@ -28,6 +28,10 @@ final class WidgetTexts
         'thanks' => 'Thanks for your feedback!',
         'startNewChat' => 'Start a new chat',
         'poweredBy' => 'Powered by PNE Chat',
+        // Accessible names of the loader's launcher and greeting popup (aria-labels).
+        'closeChat' => 'Close chat',
+        'unread' => 'unread messages',
+        'dismiss' => 'Dismiss',
     ];
 
     /**

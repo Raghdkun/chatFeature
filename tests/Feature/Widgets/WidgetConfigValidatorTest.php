@@ -225,7 +225,10 @@ class WidgetConfigValidatorTest extends TestCase
             'idle timeout too short' => [['session' => ['idleTimeoutMinutes' => 4]], 'config.session.idleTimeoutMinutes'],
             'idle timeout too long' => [['session' => ['idleTimeoutMinutes' => 10081]], 'config.session.idleTimeoutMinutes'],
             'default locale invalid' => [['defaultLocale' => 'english please'], 'config.defaultLocale'],
+            'default locale longer than the column' => [['defaultLocale' => 'zh-Hant-12345'], 'config.defaultLocale'],
+            'default locale at the longest shape' => [['defaultLocale' => 'abc-abcdefgh-abcdefgh'], 'config.defaultLocale'],
             'text locale key invalid' => [['texts' => ['<x>' => ['title' => 'Hi']]], 'config.texts.<x>'],
+            'text locale key longer than the column' => [['texts' => ['zh-Hant-12345' => ['title' => 'Hi']]], 'config.texts.zh-Hant-12345'],
             'text value too long' => [['texts' => ['en' => ['title' => str_repeat('x', 501)]]], 'config.texts.en.title'],
             'text value not a string' => [['texts' => ['en' => ['title' => 5]]], 'config.texts.en.title'],
             'text block as list' => [['texts' => ['en' => ['Hi', 'There']]], 'config.texts.en'],
@@ -267,6 +270,10 @@ class WidgetConfigValidatorTest extends TestCase
             'empty schedule' => [['hours' => ['schedule' => []]]],
             'leap day holiday' => [['hours' => ['holidays' => [['date' => '2028-02-29']]]]],
             'region locale text block' => [['texts' => ['pt-BR' => ['title' => 'Ajuda']]]],
+            'default locale at the column width' => [['defaultLocale' => 'zh-Hant-1234']],
+            'text locale key at the column width' => [['texts' => ['zh-Hant-1234' => ['title' => 'Hi']]]],
+            'loader accessibility texts' => [['texts' => ['ar' => ['closeChat' => 'إغلاق', 'unread' => 'رسائل غير مقروءة', 'dismiss' => 'تجاهل']]]],
+            'holiday without a name' => [['hours' => ['holidays' => [['date' => '2026-12-25', 'label' => null]]]]],
             'always offline with named timezone' => [['hours' => ['mode' => 'always_offline', 'timezone' => 'Asia/Riyadh']]],
         ];
     }
@@ -319,5 +326,82 @@ class WidgetConfigValidatorTest extends TestCase
 
         $this->assertSame($this->defaults(), $config->toArray());
         $this->assertSame($this->defaults(), $this->validator->hydrate(null)->toArray());
+    }
+
+    public function test_a_holiday_always_has_a_string_label(): void
+    {
+        $config = $this->validator->validate(['hours' => ['holidays' => [
+            ['date' => '2026-12-25', 'label' => null],
+            ['date' => '2026-12-26'],
+            ['date' => '2026-12-27', 'label' => 'Boxing weekend'],
+        ]]]);
+
+        $this->assertSame(['', '', 'Boxing weekend'], array_map(fn ($holiday): string => $holiday->label, $config->hours->holidays));
+        $this->assertSame('', $config->toArray()['hours']['holidays'][0]['label'], 'the JSON shape carries "", never null');
+
+        // Stored JSON from before this rule (label: null) hydrates to the same shape.
+        $stored = $this->validator->hydrate(['hours' => ['holidays' => [['date' => '2026-12-25', 'label' => null], ['date' => '2026-12-26']]]]);
+        $this->assertSame(['', ''], array_map(fn ($holiday): string => $holiday->label, $stored->hours->holidays));
+    }
+
+    public function test_the_loaders_accessibility_texts_have_english_defaults_and_can_be_translated(): void
+    {
+        $this->assertSame('Close chat', WidgetTexts::ENGLISH['closeChat']);
+        $this->assertSame('unread messages', WidgetTexts::ENGLISH['unread']);
+        $this->assertSame('Dismiss', WidgetTexts::ENGLISH['dismiss']);
+        $this->assertSame(WidgetTexts::ENGLISH, $this->validator->validate([])->texts['en']);
+
+        $config = $this->validator->validate(['texts' => ['ar' => ['closeChat' => 'إغلاق']]]);
+        $this->assertSame(['closeChat' => 'إغلاق'], $config->texts['ar']);
+
+        $this->assertArrayHasKey('config.texts.ar.close', $this->errorsFor(['texts' => ['ar' => ['close' => 'x']]]), 'only the known keys');
+    }
+
+    /**
+     * @return array<string, array{0: array<string, mixed>, 1: string, 2: string}>
+     */
+    public static function readableMessages(): array
+    {
+        return [
+            'range' => [['theme' => ['panelHeight' => 5000]], 'config.theme.panelHeight', 'The panel height field must be between 360 and 900.'],
+            'integer' => [['theme' => ['radius' => '16']], 'config.theme.radius', 'The corner radius field must be an integer.'],
+            'colour' => [['theme' => ['primary' => 'red']], 'config.theme.primary', 'The primary colour must be a hex colour such as #0f766e (3, 6 or 8 digits).'],
+            'text colour' => [['theme' => ['text' => 'red']], 'config.theme.text', 'The text colour must be a hex colour such as #0f766e (3, 6 or 8 digits).'],
+            'enum' => [['theme' => ['mode' => 'sepia']], 'config.theme.mode', 'The selected colour mode is invalid.'],
+            'feature flag' => [['features' => ['sounds' => 'yes']], 'config.features.sounds', 'The sounds option field must be true or false.'],
+            'greeting delay' => [['greetings' => ['delaySeconds' => 601]], 'config.greetings.delaySeconds', 'The greeting delay field must be between 0 and 600.'],
+            'opening time' => [['hours' => ['schedule' => [['day' => 1, 'start' => '9:00', 'end' => '17:00']]]], 'config.hours.schedule.0.start', 'The opening time must be a time such as 09:00 (24-hour clock).'],
+            'closing time' => [['hours' => ['schedule' => [['day' => 1, 'start' => '09:00', 'end' => '25:00']]]], 'config.hours.schedule.0.end', 'The closing time must be a time such as 17:00 (24-hour clock; 24:00 is allowed).'],
+            'day' => [['hours' => ['schedule' => [['day' => 9, 'start' => '09:00', 'end' => '17:00']]]], 'config.hours.schedule.0.day', 'The day of the week field must be between 0 and 6.'],
+            'holiday date' => [['hours' => ['holidays' => [['date' => '25/12/2026']]]], 'config.hours.holidays.0.date', 'The holiday date must be a date written as YYYY-MM-DD.'],
+            'holiday duplicate' => [['hours' => ['holidays' => [['date' => '2026-12-25'], ['date' => '2026-12-25']]]], 'config.hours.holidays.0.date', 'The holiday date is listed twice.'],
+            'timezone' => [['hours' => ['timezone' => 'Mars/Olympus']], 'config.hours.timezone', 'The timezone field must be a valid timezone.'],
+            'default language' => [['defaultLocale' => 'english please'], 'config.defaultLocale', 'The default language must be a language code such as "en" or "pt-BR".'],
+            'text length' => [['texts' => ['en' => ['welcome' => str_repeat('x', 501)]]], 'config.texts.en.welcome', 'The welcome text field must not be greater than 500 characters.'],
+            'prompt text' => [['texts' => ['en' => ['categoryPrompt' => 5]]], 'config.texts.en.categoryPrompt', 'The category prompt text field must be a string.'],
+            'wave time' => [['routing' => ['waves' => [['afterSeconds' => 601, 'statuses' => ['online']]]]], 'config.routing.waves.0.afterSeconds', 'The wave start time field must be between 0 and 600.'],
+            'queue timeout' => [['routing' => ['queueTimeoutSeconds' => 14]], 'config.routing.queueTimeoutSeconds', 'The queue timeout field must be between 15 and 600.'],
+            'idle timeout' => [['session' => ['idleTimeoutMinutes' => 4]], 'config.session.idleTimeoutMinutes', 'The idle timeout field must be between 5 and 10080.'],
+            'consent text' => [['preChat' => ['consentText' => str_repeat('x', 501)]], 'config.preChat.consentText', 'The consent text field must not be greater than 500 characters.'],
+            'prechat field' => [['preChat' => ['fields' => ['email' => ['enabled' => 'yes']]]], 'config.preChat.fields.email.enabled', 'The email field visibility field must be true or false.'],
+        ];
+    }
+
+    /**
+     * Messages name fields the way the builder does; the error KEYS stay the dotted config paths.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    #[DataProvider('readableMessages')]
+    public function test_error_messages_use_human_field_names_while_keys_stay_dotted_paths(array $input, string $key, string $message): void
+    {
+        $errors = $this->errorsFor($input);
+
+        $this->assertArrayHasKey($key, $errors);
+        $this->assertContains($message, $errors[$key]);
+
+        foreach ($errors[$key] as $text) {
+            $this->assertStringNotContainsString('config.', $text, 'no dotted path inside a message');
+        }
     }
 }

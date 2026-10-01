@@ -248,6 +248,8 @@ class WidgetManagementApiTest extends TestCase
             'offline mode unknown' => [['offline_mode' => 'sometimes'], 'offline_mode'],
             'timezone unknown' => [['timezone' => 'Mars/Olympus'], 'timezone'],
             'locale invalid' => [['locale' => 'english'], 'locale'],
+            'locale longer than the varchar(12) column' => [['locale' => 'zh-Hant-12345'], 'locale'],
+            'locale in the longest accepted shape' => [['locale' => 'abc-abcdefgh-abcdefgh'], 'locale'],
             'name empty' => [['name' => ''], 'name'],
             'enabled not boolean' => [['is_enabled' => 'maybe'], 'is_enabled'],
         ];
@@ -269,7 +271,7 @@ class WidgetManagementApiTest extends TestCase
     {
         $widget = $this->widget();
 
-        foreach ([['idle_timeout_minutes' => 5], ['idle_timeout_minutes' => 10080], ['queue_timeout_seconds' => 15], ['queue_timeout_seconds' => 600]] as $body) {
+        foreach ([['idle_timeout_minutes' => 5], ['idle_timeout_minutes' => 10080], ['queue_timeout_seconds' => 15], ['queue_timeout_seconds' => 600], ['locale' => 'zh-Hant-1234']] as $body) {
             $this->asAdmin()->patchJson('/api/v1/widgets/'.$widget->ulid, $body)->assertOk();
         }
     }
@@ -481,6 +483,7 @@ class WidgetManagementApiTest extends TestCase
             'avatar over http' => [['body' => 'x', 'agent_avatar_url' => 'http://example.com/a.png'], 'greetings.0.agent_avatar_url'],
             'avatar javascript' => [['body' => 'x', 'agent_avatar_url' => 'javascript:alert(1)'], 'greetings.0.agent_avatar_url'],
             'locale invalid' => [['body' => 'x', 'locale' => 'x y'], 'greetings.0.locale'],
+            'locale longer than the varchar(12) column' => [['body' => 'x', 'locale' => 'zh-Hant-12345'], 'greetings.0.locale'],
             'agent name too long' => [['body' => 'x', 'agent_name' => str_repeat('x', 121)], 'greetings.0.agent_name'],
             'unknown greeting' => [['ulid' => '01hzzzzzzzzzzzzzzzzzzzzzzz', 'body' => 'x'], 'greetings.0.ulid'],
             'ulid malformed' => [['ulid' => 'nope', 'body' => 'x'], 'greetings.0.ulid'],
