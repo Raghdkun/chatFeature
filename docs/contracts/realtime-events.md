@@ -24,7 +24,7 @@ Why per-agent offer channels (not per-category channels): the eligible set is co
 
 | Event | Channel | Payload | Delivery |
 |---|---|---|---|
-| `chat.offered` | `staff.{id}` (each eligible agent) | `{v, conversation: ulid, category: {slug,label}\|null, visitor: {name\|null, verified: bool}, preview: string\|null, widget: {ulid,name}, wave: int, expiresAt: ISO}` | queued |
+| `chat.offered` | `staff.{id}` (each eligible agent) | `{v, conversation: ulid, category: {slug,label}\|null, visitor: {name\|null, verified: bool}, preview: string\|null, widget: {ulid,name}, wave: int, expiresAt: ISO, ttlSeconds: int}` (`ttlSeconds` = seconds left when the payload was built: count down from the browser's own arrival time, never trust the browser clock against `expiresAt`) | queued |
 | `chat.taken` | `staff.{id}` (other offered agents) | `{v, conversation, by: {id, name}}` | queued |
 | `chat.assigned` | `staff.{id}` | `{v, conversation}` (transfer / admin assignment) | queued |
 | `conversation.updated` | `staff.{id}` (eligible/assigned agents, **also the former agent after a transfer/assignment and agents serving the category when an offline ticket is created**), `admin` | `{v, conversation: ConversationStaff}` (list refresh; status/assignee/unseen changes) | queued |

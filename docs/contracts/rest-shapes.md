@@ -47,7 +47,10 @@
 | `at_capacity` | 409 | Claim by an agent at `max_concurrent_chats` (live chats only; offline tickets take no slot) |
 | `conversation_not_active` / `conversation_not_ended` / `conversation_not_open` | 409 | The action does not fit the conversation's current status (message to a closed chat, rating before the end, ...) |
 | `already_rated` | 409 | The conversation already has its (single) rating |
-| `rate_limited` | 429 | Limiter hit; `Retry-After` set |
+| `rating_window_closed` | 409 | Rating/skipping after `rating_window_expires_at` |
+| `conversation_not_live` | 409 | A live-chat-only action on an offline ticket |
+| `attachment_quota_exceeded` | 422 | The conversation's total attachment bytes cap (`chat.attachment_max_total_bytes`) |
+| `rate_limited` | 429 | Limiter hit; `Retry-After` set (chat start also: cancel cooldown, queued-chats-per-network cap; `details.retry_after`) |
 | `server_error` | 500 | Unhandled exception in production |
 
 ## Public widget endpoints (P3)
@@ -141,6 +144,7 @@ A visitor token is bound to **one** visitor session and at most one open convers
 | `POST …/end` | agent/admin ends the chat (`ratingRequested: true`). |
 | `POST …/close` | agent/admin closes an **offline ticket** (answered) or an admin closes any open chat: result `closed`, reason `system`; no rating prompt. Offline tickets: `queued -> active (claim) -> closed`. |
 | `POST …/reply-email` | not an endpoint: staff reply to an offline ticket with the normal `POST …/messages`; for `type=offline` the stored message is also e-mailed (queued mailable) to the visitor's address. |
-| `POST …/transfer` | `{ agent_id } \| { category }` → re-queued with assignee cleared, history kept in `conversation_events`. |
+| `POST …/transfer` | `{ agent_id } \| { category }` (category slug or ulid) → re-queued with assignee cleared, history kept in `conversation_events`. For live chats the target must be reachable (online/away per the widget's routing plan, under capacity, serving the category) else `409 no_agents` with `details {target: agent\|category, reason: offline\|at_capacity\|no_reachable_agent}` and the agent keeps the chat. |
+| `GET /conversations/{ulid}/transfer-targets` | `200 { data: { agents: [{ id, name, avatarUrl, status, activeChats, maxConcurrentChats, reachable }], categories: [{ slug, label }] } }` for the transfer dialog: agents serving the chat's category (caller and current agent excluded; `reachable` is exactly what `transfer` accepts), categories enabled on the widget with someone reachable. Live chats only (`409 conversation_not_live` for offline tickets). |
 | `GET /conversations/export` | admin only; streamed CSV/JSON, queued for large ranges. |
 | `GET /me/presence` · `PUT /me/presence {status}` · `POST /me/presence/heartbeat` | status `online\|away\|offline`; heartbeat every 30 s. |

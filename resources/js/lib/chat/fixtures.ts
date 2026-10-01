@@ -184,6 +184,7 @@ export function makeOffer(overrides: Partial<OfferData> = {}): OfferData {
         widget: { ulid: fakeUlid(4000), name: 'Support widget' },
         wave: 1,
         expiresAt: fakeTime(90),
+        ttlSeconds: 90,
         ...overrides,
     };
 }

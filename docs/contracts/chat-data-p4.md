@@ -138,3 +138,12 @@ Plain `final` classes, `Dispatchable` + `SerializesModels`, `ShouldDispatchAfter
 7. **Visitor-facing responses** use `ConversationPublicData` / `MessageData::fromModel($m)` only. Staff responses may use `ConversationStaffData` and `forStaff: true`; neither ever exposes `token_hash`, `path`, `disk`, `sha256` or `original_name`.
 8. **Lists** eager-load `category`, `assignedAgent`, `visitor`, `widget` (conversations) and `senderUser`, `attachments`, `conversation.visitor` (messages).
 9. **Staff lists** start from `Conversation::visibleTo($user)`; single conversations are authorised with `ConversationPolicy::view()` (or `viewAsStaff()` in channel callbacks).
+
+## Fix-round additions (after the P4 reviews)
+
+- `visitors.external_id` is binary-collated (`utf8mb4_0900_bin` on MySQL, `utf8mb4_nopad_bin` on MariaDB) so host ids that differ by case/accent are different visitors; `visitor_sessions.network_hash` (HMAC of the client network bucket, never the IP) backs the queued-chats-per-network cap.
+- `OfferData.ttlSeconds`; `SessionData` / `SessionLimitsData` / `RealtimeEndpointData` / `TransferTargetsData` Data classes.
+- Settings: `chat.attachment_max_total_bytes` (30 MiB), `chat.attachment_url_ttl_minutes` (240); `chat.max_message_length` is capped at 16000. Signed attachment URLs are built from the configured app origin (never the request Host).
+- Offline tickets without a category (a widget with none enabled) are visible to ALL active agents; the default category is the missed chat's topic, else the widget's first active one.
+- Claim by the agent who already holds the chat is idempotent (`200`, no event). Animated GIFs are refused (a chat image is a still).
+- Visitor-facing agent names never contain an e-mail address (`User::public_label`).

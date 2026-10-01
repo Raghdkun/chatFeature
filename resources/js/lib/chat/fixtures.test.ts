@@ -104,6 +104,7 @@ describe('fixture builders', () => {
                 'widget',
                 'wave',
                 'expiresAt',
+                'ttlSeconds',
             ].sort(),
         );
         expect(makeOffer().v).toBe(1);
