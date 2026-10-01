@@ -66,7 +66,7 @@ export function TicketCard({
                         {ticket.visitor.email && (
                             <a
                                 href={`mailto:${ticket.visitor.email}`}
-                                className="inline-flex items-center gap-1 underline-offset-2 [overflow-wrap:anywhere] hover:underline"
+                                className="inline-flex items-center gap-1 [overflow-wrap:anywhere] underline-offset-2 hover:underline"
                             >
                                 <Mail className="size-3" aria-hidden />
                                 {ticket.visitor.email}
@@ -94,7 +94,7 @@ export function TicketCard({
             {ticket.lastMessagePreview && (
                 <p
                     dir="auto"
-                    className="mt-3 line-clamp-3 text-sm text-foreground/90 [overflow-wrap:anywhere]"
+                    className="mt-3 line-clamp-3 text-sm [overflow-wrap:anywhere] text-foreground/90"
                 >
                     {ticket.lastMessagePreview}
                 </p>
