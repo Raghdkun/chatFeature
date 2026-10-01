@@ -7,7 +7,7 @@
  *                                          `admin-only` = an administrator who does not take chats, P3 scenarios;
  *                                          `alice` / `bob` = the agents of the P4 `chat` scenarios)
  *
- * P4 (scenarios with a Reverb): the `page` / `context` of a staff `role` already talk to the instance's Reverb (`relayStaffSockets`),
+ * P4 (scenarios with a Reverb): the dashboard of a staff `role` connects to the instance's Reverb (the `realtime` shared prop),
  * `actors` builds several people in separate browser contexts for one test (`e2e/support/actors.ts`), `seed` is what the `chat`
  * seed created (`e2e/support/chat-seed.ts`).
  */
@@ -21,7 +21,6 @@ import {
 import { Actors } from './actors';
 import { Api } from './api';
 import { readSeed, type ChatSeed } from './chat-seed';
-import { relayStaffSockets } from './realtime';
 import { authStatePath, type Role } from './users';
 
 type Options = {
@@ -95,17 +94,6 @@ export const test = base.extend<Options & Fixtures>({
 
     seed: async ({ instance }, use) => {
         await use(readSeed(instance));
-    },
-
-    context: async ({ context, scenario }, use, testInfo) => {
-        if (scenario) {
-            await relayStaffSockets(
-                context,
-                instanceFor(scenario, testInfo.project.name),
-            );
-        }
-
-        await use(context);
     },
 
     baseURL: async ({ scenario }, use, testInfo) => {

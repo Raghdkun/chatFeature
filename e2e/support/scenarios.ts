@@ -12,7 +12,7 @@
  * Ports the suite owns (everything else belongs to other suites or running agents):
  *   web servers      8110-8129 (8120-8129: mode 2)   8230-8249 (P3)   8260-8279 (P4)
  *   customer sites   8240-8247 (P3)                  8280-8289 (P4)
- *   Reverb (P4)      8340-8348, and 8349 = the address baked into the dashboard build (nothing listens there, see `DASHBOARD_REVERB`)
+ *   Reverb (P4)      8340-8348
  * P4 layout: a stateful scenario takes web `8260 + n` (desktop) and `8270 + n` (mobile twin), a customer site `8280 + n` / `8285 + n`
  * and Reverb `8340 + n` / `8345 + n`; `p4-chat` is n = 0, `p4-chat-views` n = 2, `p4-chat-views-rtl` n = 3. 8264-8269, 8274-8279,
  * 8284, 8289 and 8344/8348 are free for more P4 scenarios.
@@ -352,14 +352,8 @@ export const SETUP_TOKEN = 'e2e-setup-token';
 /** Deterministic, test-only APP_KEY so the suite does not depend on the developer's `.env`. */
 const APP_KEY = `base64:${Buffer.from('pne-chat-e2e-test-key-0123456789').toString('base64')}`;
 
-/** The address the DASHBOARD's Echo was built with (`VITE_REVERB_*`, baked into `public/build` by `npm run build`): see `relayStaffSockets()`. */
-export const DASHBOARD_REVERB = {
-    key: 'e2e-reverb-key',
-    host: '127.0.0.1',
-    // Reserved and never listened on: staff sockets are relayed to the instance's own Reverb by `e2e/support/realtime.ts`.
-    port: 8349,
-    scheme: 'http',
-} as const;
+/** Every P4 instance's Reverb app key (the secret and app id are per instance). The dashboard learns the address from the `realtime` shared prop at runtime. */
+export const E2E_REVERB_KEY = 'e2e-reverb-key';
 
 export type ReverbServer = {
     port: number;
@@ -448,7 +442,7 @@ function build(
                   port: reverbPort,
                   url: `http://127.0.0.1:${reverbPort}`,
                   appId: String(reverbPort),
-                  key: DASHBOARD_REVERB.key,
+                  key: E2E_REVERB_KEY,
                   secret: `e2e-reverb-secret-${reverbPort}`,
               };
 

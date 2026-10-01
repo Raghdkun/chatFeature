@@ -11,7 +11,7 @@
  *   });
  *
  * Staff start from the saved login of the scenario (cookie session, no login throttle; `signInApi` / `signInUi` make fresh sessions),
- * their dashboard sockets are relayed to the instance's Reverb (`relayStaffSockets`), and every actor is watched for page errors,
+ * their dashboard connects to the instance's Reverb from the `realtime` shared prop, and every actor is watched for page errors,
  * console errors, failed requests and 5xx answers (`watch.ts`): the fixture fails the test about them when it ends unless a spec
  * allowed them (`actor.watch.allow(...)`).
  */
@@ -19,7 +19,6 @@ import type { Browser, BrowserContext, Page, TestInfo } from '@playwright/test';
 import { Api } from './api';
 import { clientAddress, StaffApi, type PresenceStatus } from './chat-api';
 import { Inbox } from './inbox';
-import { relayStaffSockets } from './realtime';
 import type { Instance } from './scenarios';
 import {
     ADMIN,
@@ -215,8 +214,6 @@ export class Actors {
             baseURL: this.instance.url,
             storageState: authStatePath(this.instance, role),
         });
-
-        await relayStaffSockets(context, this.instance);
 
         const page = await context.newPage();
         const watch = watchContext(context, who, options.allow);

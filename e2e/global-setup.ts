@@ -21,21 +21,13 @@
  * function returned.
  */
 import { execFile } from 'node:child_process';
-import {
-    readdir,
-    mkdir,
-    readFile,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
+import { readdir, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { request } from '@playwright/test';
 import { artisan, tinker } from './support/artisan';
 import {
     ACTIVE_INSTANCES,
     assertSafe,
-    DASHBOARD_REVERB,
     ROOT,
     type Instance,
 } from './support/scenarios';
@@ -521,42 +513,6 @@ async function modified(path: string): Promise<number> {
 }
 
 /**
- * The dashboard's Echo reads its Reverb address from `VITE_REVERB_*` AT BUILD TIME. The e2e build therefore bakes in the e2e address
- * (`DASHBOARD_REVERB`: a fixed key, and a port nothing listens on) whatever the developer's `.env` says, and the suite relays the
- * staff sockets to the instance's own Reverb (`relayStaffSockets()` in e2e/support/realtime.ts). A build made with another address
- * (a plain `npm run build` with a dev `.env`) is rebuilt.
- */
-async function builtForE2e(): Promise<boolean> {
-    const baked = (name: string, value: string | number) =>
-        new RegExp(`${name}:\\s*["'\`]${value}["'\`]`);
-    const wanted = [
-        baked('VITE_REVERB_APP_KEY', DASHBOARD_REVERB.key),
-        baked('VITE_REVERB_HOST', DASHBOARD_REVERB.host),
-        baked('VITE_REVERB_PORT', DASHBOARD_REVERB.port),
-    ];
-
-    try {
-        const assets = `${ROOT}public/build/assets`;
-
-        for (const file of await readdir(assets)) {
-            if (!file.endsWith('.js')) {
-                continue;
-            }
-
-            const code = await readFile(`${assets}/${file}`, 'utf8');
-
-            if (wanted.every((pattern) => pattern.test(code))) {
-                return true;
-            }
-        }
-    } catch {
-        // no build yet
-    }
-
-    return false;
-}
-
-/**
  * The specs drive the BUILT assets (`public/build`, `public/widget/v1/loader.js`, both git-ignored): build them when they
  * are missing or older than the sources, instead of failing with "Unable to locate file in Vite manifest" mid-run.
  */
@@ -580,22 +536,10 @@ async function ensureBuilt(): Promise<void> {
         const sourceTimes = await Promise.all(
             sources.map((source) => newest(`${ROOT}${source}`)),
         );
-        const wrongReverb = script === 'build' && !(await builtForE2e());
-
-        if (built === 0 || Math.max(...sourceTimes) > built || wrongReverb) {
-            console.log(
-                `e2e: npm run ${script} (${wrongReverb ? 'built for another Reverb address' : 'assets missing or stale'})`,
-            );
+        if (built === 0 || Math.max(...sourceTimes) > built) {
+            console.log(`e2e: npm run ${script} (assets missing or stale)`);
             await run('npm', ['run', script], {
                 cwd: ROOT,
-                // The process environment wins over `.env` for `VITE_*` variables.
-                env: {
-                    ...process.env,
-                    VITE_REVERB_APP_KEY: DASHBOARD_REVERB.key,
-                    VITE_REVERB_HOST: DASHBOARD_REVERB.host,
-                    VITE_REVERB_PORT: String(DASHBOARD_REVERB.port),
-                    VITE_REVERB_SCHEME: DASHBOARD_REVERB.scheme,
-                },
                 maxBuffer: 16 * 1024 * 1024,
                 timeout: 300_000,
             });
