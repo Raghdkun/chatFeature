@@ -260,8 +260,8 @@ async function seedChatStaff(instance: Instance): Promise<void> {
 
 /**
  * P4 `seed: 'chat'`: the published, enabled widget "Acme Storefront" for the instance's customer site: open around the clock, General +
- * Billing + Sales, the routing of `SEED_ROUTING`. The queue timeout and the opening mode are sent as settings AND inside the draft
- * config: publishing copies the config's values back over the columns. Writes `seed.json` next to the instance's state.
+ * Billing + Sales, the routing of `SEED_ROUTING`. The queue timeout, the opening mode and the locale are sent as settings AND inside the
+ * draft config: publishing copies the config's values back over the columns. Writes `seed.json` next to the instance's state.
  */
 async function seedChatWidget(instance: Instance): Promise<void> {
     const context = await request.newContext({
@@ -278,8 +278,15 @@ async function seedChatWidget(instance: Instance): Promise<void> {
             settings: {
                 offline_mode: 'always_online',
                 queue_timeout_seconds: SEED_ROUTING.queueTimeoutSeconds,
+                // The RTL scenario's widget speaks Arabic (the panel then renders right to left), like its dashboard.
+                ...(instance.locale === 'en'
+                    ? {}
+                    : { locale: instance.locale }),
             },
             config: {
+                ...(instance.locale === 'en'
+                    ? {}
+                    : { defaultLocale: instance.locale }),
                 hours: { mode: 'always_online' },
                 routing: SEED_ROUTING,
                 // A greeting popup would cover the launcher the specs click.

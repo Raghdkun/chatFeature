@@ -256,11 +256,19 @@ export class Actors {
      * `actor.page` with `openCustomerSite()`.
      */
     async visitor(
-        options: DeviceOptions & { allow?: Allowed; name?: string } = {},
+        options: DeviceOptions & {
+            allow?: Allowed;
+            name?: string;
+            /** The browser's language (`navigator.language`): the widget answers in it when it has texts for it. Default: Arabic in an Arabic scenario, else Chrome's `en-US`. */
+            locale?: string;
+        } = {},
     ): Promise<VisitorActor> {
         const address = clientAddress();
         const context = await this.browser.newContext({
             ...contextOptions(this.testInfo, options.device),
+            ...(options.locale === undefined && this.instance.locale === 'ar'
+                ? { locale: 'ar' }
+                : { locale: options.locale }),
             storageState: { cookies: [], origins: [] },
         });
 
