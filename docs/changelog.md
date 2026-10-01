@@ -15,6 +15,8 @@ All notable changes are recorded here, following [Keep a Changelog](https://keep
 - Domains tab: every scheme prefix was refused, although the server keeps `http://` (the admin's explicit permission for a site served without https) and drops `https://`; there was no way to allow such a site from the dashboard. The tab keeps `http://` and drops `https://` now (help text and error copy updated).
 - Accessibility (axe best-practice): headings jumped from `h1` to `h3` on `/categories`, `/widgets` and every builder tab (section and row titles are `h2` now), and the builder had two `main` landmarks because the live preview's fake site (an `<iframe srcdoc>`) used `<main>` / `<header>`.
 
+- `WidgetDeliveryTest::test_conditional_requests_and_etag_changes` failed when it ran in the half minute before 09:00 or 17:00 UTC on a weekday (the widget's availability flips at the default opening hours while `travel(30)` crosses the instant); the clock is pinned now.
+
 ### Known, not fixed (found by the P3 e2e)
 - `/w/<key>.js` inlines the boot config, so a site that is NOT on the widget's domain list still gets the bubble and its greeting (only the generic loader asks the config endpoint, which answers `403 origin_not_allowed`); the chat iframe (CSP `frame-ancestors`) and every API call are refused there. Decide whether the script endpoint should check the `Referer`.
 - The builder preview shows `Chat` as the panel's accessible name after the `title` text is emptied; the saved widget gets the server's English default `Support`.
