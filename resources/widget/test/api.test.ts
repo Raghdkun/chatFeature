@@ -712,3 +712,29 @@ describe('window.ChatFeature API', () => {
         expect(document.querySelector('pne-chat-widget')).toBeNull();
     });
 });
+
+describe('failure isolation', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => {
+        vi.restoreAllMocks();
+        vi.useRealTimers();
+        resetGlobals();
+    });
+
+    it('a browser without Shadow DOM yields an error event instead of an unhandled rejection', async () => {
+        inlineBoot();
+        const unhandled = vi.fn();
+        process.on('unhandledRejection', unhandled);
+        vi.spyOn(Element.prototype, 'attachShadow').mockImplementation(() => {
+            throw new DOMException('not supported', 'NotSupportedError');
+        });
+        const cf = install(window, makeScript()) as ChatFeatureFn;
+        const errors: Dict[] = [];
+        cf('on', 'error', (e: Dict) => errors.push(e));
+        await flush();
+        expect(errors.map((e) => e.code)).toEqual(['internal']);
+        expect(document.querySelector('pne-chat-widget')).toBeNull();
+        expect(unhandled).not.toHaveBeenCalled();
+        process.off('unhandledRejection', unhandled);
+    });
+});

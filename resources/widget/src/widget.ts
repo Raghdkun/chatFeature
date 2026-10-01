@@ -138,9 +138,9 @@ export class Widget {
         this.initRaw = [];
 
         if (this.doc.body !== null) {
-            this.mount();
+            this.guard(() => this.mount());
         } else {
-            const on = (): void => this.mount();
+            const on = (): void => this.guard(() => this.mount());
             this.doc.addEventListener('DOMContentLoaded', on, { once: true });
             this.cleanups.push(() =>
                 this.doc.removeEventListener('DOMContentLoaded', on),
