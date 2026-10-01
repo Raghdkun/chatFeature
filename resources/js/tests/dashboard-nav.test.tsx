@@ -142,11 +142,21 @@ describe('settings menu', () => {
         ]);
     });
 
-    it('adds it for admins too (they can take chats)', async () => {
+    it('adds it for an admin who takes chats', async () => {
+        as({ is_admin: true, is_agent: true });
+
         expect(await items()).toContainEqual([
             'Support categories',
             '/settings/support-categories',
         ]);
+    });
+
+    it('leaves it out for an admin who does not take chats (saving would be refused)', async () => {
+        as({ is_admin: true });
+
+        expect((await items()).map(([title]) => title)).not.toContain(
+            'Support categories',
+        );
     });
 
     it('leaves the menu alone for accounts without a chat role and keeps the existing items', async () => {

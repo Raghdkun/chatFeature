@@ -20,7 +20,27 @@ vi.mock('@inertiajs/react', async () =>
 );
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-beforeEach(() => resetInertiaMock());
+const userWith = (flags: { is_admin?: boolean; is_agent?: boolean }) => ({
+    id: 1,
+    name: 'Sam',
+    email: 'sam@example.com',
+    avatar: null,
+    auth_source: 'local',
+    is_admin: false,
+    is_agent: false,
+    ...flags,
+});
+
+const signedInAs = (flags: { is_admin?: boolean; is_agent?: boolean }) =>
+    resetInertiaMock({
+        auth: {
+            user: userWith(flags),
+            mode: 'fortify',
+            capabilities: { portalUrl: null },
+        },
+    });
+
+beforeEach(() => signedInAs({ is_agent: true }));
 
 afterEach(() => {
     vi.unstubAllGlobals();
@@ -29,6 +49,71 @@ afterEach(() => {
 
 const check = (view: { container: HTMLElement }, ulid: string) =>
     byTestId(view.container, `support-category-check-${ulid}`);
+
+describe('who may choose categories', () => {
+    it('lets agents choose (PUT /me/categories requires is_agent)', async () => {
+        const view = await render(
+            <SupportCategories categories={CATEGORIES} selected={[]} />,
+        );
+
+        expect(view.byTestId('support-categories-not-agent')).toBeNull();
+        expect(check(view, 'cat1')).not.toBeNull();
+    });
+
+    it('lets an admin who also takes chats choose', async () => {
+        signedInAs({ is_admin: true, is_agent: true });
+
+        const view = await render(
+            <SupportCategories categories={CATEGORIES} selected={[]} />,
+        );
+
+        expect(view.byTestId('support-categories-not-agent')).toBeNull();
+        expect(check(view, 'cat1')).not.toBeNull();
+    });
+
+    it('explains instead of offering a form an admin who does not take chats could never save', async () => {
+        signedInAs({ is_admin: true });
+
+        const api = fakeApi();
+        const view = await render(
+            <SupportCategories categories={CATEGORIES} selected={['cat1']} />,
+        );
+
+        expect(
+            view.byTestId('support-categories-not-agent')?.textContent,
+        ).toContain('Your account does not take chats');
+        // No picker, no save button, nothing to send.
+        expect(check(view, 'cat1')).toBeNull();
+        expect(view.byTestId('support-categories-save')).toBeNull();
+        expect(
+            view
+                .byTestId('support-categories-agents-link')
+                ?.getAttribute('href'),
+        ).toBe('/agents');
+        expect(api.calls).toHaveLength(0);
+    });
+
+    it('shows the notice without an Agents link to someone who cannot open it, and to a signed-out render', async () => {
+        signedInAs({});
+
+        const view = await render(
+            <SupportCategories categories={CATEGORIES} selected={[]} />,
+        );
+
+        expect(view.byTestId('support-categories-not-agent')).not.toBeNull();
+        expect(view.byTestId('support-categories-agents-link')).toBeNull();
+
+        resetInertiaMock();
+
+        const signedOut = await render(
+            <SupportCategories categories={CATEGORIES} selected={[]} />,
+        );
+
+        expect(
+            signedOut.byTestId('support-categories-not-agent'),
+        ).not.toBeNull();
+    });
+});
 
 describe('my support categories', () => {
     it('lists only active categories, with the current choice ticked', async () => {
