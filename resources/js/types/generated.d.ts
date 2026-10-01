@@ -132,6 +132,192 @@ agents_count: number,
 widgets_count: number,
 };
 }
+namespace Chat {
+export type AgentRefData = {
+name: string,
+avatarUrl: string | null,
+};
+export type AttachmentData = {
+ulid: string,
+mime: string,
+size: number,
+width: number | null,
+height: number | null,
+url: string,
+thumbUrl: string | null,
+};
+export type CategoryRefData = {
+slug: string,
+label: string,
+};
+export type ConversationPublicData = {
+ulid: string,
+ticketNo: string,
+status: App.Domain.Chat.Enums.ConversationStatus,
+type: App.Domain.Chat.Enums.ConversationType,
+category: App.Data.Chat.CategoryRefData | null,
+agent: App.Data.Chat.AgentRefData | null,
+createdAt: string,
+endedAt: string | null,
+ratingRequested: boolean,
+lastSeq: number,
+};
+export type ConversationStaffData = {
+ulid: string,
+ticketNo: string,
+status: App.Domain.Chat.Enums.ConversationStatus,
+type: App.Domain.Chat.Enums.ConversationType,
+category: App.Data.Chat.CategoryRefData | null,
+agent: App.Data.Chat.AgentRefData | null,
+createdAt: string,
+endedAt: string | null,
+ratingRequested: boolean,
+lastSeq: number,
+visitor: App.Data.Chat.VisitorSummaryData,
+widget: App.Data.Chat.WidgetRefData,
+assignedAgent: App.Data.Chat.StaffAgentRefData | null,
+unseenByAgent: number,
+claimedAt: string | null,
+lastMessageAt: string | null,
+lastMessagePreview: string | null,
+};
+export type MessageData = {
+ulid: string,
+seq: number,
+conversation: string,
+sender: App.Data.Chat.MessageSenderData,
+type: App.Domain.Chat.Enums.MessageType,
+body: string | null,
+attachments: App.Data.Chat.AttachmentData[],
+clientMsgId: string | null,
+createdAt: string,
+deliveredAt: string | null,
+seenAt: string | null,
+};
+export type MessageSenderData = {
+type: App.Domain.Chat.Enums.SenderType,
+name: string | null,
+avatarUrl: string | null,
+id?: number,
+};
+export type OfferData = {
+v: number,
+conversation: string,
+category: App.Data.Chat.CategoryRefData | null,
+visitor: App.Data.Chat.OfferVisitorData,
+preview: string | null,
+widget: App.Data.Chat.WidgetRefData,
+wave: number,
+expiresAt: string,
+};
+export type OfferVisitorData = {
+name: string | null,
+verified: boolean,
+};
+export type PresenceData = {
+userId: number,
+status: App.Domain.Chat.Enums.PresenceStatus,
+isManual: boolean,
+lastSeenAt: string | null,
+};
+export type PresenceMemberData = {
+id: number,
+name: string,
+avatarUrl: string | null,
+status: App.Domain.Chat.Enums.PresenceStatus,
+};
+export type RatingData = {
+conversation: string,
+score: number,
+comment: string | null,
+createdAt: string,
+};
+export type StaffAgentRefData = {
+id: number,
+name: string,
+};
+export type VisitorSummaryData = {
+ulid: string,
+name: string | null,
+email: string | null,
+phone: string | null,
+verified: boolean,
+meta: Record<string, number | string | boolean | null>,
+};
+export type WidgetRefData = {
+ulid: string,
+name: string,
+};
+namespace Events {
+export type ChatAssignedPayload = {
+v: number,
+conversation: string,
+};
+export type ChatClaimedPayload = {
+v: number,
+agent: App.Data.Chat.AgentRefData,
+claimedAt: string,
+};
+export type ChatTakenPayload = {
+v: number,
+conversation: string,
+by: App.Data.Chat.StaffAgentRefData,
+};
+export type ConversationClosedPayload = {
+v: number,
+reason: App.Domain.Chat.Enums.ConversationCloseReason,
+};
+export type ConversationEndedPayload = {
+v: number,
+endedBy: App.Domain.Chat.Enums.ConversationEndedBy,
+ratingRequested: boolean,
+};
+export type ConversationRatedPayload = {
+v: number,
+conversation: string,
+score: number,
+};
+export type ConversationTransferredPayload = {
+v: number,
+};
+export type ConversationUpdatedPayload = {
+v: number,
+conversation: App.Data.Chat.ConversationStaffData,
+};
+export type MessageCreatedPayload = {
+v: number,
+message: App.Data.Chat.MessageData,
+};
+export type MessageSeenPayload = {
+v: number,
+upToSeq: number,
+by: App.Domain.Chat.Enums.SenderType,
+at: string,
+};
+export type OfflineTicketCreatedPayload = {
+v: number,
+conversation: App.Data.Chat.ConversationStaffData,
+};
+export type PresenceChangedPayload = {
+v: number,
+userId: number,
+status: App.Domain.Chat.Enums.PresenceStatus,
+};
+export type QueueUpdatedPayload = {
+v: number,
+queued: number,
+};
+export type SessionRevokedPayload = {
+v: number,
+reason: App.Domain.Chat.Enums.SessionRevokeReason,
+};
+export type UnreadUpdatedPayload = {
+v: number,
+conversation: string,
+unseen: number,
+};
+}
+}
 namespace Setup {
 export type SetupAdminData = {
 name: string,
@@ -273,6 +459,20 @@ identity_example: App.Data.Widgets.IdentityExampleData,
 }
 }
 namespace Domain {
+namespace Chat {
+namespace Enums {
+export type ActorType = 'visitor' | 'agent' | 'admin' | 'system';
+export type ConversationCloseReason = 'rated' | 'skipped' | 'idle' | 'timeout' | 'system' | 'cancelled';
+export type ConversationEndedBy = 'visitor' | 'agent' | 'admin' | 'system';
+export type ConversationStatus = 'queued' | 'active' | 'ended' | 'closed' | 'missed';
+export type ConversationType = 'live' | 'offline';
+export type MessageType = 'text' | 'image' | 'system';
+export type OfferResponse = 'accepted' | 'taken' | 'expired' | 'dismissed';
+export type PresenceStatus = 'online' | 'away' | 'offline';
+export type SenderType = 'visitor' | 'agent' | 'system';
+export type SessionRevokeReason = 'role_removed' | 'deactivated' | 'auth_revoked';
+}
+}
 namespace Settings {
 export type SettingGroup = 'app' | 'auth' | 'chat' | 'notifications' | 'storage' | 'whatsapp';
 export type SettingType = 'string' | 'bool' | 'int' | 'json';
