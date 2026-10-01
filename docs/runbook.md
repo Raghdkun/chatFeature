@@ -104,9 +104,14 @@ Changing the address, the service name or the NATS address always asks for the m
 | A person cannot sign in after being removed and re-created upstream | The old identity is deactivated: `chat:auth:reactivate`, or the same email links again once the old identity is gone |
 | Dead-letter file grows | Look at `reason` and `type`; unknown event types are acked, not dead-lettered |
 | Widget shows no bubble / "bundle not built" | `npm run build:widget` was not run in the image |
+| Visitors wait past the queue timeout, queued chats never turn `missed`, active chats never close as idle, ended chats stay `ended` | The scheduler is not running (`schedule:run` every minute, or `schedule:work`): `chat:expire-queued`, `chat:close-idle` and `chat:close-unrated` are scheduled every minute; run one by hand to confirm (`php artisan chat:expire-queued`). The delayed `ExpireQueuedConversation` / `OfferNextWave` jobs need the queue worker; without it the second routing wave (away agents) never fires and expiry waits for the sweep |
+| `409 no_agents` although agents are signed in | Presence needs a heartbeat younger than 90 s (the dashboard beats every 30 s): check `GET /me/presence`; the agent must serve the category (Settings of the agent), be under `max_concurrent_chats`, and the widget must be inside its opening hours. Away agents only count from the second routing wave on if the widget's `routing.waves` includes them |
+| Replies to offline tickets are not delivered | `OfflineTicketReply` is a queued mail: needs the queue worker and working SMTP settings; failed ones are in `failed_jobs` (the reply itself is stored in the conversation) |
+| Image uploads fail with 422 `file` | Over `chat.attachment_max_bytes` / `chat.attachment_max_dimension`, not a real jpeg / png / webp / gif, or too many pixels for PHP's `memory_limit` (a 4096 x 4096 image needs about 150 MB while it is processed) |
+| Chat attachments pile up on disk | `chat:prune-visitor-sessions` (daily) deletes uploads no message referenced for 24 h; sent attachments live with their conversation |
 | The chat panel never opens (P3 only) | Expected until P4: the panel is a stub, so the loader's handshake times out |
 
-- [ ] TBD (P4/P5/P8): chat, presence and push symptoms
+- [ ] TBD (P5/P8): realtime (Reverb), presence sweep and push symptoms
 
 ## Load-test results
 
