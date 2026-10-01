@@ -7,11 +7,16 @@ namespace App\Domain\Widgets\Origin;
  * `Origin` (or the origin of a `Referer`) is allowed to embed / call a widget.
  *
  * Rules (docs/contracts/dashboard-pages-p3.md):
- * - an entry is `host`, `host:port` or `*.host[:port]`; hosts are lower-case, punycode, without scheme/path/userinfo;
- * - the wildcard is only valid as the whole first label and needs a base with at least two labels (`*.com` is refused);
+ * - an entry is `host`, `host:port` or `*.host[:port]`, optionally prefixed with `https://` or `http://`; hosts are
+ *   lower-case, punycode, without path/userinfo; `https://` is the default and is dropped when normalising, `http://`
+ *   is kept (it is the admin's explicit permission for plain-http sites);
+ * - the wildcard is only valid as the whole first label and needs a base with at least two labels that is not itself a
+ *   public suffix (`*.com`, `*.co.uk` and `*.github.io` are refused: they would admit unrelated sites, see PublicSuffixes);
  *   it matches subdomains at any depth but never the apex (`*.example.com` matches `a.b.example.com`, not `example.com`);
  * - an entry without a port matches only the scheme's default port; an entry with a port matches exactly that port;
  * - matching is by label boundary, so `evil-example.com` and `example.com.evil.net` never match `*.example.com`;
+ * - an `http://` ORIGIN is admitted only when the entry was saved with the `http://` prefix, or when the origin is a
+ *   development host (`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`, `*.test`); an `http://` entry also admits https;
  * - `Origin: null`, userinfo (`@`), paths, backslashes and percent escapes never match.
  *
  * Stateless: safe to share. Entries that fail to parse are skipped (they cannot match anything).
@@ -22,6 +27,9 @@ namespace App\Domain\Widgets\Origin;
 final class OriginMatcher
 {
     private const MAX_ENTRY_LENGTH = 260;
+
+    /** `widget_domains.host` is `varchar(255)`: an entry longer than this (prefix and port included) cannot be stored. */
+    public const MAX_STORED_LENGTH = 255;
 
     /**
      * Normalise an admin-entered domain, or null when it is not an acceptable host.
@@ -34,7 +42,17 @@ final class OriginMatcher
             return null;
         }
 
-        return ($parsed['wildcard'] ? '*.' : '').$parsed['host'].($parsed['port'] !== null ? ':'.$parsed['port'] : '');
+        $entry = ($parsed['scheme'] === 'http' ? 'http://' : '').($parsed['wildcard'] ? '*.' : '').$parsed['host'].($parsed['port'] !== null ? ':'.$parsed['port'] : '');
+
+        return strlen($entry) > self::MAX_STORED_LENGTH ? null : $entry;
+    }
+
+    /**
+     * Whether a (normalised) entry is a `*.` wildcard, scheme prefix aside.
+     */
+    public function isWildcardEntry(string $entry): bool
+    {
+        return $this->parseEntry($entry)['wildcard'] ?? false;
     }
 
     /**
@@ -138,6 +156,10 @@ final class OriginMatcher
      */
     private function covers(array $entry, array $origin): bool
     {
+        if ($origin['scheme'] === 'http' && $entry['scheme'] !== 'http' && ! $this->isDevelopmentHost($origin['host'])) {
+            return false;
+        }
+
         $originPort = $origin['port'] ?? $this->defaultPort($origin['scheme']);
         $entryPort = $entry['port'] ?? $this->defaultPort($origin['scheme']);
 
@@ -188,12 +210,13 @@ final class OriginMatcher
             return null;
         }
 
-        // `https://example.com:443` is just `example.com`.
+        // `https://example.com:443` is just `example.com`, `http://example.com:80` just `http://example.com`.
         if ($scheme !== null && $parsed['port'] === $this->defaultPort($scheme)) {
             $parsed['port'] = null;
         }
 
-        $parsed['scheme'] = $scheme;
+        // https is the default for every entry: only an explicit `http://` is a different entry.
+        $parsed['scheme'] = $scheme === 'http' ? 'http' : null;
 
         return $parsed;
     }
@@ -267,8 +290,9 @@ final class OriginMatcher
 
         $isIp = filter_var($host, FILTER_VALIDATE_IP) !== false;
 
-        // A wildcard needs a base with at least two labels (never `*.com`) and cannot apply to an IP address.
-        if ($wildcard && ($isIp || ! str_contains($host, '.'))) {
+        // A wildcard needs a base with at least two labels that is not a public suffix (never `*.com`, `*.co.uk`) and
+        // cannot apply to an IP address.
+        if ($wildcard && ($isIp || PublicSuffixes::isPublicSuffix($host))) {
             return null;
         }
 
@@ -327,6 +351,15 @@ final class OriginMatcher
         }
 
         return $ascii;
+    }
+
+    /**
+     * Hosts that only ever mean the visitor's own machine or a test network: plain http is fine there.
+     */
+    private function isDevelopmentHost(string $host): bool
+    {
+        return $host === 'localhost' || $host === '127.0.0.1' || $host === '[::1]'
+            || str_ends_with($host, '.localhost') || str_ends_with($host, '.test');
     }
 
     private function defaultPort(string $scheme): int
