@@ -105,7 +105,7 @@ final class ClaimConversation
 
             if ($live) {
                 $locked = Conversation::query()->with('widget')->whereKey($conversation->id)->lockForUpdate()->firstOrFail();
-                $joined = $this->messenger->append($locked, SenderType::System, MessageType::System, __(':name joined the chat.', ['name' => $actor->label]));
+                $joined = $this->messenger->append($locked, SenderType::System, MessageType::System, __(':name joined the chat.', ['name' => $actor->public_label]));
             }
 
             return ['message' => $joined, 'taken' => $takenBy];

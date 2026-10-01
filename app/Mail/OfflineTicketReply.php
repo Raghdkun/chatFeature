@@ -38,7 +38,7 @@ class OfflineTicketReply extends Mailable implements ShouldQueue
             text: 'chat.offline_reply',
             with: [
                 'visitorName' => $this->conversation->visitor->name,
-                'agentName' => $this->reply->senderUser?->label,
+                'agentName' => $this->reply->senderUser?->public_label,
                 'ticketNo' => $this->conversation->ticket_no,
                 'body' => (string) $this->reply->body,
                 'widgetName' => $this->conversation->widget->name,

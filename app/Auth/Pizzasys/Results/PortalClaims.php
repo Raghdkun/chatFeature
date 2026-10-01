@@ -2,9 +2,14 @@
 
 namespace App\Auth\Pizzasys\Results;
 
+use App\Support\PersonName;
+
 /**
  * What the portal vouches for about one user token (canonical identity + global roles/permissions).
  * `ext.*` of the verify payload is deliberately ignored.
+ *
+ * A user the portal knows without a name gets the readable part of the address before the `@` as name (`PersonName::fromEmail`),
+ * never the address itself: the name ends up as the agent's display name, which chat visitors see.
  */
 final readonly class PortalClaims
 {
@@ -36,7 +41,7 @@ final readonly class PortalClaims
             return null;
         }
 
-        $name = is_string($user['name'] ?? null) && $user['name'] !== '' ? $user['name'] : $email;
+        $name = is_string($user['name'] ?? null) && $user['name'] !== '' ? $user['name'] : PersonName::fromEmail($email);
 
         return new self(
             (string) $sub,
@@ -83,7 +88,7 @@ final readonly class PortalClaims
 
         return new self(
             (string) $id,
-            is_string($user['name'] ?? null) && $user['name'] !== '' ? $user['name'] : $email,
+            is_string($user['name'] ?? null) && $user['name'] !== '' ? $user['name'] : PersonName::fromEmail($email),
             $email,
             array_values(array_unique($roles)),
             array_values(array_unique($permissions)),
