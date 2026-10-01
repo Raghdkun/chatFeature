@@ -173,6 +173,27 @@ class StaffConversationApiTest extends TestCase
         $this->assertContains($old->ulid, $get('updated_after=2026-01-05'));
     }
 
+    public function test_time_filters_compare_instants_not_wall_clock_digits(): void
+    {
+        $get = fn (string $query): array => $this->ulids($this->actingAs($this->admin, 'sanctum')->getJson('/api/v1/conversations?limit=100&'.$query)->assertOk());
+        $old = $this->chat('closed', $this->agent);
+        Conversation::query()->whereKey($old->id)->update(['created_at' => '2026-01-05 10:00:00', 'updated_at' => '2026-01-05 10:00:00']);
+        $at = fn (string $instant): string => urlencode($instant);
+
+        // 10:00 UTC is 13:00 at +03:00 and 05:00 at -05:00.
+        $this->assertSame([$old->ulid], $get('from='.$at('2026-01-05T13:00:00+03:00').'&to='.$at('2026-01-05T13:00:00+03:00')));
+        $this->assertSame([$old->ulid], $get('from='.$at('2026-01-05T05:00:00-05:00').'&to='.$at('2026-01-05T05:00:00-05:00')));
+        // The same digits at another offset are another instant: 11:00+03:00 is 08:00Z (before the chat), 09:00-05:00 is 14:00Z (after it).
+        $this->assertSame([], $get('from=2026-01-05T00:00:00Z&to='.$at('2026-01-05T11:00:00+03:00')));
+        $this->assertSame([], $get('from='.$at('2026-01-05T09:00:00-05:00').'&to=2026-01-06T00:00:00Z'));
+
+        // `updated_after` is inclusive (a change in the same second as the client's last sync is not lost; clients merge idempotently).
+        $this->assertContains($old->ulid, $get('updated_after=2026-01-05T10:00:00Z'));
+        $this->assertContains($old->ulid, $get('updated_after='.$at('2026-01-05T13:00:00+03:00')));
+        $this->assertNotContains($old->ulid, $get('updated_after='.$at('2026-01-05T13:00:01+03:00')));
+        $this->assertNotContains($old->ulid, $get('updated_after='.$at('2026-01-05T05:00:01-05:00')));
+    }
+
     public function test_filters_are_validated(): void
     {
         $admin = $this->actingAs($this->admin, 'sanctum');

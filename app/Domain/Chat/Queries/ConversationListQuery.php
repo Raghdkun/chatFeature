@@ -59,18 +59,20 @@ final class ConversationListQuery
         }
 
         if (filled($filters['from'] ?? null)) {
-            $query->where('conversations.created_at', '>=', Carbon::parse((string) $filters['from']));
+            $query->where('conversations.created_at', '>=', $this->instant((string) $filters['from']));
         }
 
         if (filled($filters['to'] ?? null)) {
             $to = (string) $filters['to'];
 
             // A bare date ends at the end of that day, so `to=2026-01-31` includes the 31st.
-            $query->where('conversations.created_at', '<=', preg_match('/^\d{4}-\d{2}-\d{2}$/D', $to) === 1 ? Carbon::parse($to)->endOfDay() : Carbon::parse($to));
+            $query->where('conversations.created_at', '<=', $this->instant($to, endOfBareDate: true));
         }
 
         if (filled($filters['updated_after'] ?? null)) {
-            $query->where('conversations.updated_at', '>', Carbon::parse((string) $filters['updated_after']));
+            // Inclusive: times have second precision, so a change in the very second of the client's last sync must not be missed
+            // (clients merge by ulid, a repeated row is harmless).
+            $query->where('conversations.updated_at', '>=', $this->instant((string) $filters['updated_after']));
         }
 
         if (filled($filters['q'] ?? null)) {
@@ -78,6 +80,22 @@ final class ConversationListQuery
         }
 
         return $query;
+    }
+
+    /**
+     * A filter time as the instant the database compares against. Timestamps are stored in the application timezone without an
+     * offset, so a value written with one (`...+03:00`) is converted first: binding the Carbon as it is would drop the offset and
+     * compare the wall-clock digits of another timezone.
+     */
+    private function instant(string $value, bool $endOfBareDate = false): Carbon
+    {
+        $time = Carbon::parse($value);
+
+        if ($endOfBareDate && preg_match('/^\d{4}-\d{2}-\d{2}$/D', $value) === 1) {
+            $time = $time->endOfDay();
+        }
+
+        return $time->setTimezone((string) config('app.timezone', 'UTC'));
     }
 
     /**
