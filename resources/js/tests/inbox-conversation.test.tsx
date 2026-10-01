@@ -1390,6 +1390,49 @@ describe('attachments', () => {
         expect(view.byTestId('composer-attachments')).toBeNull();
     });
 
+    it('sends the images in the order they were added, whichever upload finishes first', async () => {
+        const { view } = await mount();
+
+        await choose(
+            view,
+            new File(['1'], 'first.png', { type: 'image/png' }),
+            new File(['2'], 'second.png', { type: 'image/png' }),
+            new File(['3'], 'third.png', { type: 'image/png' }),
+        );
+
+        expect(FakeXhr.instances).toHaveLength(3);
+
+        // the uploads finish in the reverse order
+        for (const [index, ulid] of [
+            [2, 'att-3'],
+            [0, 'att-1'],
+            [1, 'att-2'],
+        ] as const) {
+            await act(async () =>
+                FakeXhr.instances[index].reply(201, {
+                    data: { ...stored, ulid },
+                }),
+            );
+        }
+
+        await click(view.byTestId('composer-send'));
+        await waitFor(() =>
+            expect(
+                backend.current.calls(
+                    'POST',
+                    `/api/v1/conversations/${CONVERSATION}/messages`,
+                ),
+            ).toHaveLength(1),
+        );
+
+        expect(
+            backend.current.calls(
+                'POST',
+                `/api/v1/conversations/${CONVERSATION}/messages`,
+            )[0].body,
+        ).toMatchObject({ attachments: ['att-1', 'att-2', 'att-3'] });
+    });
+
     it('refuses a file that is not an allowed image before uploading it', async () => {
         const { view } = await mount();
 

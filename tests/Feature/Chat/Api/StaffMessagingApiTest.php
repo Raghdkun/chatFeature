@@ -155,6 +155,19 @@ class StaffMessagingApiTest extends TestCase
         $upload($this->admin)->assertCreated();
     }
 
+    public function test_the_agents_attachments_keep_the_order_they_were_added_in(): void
+    {
+        $upload = fn (): string => $this->actingAs($this->agent, 'sanctum')->post("/api/v1/conversations/{$this->chat->ulid}/attachments", ['file' => $this->pngUpload()], ['Accept' => 'application/json'])->assertCreated()->json('data.ulid');
+        [$first, $second, $third] = [$upload(), $upload(), $upload()];
+
+        $sent = $this->write($this->agent, ['attachments' => [$second, $third, $first]])->assertCreated();
+
+        $this->assertSame([$second, $third, $first], $sent->json('data.attachments.*.ulid'));
+
+        $listed = $this->actingAs($this->agent, 'sanctum')->getJson("/api/v1/conversations/{$this->chat->ulid}/messages")->assertOk();
+        $this->assertSame([$second, $third, $first], $listed->json('data.0.attachments.*.ulid'));
+    }
+
     public function test_staff_see_a_conversations_messages_with_the_sender_ids(): void
     {
         Message::factory()->for($this->chat)->create(['body' => 'visitor says hi']);

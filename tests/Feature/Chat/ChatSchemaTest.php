@@ -46,7 +46,7 @@ class ChatSchemaTest extends TestCase
             'conversation_events' => ['id', 'conversation_id', 'type', 'actor_type', 'actor_id', 'payload', 'created_at'],
             'conversation_agent_alerts' => ['id', 'conversation_id', 'user_id', 'wave', 'offered_at', 'expires_at', 'responded_at', 'response'],
             'messages' => ['id', 'ulid', 'conversation_id', 'seq', 'sender_type', 'sender_user_id', 'type', 'body', 'client_msg_id', 'delivered_at', 'seen_at', 'created_at'],
-            'attachments' => ['id', 'ulid', 'conversation_id', 'message_id', 'uploader_type', 'uploader_user_id', 'disk', 'path', 'thumb_path', 'mime', 'size', 'width', 'height', 'sha256', 'original_name', 'created_at'],
+            'attachments' => ['id', 'ulid', 'conversation_id', 'message_id', 'uploader_type', 'uploader_user_id', 'disk', 'path', 'thumb_path', 'mime', 'size', 'width', 'height', 'sha256', 'original_name', 'position', 'created_at'],
             'ratings' => ['id', 'conversation_id', 'score', 'comment', 'created_at'],
             'agent_presence' => ['id', 'user_id', 'status', 'is_manual', 'last_seen_at', 'last_heartbeat_at', 'created_at', 'updated_at'],
         ];
@@ -229,6 +229,23 @@ class ChatSchemaTest extends TestCase
         foreach (['messages', 'attachments', 'conversation_events', 'conversation_agent_alerts', 'ratings'] as $table) {
             $this->assertSame(0, DB::table($table)->count(), $table);
         }
+    }
+
+    public function test_the_attachments_of_a_message_come_back_by_position_then_by_age(): void
+    {
+        $message = Message::factory()->create();
+        $make = fn (int $position) => Attachment::factory()->create(['conversation_id' => $message->conversation_id, 'message_id' => $message->id, 'position' => $position]);
+        $third = $make(2);
+        $first = $make(0);
+        $second = $make(1);
+        $tieOlder = $make(1);
+        $unnumbered = Attachment::factory()->create(['conversation_id' => $message->conversation_id, 'message_id' => $message->id]);
+
+        $this->assertSame(0, $unnumbered->fresh()->position, 'the column defaults to 0 for rows written without one');
+        $this->assertSame(
+            [$first->id, $unnumbered->id, $second->id, $tieOlder->id, $third->id],
+            $message->fresh()->attachments->pluck('id')->all(),
+        );
     }
 
     public function test_deleting_a_message_keeps_its_attachments_unlinked(): void

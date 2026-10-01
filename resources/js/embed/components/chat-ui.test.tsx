@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import type { AttachmentData } from '@/lib/chat/types';
-import { fakeTime } from '@/lib/chat/fixtures';
+import { fakeTime, makeAttachment } from '@/lib/chat/fixtures';
 import { fill } from '@/tests/dom';
 import { click } from '@/tests/render';
 import { useBackend } from '@/tests/msw/server';
@@ -926,6 +926,49 @@ describe('attachments', () => {
         expect(body.attachments).toHaveLength(1);
         expect(body.body).toBeUndefined();
         expect(all(c, 'composer-attachment')).toHaveLength(0);
+    });
+
+    it('sends the images in the order they were picked, whichever upload finishes first', async () => {
+        const { backend, h, c } = await activeChat();
+        const finish = new Map<string, (attachment: AttachmentData) => void>();
+
+        vi.spyOn(h.controller, 'uploadAttachment').mockImplementation(
+            (file) =>
+                new Promise<AttachmentData>((resolve) => {
+                    finish.set(file.name, resolve);
+                }),
+        );
+
+        await pickFile(byTestId(c, 'composer-file') as HTMLInputElement, [
+            png('a.png'),
+            png('b.png'),
+            png('c.png'),
+        ]);
+
+        // the uploads finish in the reverse order
+        for (const [name, ulid] of [
+            ['c.png', 'att-c'],
+            ['a.png', 'att-a'],
+            ['b.png', 'att-b'],
+        ] as const) {
+            await run(() => finish.get(name)?.(makeAttachment({ ulid })));
+        }
+
+        await waitFor(() =>
+            all(c, 'composer-attachment').every(
+                (chip) => chip.dataset.status === 'ready',
+            ),
+        );
+        await click(byTestId(c, 'composer-send') as HTMLButtonElement);
+        await waitFor(() => backend.callsTo('POST', '/messages').length === 1);
+
+        expect(
+            (
+                backend.callsTo('POST', '/messages')[0].body as {
+                    attachments: string[];
+                }
+            ).attachments,
+        ).toEqual(['att-a', 'att-b', 'att-c']);
     });
 
     it('takes the size, count and message limits from the session response instead of the built-in defaults', async () => {

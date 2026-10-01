@@ -117,15 +117,16 @@ final class SendMessage
             $clientMsgId,
         );
 
-        if ($attachments !== []) {
-            Attachment::query()->whereKey(array_map(static fn (Attachment $attachment): int => $attachment->id, $attachments))->update(['message_id' => $message->id]);
+        foreach ($attachments as $position => $attachment) {
+            Attachment::query()->whereKey($attachment->id)->update(['message_id' => $message->id, 'position' => $position]);
         }
 
         return [$message, true];
     }
 
     /**
-     * The attachments the message references, which must belong to this conversation, come from the same side and not be in use.
+     * The attachments the message references, which must belong to this conversation, come from the same side and not be in use,
+     * in the order of `$ulids` (the order the sender picked: the index becomes the attachment's `position`).
      *
      * @param  list<string>  $ulids
      * @return list<Attachment>
@@ -149,7 +150,9 @@ final class SendMessage
             throw ValidationException::withMessages(['attachments' => [__('One of the attachments cannot be used.')]]);
         }
 
-        return array_values($found->all());
+        $byUlid = $found->keyBy('ulid');
+
+        return array_map(static fn (string $ulid): Attachment => $byUlid[strtolower($ulid)], $ulids);
     }
 
     private function existing(Conversation $conversation, string $clientMsgId): ?Message

@@ -224,6 +224,20 @@ class PublicMessagesApiTest extends TestCase
         $this->assertSame('Image', $this->chat->fresh()->last_message_preview);
     }
 
+    public function test_the_attachments_keep_the_order_the_visitor_picked_not_the_order_the_uploads_finished(): void
+    {
+        $upload = fn (): string => $this->withToken($this->token->plaintext)->post("/api/v1/public/conversations/{$this->chat->ulid}/attachments", ['file' => $this->pngUpload()], ['Accept' => 'application/json'])->assertCreated()->json('data.ulid');
+        [$first, $second, $third] = [$upload(), $upload(), $upload()];
+
+        $sent = $this->send(['attachments' => [$third, $first, $second]])->assertCreated();
+
+        $this->assertSame([$third, $first, $second], $sent->json('data.attachments.*.ulid'));
+        $this->assertSame([0, 1, 2], array_map(fn (string $ulid): int => Attachment::query()->where('ulid', $ulid)->value('position'), [$third, $first, $second]));
+
+        $listed = $this->withToken($this->token->plaintext)->getJson("/api/v1/public/conversations/{$this->chat->ulid}/messages")->assertOk();
+        $this->assertSame([$third, $first, $second], $listed->json('data.0.attachments.*.ulid'));
+    }
+
     public function test_the_sync_call_returns_messages_after_a_number_in_order_with_paging(): void
     {
         foreach (range(1, 5) as $i) {

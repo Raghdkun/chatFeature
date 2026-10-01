@@ -95,10 +95,12 @@ class Message extends Model
     }
 
     /**
+     * In the order the sender picked them (`position`); rows without one keep the order they were uploaded in.
+     *
      * @return HasMany<Attachment, $this>
      */
     public function attachments(): HasMany
     {
-        return $this->hasMany(Attachment::class)->orderBy('id');
+        return $this->hasMany(Attachment::class)->orderBy('position')->orderBy('id');
     }
 }
