@@ -71,7 +71,7 @@ export async function signInApi(
     user: Pick<TestUser, 'email' | 'password'>,
     address?: string,
 ): Promise<Api> {
-    const forwarded =
+    const forwarded: Record<string, string> =
         address === undefined ? {} : { 'X-Forwarded-For': address };
 
     await context.request.get(`${instance.url}/login`, { headers: forwarded });
