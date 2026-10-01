@@ -168,7 +168,7 @@ test.describe('mode 2, as an administrator', { tag: '@pizzasys' }, () => {
         ).toBeVisible();
     });
 
-    test('an environment is edited and saved; leaving the token empty keeps the stored one', async ({
+    test('an environment is edited and saved; the token may stay empty only while address, service name and TLS stay as they are', async ({
         page,
     }) => {
         const production = card(page, 'production');
@@ -219,9 +219,58 @@ test.describe('mode 2, as an administrator', { tag: '@pizzasys' }, () => {
         ).toBeVisible();
         await production.field('base-url').fill(portal.baseUrl);
 
-        // Rename the service WITHOUT touching the token: the stored token is used for the new name and the
-        // portal refuses that combination, which also proves the token was neither lost nor sent along.
+        // Only the display name changes: the stored token stays, and no token is asked for.
+        await production.field('label').fill('Live portal');
+        await clickAndWait(
+            page,
+            'PUT',
+            '/settings/auth/environments/production',
+            () => production.field('save').click(),
+        );
+        await expect(
+            page.getByText('Production settings saved.'),
+        ).toBeVisible();
+        await expect(production.field('service-token-saved')).toBeVisible();
+        await production.field('test').click();
+        await expect(result).toHaveAttribute('data-ok', 'true');
+
+        // The token is optional only while the address, service name and TLS setting stay as they are: a stored
+        // token must not be sent to another service or host, so renaming without it is refused before any request.
         await production.field('service-name').fill(portal.other.name);
+        await expect(production.field('save')).toBeEnabled();
+        await production.field('save').click();
+        await expect(
+            page.locator('#settings-auth-env-production-service-token-error'),
+        ).toBeVisible();
+        await expect(production.field('service-token')).toHaveAttribute(
+            'aria-invalid',
+            'true',
+        );
+
+        // Re-entered, the token goes along with the new name. The live environment is checked against the portal
+        // first, and the portal refuses a name that does not belong to this token: nothing is saved, nobody is locked out.
+        await production.field('service-token').fill(portal.service.token);
+        await clickAndWait(
+            page,
+            'PUT',
+            '/settings/auth/environments/production',
+            () => production.field('save').click(),
+        );
+        await expect(
+            page.getByText('These details could not be saved'),
+        ).toBeVisible();
+        await page.reload();
+        await expect(production.field('service-name')).toHaveValue(
+            portal.service.name,
+        );
+        await expect(production.field('last-check')).toHaveAttribute(
+            'data-status',
+            'ok',
+        );
+
+        // A pair the portal accepts is saved, and the stored token is the new one.
+        await production.field('service-name').fill(portal.other.name);
+        await production.field('service-token').fill(portal.other.token);
         await clickAndWait(
             page,
             'PUT',
@@ -233,36 +282,12 @@ test.describe('mode 2, as an administrator', { tag: '@pizzasys' }, () => {
         ).toBeVisible();
         await expect(production.field('save')).toBeDisabled();
         await expect(production.field('service-token')).toHaveValue('');
-
         await production.field('test').click();
-        await expect(result).toHaveAttribute('data-ok', 'false');
-        await expect(
-            page.getByTestId(
-                'settings-auth-env-production-result-service_credential',
-            ),
-        ).toHaveAttribute('data-ok', 'false');
-        await expect(
-            page.getByTestId(
-                'settings-auth-env-production-result-service_credential-hint',
-            ),
-        ).toBeVisible();
-        await expect(production.field('last-check')).toHaveAttribute(
-            'data-status',
-            'failed',
-        );
+        await expect(result).toHaveAttribute('data-ok', 'true');
 
-        await page.reload();
-        await expect(production.field('last-check')).toHaveAttribute(
-            'data-status',
-            'failed',
-        );
-        await expect(production.field('last-check')).toContainText(
-            'Last test failed',
-        );
-        await expect(page.getByTestId('settings-auth-health')).toBeVisible();
-
-        // Back to the right name: the same stored token works again.
+        // And back to the original service with its token.
         await production.field('service-name').fill(portal.service.name);
+        await production.field('service-token').fill(portal.service.token);
         await clickAndWait(
             page,
             'PUT',

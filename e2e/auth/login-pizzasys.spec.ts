@@ -1,9 +1,5 @@
 import { type Page } from '@playwright/test';
-import {
-    harnessSecrets,
-    revokePortalToken,
-    setPortalPermissions,
-} from '../support/harness';
+import { revokePortalToken, setPortalPermissions } from '../support/harness';
 import {
     MIN_VERIFY_TTL_SECONDS,
     openUserMenu,
@@ -41,8 +37,6 @@ async function expectSignedOutAt(page: Page, path: string): Promise<void> {
 
 test.describe('the login page', { tag: '@pizzasys' }, () => {
     test('is the Auth Portal variant of the sign-in form', async ({ page }) => {
-        const { baseUrl } = harnessSecrets();
-
         await page.goto('/login');
 
         await expect(page).toHaveTitle(/Sign in with Auth Portal/);
@@ -52,9 +46,11 @@ test.describe('the login page', { tag: '@pizzasys' }, () => {
 
         // Where the accounts live, and nothing this app cannot do in mode 2.
         await expect(page.getByTestId('login-portal-hint')).toBeVisible();
-        await expect(page.getByTestId('login-portal-host')).toContainText(
-            new URL(baseUrl).host,
-        );
+        // The harness is a loopback address: the page never discloses a non-public portal host or links to it.
+        await expect(page.getByTestId('login-portal-host')).toHaveCount(0);
+        await expect(
+            page.getByTestId('login-portal-hint').locator('a'),
+        ).toHaveCount(0);
         await expect(
             page.getByRole('link', { name: 'Forgot your password?' }),
         ).toHaveCount(0);
@@ -253,9 +249,10 @@ test.describe('the profile in Auth Portal mode', { tag: '@pizzasys' }, () => {
         await expect(page.locator('#name')).toHaveJSProperty('readOnly', true);
         await expect(page.locator('#email')).toHaveValue(users.admin.email);
         await expect(page.locator('#email')).toHaveJSProperty('readOnly', true);
+        // No link either: the harness portal is not a public host, so the server gives the page no address.
         await expect(
             page.getByRole('link', { name: 'Open the Auth Portal' }),
-        ).toBeVisible();
+        ).toHaveCount(0);
 
         // Nothing to save, nothing to delete, and no link to the Security page (it is a 404 in this mode).
         await expect(

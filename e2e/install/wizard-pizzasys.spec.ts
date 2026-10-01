@@ -430,9 +430,8 @@ test(
 
         await test.step('signs in as the portal admin and lands on the admin dashboard', async () => {
             await expect(page.getByTestId('login-portal-hint')).toBeVisible();
-            await expect(page.getByTestId('login-portal-host')).toContainText(
-                new URL(portal.baseUrl).host,
-            );
+            // A loopback portal is never named on the sign-in page.
+            await expect(page.getByTestId('login-portal-host')).toHaveCount(0);
 
             await page.locator('#email').fill(users.admin.email);
             await page.locator('#password').fill(users.admin.password);
