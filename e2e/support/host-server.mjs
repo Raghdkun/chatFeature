@@ -74,13 +74,13 @@ h1 { font-size: 34px; line-height: 1.15; margin: 0 0 8px; }
 .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; }
 .card b { display: block; margin-bottom: 4px; }
 .cta { display: inline-block; margin-top: 12px; padding: 8px 14px; border-radius: 8px; background: #1e293b; color: #fff; border: 0; font: inherit; cursor: pointer; }
-.filler { height: var(--filler, 2000px); background: repeating-linear-gradient(#f1f5f9, #f1f5f9 40px, #e2e8f0 40px, #e2e8f0 80px); border-radius: 12px; margin-top: 24px; }
+.filler { height: var(--filler, 2000px); background: repeating-linear-gradient(#f1f5f9 0 40px, #e2e8f0 40px 80px); border-radius: 12px; margin-top: 24px; }
 footer { color: #64748b; font-size: 14px; }
 @media (prefers-color-scheme: dark) {
   body { color: #e2e8f0; background: #0f172a; }
   .card { background: #1e293b; border-color: #334155; }
   nav a, .lead { color: #94a3b8; }
-  .filler { background: repeating-linear-gradient(#111827, #111827, #1f2937 40px, #1f2937 80px); }
+  .filler { background: repeating-linear-gradient(#111827 0 40px, #1f2937 40px 80px); }
 }
 `;
 

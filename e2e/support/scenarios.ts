@@ -7,7 +7,7 @@
  * environment. Nothing here touches the developer's real `chatfeature` database: every database
  * name must start with `chatfeature_e2e` (enforced in `assertSafe`).
  *
- * Add a scenario: append it to `DEFINITIONS` (the suite owns ports 8110-8129; 8120-8129 are the mode-2 ones), then point a spec at it
+ * Add a scenario: append it to `DEFINITIONS` (the suite owns ports 8110-8129 and 8230-8249; 8120-8129 are the mode-2 ones, 8230-8249 the P3 ones), then point a spec at it
  * with `test.use({ scenario: '<name>' })`. See docs/testing.md.
  */
 import { fileURLToPath } from 'node:url';
@@ -45,7 +45,8 @@ export type ScenarioName =
     | 'p3-widgets'
     | 'p3-host'
     | 'p3-views'
-    | 'p3-views-rtl';
+    | 'p3-views-rtl'
+    | 'p3-limits';
 
 export type ProjectName = 'desktop' | 'mobile' | 'pizzasys-outage';
 
@@ -250,6 +251,15 @@ const DEFINITIONS: Record<ScenarioName, Definition> = {
         locale: 'ar',
         seed: 'demo',
         hostPort: 8245,
+    },
+    // Hammered on purpose (rate limits of the public endpoints are per client address, so it must not share a server).
+    'p3-limits': {
+        kind: 'installed',
+        port: 8246,
+        dbSuffix: '_p3_limits',
+        mode: 'local',
+        seed: 'staff',
+        hostPort: 8247,
     },
     // Real wizard runs, in token mode, that the screenshot spec walks through for the deck.
     'shots-desktop': {

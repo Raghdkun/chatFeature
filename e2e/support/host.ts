@@ -2,7 +2,7 @@
  * Helpers for the cross-origin embed specs: build the URL of the "customer site" (e2e/support/host-server.mjs) and read
  * the widget out of its closed-looking-but-open shadow root.
  */
-import type { Locator, Page } from '@playwright/test';
+import type { FrameLocator, Locator, Page } from '@playwright/test';
 import type { Instance } from './scenarios';
 
 export type HostOptions = {
@@ -127,7 +127,7 @@ export function chatFeature<T = unknown>(
  * Waits until the widget's own entrance animations and transitions (launcher pop-in, flip, panel slide: 150-600 ms) are over,
  * so geometry and colours are measured at rest. Bounding boxes include transforms, so a mid-animation box is off by pixels.
  */
-export async function settleWidget(page: Page): Promise<void> {
+export async function settleWidget(page: Page | FrameLocator): Promise<void> {
     await page.locator('pne-chat-widget').evaluate(async (host) => {
         const root = host.shadowRoot;
 
