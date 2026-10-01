@@ -16,12 +16,25 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * The visitor rates the chat that ended (`POST /public/conversations/{ulid}/rating`, 1..5 and an optional comment): the rating
- * is stored and the conversation becomes `closed` (`rated`) in one transaction, guarded on `status = 'ended'` so a conversation is
- * rated once. Ratings are visible to administrators only.
+ * is stored and the conversation becomes `closed` (`rated`) in one transaction, guarded on `status = 'ended'` and on the rating window
+ * (`rating_window_expires_at`, set when the chat ended) so a conversation is rated once and only in time (`409 rating_window_closed`
+ * after it, until the per-minute sweep closes the chat as `timeout`). Ratings are visible to administrators only.
  */
 final class RateConversation
 {
     public function __construct(private readonly ConversationTimeline $timeline) {}
+
+    /** Why the guarded update found nothing: already rated, rated too late (the sweep has not closed it yet), or not ended at all. */
+    private function refusal(Conversation $conversation): ApiProblemException
+    {
+        if (Rating::query()->where('conversation_id', $conversation->id)->exists()) {
+            return ApiProblemException::conflict('already_rated', __('You already rated this chat.'));
+        }
+
+        return Conversation::query()->whereKey($conversation->id)->first()?->status === ConversationStatus::Ended
+            ? ApiProblemException::conflict('rating_window_closed', __('The time to rate this chat is over.'))
+            : ApiProblemException::conflict('conversation_not_ended', __('This chat cannot be rated.'));
+    }
 
     public function handle(Conversation $conversation, int $score, ?string $comment): Rating
     {
@@ -29,6 +42,7 @@ final class RateConversation
             $affected = Conversation::query()
                 ->whereKey($conversation->id)
                 ->where('status', ConversationStatus::Ended->value)
+                ->where(fn ($window) => $window->whereNull('rating_window_expires_at')->orWhere('rating_window_expires_at', '>', now()))
                 ->update([
                     'status' => ConversationStatus::Closed->value,
                     'close_reason' => ConversationCloseReason::Rated->value,
@@ -37,9 +51,7 @@ final class RateConversation
                 ]);
 
             if ($affected === 0) {
-                $rated = Rating::query()->where('conversation_id', $conversation->id)->exists();
-
-                throw ApiProblemException::conflict($rated ? 'already_rated' : 'conversation_not_ended', $rated ? __('You already rated this chat.') : __('This chat cannot be rated.'));
+                throw $this->refusal($conversation);
             }
 
             $rating = Rating::query()->create([
