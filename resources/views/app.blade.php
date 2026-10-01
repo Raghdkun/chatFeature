@@ -1,8 +1,14 @@
+@php
+    $htmlLocale = str_replace('_', '-', app()->getLocale());
+    // Keep in sync with RTL_LANGUAGES in resources/js/lib/i18n.ts.
+    $htmlDirection = in_array(strtolower(explode('-', $htmlLocale)[0]), ['ar', 'he', 'fa', 'ur'], true) ? 'rtl' : 'ltr';
+@endphp
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" @class(['dark' => ($appearance ?? 'system') == 'dark'])>
+<html lang="{{ $htmlLocale }}" dir="{{ $htmlDirection }}" @class(['dark' => ($appearance ?? 'system') == 'dark'])>
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="color-scheme" content="light dark">
 
         {{-- Inline script to detect system dark mode preference and apply it immediately --}}
         <script>
@@ -19,14 +25,14 @@
             })();
         </script>
 
-        {{-- Inline style to set the HTML background color based on our theme in app.css --}}
+        {{-- Inline style to paint the page with the theme background before app.css loads (match --background in resources/css/app.css) --}}
         <style>
             html {
-                background-color: oklch(1 0 0);
+                background-color: oklch(0.985 0.004 175);
             }
 
             html.dark {
-                background-color: oklch(0.145 0 0);
+                background-color: oklch(0.17 0.012 190);
             }
         </style>
 

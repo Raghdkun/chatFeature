@@ -8,6 +8,8 @@ export type BreadcrumbItem = {
 
 export type NavItem = {
     title: string;
+    /** Translation key for `title`; when absent (or missing from lang files) `title` is shown as is. */
+    titleKey?: string;
     href: NonNullable<InertiaLinkProps['href']>;
     icon?: LucideIcon | null;
     isActive?: boolean;

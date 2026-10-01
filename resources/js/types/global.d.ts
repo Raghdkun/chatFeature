@@ -7,11 +7,19 @@ declare module 'react' {
 }
 
 declare module '@inertiajs/core' {
+    /**
+     * Mirrors docs/contracts/inertia-shared-props.md. Keep in sync with
+     * `HandleInertiaRequests::share()`.
+     */
     export interface InertiaConfig {
         sharedPageProps: {
             name: string;
             auth: Auth;
+            locale: string;
+            direction: 'ltr' | 'rtl';
+            installed: boolean;
             sidebarOpen: boolean;
+            flash: { success?: string; error?: string };
             [key: string]: unknown;
         };
     }
