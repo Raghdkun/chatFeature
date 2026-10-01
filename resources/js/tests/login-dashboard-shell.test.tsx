@@ -181,6 +181,21 @@ describe('login page', () => {
         expect(alert?.textContent).toContain('not an admin or an agent');
     });
 
+    it('shows the backend message once: in the notice, not again under the field', async () => {
+        resetInertiaMock(guest('fortify', fortifyCapabilities));
+        // What the backend sends: the message under `email` plus the `reason` flash.
+        inertiaState.formErrors = {
+            email: 'This account has no access to the chat dashboard.',
+        };
+
+        const view = await render(<Login reason="no_chat_access" />);
+
+        expect(view.byTestId('login-no-chat-access')).not.toBeNull();
+        expect(view.text()).not.toContain(
+            'This account has no access to the chat dashboard.',
+        );
+    });
+
     it('also recognises the validation error key `access`', async () => {
         resetInertiaMock(guest('fortify', fortifyCapabilities));
         inertiaState.formErrors = { access: 'no_chat_access' };

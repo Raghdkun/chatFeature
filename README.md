@@ -48,11 +48,13 @@ Goal: starter kit and tooling. Exit: stock kit boots; SQLite (tests) and MySQL b
 - [x] `docker/compose.dev.yml` (Mailpit, NATS, OpenWA, optional MySQL/Redis profiles); CI runs Vitest
 - [x] README roadmap, `docs/` stubs, `docs/contracts/` (shared props, install steps, file ownership)
 
-### P1 Install + shell
-- [ ] 1A backend: InstallState/Gate/Runner, typed settings, audit, `AuthModeManager` + `FortifyDriver`, gates
-- [ ] 1B frontend: wizard pages, role-aware shell/nav, `useTrans`, RTL plumbing, `welcome` replaced by auth redirect
-- [ ] 1C tests/docs: Playwright harness, install e2e
-- Exit: empty DB boots to `/setup`; wizard completes mode 1; `/setup` is 404 after; `/` goes to login.
+### P1 Install + shell (done, `v0.1.0`)
+- [x] 1A backend: `InstallState`/`InstallGate`/`InstallRunner` + steps, setup-token guard, typed encrypted settings, audit log, `AuthModeManager` + `FortifyDriver` + `LocalRoleResolver`, `Gate::before`, session-validity + chat-access middleware, role flags on `users`, `chat:install` / `chat:bootstrap-secrets` / `chat:install:reset`
+- [x] 1B frontend: wizard (token, environment check, mode, admin, basics, install, done), role-aware shell/nav, `useTrans` + RTL plumbing (`en` + partial `ar`), login variants, role-aware dashboard stub, `welcome` replaced by auth redirect
+- [x] 1C tests: Playwright e2e (132 specs, desktop + mobile, axe WCAG A/AA clean, RTL, 375px), PHPUnit 236, Vitest 135
+- [x] Code review (10 findings, all fixed) and a manual security pass; e2e found and fixed 4 more bugs
+- Exit met: empty DB boots to `/setup`; wizard completes mode 1; `/setup` is 404 after; `/` goes to login.
+- Known gaps (backlog): `lang/ar.json` is a partial seed (29/150 keys); a throttled setup-token submit shows Inertia's generic error modal; the environment checklist is only revisitable via Back after the token step.
 
 ### P2 Mode-2 auth (parallel with P3)
 - [ ] 2A `PizzasysDriver`/Client/circuit breaker/`ShadowUserSync`/role resolver/`EnsureSessionIsValid`/Sanctum bridge/env model + wizard mode-2 steps

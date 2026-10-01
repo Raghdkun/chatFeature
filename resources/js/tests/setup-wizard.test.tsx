@@ -1,3 +1,4 @@
+import { act } from 'react';
 import {
     afterEach,
     beforeEach,
@@ -11,6 +12,7 @@ import { StepRun } from '@/components/setup/step-run';
 import type { RunStepClient } from '@/lib/setup-flow';
 import Setup from '@/pages/setup/index';
 import {
+    fireRouterEvent,
     inertiaState,
     resetInertiaMock,
     routerMock,
@@ -213,6 +215,27 @@ describe('welcome step', () => {
             expect.objectContaining({ only: ['setup'] }),
         );
     });
+
+    it('stays on the environment check after "Check again" when it was reached with Back', async () => {
+        const view = await render(<Setup {...makeSetup('mode')} />);
+
+        await click(view.byTestId('setup-back'));
+        expect(view.byTestId('setup-wizard')?.dataset.view).toBe('welcome');
+
+        // "Check again" is a plain GET reload: it must not throw the user forward to the server's step.
+        await act(async () => {
+            fireRouterEvent('start', { visit: { method: 'get' } });
+            fireRouterEvent('success', { page: {} });
+        });
+        expect(view.byTestId('setup-wizard')?.dataset.view).toBe('welcome');
+
+        // A saved form does hand control back to the server's step.
+        await act(async () => {
+            fireRouterEvent('start', { visit: { method: 'post' } });
+            fireRouterEvent('success', { page: {} });
+        });
+        expect(view.byTestId('setup-wizard')?.dataset.view).toBe('mode');
+    });
 });
 
 describe('mode step', () => {
@@ -333,7 +356,7 @@ describe('basics step', () => {
         expect(input('app_url')?.value).toBe('http://localhost:8000');
         expect(input('idle_timeout_minutes')?.value).toBe('120');
         expect(input('idle_timeout_minutes')?.min).toBe('5');
-        expect(input('idle_timeout_minutes')?.max).toBe('1440');
+        expect(input('idle_timeout_minutes')?.max).toBe('10080');
         expect(select('locale')?.value).toBe('en');
         expect(
             Array.from(select('locale')?.options ?? []).map((o) => o.value),
@@ -365,10 +388,10 @@ describe('basics step', () => {
             view.container.querySelector<HTMLInputElement>(
                 'input[name="idle_timeout_minutes"]',
             ),
-            '9999',
+            '20000',
         );
 
-        expect(view.text()).toContain('Use a whole number from 5 to 1440.');
+        expect(view.text()).toContain('Use a whole number from 5 to 10080.');
     });
 
     it('includes the server default time zone even if the browser does not list it', async () => {

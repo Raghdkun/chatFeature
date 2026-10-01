@@ -12,6 +12,8 @@
         "test": "vp test run",
         "test:watch": "vp test watch",
         "e2e": "playwright test",
+        "e2e:headed": "playwright test --headed",
+        "e2e:screenshots": "E2E_SCREENSHOTS=1 playwright test e2e/screenshots",
         "size": "size-limit"
     },
     "dependencies": {

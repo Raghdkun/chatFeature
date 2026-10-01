@@ -212,7 +212,7 @@ describe('idle timeout', () => {
     });
 
     it('rejects out-of-range, fractional and non-numeric input', () => {
-        for (const bad of ['', '4', '1441', '12.5', '-3', 'abc', '1e3']) {
+        for (const bad of ['', '4', '10081', '12.5', '-3', 'abc', '1e3']) {
             expect(parseIdleTimeout(bad)).toBeNull();
         }
     });

@@ -6,6 +6,34 @@ All notable changes are recorded here, following [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-30 (phase-1)
+
+Install gate, setup wizard, settings, mode-1 auth, role-aware shell, e2e suite.
+
+### Added
+- **Install domain**: file-backed `InstallState` (state + atomic `installed.lock`, 0600), `InstallGate` (web -> `/setup`, API -> 503 `not_installed`), `EnsureNotInstalled` (`/setup*` 404 forever; JSON callers get `{"status":"installed"}`), resumable flock-guarded `InstallRunner` with eight steps, fail-closed one-time `SETUP_TOKEN` guard (`hash_equals`, per-session, throttled), `InstallAwareConfigProvider` (session/cache/queue/broadcast forced to file/file/sync/null until installed). No database access before `migrate`.
+- Commands: `chat:install` (non-interactive, `INSTALL_*` env), `chat:bootstrap-secrets` (APP_KEY, Reverb, VAPID, setup token), `chat:install:reset` (local only).
+- **Settings** (typed registry, encrypted values, cached, 2 s per-process memo) and **audit log** with secret redaction; users get `role`, `is_admin`, `is_agent`, `is_active`, `auth_source`, ... (additive migration).
+- **Auth layer**: `AuthDriver`/`RoleResolver` contracts, `AuthModeManager`, `FortifyDriver`, `LocalRoleResolver`, admin `Gate::before`, `EnsureSessionIsValid` / `EnsureChatAccess` (aliases `session.valid`, `chat.access` for API groups), registration gated by settings, staff API tokens scoped to `staff` with expiry and revocation on deactivation.
+- **Frontend**: setup wizard (7 screens, resumable, Back), role-aware sidebar from the nav registry, `useTrans`/`useDirection`, RTL support, login variants (starter kit / Auth Portal), role-aware dashboard stub, generated Wayfinder routes and PHP-generated TS types for the wizard.
+- `TRUSTED_PROXIES` (config `chat.trusted_proxies`) for running behind Caddy; `SANCTUM_EXPIRATION_MINUTES`.
+- Contracts: setup wizard, auth driver, widget config, postMessage protocol, REST shapes, realtime events; `docs/pizzasys-findings.md` (empirical pizzasys behaviour).
+### Added (e2e)
+- Playwright e2e suite (`npm run e2e`, `e2e:headed`, `e2e:screenshots`): real Chrome, `desktop` and `mobile` (Pixel 7) projects, one throwaway Laravel server + `chatfeature_e2e*` database + private storage directory per scenario (`playwright.config.ts`, `e2e/`). Specs cover the install gate, the full setup wizard (environment check, validation, resume, Back, install, sign-in, 404 after the lock), the setup-token takeover guard (locked environment check, wrong/right token, per-session verification, throttling, token never in a response), sign-in/out, the role-aware shell (admin vs agent vs no access), settings, axe (WCAG 2.x A/AA, light + dark, every wizard screen), 375px layouts and Arabic/RTL. `E2E_SCREENSHOTS=1` writes full-page deck screenshots to `docs/screenshots/p1/` (desktop + mobile, light + dark). See `docs/testing.md`.
+
+### Fixed (found by e2e)
+- Setup wizard: "Check again" on the environment screen reached with Back threw the user forward to the server's step; only saved forms (non-GET visits) reset the client-side screen override now.
+- Login: the dedicated "No chat access" notice never showed with the real backend (it looked for a `reason` prop / `access` error the backend did not send). The backend now flashes `reason=no_chat_access` for the rejected sign-in and for sessions ended by `EnsureChatAccess`, the login page passes it on, and the notice replaces the duplicate inline email error.
+- Landmarks (axe): the auth/setup layouts (login, forgot password, the wizard) render their root as `<main>`; they had no main landmark.
+- Contrast (axe, serious): `--destructive-foreground` (error copy) is red-700 in the light theme (4.2:1 on the tinted alert background before), and the "Delete account" warning box uses `text-red-700`.
+
+
+### Fixed (code review)
+- Staff are never gated on email verification; settings memo no longer stale in queue workers; undecryptable settings are reported; the wizard cannot take over an existing account; 404 is no longer read as "installed"; state file is created 0600; idle timeout range is 5-10080 minutes everywhere.
+
+### Notes
+- Gate: `composer ci:check` green (pint, PHPStan L7, 236 PHPUnit, `vp check`, `tsc`, 135 Vitest), 132 Playwright specs green, production build OK. `/code-review` (10 findings fixed) and a manual security pass; the `/security-review` and `/simplify` skills could not run because they shell out to the blocked system git.
+
 ## [0.0.0] - 2026-09-30 (phase-0)
 
 Scaffold, tooling and project memory. No application logic yet.

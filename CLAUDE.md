@@ -36,7 +36,7 @@ composer test             # config:clear + pint --test + phpstan + phpunit  (the
 composer lint             # pint (fix)             composer types:generate  # PHP Data classes -> resources/js/types/generated.d.ts
 npm run check             # vp check = format + lint     npm run check:fix
 npm run types:check       # tsc --noEmit                 npm test   # Vitest (vp test run)
-npm run build             # vp build                     npm run e2e  # Playwright (needs `npx playwright install`)
+npm run build             # vp build                     npm run e2e  # Playwright e2e (real Chrome, MySQL chatfeature_e2e*; see docs/testing.md)
 composer ci:check         # everything above, as CI runs it
 ```
 
@@ -70,7 +70,7 @@ OpenWA, optional mysql/redis) are in `docker/compose.dev.yml` behind profiles; *
 5. `BROADCAST_CONNECTION=reverb` without `REVERB_APP_KEY` crashes *every* artisan command (channels.php loads the
    broadcaster). P1's `InstallAwareConfigProvider` forces `null` until installed; until then run one-off commands with
    `BROADCAST_CONNECTION=null`. `install:broadcasting` needs a TTY for its npm step — run `npm i` manually.
-6. `.npmrc` has `ignore-scripts=true`. Playwright browsers are **not** downloaded: run `npx playwright install` when e2e starts.
+6. `.npmrc` has `ignore-scripts=true`. e2e uses the installed Google Chrome (`channel: 'chrome'`); no browser download. Never drive e2e/screenshots through the Playwright/chrome-devtools **MCP** browsers from a sub-agent (one hung for an hour): use `npx playwright test`. macOS has no `timeout` binary.
 7. The kit's `dialog.tsx` has no `showCloseButton` prop; the added shadcn `command.tsx` was patched to match. All other
    kit UI files are untouched — the shadcn CLI prompts before overwriting, answer **n**.
 8. `vp check` formats Markdown too: `AGENTS.md`, `CLAUDE.md`, `README.md`, `docs/**` and generated TS files are
@@ -108,6 +108,6 @@ OpenWA, optional mysql/redis) are in `docker/compose.dev.yml` behind profiles; *
 | Phase | State |
 |---|---|
 | P0 Scaffold + tooling | done (see `docs/changelog.md`) |
-| P1 Install gate, wizard, settings, mode-1 auth, shell | next |
-| P2 Mode-2 pizzasys auth · P3 Widgets/loader/builder | planned (parallel) |
+| P1 Install gate, wizard, settings, mode-1 auth, shell | done (`v0.1.0`): 236 PHPUnit, 135 Vitest, 132 Playwright |
+| P2 Mode-2 pizzasys auth · P3 Widgets/loader/builder | next (parallel) |
 | P4 Chat core · P5 Presence/notifications · P6 WhatsApp · P7 Analytics/hardening · P8 Deploy/QA/deck | planned |

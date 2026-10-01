@@ -40,9 +40,25 @@ export default function Setup({ setup }: SetupProps) {
     };
     const goBack = () => goTo(previousStep(view, setup.mode));
 
-    // A successful form post/reload hands control back to the server's step. Validation
-    // errors do not fire `success`, so the user stays on the step they are fixing.
-    useEffect(() => router.on('success', () => setOverride(null)), []);
+    // A saved form hands control back to the server's step (which may not have moved, e.g. after
+    // going Back and re-submitting). Validation errors do not fire `success`, so the user stays on
+    // the step they are fixing, and a plain reload ("Check again") keeps the screen they are on.
+    useEffect(() => {
+        let method = 'get';
+        const stopStart = router.on('start', (event) => {
+            method = event.detail.visit.method;
+        });
+        const stopSuccess = router.on('success', () => {
+            if (method !== 'get') {
+                setOverride(null);
+            }
+        });
+
+        return () => {
+            stopStart();
+            stopSuccess();
+        };
+    }, []);
 
     // Move keyboard/screen-reader focus to the new step's heading after a transition
     // (not on first paint, which would fight autofocus).

@@ -41,3 +41,11 @@ yarn-error.log
 /opencode.jsonc
 
 /.playwright-mcp
+
+# Playwright e2e: per-scenario storage/state, reports and traces
+/storage/e2e-*
+/test-results
+/playwright-report
+
+# Generated screenshots (regenerate with `npm run e2e:screenshots`)
+/docs/screenshots/**/*.png

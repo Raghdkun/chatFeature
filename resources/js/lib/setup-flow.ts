@@ -142,7 +142,7 @@ export function canLeaveWelcome(
 /* Basics step                                                                */
 /* -------------------------------------------------------------------------- */
 
-export const IDLE_TIMEOUT = { min: 5, max: 1440, fallback: 120 } as const;
+export const IDLE_TIMEOUT = { min: 5, max: 10080, fallback: 120 } as const;
 
 /** Whole minutes within bounds, or `null` when the input is not acceptable. */
 export function parseIdleTimeout(raw: string | number): number | null {

@@ -11,7 +11,7 @@ trait EndsStaffSession
 {
     /**
      * Sign the user out and tell them why: JSON clients get an error body, browsers a redirect to
-     * the login page with a toast (Inertia flash) and the shared `flash.error` message.
+     * the login page with a toast (Inertia flash), the shared `flash.error` message and the `reason` code.
      */
     protected function endSession(Request $request, string $code, string $message, int $jsonStatus): Response
     {
@@ -23,6 +23,6 @@ trait EndsStaffSession
 
         Inertia::flash('toast', ['type' => 'error', 'message' => $message]);
 
-        return redirect()->route('login')->with('error', $message);
+        return redirect()->route('login')->with('error', $message)->with('reason', $code);
     }
 }

@@ -14,11 +14,33 @@ export const inertiaState: {
     formProcessing: boolean;
 } = { props: {}, formErrors: {}, formProcessing: false };
 
+type RouterHandler = (event: { detail: Record<string, unknown> }) => void;
+
+const routerHandlers = new Map<string, Set<RouterHandler>>();
+
 export const routerMock = {
     reload: vi.fn(),
     visit: vi.fn(),
-    on: vi.fn(() => () => {}),
+    /** Records the listeners so tests can fire Inertia events with {@link fireRouterEvent}. */
+    on: vi.fn((event: string, handler: RouterHandler) => {
+        const handlers = routerHandlers.get(event) ?? new Set<RouterHandler>();
+
+        handlers.add(handler);
+        routerHandlers.set(event, handlers);
+
+        return () => {
+            handlers.delete(handler);
+        };
+    }),
 };
+
+/** Fire an Inertia router event (`start`, `success`, ...) at the registered listeners. */
+export function fireRouterEvent(
+    event: string,
+    detail: Record<string, unknown> = {},
+): void {
+    routerHandlers.get(event)?.forEach((handler) => handler({ detail }));
+}
 
 type FormProps = {
     action?: string;

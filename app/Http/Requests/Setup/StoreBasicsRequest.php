@@ -23,7 +23,7 @@ class StoreBasicsRequest extends FormRequest
             'app_url' => ['required', 'string', 'url:http,https', 'max:255'],
             'locale' => ['required', 'string', Rule::in((array) config('chat.locales', ['en']))],
             'timezone' => ['required', 'string', 'timezone:all'],
-            'idle_timeout_minutes' => ['required', 'integer', 'min:1', 'max:10080'],
+            'idle_timeout_minutes' => ['required', 'integer', 'min:5', 'max:10080'],
         ];
     }
 }

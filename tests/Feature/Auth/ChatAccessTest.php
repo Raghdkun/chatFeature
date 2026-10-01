@@ -21,6 +21,26 @@ class ChatAccessTest extends TestCase
         $this->assertGuest();
     }
 
+    public function test_the_login_page_gets_the_no_chat_access_reason_so_it_can_show_its_notice(): void
+    {
+        User::factory()->withoutChatAccess()->create(['email' => 'nobody@example.test']);
+
+        $this->post(route('login.store'), ['email' => 'nobody@example.test', 'password' => 'password'])
+            ->assertSessionHas('reason', 'no_chat_access');
+
+        $this->get(route('login'))->assertInertia(fn ($page) => $page->where('reason', 'no_chat_access'));
+        // One-shot: the next visit is a plain login page again.
+        $this->get(route('login'))->assertInertia(fn ($page) => $page->where('reason', null));
+    }
+
+    public function test_wrong_credentials_do_not_claim_a_missing_role(): void
+    {
+        $user = User::factory()->create();
+
+        $this->post(route('login.store'), ['email' => $user->email, 'password' => 'wrong'])
+            ->assertSessionMissing('reason');
+    }
+
     public function test_a_deactivated_user_cannot_log_in(): void
     {
         User::factory()->inactive()->create(['email' => 'gone@example.test']);
@@ -57,7 +77,8 @@ class ChatAccessTest extends TestCase
         $this->actingAs($user)
             ->get(route('dashboard'))
             ->assertRedirect(route('login'))
-            ->assertSessionHas('error', 'This account has no access to the chat dashboard. Ask an administrator to grant it.');
+            ->assertSessionHas('error', 'This account has no access to the chat dashboard. Ask an administrator to grant it.')
+            ->assertSessionHas('reason', 'no_chat_access');
 
         $this->assertGuest();
     }

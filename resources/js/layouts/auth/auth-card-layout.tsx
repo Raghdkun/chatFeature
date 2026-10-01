@@ -32,7 +32,7 @@ export default function AuthCardLayout({
     header,
 }: Props) {
     return (
-        <div
+        <main
             className={cn(
                 'flex min-h-svh flex-col items-center gap-6 bg-muted p-4 sm:p-6 md:p-10',
                 // The wizard changes height per step: anchor it to the top so the header stays put.
@@ -77,6 +77,6 @@ export default function AuthCardLayout({
                     </Card>
                 </div>
             </div>
-        </div>
+        </main>
     );
 }

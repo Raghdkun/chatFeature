@@ -31,6 +31,8 @@ export default function Login({ status, reason }: Props) {
     const { capabilities } = auth;
     const portal = auth.mode === 'pizzasys';
     const portalUrl = safeExternalUrl(capabilities.portalUrl);
+    const noChatAccess = (errors: Record<string, string | undefined>) =>
+        hasNoChatAccess({ reason, errors });
 
     return (
         <>
@@ -89,7 +91,7 @@ export default function Login({ status, reason }: Props) {
             >
                 {({ processing, errors }) => (
                     <>
-                        {hasNoChatAccess({ reason, errors }) && (
+                        {noChatAccess(errors) && (
                             <Alert
                                 variant="destructive"
                                 className="border-destructive/40 bg-destructive/5 *:data-[slot=alert-description]:text-foreground/80"
@@ -120,7 +122,14 @@ export default function Login({ status, reason }: Props) {
                                     autoComplete="email"
                                     placeholder="email@example.com"
                                 />
-                                <InputError message={errors.email} />
+                                {/* The notice above already says it; no second line under the field. */}
+                                <InputError
+                                    message={
+                                        noChatAccess(errors)
+                                            ? undefined
+                                            : errors.email
+                                    }
+                                />
                             </div>
 
                             <div className="grid gap-2">

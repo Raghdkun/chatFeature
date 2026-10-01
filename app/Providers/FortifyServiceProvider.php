@@ -69,6 +69,11 @@ class FortifyServiceProvider extends ServiceProvider
                 return $result->user;
             }
 
+            // The login page shows its dedicated "No chat access" notice when it gets this reason.
+            if ($result->outcome === AuthOutcome::NoChatAccess) {
+                $request->session()->flash('reason', AuthOutcome::NoChatAccess->value);
+            }
+
             // Plain wrong credentials (Invalid, no message) fall through to Fortify's generic error
             // and lockout accounting; every other verdict carries a message the user should see.
             if ($result->message !== null) {
@@ -95,6 +100,7 @@ class FortifyServiceProvider extends ServiceProvider
                 'canResetPassword' => $capabilities->canResetPassword,
                 'canRegister' => $capabilities->canRegister,
                 'status' => $request->session()->get('status'),
+                'reason' => $request->session()->get('reason'),
             ]);
         });
 
