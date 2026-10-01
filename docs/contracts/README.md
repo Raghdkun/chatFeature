@@ -16,6 +16,7 @@
 | [widget-config.md](widget-config.md) | P3 (3A, 3B, 3C), P4 (4D) | written (ahead of P3) |
 | [postmessage-protocol.md](postmessage-protocol.md) | P3 (3B), P4 (4D) | written (ahead of P3) |
 | [rest-shapes.md](rest-shapes.md) | P3, P4 | conventions + P3 widget endpoints + P4 chat endpoints written |
+| [chat-ui-p4.md](chat-ui-p4.md) | P4 (4C, 4D) | written (ahead of P4) |
 | [realtime-events.md](realtime-events.md) | P4, P5, P6 | written (ahead of P4) |
 
 ## Rules
