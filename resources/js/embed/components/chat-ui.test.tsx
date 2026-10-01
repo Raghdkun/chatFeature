@@ -522,6 +522,9 @@ describe('lightbox', () => {
             'https://files.test/thumb.webp',
         );
         expect(thumb?.getAttribute('alt')).toBe('Image from Sam');
+        // The room is reserved from the server's size (a lazy picture of no size is never fetched at the end of a scroller).
+        expect(thumb?.style.inlineSize).toBe('220px');
+        expect(thumb?.style.aspectRatio.replace(/\s/g, '')).toBe('320/200');
 
         const trigger = byTestId(c, 'message-image') as HTMLElement;
 

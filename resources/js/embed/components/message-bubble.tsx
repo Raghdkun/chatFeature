@@ -199,7 +199,19 @@ export function MessageBubble({
                                             onLoad={onImageLoad}
                                             onError={onImageError}
                                             className="block h-auto max-h-48 w-auto max-w-full object-cover"
-                                            style={{ maxInlineSize: '220px' }}
+                                            style={{
+                                                maxInlineSize: '220px',
+                                                // Until it has loaded a picture of unknown size is 0 x 0 (the CSS width/height auto beat the
+                                                // attributes), and Chrome never fetches a `loading="lazy"` picture of no size at the end of a
+                                                // scroller: it stayed blank. Reserve the room from the size the server told us.
+                                                ...(attachment.width &&
+                                                attachment.height
+                                                    ? {
+                                                          inlineSize: `${Math.min(attachment.width, 220)}px`,
+                                                          aspectRatio: `${attachment.width} / ${attachment.height}`,
+                                                      }
+                                                    : {}),
+                                            }}
                                         />
                                     </button>
                                 );

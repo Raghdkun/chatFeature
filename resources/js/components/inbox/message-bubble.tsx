@@ -98,6 +98,9 @@ function Attachments({
                         style={
                             attachment.width && attachment.height
                                 ? {
+                                      // The room is reserved from the size the server told us: a lazy picture of no size at the end
+                                      // of a scroller is never fetched (Chrome), so it would stay blank.
+                                      inlineSize: `${Math.min(attachment.width, 320)}px`,
                                       aspectRatio: `${attachment.width} / ${attachment.height}`,
                                   }
                                 : undefined
