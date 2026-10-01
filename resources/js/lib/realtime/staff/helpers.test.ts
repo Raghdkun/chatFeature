@@ -285,6 +285,38 @@ describe('createSoundPlayer', () => {
         expect(createSoundPlayer(() => null, storage).isMuted()).toBe(true);
     });
 
+    it('reports locked until a gesture lets the page make sound, then on; muted wins over both', async () => {
+        const { context } = fakeContext();
+        const player = createSoundPlayer(
+            () => context as unknown as AudioContext,
+            memory(),
+        );
+        const listener = vi.fn();
+
+        player.subscribe(listener);
+        expect(player.state()).toBe('locked');
+
+        player.unlock();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(player.state()).toBe('on');
+        expect(listener).toHaveBeenCalled();
+
+        player.setMuted(true);
+        expect(player.state()).toBe('muted');
+        player.setMuted(false);
+        expect(player.state()).toBe('on');
+    });
+
+    it('does not call a browser without Web Audio "locked" once it was asked', () => {
+        const player = createSoundPlayer(() => null, memory());
+
+        expect(player.state()).toBe('locked');
+        player.unlock();
+        expect(player.state()).toBe('on');
+    });
+
     it('survives a browser without Web Audio', () => {
         const player = createSoundPlayer(() => null, memory());
 

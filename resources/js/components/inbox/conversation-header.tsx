@@ -9,6 +9,10 @@ import {
     Share2,
 } from 'lucide-react';
 import { VisitorAvatar } from '@/components/inbox/visitor-avatar';
+import {
+    shortPageLabel,
+    visitorPageUrl,
+} from '@/components/inbox/visitor-info';
 import { Button } from '@/components/ui/button';
 import { useTrans } from '@/hooks/use-trans';
 import { staffRoutes } from '@/lib/chat-api/staff';
@@ -42,6 +46,7 @@ export function ConversationHeader({
     const { t } = useTrans();
     const { visitor } = conversation;
     const name = visitor.name ?? t('inbox.visitor.anonymous');
+    const pageUrl = visitorPageUrl(visitor.meta);
     const subline = [
         `#${conversation.ticketNo}`,
         conversation.category?.label,
@@ -84,13 +89,42 @@ export function ConversationHeader({
                 </h1>
                 <p className="truncate text-xs text-muted-foreground">
                     {subline.join(' · ')}
-                    {visitor.email && (
-                        <span className="hidden lg:inline">
-                            {' '}
-                            · {visitor.email}
-                        </span>
-                    )}
                 </p>
+                {(visitor.email || visitor.phone || pageUrl) && (
+                    <p
+                        data-testid="conversation-contact"
+                        className="hidden items-center gap-x-2 truncate text-xs text-muted-foreground lg:flex"
+                    >
+                        {visitor.email && (
+                            <a
+                                href={`mailto:${visitor.email}`}
+                                className="truncate underline-offset-2 hover:underline"
+                            >
+                                {visitor.email}
+                            </a>
+                        )}
+                        {visitor.phone && (
+                            <a
+                                href={`tel:${visitor.phone}`}
+                                dir="ltr"
+                                className="shrink-0 underline-offset-2 hover:underline"
+                            >
+                                {visitor.phone}
+                            </a>
+                        )}
+                        {pageUrl && (
+                            <a
+                                href={pageUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={pageUrl}
+                                className="hidden max-w-56 truncate underline-offset-2 hover:underline xl:inline"
+                            >
+                                {shortPageLabel(pageUrl)}
+                            </a>
+                        )}
+                    </p>
+                )}
             </div>
 
             {waiting > 0 && (

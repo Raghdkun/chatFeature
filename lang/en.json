@@ -989,6 +989,8 @@
     "inbox.roster.empty": "Nobody else is signed in.",
     "inbox.sound.mute": "Mute sounds",
     "inbox.sound.unmute": "Unmute sounds",
+    "inbox.sound.locked": "Sounds start after your first click on this page",
+    "inbox.connection.connecting": "Connecting to live updates.",
     "inbox.connection.reconnecting": "Reconnecting to live updates.",
     "inbox.connection.unavailable": "Live updates are off.",
     "inbox.connection.polling": "This page checks for news every :seconds seconds.",

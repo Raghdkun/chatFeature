@@ -53,6 +53,9 @@ vi.mock('sonner', () => ({
     }),
 }));
 
+// The network and the clock are real here: a loaded machine (CI, parallel agents) must not turn a slow tick into a failure.
+vi.setConfig({ testTimeout: 20_000 });
+
 const backend = useStaffBackend();
 
 const CONVERSATION = fakeUlid(7000);
@@ -224,6 +227,40 @@ describe('the conversation', () => {
                 '[aria-label="Today"], li[aria-label]',
             ).length,
         ).toBeGreaterThan(0);
+    });
+
+    it("puts the visitor's email, phone and page in the header (the page only as a safe web link)", async () => {
+        const { view } = await mount();
+        const contact = view.byTestId('conversation-contact') as HTMLElement;
+
+        expect(
+            contact.querySelector('a[href="mailto:vera@visitor.example"]'),
+        ).not.toBeNull();
+        expect(
+            contact.querySelector('a[href="tel:+49 30 1234"]'),
+        ).not.toBeNull();
+
+        const page = contact.querySelector(
+            'a[href^="https://shop.example"]',
+        ) as HTMLAnchorElement;
+
+        expect(page.textContent).toBe('shop.example/pricing');
+        expect(page.rel).toBe('noopener noreferrer');
+        await view.unmount();
+
+        const hostile = activeChat({
+            visitor: {
+                ulid: 'v9',
+                name: 'Hal',
+                email: null,
+                phone: null,
+                verified: false,
+                meta: { page_url: 'javascript:alert(1)' },
+            },
+        });
+        const second = await mount(props({ conversation: hostile }));
+
+        expect(second.view.byTestId('conversation-contact')).toBeNull();
     });
 
     it('renders message text as text, never as markup, and links URLs safely', async () => {

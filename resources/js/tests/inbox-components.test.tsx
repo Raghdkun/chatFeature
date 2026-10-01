@@ -9,6 +9,7 @@ import {
     vi,
 } from 'vite-plus/test';
 import { ConnectionBanner } from '@/components/inbox/connection-banner';
+import { SoundToggle } from '@/components/inbox/inbox-toolbar';
 import { MessageList } from '@/components/inbox/message-list';
 import { OfferCard } from '@/components/inbox/offer-card';
 import { toLocalMessage } from '@/lib/chat/messages';
@@ -193,13 +194,31 @@ describe('OfferCard', () => {
 });
 
 describe('ConnectionBanner', () => {
-    it('stays silent while connected or connecting', async () => {
+    it('stays silent while connected, and while a first connection is still being made', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
         for (const status of ['connected', 'connecting'] as const) {
             const view = await render(<ConnectionBanner status={status} />);
 
+            await act(async () => {
+                vi.advanceTimersByTime(1900);
+            });
             expect(view.byTestId('connection-banner')).toBeNull();
             await view.unmount();
         }
+    });
+
+    it('says "connecting" when it takes longer than a moment', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        const view = await render(<ConnectionBanner status="connecting" />);
+
+        await act(async () => {
+            vi.advanceTimersByTime(2000);
+        });
+
+        expect(view.byTestId('connection-banner')?.textContent).toContain(
+            'Connecting to live updates.',
+        );
     });
 
     it('waits two seconds before it reports a drop, and clears when the link is back', async () => {
@@ -414,5 +433,64 @@ describe('useAttentionTitle', () => {
         await render(<Title count={0} />);
 
         expect(document.title).toBe('Inbox - PNE Chat');
+    });
+});
+
+describe('SoundToggle', () => {
+    function player(initial: 'on' | 'muted' | 'locked') {
+        let state = initial;
+        const listeners = new Set<() => void>();
+        const set = (next: typeof state) => {
+            state = next;
+            listeners.forEach((l) => l());
+        };
+
+        return {
+            unlock: vi.fn(() => {
+                if (state === 'locked') {
+                    set('on');
+                }
+            }),
+            play: vi.fn(),
+            isMuted: () => state === 'muted',
+            setMuted: vi.fn((muted: boolean) => set(muted ? 'muted' : 'on')),
+            state: () => state,
+            subscribe: (l: () => void) => {
+                listeners.add(l);
+
+                return () => listeners.delete(l);
+            },
+        };
+    }
+
+    it('says sounds are locked until the first click, and a click turns them on instead of muting', async () => {
+        const sound = player('locked');
+        const view = await render(<SoundToggle sound={sound} />);
+        const toggle = view.byTestId('sound-toggle') as HTMLElement;
+
+        expect(toggle.getAttribute('data-state')).toBe('locked');
+        expect(toggle.getAttribute('aria-label')).toBe(
+            'Sounds start after your first click on this page',
+        );
+
+        await click(toggle);
+
+        expect(sound.unlock).toHaveBeenCalled();
+        expect(sound.setMuted).not.toHaveBeenCalled();
+        expect(toggle.getAttribute('data-state')).toBe('on');
+    });
+
+    it('mutes and unmutes, announcing the state with aria-pressed', async () => {
+        const sound = player('on');
+        const view = await render(<SoundToggle sound={sound} />);
+        const toggle = view.byTestId('sound-toggle') as HTMLElement;
+
+        expect(toggle.getAttribute('aria-pressed')).toBe('true');
+        await click(toggle);
+        expect(toggle.getAttribute('data-state')).toBe('muted');
+        expect(toggle.getAttribute('aria-pressed')).toBe('false');
+        expect(toggle.getAttribute('aria-label')).toBe('Unmute sounds');
+        await click(toggle);
+        expect(toggle.getAttribute('data-state')).toBe('on');
     });
 });

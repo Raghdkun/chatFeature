@@ -73,7 +73,8 @@ export function InboxShell({
             data-testid="inbox"
             className="flex h-[calc(100dvh-4rem)] min-h-0 overflow-hidden md:h-[calc(100dvh-5rem)] md:rounded-xl md:border md:bg-card"
         >
-            <aside
+            {/* A region, not an `aside`: it sits inside the page's own <main>, where a complementary landmark is not allowed. */}
+            <section
                 aria-label={t('inbox.list.label')}
                 className={cn(
                     'min-h-0 w-full shrink-0 flex-col border-e bg-background md:flex md:w-80 lg:w-[22rem]',
@@ -143,9 +144,9 @@ export function InboxShell({
                         viewerId={viewer.id}
                     />
                 </div>
-            </aside>
+            </section>
 
-            <main
+            <div
                 className={cn(
                     'min-w-0 flex-1 flex-col',
                     selectedUlid ? 'flex' : 'hidden md:flex',
@@ -169,7 +170,7 @@ export function InboxShell({
                         </EmptyHeader>
                     </Empty>
                 )}
-            </main>
+            </div>
         </div>
     );
 }

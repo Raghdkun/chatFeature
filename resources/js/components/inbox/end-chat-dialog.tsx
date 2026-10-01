@@ -9,6 +9,7 @@ import {
     AlertDialogTitle,
     AlertDialogAction,
 } from '@/components/ui/alert-dialog';
+import { useReturnFocus } from '@/components/inbox/use-return-focus';
 import { Busy } from '@/components/widgets/form-bits';
 import { useTrans } from '@/hooks/use-trans';
 
@@ -30,10 +31,11 @@ export function EndChatDialog({
 }) {
     const { t } = useTrans();
     const [pending, setPending] = useState(false);
+    const returnFocus = useReturnFocus(open);
 
     return (
         <AlertDialog open={open} onOpenChange={onOpenChange}>
-            <AlertDialogContent data-testid="end-chat-dialog">
+            <AlertDialogContent data-testid="end-chat-dialog" {...returnFocus}>
                 <AlertDialogHeader>
                     <AlertDialogTitle>
                         {t(`inbox.${mode}.title`)}

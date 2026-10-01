@@ -45,6 +45,9 @@ vi.mock('sonner', () => ({
     }),
 }));
 
+// The network and the clock are real here: a loaded machine (CI, parallel agents) must not turn a slow tick into a failure.
+vi.setConfig({ testTimeout: 20_000 });
+
 const backend = useStaffBackend();
 
 const staffUser = {

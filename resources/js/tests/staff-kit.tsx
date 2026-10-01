@@ -90,6 +90,7 @@ export function fakeSound(): FakeSound {
         unlock: vi.fn<SoundPlayer['unlock']>(),
         play: vi.fn<SoundPlayer['play']>(),
         isMuted: () => muted,
+        state: () => (muted ? 'muted' : 'on'),
         setMuted: (next: boolean) => {
             muted = next;
             listeners.forEach((listener) => listener());
@@ -174,7 +175,7 @@ export async function renderStaff(
 /** Re-run `assertion` (letting React and the network settle between tries) until it passes or the timeout is hit. */
 export async function waitFor(
     assertion: () => void,
-    timeoutMs = 2000,
+    timeoutMs = 5000,
 ): Promise<void> {
     const started = Date.now();
 

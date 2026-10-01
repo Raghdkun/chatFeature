@@ -1,6 +1,8 @@
 import { BadgeCheck, ExternalLink } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { fullDateTime } from '@/components/inbox/format';
+import { PAGE_URL_KEYS, visitorPageUrl } from '@/components/inbox/visitor-info';
+import { useReturnFocus } from '@/components/inbox/use-return-focus';
 import {
     Sheet,
     SheetContent,
@@ -11,29 +13,6 @@ import {
 import { useDirection } from '@/hooks/use-direction';
 import { useTrans } from '@/hooks/use-trans';
 import type { ConversationStaff } from '@/lib/chat/types';
-import { safeExternalUrl } from '@/lib/urls';
-
-/** The keys the host page's identity / metadata may use for the page the visitor is on. */
-const PAGE_URL_KEYS = ['page_url', 'pageUrl', 'url', 'page'];
-
-/** The page the visitor was on, when the host site sent one in the visitor metadata (and it is a plain web link). */
-export function visitorPageUrl(
-    meta: ConversationStaff['visitor']['meta'],
-): string | null {
-    for (const key of PAGE_URL_KEYS) {
-        const value = meta[key];
-
-        if (typeof value === 'string') {
-            const safe = safeExternalUrl(value);
-
-            if (safe) {
-                return safe;
-            }
-        }
-    }
-
-    return null;
-}
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
     return (
@@ -56,6 +35,7 @@ export function DetailsSheet({
 }) {
     const { t, locale } = useTrans();
     const { isRtl } = useDirection();
+    const returnFocus = useReturnFocus(open);
     const { visitor } = conversation;
     const page = visitorPageUrl(visitor.meta);
     const extra = Object.entries(visitor.meta).filter(
@@ -68,6 +48,7 @@ export function DetailsSheet({
             <SheetContent
                 side={isRtl ? 'left' : 'right'}
                 data-testid="conversation-details"
+                {...returnFocus}
                 className="w-full overflow-y-auto sm:max-w-sm"
             >
                 <SheetHeader>

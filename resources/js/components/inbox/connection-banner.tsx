@@ -9,11 +9,12 @@ const GRACE_MS = 2_000;
 
 /**
  * The "reconnecting" indicator. While the websocket is down the page keeps working (REST polling every 15 s), and says so.
+ * Echo reports `connecting` on the first connection and on every retry, so only a state that lasts is worth a banner;
  * `unavailable` (no websocket in this build) is not a fault of the moment, so it is stated right away.
  */
 export function ConnectionBanner({ status }: { status: ConnectionState }) {
     const { t } = useTrans();
-    const down = status !== 'connected' && status !== 'connecting';
+    const down = status !== 'connected';
     const [settled, setSettled] = useState(false);
 
     useEffect(() => {
@@ -51,7 +52,9 @@ export function ConnectionBanner({ status }: { status: ConnectionState }) {
                 <span className="font-medium">
                     {status === 'unavailable'
                         ? t('inbox.connection.unavailable')
-                        : t('inbox.connection.reconnecting')}
+                        : status === 'connecting'
+                          ? t('inbox.connection.connecting')
+                          : t('inbox.connection.reconnecting')}
                 </span>{' '}
                 {t('inbox.connection.polling', {
                     seconds: POLL_INTERVAL_MS / 1000,

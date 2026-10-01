@@ -6,12 +6,17 @@
 
 export type SoundKind = 'offer' | 'message';
 
+/** `locked`: not muted, but the browser has not let the page make sound yet (no gesture so far). */
+export type SoundState = 'on' | 'muted' | 'locked';
+
 export type SoundPlayer = {
     /** Create / resume the audio context. Safe to call repeatedly; must run inside a user gesture the first time. */
     unlock: () => void;
     play: (kind: SoundKind) => void;
     isMuted: () => boolean;
     setMuted: (muted: boolean) => void;
+    /** What the toggle should show; a stable string, so it can feed `useSyncExternalStore`. */
+    state: () => SoundState;
     subscribe: (listener: () => void) => () => void;
 };
 
@@ -61,15 +66,23 @@ export function createSoundPlayer(
         : window.localStorage,
 ): SoundPlayer {
     let context: AudioContext | null = null;
+    // A browser without Web Audio is not "locked" (no click would help): it just never makes a sound.
+    let unsupported = false;
     let muted = readMuted(storage);
     const listeners = new Set<() => void>();
+
+    function notify(): void {
+        listeners.forEach((listener) => listener());
+    }
 
     function unlock(): void {
         try {
             context ??= createContext();
+            unsupported = context === null;
 
             if (context && context.state === 'suspended') {
-                void context.resume();
+                // The state flips to `running` once the browser agrees: tell the toggle then.
+                void context.resume().then(notify, () => undefined);
             }
         } catch {
             context = null;
@@ -114,8 +127,14 @@ export function createSoundPlayer(
                 // Private mode: the choice lasts for this page only.
             }
 
-            listeners.forEach((listener) => listener());
+            notify();
         },
+        state: () =>
+            muted
+                ? 'muted'
+                : context?.state === 'running' || unsupported
+                  ? 'on'
+                  : 'locked',
         subscribe(listener) {
             listeners.add(listener);
 

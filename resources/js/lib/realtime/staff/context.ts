@@ -38,6 +38,12 @@ export function useStaffRealtimeContext(): StaffRealtimeContextValue {
     return value;
 }
 
+/**
+ * The live staff session (`store`, `controller`, `sound`, `viewer`) of the signed-in agent: the entry point the inbox screens use.
+ * (It is the same hook as `useStaffRealtimeContext`; the Echo subscriptions themselves live in `StaffRealtimeBindings`.)
+ */
+export const useStaffRealtime = useStaffRealtimeContext;
+
 /** Read a slice of the live inbox state; `selector` must return a primitive or a part of the state (stable references). */
 export function useInbox<T>(selector: (state: InboxState) => T): T {
     const { store } = useStaffRealtimeContext();

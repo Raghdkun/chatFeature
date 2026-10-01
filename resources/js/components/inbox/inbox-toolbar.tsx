@@ -11,14 +11,23 @@ import { useTrans } from '@/hooks/use-trans';
 import type { PresenceMemberData } from '@/lib/chat/types';
 import type { SoundPlayer } from '@/lib/realtime/staff/sound';
 
-/** Mute / unmute the inbox sounds (remembered per browser). Unmuting is a user gesture, so it also unlocks the audio context. */
+/**
+ * Mute / unmute the inbox sounds (remembered per browser). Until the first click or key press the browser keeps the page silent, so a
+ * dot says so ("click anywhere") instead of letting the first request go unheard. Unmuting is a gesture too, so it unlocks the audio.
+ */
 export function SoundToggle({ sound }: { sound: SoundPlayer }) {
     const { t } = useTrans();
-    const muted = useSyncExternalStore(
+    const state = useSyncExternalStore(
         sound.subscribe,
-        sound.isMuted,
-        () => false,
+        sound.state,
+        () => 'on' as const,
     );
+    const label =
+        state === 'muted'
+            ? t('inbox.sound.unmute')
+            : state === 'locked'
+              ? t('inbox.sound.locked')
+              : t('inbox.sound.mute');
 
     return (
         <Button
@@ -26,15 +35,31 @@ export function SoundToggle({ sound }: { sound: SoundPlayer }) {
             variant="ghost"
             size="icon"
             data-testid="sound-toggle"
-            aria-pressed={!muted}
-            aria-label={muted ? t('inbox.sound.unmute') : t('inbox.sound.mute')}
-            title={muted ? t('inbox.sound.unmute') : t('inbox.sound.mute')}
+            data-state={state}
+            aria-pressed={state !== 'muted'}
+            aria-label={label}
+            title={label}
+            className="relative"
             onClick={() => {
                 sound.unlock();
-                sound.setMuted(!muted);
+
+                // A click on a locked toggle is the gesture the browser was waiting for: it turns the sound on, it does not mute.
+                if (state !== 'locked') {
+                    sound.setMuted(state !== 'muted');
+                }
             }}
         >
-            {muted ? <VolumeX aria-hidden /> : <Volume2 aria-hidden />}
+            {state === 'muted' ? (
+                <VolumeX aria-hidden />
+            ) : (
+                <Volume2 aria-hidden />
+            )}
+            {state === 'locked' && (
+                <span
+                    aria-hidden
+                    className="absolute end-1.5 top-1.5 size-2 rounded-full bg-amber-500"
+                />
+            )}
         </Button>
     );
 }

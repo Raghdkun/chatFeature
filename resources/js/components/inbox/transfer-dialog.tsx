@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from 'react';
 import { PresenceDot } from '@/components/inbox/presence-select';
+import { useReturnFocus } from '@/components/inbox/use-return-focus';
 import { NativeSelect } from '@/components/setup/native-select';
 import { Button } from '@/components/ui/button';
 import {
@@ -62,6 +63,7 @@ export function TransferDialog({
     const [agent, setAgent] = useState('');
     const [category, setCategory] = useState('');
     const [pending, setPending] = useState(false);
+    const returnFocus = useReturnFocus(open);
     const agents = useMemo(
         () => transferCandidates(roster, viewerId),
         [roster, viewerId],
@@ -94,7 +96,7 @@ export function TransferDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent data-testid="transfer-dialog">
+            <DialogContent data-testid="transfer-dialog" {...returnFocus}>
                 <DialogHeader>
                     <DialogTitle>{t('inbox.transfer.title')}</DialogTitle>
                     <DialogDescription>

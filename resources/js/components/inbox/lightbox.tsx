@@ -5,6 +5,7 @@ import {
     DialogDescription,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { useReturnFocus } from '@/components/inbox/use-return-focus';
 import { useTrans } from '@/hooks/use-trans';
 import { safeExternalUrl } from '@/lib/urls';
 import type { AttachmentData } from '@/lib/chat/types';
@@ -19,6 +20,7 @@ export function Lightbox({
 }) {
     const { t } = useTrans();
     const href = safeExternalUrl(attachment?.url);
+    const returnFocus = useReturnFocus(attachment !== null);
 
     return (
         <Dialog
@@ -31,6 +33,7 @@ export function Lightbox({
         >
             <DialogContent
                 data-testid="lightbox"
+                {...returnFocus}
                 className="w-fit max-w-[min(95vw,64rem)] gap-3 p-3 sm:max-w-[min(95vw,64rem)]"
             >
                 <DialogTitle className="sr-only">
