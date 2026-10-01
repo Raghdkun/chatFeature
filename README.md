@@ -134,6 +134,7 @@ See [docs/widget-embed-api.md](docs/widget-embed-api.md).
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | Modular monolith, contexts, layout, request flows |
 | [docs/auth-modes.md](docs/auth-modes.md) | Wizard, Fortify mode, pizzasys mode |
+| [docs/pizzasys-findings.md](docs/pizzasys-findings.md) | Verified behaviour of the pizzasys auth service (local harness) |
 | [docs/widget-embed-api.md](docs/widget-embed-api.md) | Embeds, JS API, postMessage, signed identity |
 | [docs/rest-api.md](docs/rest-api.md) | Public + management API, conventions |
 | [docs/whatsapp-openwa.md](docs/whatsapp-openwa.md) | OpenWA facts, hand-off, isolation |
