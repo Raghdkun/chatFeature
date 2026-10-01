@@ -3,11 +3,11 @@
 namespace App\Auth\Pizzasys;
 
 use App\Auth\Pizzasys\Contracts\IdentityInvalidator;
+use App\Auth\Shadow\ShadowUserSync;
 use App\Domain\Audit\AuditLogger;
 use App\Models\ExternalSession;
 use App\Models\UserExternalIdentity;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Reacts to what the portal tells us changed (the NATS consumer, track 2B) and to local role-mapping changes.
@@ -38,24 +38,31 @@ final class ExternalIdentityInvalidator implements IdentityInvalidator
         }
     }
 
+    /**
+     * `user.deleted`: only the IDENTITY (this portal account in the active environment) is deactivated and its sessions
+     * and tokens revoked. The local user stays active: a forged or mistaken event must not lock a person out for good,
+     * and a portal account re-created with the same email can link to the user again once the old identity is gone
+     * ({@see ShadowUserSync}). `php artisan chat:auth:reactivate` undoes a wrong deactivation.
+     */
     public function deactivateExternalId(string $externalId): void
     {
         foreach ($this->identities($externalId) as $identity) {
+            if ($identity->isDeactivated()) {
+                continue;
+            }
+
             $user = $identity->user;
 
-            DB::transaction(function () use ($identity, $user): void {
-                $identity->forceFill(['active' => false, 'deactivated_at' => now()])->save();
+            $identity->forceFill(['active' => false, 'deactivated_at' => now()])->save();
 
-                if ($user->is_active) {
-                    $user->forceFill(['is_active' => false])->save();
-                }
-            });
+            // Sessions of this identity only (their Sanctum tokens go with them); other identities of the user are theirs.
+            $this->sessions->revokeForIdentity($identity, 'upstream_deleted');
 
-            // Every portal session of the person ends, whatever environment it belongs to.
-            $this->sessions->revokeAllForUser($user, 'upstream_deleted');
-            $user->tokens()->delete();
-
-            $this->audit->record('auth.identity_deactivated', $user, ['environment' => $identity->environment->key, 'reason' => 'upstream_deleted']);
+            $this->audit->record('auth.identity_deactivated', $user, [
+                'environment' => $identity->environment->key,
+                'external_id' => $identity->external_id,
+                'reason' => 'upstream_deleted',
+            ]);
         }
     }
 

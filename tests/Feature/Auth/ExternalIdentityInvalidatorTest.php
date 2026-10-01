@@ -7,6 +7,7 @@ use App\Auth\Enums\SessionVerdict;
 use App\Auth\Pizzasys\Contracts\IdentityInvalidator;
 use App\Auth\Pizzasys\ExternalIdentityInvalidator;
 use App\Auth\Support\SessionContext;
+use App\Models\AuditLog;
 use App\Models\AuthEnvironment;
 use App\Models\ExternalSession;
 use App\Models\User;
@@ -95,7 +96,7 @@ class ExternalIdentityInvalidatorTest extends TestCase
         $this->assertSame(0, UserExternalIdentity::query()->whereNotNull('stale_at')->count());
     }
 
-    public function test_deactivating_an_identity_revokes_everything_and_blocks_the_user(): void
+    public function test_deactivating_an_identity_revokes_its_sessions_and_blocks_that_account_only(): void
     {
         [$user, $session, $context] = $this->signedIn('agent@test.local');
         $this->signedIn('agent@test.local'); // a second device
@@ -104,7 +105,7 @@ class ExternalIdentityInvalidatorTest extends TestCase
         $this->invalidator->deactivateExternalId($this->portal->idFor('agent@test.local'));
 
         $user->refresh();
-        $this->assertFalse($user->is_active);
+        $this->assertTrue($user->is_active, 'the local user is not locked out for good by an upstream event');
         $identity = UserExternalIdentity::query()->where('user_id', $user->id)->sole();
         $this->assertNotNull($identity->deactivated_at);
         $this->assertFalse($identity->active);
@@ -112,6 +113,58 @@ class ExternalIdentityInvalidatorTest extends TestCase
         $this->assertSame(0, PersonalAccessToken::query()->count());
         $this->assertSame(SessionVerdict::Revoked, app(AuthDriver::class)->validateSession($user, $context));
         $this->assertDatabaseHas('audit_logs', ['action' => 'auth.identity_deactivated', 'subject_id' => (string) $user->id]);
+    }
+
+    public function test_only_the_sessions_of_the_deactivated_identity_end(): void
+    {
+        [$user] = $this->signedIn('agent@test.local');
+        [$other, $otherSession] = $this->signedIn('second@test.local');
+
+        $this->invalidator->deactivateExternalId($this->portal->idFor('agent@test.local'));
+
+        $this->assertNull($otherSession->refresh()->revoked_at);
+        $this->assertSame(1, PersonalAccessToken::query()->where('tokenable_id', $other->id)->count());
+        $this->assertSame(0, PersonalAccessToken::query()->where('tokenable_id', $user->id)->count());
+    }
+
+    public function test_a_session_of_the_same_person_on_another_environment_is_not_this_identitys_business(): void
+    {
+        [$user] = $this->signedIn('agent@test.local');
+        $testing = $this->useTestingEnvironment();
+        $foreign = UserExternalIdentity::factory()->create(['user_id' => $user->id, 'auth_environment_id' => $testing->id, 'external_id' => '905']);
+        $foreignSession = ExternalSession::query()->create([
+            'user_id' => $user->id, 'identity_id' => $foreign->id, 'auth_environment_id' => $testing->id,
+            'token' => 'other-env-token', 'last_verified_at' => now(), 'verify_fail_count' => 0,
+        ]);
+
+        $this->invalidator->deactivateExternalId($this->portal->idFor('agent@test.local'));
+
+        $this->assertNull($foreignSession->refresh()->revoked_at);
+        $this->assertNull($foreign->refresh()->deactivated_at);
+    }
+
+    public function test_a_forged_event_cannot_lock_the_person_out_of_everything(): void
+    {
+        [$user] = $this->signedIn('agent@test.local');
+
+        $this->invalidator->deactivateExternalId($this->portal->idFor('agent@test.local'));
+
+        $this->assertTrue($user->refresh()->is_active);
+        $this->assertTrue($user->hasChatAccess(), 'roles and flags are untouched; only the sign-in with that portal account is closed');
+    }
+
+    public function test_a_re_created_portal_account_with_the_same_email_can_sign_in_after_the_old_one_was_deleted(): void
+    {
+        [$user] = $this->signedIn('agent@test.local');
+        $this->invalidator->deactivateExternalId($this->portal->idFor('agent@test.local'));
+        $this->portal->user('agent@test.local', 'new-pw', 'agent', 'Agent One Again');
+
+        $result = app(AuthDriver::class)->attemptForApi(['email' => 'agent@test.local', 'password' => 'new-pw'], 'phone');
+
+        $this->assertTrue($result->isOk());
+        $this->assertTrue($user->is($result->user), 'the person keeps their local account');
+        $this->assertSame(2, $user->externalIdentities()->count());
+        $this->assertSame(1, $user->externalIdentities()->whereNull('deactivated_at')->count());
     }
 
     public function test_a_deactivated_person_cannot_sign_in_again(): void
@@ -142,9 +195,13 @@ class ExternalIdentityInvalidatorTest extends TestCase
         [$user] = $this->signedIn('agent@test.local');
 
         $this->invalidator->deactivateExternalId($this->portal->idFor('agent@test.local'));
+        $deactivatedAt = UserExternalIdentity::query()->sole()->deactivated_at;
+        $this->travel(5)->minutes();
         $this->invalidator->deactivateExternalId($this->portal->idFor('agent@test.local'));
 
-        $this->assertFalse($user->refresh()->is_active);
+        $this->assertTrue($user->refresh()->is_active);
+        $this->assertTrue($deactivatedAt->equalTo(UserExternalIdentity::query()->sole()->deactivated_at), 'the first deactivation stands');
+        $this->assertSame(1, AuditLog::query()->where('action', 'auth.identity_deactivated')->count());
     }
 
     public function test_flushing_everything_marks_every_identity_stale_and_drops_the_caches(): void

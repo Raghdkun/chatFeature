@@ -7,8 +7,9 @@ use App\Infrastructure\Nats\CloudEvent;
 use App\Infrastructure\Nats\EventOutcome;
 
 /**
- * `user.deleted`: upstream removed the account, so revoke every session of that identity. Without a user id there is
- * nothing to deactivate; fall back to marking everyone stale (they re-verify upstream and the deleted one fails).
+ * `user.deleted`: upstream removed the account, so deactivate that identity and revoke its sessions (the local user stays
+ * active). Without a user id there is nothing to deactivate; fall back to marking everyone stale (they re-verify upstream
+ * and the deleted one fails).
  */
 final readonly class DeactivateIdentityHandler implements Handler
 {
