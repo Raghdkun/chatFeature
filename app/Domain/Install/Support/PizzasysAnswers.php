@@ -6,6 +6,7 @@ use App\Auth\Pizzasys\PizzasysEndpoint;
 use App\Auth\Roles\RoleMapping;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\Crypt;
+use SensitiveParameter;
 
 /**
  * Typed read access to the mode-2 wizard answers kept in `install-state.json` (`auth_environments`):
@@ -152,7 +153,7 @@ final class PizzasysAnswers
         return self::decrypt($this->environments[$key]['nats_token'] ?? null);
     }
 
-    public static function encrypt(string $plain): string
+    public static function encrypt(#[SensitiveParameter] string $plain): string
     {
         return Crypt::encryptString($plain);
     }

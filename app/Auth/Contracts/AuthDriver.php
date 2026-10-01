@@ -10,6 +10,7 @@ use App\Auth\Support\HealthReport;
 use App\Auth\Support\SessionContext;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\Request;
+use SensitiveParameter;
 
 /**
  * A pluggable way of signing staff in (docs/contracts/auth-driver.md).
@@ -35,7 +36,7 @@ interface AuthDriver
      *
      * @param  array<string, mixed>  $credentials
      */
-    public function attemptForApi(array $credentials, string $deviceName): ApiAuthResult;
+    public function attemptForApi(#[SensitiveParameter] array $credentials, string $deviceName): ApiAuthResult;
 
     /** Called on authenticated requests (cheap, cached): is this session still valid? */
     public function validateSession(Authenticatable $user, SessionContext $context): SessionVerdict;

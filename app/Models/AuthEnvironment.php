@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
+use SensitiveParameter;
 
 /**
  * One configured pizzasys deployment (`production` or `testing`).
@@ -99,7 +100,7 @@ class AuthEnvironment extends Model
     {
         return Attribute::make(
             get: fn (mixed $value, array $attributes): ?string => self::decrypt($attributes['service_token_encrypted'] ?? null),
-            set: fn (?string $value): array => ['service_token_encrypted' => $value === null ? null : Crypt::encryptString($value)],
+            set: fn (#[SensitiveParameter] ?string $value): array => ['service_token_encrypted' => $value === null ? null : Crypt::encryptString($value)],
         );
     }
 
@@ -110,7 +111,7 @@ class AuthEnvironment extends Model
     {
         return Attribute::make(
             get: fn (mixed $value, array $attributes): ?string => self::decrypt($attributes['nats_token_encrypted'] ?? null),
-            set: fn (?string $value): array => ['nats_token_encrypted' => $value === null || $value === '' ? null : Crypt::encryptString($value)],
+            set: fn (#[SensitiveParameter] ?string $value): array => ['nats_token_encrypted' => $value === null || $value === '' ? null : Crypt::encryptString($value)],
         );
     }
 

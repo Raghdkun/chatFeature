@@ -10,6 +10,7 @@ use App\Auth\Pizzasys\Results\PortalProbeResult;
 use App\Data\Auth\PortalCheckData;
 use App\Data\Auth\PortalCheckKey;
 use App\Data\Auth\PortalTestResultData;
+use SensitiveParameter;
 use Spatie\LaravelData\Optional;
 
 /**
@@ -27,7 +28,7 @@ final class TestPortalConnection
         private readonly NatsProbe $nats,
     ) {}
 
-    public function __invoke(PizzasysEndpoint $endpoint, ?string $natsUrl = null, ?string $natsToken = null): PortalTestResultData
+    public function __invoke(PizzasysEndpoint $endpoint, ?string $natsUrl = null, #[SensitiveParameter] ?string $natsToken = null): PortalTestResultData
     {
         $probe = $this->client->probe($endpoint);
 
@@ -70,7 +71,7 @@ final class TestPortalConnection
         return $probe->message ?? __('The portal did not accept the service credential.');
     }
 
-    private function natsCheck(?string $url, ?string $token, bool $verifyTls): PortalCheckData
+    private function natsCheck(?string $url, #[SensitiveParameter] ?string $token, bool $verifyTls): PortalCheckData
     {
         if ($url === null || $url === '') {
             return new PortalCheckData(PortalCheckKey::Nats, __('NATS events'), true, __('Not configured (optional).'));

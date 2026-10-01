@@ -314,4 +314,38 @@ class ShadowUserSyncTest extends TestCase
 
         $this->assertSame(1, UserExternalIdentity::query()->where('auth_environment_id', $this->production->id)->whereNull('deactivated_at')->count());
     }
+
+    // ---- unique-key races ----------------------------------------------------------------------------------------------
+
+    private function failInsertOfIdentity(int $times): void
+    {
+        $remaining = $times;
+
+        UserExternalIdentity::creating(function () use (&$remaining): void {
+            if ($remaining-- > 0) {
+                throw new UniqueConstraintViolationException('sqlite', 'insert into "user_external_identities"', [], new \Exception('UNIQUE constraint failed'));
+            }
+        });
+    }
+
+    public function test_losing_a_first_login_race_retries_once_and_succeeds(): void
+    {
+        $this->failInsertOfIdentity(1);
+
+        $result = $this->sync->upsert($this->production, $this->claims());
+
+        $this->assertTrue($result->isSynced());
+        $this->assertSame(1, User::query()->count(), 'the failed attempt left nothing behind');
+        $this->assertSame(1, UserExternalIdentity::query()->count());
+    }
+
+    public function test_a_second_unique_violation_is_a_refusal_not_a_crash(): void
+    {
+        $this->failInsertOfIdentity(2);
+
+        $result = $this->sync->upsert($this->production, $this->claims());
+
+        $this->assertSame(ShadowSyncResult::IDENTITY_CONFLICT, $result->refusal);
+        $this->assertSame(0, User::query()->count(), 'nothing half-created');
+    }
 }

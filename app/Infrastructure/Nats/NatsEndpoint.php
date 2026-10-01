@@ -2,6 +2,8 @@
 
 namespace App\Infrastructure\Nats;
 
+use SensitiveParameter;
+
 /**
  * A NATS server address parsed from `nats://[user:pass@]host[:port]` (also `tls://`, or a bare `host[:port]`).
  * `tls` is true for a `tls://` address: that session must be encrypted ({@see TlsPolicy}).
@@ -14,6 +16,7 @@ final readonly class NatsEndpoint
         public string $host,
         public int $port = self::DEFAULT_PORT,
         public ?string $user = null,
+        #[SensitiveParameter]
         public ?string $password = null,
         public bool $tls = false,
     ) {}

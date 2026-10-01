@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\UserExternalIdentity;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -88,13 +89,20 @@ class ChatAuthReactivate extends Command
             return self::FAILURE;
         }
 
-        DB::transaction(function () use ($identity, $user): void {
-            $identity->forceFill(['active' => true, 'deactivated_at' => null, 'stale_at' => now()])->save();
+        try {
+            DB::transaction(function () use ($identity, $user): void {
+                $identity->forceFill(['active' => true, 'deactivated_at' => null, 'stale_at' => now()])->save();
 
-            if (! $user->is_active) {
-                $user->forceFill(['is_active' => true])->save();
-            }
-        });
+                if (! $user->is_active) {
+                    $user->forceFill(['is_active' => true])->save();
+                }
+            });
+        } catch (UniqueConstraintViolationException) {
+            // The person signed in with a new portal account between the check above and the update.
+            $this->components->error("This person just got a live account in the {$key} environment; only one can be live. Nothing was changed.");
+
+            return self::FAILURE;
+        }
 
         $audit->record('auth.identity_reactivated', $user, ['environment' => $key, 'external_id' => $identity->external_id, 'via' => 'cli']);
 

@@ -5,6 +5,7 @@ namespace Tests\Feature\Settings;
 use App\Auth\Pizzasys\NatsProbe;
 use App\Models\AuditLog;
 use App\Models\AuthEnvironment;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
@@ -242,6 +243,24 @@ class AuthEnvironmentSafetyTest extends TestCase
 
         $this->putJson($url, $payload)->assertStatus(422)->assertJsonValidationErrors('service_token');
         $this->putJson($url, [...$payload, 'service_token' => 'testing-token'])->assertRedirect();
+    }
+
+    public function test_two_requests_creating_the_same_environment_at_once_do_not_crash(): void
+    {
+        $this->signIn();
+        $failed = false;
+        AuthEnvironment::creating(function () use (&$failed): void {
+            if (! $failed) {
+                $failed = true;
+                throw new UniqueConstraintViolationException('sqlite', 'insert into "auth_environments"', [], new \Exception('UNIQUE constraint failed'));
+            }
+        });
+
+        $this->putJson($this->url('testing'), $this->payload(['label' => 'Testing', 'base_url' => 'https://auth-testing.example.test', 'nats_url' => null, 'service_token' => 'testing-token']))
+            ->assertRedirect();
+
+        $this->assertTrue($failed);
+        $this->assertSame(1, AuthEnvironment::query()->where('key', 'testing')->count());
     }
 
     // ---- finding 3: a bad edit of the active environment is refused, not saved -----------------------------------

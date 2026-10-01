@@ -34,6 +34,7 @@ use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Laravel\Fortify\Fortify;
+use SensitiveParameter;
 
 /**
  * Mode 2: staff sign in with their account in the external pizzasys auth portal.
@@ -102,7 +103,7 @@ final class PizzasysDriver implements AuthDriver
         return $result;
     }
 
-    public function attemptForApi(array $credentials, string $deviceName): ApiAuthResult
+    public function attemptForApi(#[SensitiveParameter] array $credentials, string $deviceName): ApiAuthResult
     {
         $email = $credentials[Fortify::username()] ?? null;
         $password = $credentials['password'] ?? null;
@@ -237,7 +238,7 @@ final class PizzasysDriver implements AuthDriver
      *
      * @return array{0: AuthResult, 1: PendingPortalLogin|null}
      */
-    private function authenticate(string $email, string $password): array
+    private function authenticate(string $email, #[SensitiveParameter] string $password): array
     {
         $environment = $this->environments->active();
         $endpoint = $environment?->endpoint();
@@ -311,7 +312,7 @@ final class PizzasysDriver implements AuthDriver
     }
 
     /** A just-issued upstream token we will not use is closed again: upstream tokens never expire on their own. */
-    private function discard(PizzasysEndpoint $endpoint, string $token): void
+    private function discard(PizzasysEndpoint $endpoint, #[SensitiveParameter] string $token): void
     {
         $this->gateway->logout($endpoint, $token);
     }

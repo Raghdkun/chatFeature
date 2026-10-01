@@ -9,6 +9,7 @@ final readonly class PortalLoginResult
 {
     private function __construct(
         public PortalStatus $status,
+        #[SensitiveParameter]
         public ?string $token = null,
         public ?string $reason = null,
     ) {}

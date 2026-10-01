@@ -35,8 +35,13 @@ final class ShadowUserSync
         try {
             return DB::transaction(fn (): ShadowSyncResult => $this->sync($environment, $claims, $createIfMissing));
         } catch (UniqueConstraintViolationException) {
-            // Two first logins of the same person raced: the other one won, so this one now finds its rows.
-            return DB::transaction(fn (): ShadowSyncResult => $this->sync($environment, $claims, $createIfMissing));
+            // Two first logins raced: the other one won, so this one now finds its rows ...
+            try {
+                return DB::transaction(fn (): ShadowSyncResult => $this->sync($environment, $claims, $createIfMissing));
+            } catch (UniqueConstraintViolationException) {
+                // ... and when the database still says no, somebody else owns the slot: refuse instead of crashing.
+                return ShadowSyncResult::refused(ShadowSyncResult::IDENTITY_CONFLICT);
+            }
         }
     }
 
