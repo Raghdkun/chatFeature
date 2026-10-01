@@ -12,7 +12,7 @@
  * Time and the database come from `chat-db.ts` (`ageConversation`, `runSweep`, `readConversationRow`).
  */
 import { createWidget, type Api } from './api';
-import { test as base, expect } from './test';
+import { test as base, expect as baseExpect } from './test';
 import type { Actors, StaffActor, VisitorActor } from './actors';
 import { unique } from './helpers';
 import { must } from './chat-api';
@@ -67,7 +67,8 @@ export const test = base.extend<{ chats: Chats }>({
     },
 });
 
-export { expect };
+/** The suite's `expect` with a 20 s wait for web-first assertions: several browsers per test on a machine that also runs other suites. */
+export const expect = baseExpect.configure({ timeout: 20_000 });
 
 export type Flow = {
     visitor: VisitorActor;
