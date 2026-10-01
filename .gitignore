@@ -39,3 +39,5 @@ yarn-error.log
 /.mcp.json
 /opencode.json
 /opencode.jsonc
+
+/.playwright-mcp
