@@ -36,3 +36,15 @@
 | Analytics | `app/Domain/Analytics` | `resources/js/pages/analytics` |
 
 Tests mirror the structure: `tests/Feature/<Context>/*`, `tests/Unit/<Context>/*`, `e2e/<context>/*`.
+
+## Parallel-merge rules (P2 + P3 run side by side)
+
+- **Generated files are never committed by tracks**: `resources/js/types/generated.d.ts` and `typescript-transformer-manifest.json`. Run `composer types:generate` locally to type-check,
+  then `git checkout -- resources/js/types/generated.d.ts resources/js/types/typescript-transformer-manifest.json` before committing; the orchestrator regenerates after merging.
+- **Translations**: add keys only under your own prefix in `lang/en.json` (P2: `auth.portal.*`, `setup.pizzasys.*`, `settings.auth.*`; P3: `widgets.*`, `categories.*`, `agents.*`, `embed.*`, `builder.*`).
+  Merge conflicts in `lang/*.json` are resolved by the orchestrator as a union.
+- `app/Domain/Settings/DefaultSettings.php`, `config/install.php`, `app/Models/User.php`, `routes/web/setup.php`, `app/Providers/AuthModeServiceProvider.php`: **P2 only**.
+  P3 must not edit them (ask the orchestrator if a setting/model change is needed).
+- Admin-only routes use the middleware alias `admin`; management API groups use `['auth:sanctum', 'session.valid', 'chat.access']` (+ `admin` where needed).
+  The dashboard calls the management API with the session cookie + `X-XSRF-TOKEN` (`statefulApi()` is enabled); mobile uses bearer tokens.
+

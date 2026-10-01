@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnforceAuthFeatures;
+use App\Http\Middleware\EnsureAdmin;
 use App\Http\Middleware\EnsureChatAccess;
 use App\Http\Middleware\EnsureSessionIsValid;
 use App\Http\Middleware\HandleAppearance;
@@ -36,6 +37,9 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Dashboard SPA calls the management API with the session cookie (+ XSRF header); mobile uses bearer tokens.
+        $middleware->statefulApi();
+
         // Not installed yet: web -> /setup, API -> 503 not_installed. First in the global stack.
         $middleware->prepend(InstallGate::class);
 
@@ -46,6 +50,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'chat.access' => EnsureChatAccess::class,
             // For API groups: revoked / deactivated users are turned away even with a valid token.
             'session.valid' => EnsureSessionIsValid::class,
+            // Admin-only routes (after auth, session.valid and chat.access).
+            'admin' => EnsureAdmin::class,
         ]);
 
         // Bearer-only group for the public widget API and webhooks (deliberately NOT stateful).

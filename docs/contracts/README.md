@@ -10,6 +10,7 @@
 | [install-steps.md](install-steps.md) | P1, P2 | written (P0) |
 | [setup-wizard.md](setup-wizard.md) | P1 (1A backend, 1B frontend, 1C e2e) | written (P1) |
 | [auth-driver.md](auth-driver.md) | P1, P2 | written (P0) |
+| [auth-pizzasys.md](auth-pizzasys.md) | P2 (2A, 2B, 2C) | written (ahead of P2) |
 | [ownership.md](ownership.md) | every phase | written (P0), extended per phase |
 | [widget-config.md](widget-config.md) | P3 (3A, 3B, 3C), P4 (4D) | written (ahead of P3) |
 | [postmessage-protocol.md](postmessage-protocol.md) | P3 (3B), P4 (4D) | written (ahead of P3) |
