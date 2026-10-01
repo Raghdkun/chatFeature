@@ -8,8 +8,8 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Wizard actions need the one-time setup token to have been verified in this browser session
- * (skipped when APP_ENV=local).
+ * Wizard actions need the one-time setup token to have been verified in this browser session (skipped only for
+ * APP_ENV=local requests that come straight from a loopback address).
  */
 final class EnsureSetupTokenVerified
 {
@@ -20,7 +20,7 @@ final class EnsureSetupTokenVerified
      */
     public function handle(Request $request, Closure $next): Response
     {
-        if ($this->token->isVerified($request->session())) {
+        if ($this->token->isVerified($request->session(), $request)) {
             return $next($request);
         }
 
