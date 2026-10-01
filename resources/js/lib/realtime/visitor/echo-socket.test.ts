@@ -7,7 +7,10 @@ const created: {
     disconnected: boolean;
     listeners: Map<string, ((p: unknown) => void)[]>;
     whispers: [string, unknown][];
-    errorHandler: ((e: unknown) => void) | null; subscribedHandler: (() => void) | null;
+    errorHandler: ((e: unknown) => void) | null;
+    subscribedHandler: (() => void) | null;
+    /** `subscribed()` / `error()` bindings made on the channel: Echo can add them, never remove them. */
+    channelBindings: number;
     statusHandlers: ((s: string) => void)[];
     status: string;
 }[] = [];
@@ -30,6 +33,7 @@ vi.mock('laravel-echo', () => ({
                 whispers: [],
                 errorHandler: null,
                 subscribedHandler: null,
+                channelBindings: 0,
                 statusHandlers: [],
                 status: 'connecting',
             };
@@ -38,7 +42,10 @@ vi.mock('laravel-echo', () => ({
                 onConnectionChange: (cb) => {
                     this.record.statusHandlers.push(cb);
 
-                    return () => undefined;
+                    return () => {
+                        this.record.statusHandlers =
+                            this.record.statusHandlers.filter((h) => h !== cb);
+                    };
                 },
             };
         }
@@ -55,6 +62,16 @@ vi.mock('laravel-echo', () => ({
 
                     return channel;
                 },
+                stopListening(event: string, cb: (p: unknown) => void) {
+                    record.listeners.set(
+                        event,
+                        (record.listeners.get(event) ?? []).filter(
+                            (known) => known !== cb,
+                        ),
+                    );
+
+                    return channel;
+                },
                 whisper(event: string, payload: unknown) {
                     record.whispers.push([event, payload]);
 
@@ -62,11 +79,13 @@ vi.mock('laravel-echo', () => ({
                 },
                 error(cb: (e: unknown) => void) {
                     record.errorHandler = cb;
+                    record.channelBindings += 1;
 
                     return channel;
                 },
                 subscribed(cb: () => void) {
                     record.subscribedHandler = cb;
+                    record.channelBindings += 1;
 
                     return channel;
                 },
@@ -174,11 +193,65 @@ describe('echo socket', () => {
         expect(failures).toEqual([403, 503, 0]);
     });
 
-    it('close leaves the channel and disconnects', async () => {
+    it('fans one channel binding out to every subscription callback and lets each one go', async () => {
         const socket = await createEchoSocket(INPUT);
+        const first: string[] = [];
+        const second: string[] = [];
+        const offFirst = socket.onSubscribed(() => first.push('ok'));
+
+        socket.onSubscribed(() => second.push('ok'));
+        socket.onSubscriptionError((status) => second.push(String(status)));
+        created[0].subscribedHandler?.();
+        offFirst();
+        created[0].subscribedHandler?.();
+        created[0].errorHandler?.({ status: 503 });
+
+        expect(first).toEqual(['ok']);
+        expect(second).toEqual(['ok', 'ok', '503']);
+        // Echo got exactly one subscribed() and one error() binding however many callbacks came and went
+        expect(created[0].channelBindings).toBe(2);
+    });
+
+    it('listen and onStatus hand back unbinders that really unbind', async () => {
+        const socket = await createEchoSocket(INPUT);
+        const seen: unknown[] = [];
+        const statuses: string[] = [];
+        const offEvent = socket.listen('.message.created', (p) => seen.push(p));
+        const offStatus = socket.onStatus((s) => statuses.push(s));
+
+        created[0].listeners.get('.message.created')?.forEach((cb) => cb(1));
+        created[0].statusHandlers.forEach((cb) => cb('connected'));
+        offEvent();
+        offStatus();
+        offEvent();
+        created[0].listeners.get('.message.created')?.forEach((cb) => cb(2));
+        created[0].statusHandlers.forEach((cb) => cb('disconnected'));
+
+        expect(seen).toEqual([1]);
+        expect(statuses).toEqual(['connected']);
+        expect(created[0].statusHandlers).toEqual([]);
+    });
+
+    it('close unbinds everything that is left, leaves the channel and disconnects (once)', async () => {
+        const socket = await createEchoSocket(INPUT);
+        const calls: string[] = [];
+
+        socket.listen('.message.created', () => calls.push('event'));
+        socket.listen('.client-typing', () => calls.push('typing'));
+        socket.onStatus(() => calls.push('status'));
+        socket.onSubscribed(() => calls.push('subscribed'));
+        socket.onSubscriptionError(() => calls.push('error'));
 
         socket.close();
+        socket.close();
+
         expect(created[0].left).toEqual(['conversation.01CONV']);
         expect(created[0].disconnected).toBe(true);
+        expect([...created[0].listeners.values()].flat()).toEqual([]);
+        expect(created[0].statusHandlers).toEqual([]);
+
+        created[0].subscribedHandler?.();
+        created[0].errorHandler?.({ status: 500 });
+        expect(calls).toEqual([]);
     });
 });

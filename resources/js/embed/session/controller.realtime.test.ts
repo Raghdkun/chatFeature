@@ -165,14 +165,17 @@ describe('without a realtime server', () => {
         await until(() => h.state().phase === 'queued');
 
         expect(h.sockets).toHaveLength(0);
-        expect(h.state().connection).toBe('reconnecting');
+        // no Reverb is not a fault: no "Reconnecting…" line, REST polling just does the job
+        expect(h.state().connection).toBe('idle');
 
         backend.claim('Sam');
         await until(() => h.state().phase === 'active');
         h.controller.send({ body: 'Hi over REST' });
         await until(() => h.state().messages.at(-1)?.status === 'sent');
         backend.agentSays('Hello back');
-        await until(() => h.state().messages.some((m) => m.body === 'Hello back'));
+        await until(() =>
+            h.state().messages.some((m) => m.body === 'Hello back'),
+        );
     });
 
     it('a channel subscription the server refuses (503) keeps the chat on polling instead of waiting for events that never come', async () => {
@@ -186,20 +189,20 @@ describe('without a realtime server', () => {
         await until(() => h.state().phase === 'queued');
         await until(() => h.socket() !== null);
 
-        h.socket()?.authErrorHandler?.(503);
-        expect(h.state().connection).toBe('reconnecting');
+        h.socket()?.failSubscription(503);
+        expect(h.state().connection).toBe('idle');
 
         backend.claim('Sam');
         await until(() => h.state().phase === 'active');
         // a 401 / 403 is different: that ends the session
-        h.socket()?.authErrorHandler?.(403);
+        h.socket()?.failSubscription(403);
         await until(() => h.state().phase === 'closed');
         expect(h.state().closedReason).toBe('expired');
     });
 });
 
 describe('typing', () => {
-    it('shows the agent typing from the server\'s REST-typing fallback event as well as the whisper', async () => {
+    it("shows the agent typing from the server's REST-typing fallback event as well as the whisper", async () => {
         const h = createHarness({ backend: useBackend() });
 
         await active(h);
@@ -308,7 +311,7 @@ describe('session loss and refusal', () => {
         const h = createHarness({ backend: useBackend() });
 
         await active(h);
-        h.socket()?.authErrorHandler?.(401);
+        h.socket()?.failSubscription(401);
         await until(() => h.state().phase === 'closed');
 
         expect(h.state().closedReason).toBe('expired');
@@ -354,5 +357,284 @@ describe('visibility and focus signals', () => {
             backend.state.receipts.every((r) => r.seen_upto === undefined),
         ).toBe(true);
         expect(makeAgentMessage().sender.type).toBe('agent');
+    });
+});
+
+async function queued(h: Harness): Promise<void> {
+    await h.init();
+    h.open();
+    h.controller.submitPrechat(FORM);
+    h.controller.chooseCategory('billing');
+    await until(() => h.state().phase === 'queued');
+    await until(() => h.socket()?.status() === 'connected');
+}
+
+describe('conversation.missed', () => {
+    it('moves a queued chat to the offline form, remembering the missed conversation for the ticket, and closes the socket', async () => {
+        const backend = useBackend();
+        const h = createHarness({ backend, pollMs: 100_000 });
+
+        await queued(h);
+
+        const ulid = h.state().conversation?.ulid;
+        const socket = h.socket();
+
+        socket?.emit('conversation.missed', { v: 1 });
+
+        expect(h.state().phase).toBe('offline');
+        expect(h.state().offline).toMatchObject({
+            reason: 'missed',
+            missed: ulid,
+        });
+        expect(socket?.closed).toBe(true);
+        expect(socket?.bindings).toBe(0);
+        expect(h.hostStates().at(-1)?.status).toBe('offline');
+    });
+
+    it('a missed event for a chat that is already active changes nothing', async () => {
+        const h = createHarness({ backend: useBackend() });
+
+        await active(h);
+        h.socket()?.emit('conversation.missed', { v: 1 });
+
+        expect(h.state().phase).toBe('active');
+    });
+
+    it('polls GET /public/conversation while queued even with a healthy socket, so a missed queue is noticed without the event', async () => {
+        const backend = useBackend();
+        const h = createHarness({ backend, pollMs: 20 });
+
+        await queued(h);
+
+        const before = backend.callsTo('GET', '/conversation').length;
+
+        backend.miss();
+        await until(() => h.state().phase === 'offline');
+
+        expect(backend.callsTo('GET', '/conversation').length).toBeGreaterThan(
+            before,
+        );
+        expect(h.state().offline.reason).toBe('missed');
+    });
+
+    it('a chat closed behind the visitor back while queued is noticed by polling too', async () => {
+        const backend = useBackend();
+        const h = createHarness({ backend, pollMs: 20 });
+
+        await queued(h);
+        backend.close();
+        await until(() => h.state().phase !== 'queued');
+
+        expect(['offline', 'closed']).toContain(h.state().phase);
+    });
+
+    it('stops polling once the chat left the queue', async () => {
+        const backend = useBackend();
+        const h = createHarness({ backend, pollMs: 20 });
+
+        await queued(h);
+        backend.claim('Sam');
+        h.socket()?.emit('chat.claimed', {
+            v: 1,
+            agent: { name: 'Sam', avatarUrl: null },
+            claimedAt: 'x',
+        });
+        await until(() => h.state().phase === 'active');
+        await new Promise((resolve) => setTimeout(resolve, 30));
+
+        const calls = backend.callsTo('GET', '/conversation').length;
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(backend.callsTo('GET', '/conversation')).toHaveLength(calls);
+    });
+});
+
+describe('subscriptions are unbound', () => {
+    it('on every state change out of the live states and on dispose: a finished chat leaves nothing listening', async () => {
+        const backend = useBackend();
+        const h = createHarness({ backend, pollMs: 100_000 });
+
+        await active(h);
+
+        const first = h.socket();
+
+        expect(first?.bindings).toBeGreaterThan(8);
+
+        // ended (rating screen): the live connection is not needed any more
+        h.socket()?.emit('conversation.ended', {
+            v: 1,
+            endedBy: 'agent',
+            ratingRequested: true,
+        });
+        expect(h.state().phase).toBe('ended');
+        expect(first?.bindings).toBe(0);
+        expect(first?.closed).toBe(true);
+
+        await h.controller.rate(5, '');
+        expect(h.state().phase).toBe('closed');
+
+        // a new chat gets a new socket with exactly one handler per event
+        h.controller.newChat();
+        h.controller.submitPrechat(h.state().form);
+        h.controller.chooseCategory('billing');
+        await until(() => h.state().phase === 'queued');
+        await until(() => h.sockets.length === 2);
+        await until(() => h.socket()?.status() === 'connected');
+
+        const second = h.socket();
+
+        expect(second).not.toBe(first);
+        expect(first?.bindings).toBe(0);
+        expect(second?.listenersOn('message.created')).toBe(1);
+        expect(second?.listenersOn('client-typing')).toBe(1);
+        expect(second?.listenersOn('typing')).toBe(1);
+        expect(second?.listenersOn('conversation.missed')).toBe(1);
+
+        const bound = second?.bindings;
+
+        // reconnect flaps and a resumed subscription never add handlers
+        for (let round = 0; round < 3; round++) {
+            second?.setStatus('disconnected');
+            second?.setStatus('connected');
+        }
+
+        expect(second?.bindings).toBe(bound);
+
+        h.controller.dispose();
+        expect(second?.bindings).toBe(0);
+        expect(second?.closed).toBe(true);
+    });
+
+    it('a chat that is cancelled while the socket is still opening ends up with no socket bound at all', async () => {
+        const backend = useBackend();
+        const sockets: import('@/tests/embed-harness').FakeSocket[] = [];
+        const { FakeSocket } = await import('@/tests/embed-harness');
+        const h = createHarness({
+            backend,
+            deps: {
+                socketFactory: async (input) => {
+                    await new Promise((resolve) => setTimeout(resolve, 40));
+
+                    const socket = new FakeSocket(input);
+
+                    sockets.push(socket);
+
+                    return socket;
+                },
+            },
+        });
+
+        await h.init();
+        h.open();
+        h.controller.submitPrechat(FORM);
+        h.controller.chooseCategory('billing');
+        await until(() => h.state().phase === 'queued');
+        await h.controller.cancelQueued();
+        await until(() => sockets.length === 1);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        expect(h.state().phase).toBe('closed');
+        expect(sockets[0].closed).toBe(true);
+        expect(sockets[0].bindings).toBe(0);
+    });
+
+    it('a new chat started while the previous socket is still opening is not blocked by it', async () => {
+        const backend = useBackend();
+        const { FakeSocket } = await import('@/tests/embed-harness');
+        const sockets: InstanceType<typeof FakeSocket>[] = [];
+        let delay = 60;
+        const h = createHarness({
+            backend,
+            deps: {
+                socketFactory: async (input) => {
+                    await new Promise((resolve) => setTimeout(resolve, delay));
+
+                    const socket = new FakeSocket(input);
+
+                    sockets.push(socket);
+                    queueMicrotask(() => socket.setStatus('connected'));
+
+                    return socket;
+                },
+            },
+        });
+
+        await h.init();
+        h.open();
+        h.controller.submitPrechat(FORM);
+        h.controller.chooseCategory('billing');
+        await until(() => h.state().phase === 'queued');
+        await h.controller.cancelQueued();
+
+        delay = 1;
+        h.controller.newChat();
+        h.controller.submitPrechat(h.state().form);
+        h.controller.chooseCategory('billing');
+        await until(() => h.state().phase === 'queued');
+        await until(() => sockets.length === 2);
+        await new Promise((resolve) => setTimeout(resolve, 80));
+
+        // the stale socket was closed, the current one is live and bound
+        const live = sockets.filter((socket) => !socket.closed);
+
+        expect(live).toHaveLength(1);
+        expect(live[0].input.conversation).toBe(h.state().conversation?.ulid);
+        expect(live[0].listenersOn('message.created')).toBe(1);
+    });
+});
+
+describe('rotation and the websocket', () => {
+    it('a transient failure learning where Reverb lives (503 on the rotation) is retried, then the socket opens with the new token', async () => {
+        const backend = useBackend();
+        const stored = backend.issueToken();
+
+        backend.seedConversation(stored.token, 'active');
+        backend.fail('POST', '/sessions$', 503, undefined, 1);
+
+        const { makeInit } = await import('@/tests/embed-harness');
+        const h = createHarness({ backend, pollMs: 20 });
+
+        await h.init(makeInit({ visitorSession: stored }));
+
+        expect(h.state().phase).toBe('active');
+        expect(h.sockets).toHaveLength(0);
+        expect(h.sessions).toEqual([]);
+
+        await until(() => h.sockets.length === 1);
+
+        const rotated = backend.state.rotated.get(stored.token);
+
+        expect(rotated).toBeDefined();
+        expect(h.socket()?.input.token).toBe(rotated);
+        expect(h.sessions.at(-1)?.token).toBe(rotated);
+    });
+
+    it('a REST call that left with the token a rotation just replaced does not end the session', async () => {
+        const backend = useBackend();
+        const stored = backend.issueToken();
+
+        backend.seedConversation(stored.token, 'active');
+
+        const { makeInit } = await import('@/tests/embed-harness');
+        const h = createHarness({ backend, pollMs: 100_000 });
+
+        await h.init(makeInit({ visitorSession: stored }));
+        await until(() => h.sockets.length === 1);
+
+        backend.fail('GET', '/conversation$', 401, {
+            error: { code: 'session_revoked', message: 'Revoked.' },
+        });
+        await h.controller.syncConversation();
+
+        expect(h.state().phase).toBe('active');
+        expect(h.sessions.at(-1)).not.toBeNull();
+
+        // the same refusal later on is real
+        backend.fail('GET', '/conversation$', 401, {
+            error: { code: 'session_revoked', message: 'Revoked.' },
+        });
+        await h.controller.syncConversation();
+        expect(h.state().phase).toBe('closed');
+        expect(h.state().closedReason).toBe('expired');
     });
 });

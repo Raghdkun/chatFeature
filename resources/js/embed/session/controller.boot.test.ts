@@ -261,13 +261,124 @@ describe('resuming a stored session', () => {
         expect(backend.callsTo('GET', '/messages')[0].query.after_seq).toBe(
             '0',
         );
-        // ws came from the session endpoint with the stored bearer; the token itself did not change
+        // ws came from the session endpoint with the stored bearer, which the server ROTATED: the new token is the one in use
         expect(backend.callsTo('POST', '/sessions')[0].auth).toBe(
             `Bearer ${stored.token}`,
         );
-        expect(h.socket()?.input.token).toBe(stored.token);
+
+        const rotated = backend.state.rotated.get(stored.token);
+
+        expect(rotated).toBeDefined();
+        expect(rotated).not.toBe(stored.token);
+        expect(h.socket()?.input.token).toBe(rotated);
         expect(h.socket()?.input.ws).toEqual(backend.ws);
+        // and the loader is told to keep the new one
+        expect(h.sessions).toEqual([
+            { token: rotated, expiresAt: backend.state.tokens.get(rotated!) },
+        ]);
+    });
+
+    it('rotates the stored token before anything else is fetched with it: messages and the socket use the new token only', async () => {
+        const backend = useBackend();
+        const stored = backend.issueToken();
+
+        backend.seedConversation(stored.token, 'active');
+        backend.agentSays('Welcome back');
+
+        const h = createHarness({ backend });
+
+        await h.init(makeInit({ visitorSession: stored }));
+        await until(() => h.sockets.length === 1);
+
+        const rotated = backend.state.rotated.get(stored.token) as string;
+        const order = backend.calls.map(
+            (call) =>
+                `${call.method} ${call.path.replace(/\/01[A-Z0-9]+/, '')}`,
+        );
+
+        expect(order.slice(0, 3)).toEqual([
+            'GET /widgets/' + KEY + '/config',
+            'GET /conversation',
+            'POST /widgets/' + KEY + '/sessions',
+        ]);
+        expect(backend.state.revoked.has(stored.token)).toBe(true);
+        expect(backend.callsTo('GET', '/messages')[0].auth).toBe(
+            `Bearer ${rotated}`,
+        );
+        expect(h.state().messages.map((m) => m.body)).toEqual(['Welcome back']);
+
+        // no later call ever left with the revoked token
+        const after = backend.calls.slice(3).map((call) => call.auth);
+
+        expect(
+            after.filter((auth) => auth === `Bearer ${stored.token}`),
+        ).toEqual([]);
+        expect(h.state().phase).toBe('active');
+    });
+
+    it('does not rotate (or open a socket) for a chat that is not live: an ended chat waiting for a rating keeps its token', async () => {
+        const backend = useBackend();
+        const stored = backend.issueToken();
+
+        backend.seedConversation(stored.token, 'active');
+        backend.agentEnds(true);
+
+        const h = createHarness({ backend });
+
+        await h.init(makeInit({ visitorSession: stored }));
+
+        expect(h.state().phase).toBe('ended');
+        expect(backend.callsTo('POST', '/sessions')).toHaveLength(0);
         expect(h.sessions).toEqual([]);
+        expect(h.sockets).toHaveLength(0);
+    });
+
+    it('a rotation the server refuses (identity) keeps the held token and the chat runs on REST polling', async () => {
+        const backend = useBackend();
+        const stored = backend.issueToken();
+
+        backend.seedConversation(stored.token, 'active');
+
+        const h = createHarness({ backend });
+
+        await h.init(
+            makeInit({
+                visitorSession: stored,
+                identityToken: 'bad.jwt.token',
+            }),
+        );
+        await settle(60);
+
+        expect(h.state().phase).toBe('active');
+        expect(backend.callsTo('POST', '/sessions')).toHaveLength(1);
+        expect(backend.state.revoked.has(stored.token)).toBe(false);
+        expect(h.sockets).toHaveLength(0);
+        expect(h.sessions).toEqual([]);
+
+        // the polling fallback still works, with the token that is still valid
+        backend.agentSays('Hello over REST');
+        await until(() =>
+            h.state().messages.some((m) => m.body === 'Hello over REST'),
+        );
+    });
+
+    it('a stored session the server refuses at rotation (revoked meanwhile) starts fresh instead of looping', async () => {
+        const backend = useBackend();
+        const stored = backend.issueToken();
+
+        backend.seedConversation(stored.token, 'queued');
+        backend.fail('POST', '/sessions$', 401, {
+            error: { code: 'session_revoked', message: 'Revoked.' },
+        });
+
+        const h = createHarness({ backend });
+
+        await h.init(makeInit({ visitorSession: stored }));
+
+        expect(h.state().conversation).toBeNull();
+        expect(['prechat', 'category', 'idle']).toContain(h.state().phase);
+        expect(h.sessions).toEqual([null]);
+        expect(backend.callsTo('POST', '/sessions')).toHaveLength(1);
     });
 
     it('resumes an active chat with its transcript, and the queue clock follows the server', async () => {

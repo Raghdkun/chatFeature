@@ -69,7 +69,7 @@ describe('session', () => {
         });
     });
 
-    it('resumes a stored token: it goes along as the bearer and the open conversation comes back', async () => {
+    it('a returning token goes along as the bearer and is ROTATED: a new token comes back, the old one is revoked, the open chat moves over', async () => {
         const backend = useBackend();
         const stored = backend.issueToken();
         const open = backend.seedConversation(stored.token, 'active');
@@ -79,8 +79,44 @@ describe('session', () => {
         );
 
         expect(backend.calls[0].auth).toBe(`Bearer ${stored.token}`);
-        expect(session.visitorToken).toBe(stored.token);
+        expect(session.visitorToken).not.toBe(stored.token);
+        expect(backend.state.revoked.has(stored.token)).toBe(true);
         expect(session.conversation?.ulid).toBe(open.ulid);
+
+        // the old token is dead, the new one owns the chat
+        expect(
+            (await failure(client(stored.token).getConversation())).code,
+        ).toBe('session_revoked');
+        expect(
+            (await client(session.visitorToken).getConversation())?.ulid,
+        ).toBe(open.ulid);
+    });
+
+    it('`ws` is null when Reverb is not configured (the panel stays on REST polling)', async () => {
+        useBackend({ noWs: true });
+
+        const session = await client().createSession({
+            page: PAGE,
+            locale: 'en',
+        });
+
+        expect(session.ws).toBeNull();
+        expect(session.visitorToken).toMatch(/^vt_/);
+    });
+
+    it('a signed identity the server refuses is a 422 with details.identity_token (never retried by the client)', async () => {
+        const backend = useBackend();
+        const error = await failure(
+            client().createSession({
+                identity_token: 'bad.jwt',
+                page: PAGE,
+                locale: 'en',
+            }),
+        );
+
+        expect(error).toMatchObject({ status: 422, code: 'validation_failed' });
+        expect(error.isIdentityRejected).toBe(true);
+        expect(backend.callsTo('POST', '/sessions')).toHaveLength(1);
     });
 
     it('revokes the session with the bearer (204)', async () => {
@@ -91,7 +127,7 @@ describe('session', () => {
         expect(backend.state.revoked.has(token)).toBe(true);
     });
 
-    it('rejects a session response that lacks the token or the ws block', async () => {
+    it('rejects a session response that lacks the token', async () => {
         server.use(
             http.post(`${API}/widgets/:key/sessions`, () =>
                 HttpResponse.json(
@@ -468,6 +504,106 @@ describe('conversation endpoints', () => {
         ]);
         expect(backend.state.typing).toEqual([true]);
         expect(backend.state.ratings).toEqual([{ score: 4, comment: 'Kind' }]);
+    });
+
+    it('cancelling a queued chat is POST .../cancel (closed); an agent being first is 409 conversation_not_queued', async () => {
+        const backend = useBackend();
+        const { token } = backend.issueToken();
+        const api = client(token);
+        const conversation = await api.createConversation({
+            category: 'billing',
+        });
+        const cancelled = await api.cancelConversation(conversation.ulid);
+
+        expect(cancelled.status).toBe('closed');
+        expect(backend.callsTo('POST', '/cancel')).toHaveLength(1);
+
+        const second = await api.createConversation({ category: 'billing' });
+
+        backend.claim();
+        expect(
+            await failure(api.cancelConversation(second.ulid)),
+        ).toMatchObject({
+            status: 409,
+            code: 'conversation_not_queued',
+        });
+    });
+
+    it('ending a queued chat is refused (409 conversation_not_active): cancel is the call for that', async () => {
+        const { token } = useBackend().issueToken();
+        const api = client(token);
+        const conversation = await api.createConversation({
+            category: 'billing',
+        });
+
+        expect(
+            await failure(api.endConversation(conversation.ulid)),
+        ).toMatchObject({ status: 409, code: 'conversation_not_active' });
+    });
+
+    it('rating errors: before the end 409 conversation_not_ended, a second rating 409 already_rated', async () => {
+        const backend = useBackend();
+        const { token } = backend.issueToken();
+        const api = client(token);
+        const conversation = await api.createConversation({
+            category: 'billing',
+        });
+
+        backend.claim();
+        expect(
+            await failure(
+                api.rateConversation(conversation.ulid, { score: 5 }),
+            ),
+        ).toMatchObject({ status: 409, code: 'conversation_not_ended' });
+
+        await api.endConversation(conversation.ulid);
+        await api.rateConversation(conversation.ulid, { score: 5 });
+        expect(
+            await failure(
+                api.rateConversation(conversation.ulid, { score: 4 }),
+            ),
+        ).toMatchObject({ status: 409, code: 'already_rated' });
+    });
+
+    it('skipping the rating is POST .../rating/skip (closed); before the end it is 409 conversation_not_ended', async () => {
+        const backend = useBackend();
+        const { token } = backend.issueToken();
+        const api = client(token);
+        const conversation = await api.createConversation({
+            category: 'billing',
+        });
+
+        backend.claim();
+        expect(await failure(api.skipRating(conversation.ulid))).toMatchObject({
+            status: 409,
+            code: 'conversation_not_ended',
+        });
+
+        await api.endConversation(conversation.ulid);
+
+        const skipped = await api.skipRating(conversation.ulid);
+
+        expect(skipped.status).toBe('closed');
+        expect(backend.callsTo('POST', '/rating/skip')).toHaveLength(2);
+    });
+
+    it('feature_disabled (403) is its own typed error', async () => {
+        const backend = useBackend();
+        const { token } = backend.issueToken();
+
+        backend.fail('POST', '/offline-tickets$', 403, {
+            error: { code: 'feature_disabled', message: 'Switched off.' },
+        });
+
+        expect(
+            await failure(
+                client(token).createOfflineTicket({
+                    name: 'V',
+                    email: 'v@x.test',
+                    message: 'Hi',
+                }),
+            ),
+        ).toMatchObject({ status: 403, code: 'feature_disabled' });
     });
 
     it('creates an offline ticket', async () => {

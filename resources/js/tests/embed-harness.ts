@@ -34,12 +34,23 @@ import type {
 
 type Handler = (payload: unknown) => void;
 
+/**
+ * Echo's `EventFormatter`: a leading dot keeps the name as it is on the wire, anything else gets the `App\Events\` namespace.
+ * The fake applies it too, so a listener registered without the dot (the whisper `client-typing`) never hears the wire name.
+ */
+export function echoWireName(event: string): string {
+    return /^[.\\]/.test(event)
+        ? event.slice(1)
+        : `App\\Events\\${event.replace(/\./g, '\\')}`;
+}
+
 export class FakeSocket implements ConversationSocket {
+    /** Listeners by wire name. */
     handlers = new Map<string, Handler[]>();
     statusHandlers: ((status: SocketStatus) => void)[] = [];
-    subscribedHandler: (() => void) | null = null;
+    subscribedHandlers: (() => void)[] = [];
     /** The channel subscription failed with this HTTP status (401 / 403: session gone; 503: Reverb not configured). */
-    authErrorHandler: ((status: number) => void) | null = null;
+    errorHandlers: ((status: number) => void)[] = [];
     /** Do not confirm the channel subscription after `connected` (tests of a refused subscription). */
     holdSubscription = false;
     whispers: { event: string; payload: Record<string, unknown> }[] = [];
@@ -48,11 +59,38 @@ export class FakeSocket implements ConversationSocket {
 
     constructor(readonly input: SocketInput) {}
 
-    listen(event: string, handler: Handler): void {
-        this.handlers.set(event, [
-            ...(this.handlers.get(event) ?? []),
-            handler,
-        ]);
+    /** What is still bound: listeners, status, subscription and error callbacks (zero once the socket is closed properly). */
+    get bindings(): number {
+        let listeners = 0;
+
+        for (const list of this.handlers.values()) {
+            listeners += list.length;
+        }
+
+        return (
+            listeners +
+            this.statusHandlers.length +
+            this.subscribedHandlers.length +
+            this.errorHandlers.length
+        );
+    }
+
+    /** Number of listeners on a wire name (`message.created`, `client-typing`, `typing`...). */
+    listenersOn(wire: string): number {
+        return this.handlers.get(wire)?.length ?? 0;
+    }
+
+    listen(event: string, handler: Handler): () => void {
+        const wire = echoWireName(event);
+
+        this.handlers.set(wire, [...(this.handlers.get(wire) ?? []), handler]);
+
+        return () => {
+            this.handlers.set(
+                wire,
+                (this.handlers.get(wire) ?? []).filter((h) => h !== handler),
+            );
+        };
     }
 
     whisper(event: string, payload: Record<string, unknown>): void {
@@ -62,36 +100,66 @@ export class FakeSocket implements ConversationSocket {
     onStatus(handler: (status: SocketStatus) => void): () => void {
         this.statusHandlers.push(handler);
 
-        return () => undefined;
+        return () => {
+            this.statusHandlers = this.statusHandlers.filter(
+                (h) => h !== handler,
+            );
+        };
     }
 
     status(): SocketStatus {
         return this.current;
     }
 
-    onSubscribed(handler: () => void): void {
-        this.subscribedHandler = handler;
+    onSubscribed(handler: () => void): () => void {
+        this.subscribedHandlers.push(handler);
 
         // The fake connects before the manager has bound its handlers: confirm what it missed.
         if (this.current === 'connected' && !this.holdSubscription) {
-            queueMicrotask(() => handler());
+            queueMicrotask(() => {
+                if (this.subscribedHandlers.includes(handler)) {
+                    handler();
+                }
+            });
+        }
+
+        return () => {
+            this.subscribedHandlers = this.subscribedHandlers.filter(
+                (h) => h !== handler,
+            );
+        };
+    }
+
+    onSubscriptionError(handler: (status: number) => void): () => void {
+        this.errorHandlers.push(handler);
+
+        return () => {
+            this.errorHandlers = this.errorHandlers.filter(
+                (h) => h !== handler,
+            );
+        };
+    }
+
+    /** Close like the real socket: unbind everything, leave the channel, disconnect. */
+    close(): void {
+        this.closed = true;
+        this.handlers.clear();
+        this.statusHandlers = [];
+        this.subscribedHandlers = [];
+        this.errorHandlers = [];
+    }
+
+    /** Deliver a server event, named as on the wire (`message.created`, `chat.claimed`, `client-typing`, `typing`...). */
+    emit(event: string, payload: unknown): void {
+        for (const handler of this.handlers.get(event) ?? []) {
+            handler(payload);
         }
     }
 
-    onSubscriptionError(handler: (status: number) => void): void {
-        this.authErrorHandler = handler;
-    }
-
-    close(): void {
-        this.closed = true;
-    }
-
-    /** Deliver a server event, named as on the wire (`message.created`, `chat.claimed`, `client-typing`...). */
-    emit(event: string, payload: unknown): void {
-        const name = event.startsWith('client-') ? event : `.${event}`;
-
-        for (const handler of this.handlers.get(name) ?? []) {
-            handler(payload);
+    /** The channel auth endpoint refused (or failed) the subscription. */
+    failSubscription(status: number): void {
+        for (const handler of this.errorHandlers) {
+            handler(status);
         }
     }
 
@@ -104,13 +172,15 @@ export class FakeSocket implements ConversationSocket {
 
         // A real connection subscribes to the channel right after it is up (and again after every reconnect).
         if (status === 'connected' && !this.holdSubscription) {
-            this.subscribedHandler?.();
+            this.confirmSubscription();
         }
     }
 
     /** The channel subscription succeeded (after `holdSubscription`). */
     confirmSubscription(): void {
-        this.subscribedHandler?.();
+        for (const handler of this.subscribedHandlers) {
+            handler();
+        }
     }
 }
 

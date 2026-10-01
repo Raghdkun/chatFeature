@@ -41,7 +41,11 @@ describe('right-to-left', () => {
         const h = createHarness({ backend, builtin: loadBuiltin });
         const view = await renderPanel(h);
 
-        await run(() => h.init(makeInit({ boot: arabicBoot(), overrides: { locale: 'ar' } })));
+        await run(() =>
+            h.init(
+                makeInit({ boot: arabicBoot(), overrides: { locale: 'ar' } }),
+            ),
+        );
         await run(() => h.open());
 
         const root = byTestId(view.container, 'chat-panel') as HTMLElement;
@@ -54,13 +58,19 @@ describe('right-to-left', () => {
         // built-in chrome in Arabic
         expect(text(view.container)).toContain('اسمك');
         expect(text(view.container)).toContain('ابدأ المحادثة');
-        expect(view.container.querySelector('button[aria-label="إغلاق"]')).not.toBeNull();
+        expect(
+            view.container.querySelector('button[aria-label="إغلاق"]'),
+        ).not.toBeNull();
 
         await fill(view.container.querySelector('input[name="name"]'), 'ليلى');
         await click(view.container.querySelector('button[type="submit"]'));
 
         // the chevron of a topic card mirrors in right-to-left
-        expect(byTestId(view.container, 'category-option-billing')?.querySelector('svg.rtl\\:-scale-x-100')).not.toBeNull();
+        expect(
+            byTestId(view.container, 'category-option-billing')?.querySelector(
+                'svg.rtl\\:-scale-x-100',
+            ),
+        ).not.toBeNull();
     });
 
     it('English chrome stays left-to-right, and a locale without texts keeps the English direction', async () => {
@@ -69,7 +79,9 @@ describe('right-to-left', () => {
 
         await run(() => h.init(makeInit({ overrides: { locale: 'ar' } })));
 
-        expect(byTestId(view.container, 'chat-panel')?.getAttribute('dir')).toBe('ltr');
+        expect(
+            byTestId(view.container, 'chat-panel')?.getAttribute('dir'),
+        ).toBe('ltr');
     });
 
     it('formats the chat in the visitor locale: Arabic labels for time and day separators', async () => {
@@ -82,11 +94,30 @@ describe('right-to-left', () => {
         const h = createHarness({ backend, builtin: loadBuiltin });
         const view = await renderPanel(h);
 
-        await run(() => h.init(makeInit({ boot: arabicBoot(), overrides: { locale: 'ar' }, visitorSession: stored })));
+        await run(() =>
+            h.init(
+                makeInit({
+                    boot: arabicBoot(),
+                    overrides: { locale: 'ar' },
+                    visitorSession: stored,
+                }),
+            ),
+        );
         await run(() => h.open());
-        await waitFor(() => byTestId(view.container, 'message-list')?.textContent?.includes('مرحبا') === true);
+        await waitFor(
+            () =>
+                byTestId(view.container, 'message-list')?.textContent?.includes(
+                    'مرحبا',
+                ) === true,
+        );
 
-        expect(text(byTestId(view.container, 'message-list'))).not.toContain('Today');
-        expect(byTestId(view.container, 'composer-input')?.getAttribute('placeholder')).toBe('اكتب رسالتك…');
+        expect(text(byTestId(view.container, 'message-list'))).not.toContain(
+            'Today',
+        );
+        expect(
+            byTestId(view.container, 'composer-input')?.getAttribute(
+                'placeholder',
+            ),
+        ).toBe('اكتب رسالتك…');
     });
 });

@@ -196,6 +196,7 @@ describe('viewport', () => {
 
     it('reports changes (once per frame) and stops when disposed', () => {
         const listeners: Record<string, () => void> = {};
+        const removeFromWindow = vi.fn();
         const win = {
             innerWidth: 390,
             innerHeight: 800,
@@ -209,7 +210,7 @@ describe('viewport', () => {
                 removeEventListener: vi.fn(),
             },
             addEventListener: vi.fn(),
-            removeEventListener: vi.fn(),
+            removeEventListener: removeFromWindow,
             requestAnimationFrame: (f: () => void) => {
                 f();
 
@@ -225,6 +226,6 @@ describe('viewport', () => {
         expect(seen).toEqual([0, 320]);
 
         stop();
-        expect(win.removeEventListener).toHaveBeenCalled();
+        expect(removeFromWindow).toHaveBeenCalled();
     });
 });

@@ -3,21 +3,8 @@ import { fill } from '@/tests/dom';
 import { click } from '@/tests/render';
 import { bootConfig } from '@/tests/msw/chat-visitor';
 import { useBackend } from '@/tests/msw/server';
-import {
-    createHarness,
-    loaderBoot,
-    makeInit,
-    until,
-} from '@/tests/embed-harness';
-import {
-    flushUi,
-    press,
-    renderPanel,
-    run,
-    text,
-    waitFor,
-} from '@/tests/embed-render';
-import { makeAgentMessage } from '@/lib/chat/fixtures';
+import { createHarness, loaderBoot, makeInit } from '@/tests/embed-harness';
+import { press, renderPanel, run, text, waitFor } from '@/tests/embed-render';
 
 const byTestId = (root: ParentNode, id: string): HTMLElement | null =>
     root.querySelector<HTMLElement>(`[data-testid="${id}"]`);
@@ -83,13 +70,11 @@ describe('the visitor journey', () => {
         await waitFor(() => h.socket()?.status() === 'connected');
         backend.claim('Sam');
         await run(() =>
-            h
-                .socket()
-                ?.emit('chat.claimed', {
-                    v: 1,
-                    agent: { name: 'Sam', avatarUrl: null },
-                    claimedAt: 'x',
-                }),
+            h.socket()?.emit('chat.claimed', {
+                v: 1,
+                agent: { name: 'Sam', avatarUrl: null },
+                claimedAt: 'x',
+            }),
         );
         await waitFor(() => phase(c) === 'active');
         await waitFor(
@@ -121,12 +106,10 @@ describe('the visitor journey', () => {
         // an agent answers
         backend.agentSays('Hi Vera, how can I help?');
         await run(() =>
-            h
-                .socket()
-                ?.emit('message.created', {
-                    v: 1,
-                    message: backend.state.messages.at(-1),
-                }),
+            h.socket()?.emit('message.created', {
+                v: 1,
+                message: backend.state.messages.at(-1),
+            }),
         );
         expect(text(list)).toContain('Hi Vera, how can I help?');
 

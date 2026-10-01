@@ -16,7 +16,9 @@ async function violations(container: HTMLElement): Promise<string[]> {
         rules: { 'color-contrast': { enabled: false } },
     });
 
-    return results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.html).join(' | ')}`);
+    return results.violations.map(
+        (v) => `${v.id}: ${v.nodes.map((n) => n.html).join(' | ')}`,
+    );
 }
 
 const noForm = () => {
@@ -89,8 +91,25 @@ describe('accessibility (axe)', () => {
 
     it('welcome screen', async () => {
         const { c } = await render(
-            makeInit({ boot: loaderBoot({ config: { ...(noForm().config as object) }, categories: [{ slug: 'billing', label: 'Billing' }] }) }),
-            useBackend({ config: bootConfig({ categories: [{ slug: 'billing', label: 'Billing', description: null, icon: null, color: null }] }) }),
+            makeInit({
+                boot: loaderBoot({
+                    config: { ...(noForm().config as object) },
+                    categories: [{ slug: 'billing', label: 'Billing' }],
+                }),
+            }),
+            useBackend({
+                config: bootConfig({
+                    categories: [
+                        {
+                            slug: 'billing',
+                            label: 'Billing',
+                            description: null,
+                            icon: null,
+                            color: null,
+                        },
+                    ],
+                }),
+            }),
         );
 
         expect(byTestId(c, 'idle-start')).not.toBeNull();
@@ -116,15 +135,33 @@ describe('accessibility (axe)', () => {
         backend.agentSays('Hello there');
         backend.agentSays('A picture', {
             type: 'image',
-            attachments: [{ ulid: 'a1', mime: 'image/webp', size: 1, width: 10, height: 10, url: 'https://f.test/a.webp', thumbUrl: 'https://f.test/t.webp' }],
+            attachments: [
+                {
+                    ulid: 'a1',
+                    mime: 'image/webp',
+                    size: 1,
+                    width: 10,
+                    height: 10,
+                    url: 'https://f.test/a.webp',
+                    thumbUrl: 'https://f.test/t.webp',
+                },
+            ],
         });
 
-        const { h, c } = await render(makeInit({ visitorSession: stored }), backend);
+        const { h, c } = await render(
+            makeInit({ visitorSession: stored }),
+            backend,
+        );
 
         await waitFor(() => h.socket()?.status() === 'connected');
-        await run(() => h.socket()?.emit('client-typing', { actor: 'agent', typing: true }));
+        await run(() =>
+            h.socket()?.emit('client-typing', { actor: 'agent', typing: true }),
+        );
         await run(() => h.socket()?.setStatus('reconnecting'));
-        await fill(byTestId(c, 'composer-input') as HTMLTextAreaElement, 'A draft');
+        await fill(
+            byTestId(c, 'composer-input') as HTMLTextAreaElement,
+            'A draft',
+        );
 
         expect(await violations(c)).toEqual([]);
 
@@ -140,7 +177,10 @@ describe('accessibility (axe)', () => {
         backend.seedConversation(stored.token, 'active');
         backend.agentSays('Hi');
 
-        const { c } = await render(makeInit({ visitorSession: stored }), backend);
+        const { c } = await render(
+            makeInit({ visitorSession: stored }),
+            backend,
+        );
 
         await click(byTestId(c, 'end-chat'));
         expect(byTestId(c, 'end-chat-dialog')).not.toBeNull();
@@ -153,8 +193,17 @@ describe('accessibility (axe)', () => {
     });
 
     it('offline form (with errors) and the closed confirmation', async () => {
-        const closed = { online: false, openNow: false, nextOpenAt: '2026-11-23T09:00:00.000Z', categories: [], whatsapp: { enabled: false } };
-        const { c } = await render(makeInit({ boot: loaderBoot({ availability: closed }) }), useBackend({ availability: closed }));
+        const closed = {
+            online: false,
+            openNow: false,
+            nextOpenAt: '2026-11-23T09:00:00.000Z',
+            categories: [],
+            whatsapp: { enabled: false },
+        };
+        const { c } = await render(
+            makeInit({ boot: loaderBoot({ availability: closed }) }),
+            useBackend({ availability: closed }),
+        );
 
         expect(byTestId(c, 'offline-form')).not.toBeNull();
         expect(await violations(c)).toEqual([]);
@@ -179,7 +228,9 @@ describe('focus management', () => {
         await run(async () => {
             await new Promise((resolve) => requestAnimationFrame(resolve));
         });
-        expect(document.activeElement).toBe(c.querySelector('input[name="name"]'));
+        expect(document.activeElement).toBe(
+            c.querySelector('input[name="name"]'),
+        );
 
         await fill(c.querySelector('input[name="name"]'), 'Vera');
         await click(c.querySelector('button[type="submit"]'));
@@ -188,6 +239,8 @@ describe('focus management', () => {
         });
 
         expect(h.state().phase).toBe('category');
-        expect(document.activeElement).toBe(byTestId(c, 'category-option-billing'));
+        expect(document.activeElement).toBe(
+            byTestId(c, 'category-option-billing'),
+        );
     });
 });

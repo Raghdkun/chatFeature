@@ -36,7 +36,27 @@ describe('error mapping', () => {
         expect(toNotice(error(500, 'server_error'))).toEqual({
             code: 'generic',
         });
+        expect(toNotice(error(403, 'feature_disabled'))).toEqual({
+            code: 'feature_disabled',
+        });
         expect(toNotice(new Error('boom'))).toEqual({ code: 'generic' });
+    });
+
+    it('a signed identity the server refuses is its own notice, not a form field error', () => {
+        const refused = error(422, 'validation_failed', {
+            identity_token: ['The identity could not be verified.'],
+        });
+
+        expect(refused.isIdentityRejected).toBe(true);
+        expect(toNotice(refused)).toEqual({ code: 'identity' });
+        expect(toCreateFailure(refused)).toEqual({
+            kind: 'notice',
+            notice: { code: 'identity' },
+        });
+        expect(
+            error(422, 'validation_failed', { email: ['Bad'] })
+                .isIdentityRejected,
+        ).toBe(false);
     });
 
     it('flattens field errors (dotted names included), first message wins', () => {

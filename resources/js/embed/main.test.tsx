@@ -1,4 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import {
+    afterEach,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vite-plus/test';
 import { act } from 'react';
 import '@/tests/dom-polyfills';
 import { click } from '@/tests/render';
@@ -43,7 +50,9 @@ describe('standalone boot (hosted page)', () => {
         expect(document.documentElement.dataset.mode).toBe('hosted');
         expect(byTestId('chat-state')?.dataset.state).toBe('prechat');
         // no host: no close button
-        expect(document.querySelector('header button[aria-label="Close chat"]')).toBeNull();
+        expect(
+            document.querySelector('header button[aria-label="Close chat"]'),
+        ).toBeNull();
         expect(backend.callsTo('GET', '/config')).toHaveLength(1);
 
         await fill(document.querySelector('input[name="name"]'), 'Vera');
@@ -51,7 +60,9 @@ describe('standalone boot (hosted page)', () => {
         await click(byTestId('category-option-billing'));
         await waitFor(() => byTestId('chat-state')?.dataset.state === 'queued');
 
-        const stored = JSON.parse(window.localStorage.getItem(`chatfeature:${KEY}:session`) ?? 'null') as { token: string };
+        const stored = JSON.parse(
+            window.localStorage.getItem(`chatfeature:${KEY}:session`) ?? 'null',
+        ) as { token: string };
 
         expect(stored.token).toMatch(/^vt_/);
     });
@@ -61,7 +72,10 @@ describe('standalone boot (hosted page)', () => {
         const { token, expiresAt } = backend.issueToken();
 
         backend.seedConversation(token, 'queued');
-        window.localStorage.setItem(`chatfeature:${KEY}:session`, JSON.stringify({ token, expiresAt }));
+        window.localStorage.setItem(
+            `chatfeature:${KEY}:session`,
+            JSON.stringify({ token, expiresAt }),
+        );
         (window as unknown as { __PNE_EMBED__: unknown }).__PNE_EMBED__ = {
             key: KEY,
             appOrigin: 'https://chat.test',
@@ -81,7 +95,13 @@ describe('standalone boot (hosted page)', () => {
     });
 
     it('a widget that cannot be loaded shows the unavailable screen', async () => {
-        useBackend().fail('GET', '/config$', 404, { error: { code: 'widget_not_found', message: 'x' } }, 5);
+        useBackend().fail(
+            'GET',
+            '/config$',
+            404,
+            { error: { code: 'widget_not_found', message: 'x' } },
+            5,
+        );
         (window as unknown as { __PNE_EMBED__: unknown }).__PNE_EMBED__ = {
             key: KEY,
             appOrigin: 'https://chat.test',
@@ -93,11 +113,17 @@ describe('standalone boot (hosted page)', () => {
         await act(async () => {
             await import('@/embed/main');
         });
-        await waitFor(() => document.body.textContent?.includes('Chat is not available right now.') === true);
+        await waitFor(
+            () =>
+                document.body.textContent?.includes(
+                    'Chat is not available right now.',
+                ) === true,
+        );
     });
 
     it('does nothing without boot data', async () => {
-        (window as unknown as { __PNE_EMBED__?: unknown }).__PNE_EMBED__ = undefined;
+        (window as unknown as { __PNE_EMBED__?: unknown }).__PNE_EMBED__ =
+            undefined;
         await import('@/embed/main');
 
         expect(document.querySelector('[data-testid="chat-panel"]')).toBeNull();

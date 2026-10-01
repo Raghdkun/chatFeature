@@ -10,12 +10,17 @@ import { bootConfig } from '@/tests/msw/chat-visitor';
 
 const byTestId = (root: ParentNode, id: string): HTMLElement | null =>
     root.querySelector<HTMLElement>(`[data-testid="${id}"]`);
-const phase = (root: ParentNode): string | undefined => byTestId(root, 'chat-state')?.dataset.state;
+const phase = (root: ParentNode): string | undefined =>
+    byTestId(root, 'chat-state')?.dataset.state;
 
 function previewHarness() {
     const demo = createDemoBackend({ delay: 0.02 });
     const h = createHarness({
-        deps: { preview: true, createApi: () => demo.api, socketFactory: demo.socketFactory },
+        deps: {
+            preview: true,
+            createApi: () => demo.api,
+            socketFactory: demo.socketFactory,
+        },
     });
 
     return { demo, h };
@@ -42,13 +47,25 @@ describe('builder preview mode', () => {
         await waitFor(() => phase(c) === 'active', 4000);
         expect(text(c.querySelector('header h1'))).toBe('Alex (preview)');
 
-        await waitFor(() => text(byTestId(c, 'message-list')).includes('looking at a preview'), 4000);
+        await waitFor(
+            () =>
+                text(byTestId(c, 'message-list')).includes(
+                    'looking at a preview',
+                ),
+            4000,
+        );
 
         const input = byTestId(c, 'composer-input') as HTMLTextAreaElement;
 
         await fill(input, 'Hello demo');
         await press(input, 'Enter');
-        await waitFor(() => text(byTestId(c, 'message-list')).includes('Thanks for your message'), 4000);
+        await waitFor(
+            () =>
+                text(byTestId(c, 'message-list')).includes(
+                    'Thanks for your message',
+                ),
+            4000,
+        );
 
         await click(byTestId(c, 'end-chat'));
         await click(byTestId(c, 'end-chat-confirm'));
@@ -73,7 +90,18 @@ describe('builder preview mode', () => {
         const c = view.container;
         const base = bootConfig().config as { hours: object };
 
-        await run(() => h.init(makeInit({ boot: loaderBoot({ config: { ...base, hours: { ...base.hours, mode: 'always_offline' } } }) })));
+        await run(() =>
+            h.init(
+                makeInit({
+                    boot: loaderBoot({
+                        config: {
+                            ...base,
+                            hours: { ...base.hours, mode: 'always_offline' },
+                        },
+                    }),
+                }),
+            ),
+        );
         await run(() => h.open());
 
         expect(phase(c)).toBe('offline');
@@ -104,7 +132,16 @@ describe('builder preview mode', () => {
                 type: 'draft',
                 payload: {
                     config: {
-                        theme: { primary: '#ff0000', primaryText: '#ffffff', accent: '#f59e0b', surface: '#ffffff', text: '#0f172a', radius: 4, shadow: 'none', mode: 'light' },
+                        theme: {
+                            primary: '#ff0000',
+                            primaryText: '#ffffff',
+                            accent: '#f59e0b',
+                            surface: '#ffffff',
+                            text: '#0f172a',
+                            radius: 4,
+                            shadow: 'none',
+                            mode: 'light',
+                        },
                         texts: { en: { title: 'Draft title' } },
                         hours: { mode: 'always_offline' },
                     },
@@ -118,14 +155,31 @@ describe('builder preview mode', () => {
         expect(text(c.querySelector('header h1'))).toBe('Draft title');
         expect(phase(c)).toBe('offline');
 
-        await run(() => h.controller.handleHostMessage({ type: 'draft', payload: { config: { hours: { mode: 'always_online' } }, greetings: [] } }));
+        await run(() =>
+            h.controller.handleHostMessage({
+                type: 'draft',
+                payload: {
+                    config: { hours: { mode: 'always_online' } },
+                    greetings: [],
+                },
+            }),
+        );
         expect(phase(c)).toBe('prechat');
     });
 
     it('derives availability from the draft hours mode only', () => {
-        expect(previewAvailability({ hours: { mode: 'always_offline' } }, null)).toMatchObject({ online: false, openNow: false });
-        expect(previewAvailability({ hours: { mode: 'always_online' } }, null)).toMatchObject({ online: true, openNow: true });
-        expect(previewAvailability({ hours: { mode: 'always_online' } }, { hours: { mode: 'always_offline' } })).toMatchObject({ online: false });
+        expect(
+            previewAvailability({ hours: { mode: 'always_offline' } }, null),
+        ).toMatchObject({ online: false, openNow: false });
+        expect(
+            previewAvailability({ hours: { mode: 'always_online' } }, null),
+        ).toMatchObject({ online: true, openNow: true });
+        expect(
+            previewAvailability(
+                { hours: { mode: 'always_online' } },
+                { hours: { mode: 'always_offline' } },
+            ),
+        ).toMatchObject({ online: false });
         expect(previewAvailability(null, null)).toMatchObject({ online: true });
     });
 });

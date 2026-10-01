@@ -38,6 +38,8 @@ export type BackendOptions = {
     noAgents?: boolean;
     /** Sessions come back without a `ws` block (Reverb not configured on the server). */
     noWs?: boolean;
+    /** `POST /broadcasting/auth` answers `503 realtime_unavailable`. */
+    noRealtimeAuth?: boolean;
     /** Required fields of `POST /conversations` besides `category` (server-side pre-chat rules). */
     requireName?: boolean;
     requireEmail?: boolean;
@@ -202,6 +204,7 @@ export function createVisitorBackend(options: BackendOptions = {}) {
             (bootConfig().availability as Record<string, unknown>),
         noAgents: options.noAgents ?? false,
         wsEnabled: !(options.noWs ?? false),
+        realtimeAuth: !(options.noRealtimeAuth ?? false),
         requireName: options.requireName ?? false,
         requireEmail: options.requireEmail ?? false,
         /** token -> expiry; a token that is not here is unknown. */
@@ -219,6 +222,8 @@ export function createVisitorBackend(options: BackendOptions = {}) {
         attachments: new Map<string, AttachmentData>(),
         typing: [] as boolean[],
         sessionsCreated: 0,
+        /** Tokens the server rotated (a returning bearer on session creation): old token -> the one that replaced it. */
+        rotated: new Map<string, string>(),
         authorised: [] as string[],
     };
     const calls: RecordedCall[] = [];
@@ -392,7 +397,23 @@ export function createVisitorBackend(options: BackendOptions = {}) {
 
                 state.sessionsCreated += 1;
 
-                // A returning bearer resumes: same token, the open conversation, the ws block.
+                const identity = (call.body as { identity_token?: string })
+                    ?.identity_token;
+
+                if (identity !== undefined && identity.startsWith('bad')) {
+                    return err(
+                        422,
+                        'validation_failed',
+                        'The given data was invalid.',
+                        {
+                            identity_token: [
+                                'The identity could not be verified.',
+                            ],
+                        },
+                    );
+                }
+
+                // A returning bearer is ROTATED: a new token, the old one revoked, a still-open chat moves to the new session.
                 const returning = call.auth?.replace(/^Bearer /, '');
 
                 if (
@@ -400,15 +421,28 @@ export function createVisitorBackend(options: BackendOptions = {}) {
                     state.tokens.has(returning) &&
                     !state.revoked.has(returning)
                 ) {
+                    const next = token();
+                    const nextExpiry = new Date(
+                        Date.now() + 30 * 86_400_000,
+                    ).toISOString();
+                    const resumes = isOpen() && mine(returning);
+
+                    state.tokens.set(next, nextExpiry);
+                    state.revoked.add(returning);
+                    state.rotated.set(returning, next);
+
+                    if (resumes) {
+                        state.owner = next;
+                    }
+
                     return HttpResponse.json(
                         {
                             data: {
-                                visitorToken: returning,
-                                expiresAt: state.tokens.get(returning),
-                                conversation:
-                                    isOpen() && mine(returning)
-                                        ? state.conversation
-                                        : null,
+                                visitorToken: next,
+                                expiresAt: nextExpiry,
+                                conversation: resumes
+                                    ? state.conversation
+                                    : null,
                                 ws: state.wsEnabled ? ws : null,
                             },
                         },
@@ -802,13 +836,59 @@ export function createVisitorBackend(options: BackendOptions = {}) {
                     return err(409, 'conversation_not_active', 'Not active.');
                 }
 
-                // A visitor ending a queued chat cancels it; ending an active one asks for a rating.
-                const queued = current.status === 'queued';
+                // Only an active chat is ended (a queued one is cancelled: `POST .../cancel`).
+                if (current.status !== 'active') {
+                    return err(409, 'conversation_not_active', 'Not active.');
+                }
 
                 state.conversation = {
                     ...current,
-                    status: queued ? 'closed' : 'ended',
-                    ratingRequested: !queued,
+                    status: 'ended',
+                    ratingRequested: true,
+                    endedAt: new Date().toISOString(),
+                };
+
+                return HttpResponse.json({ data: state.conversation });
+            },
+        ),
+
+        http.post(
+            `${API}/conversations/:ulid/cancel`,
+            async ({ request, params }) => {
+                const call = await record(request);
+                const forced = injected(call);
+
+                if (forced !== null) {
+                    return forced;
+                }
+
+                const who = bearer(call);
+
+                if (typeof who !== 'string') {
+                    return who;
+                }
+
+                const current = state.conversation;
+
+                if (
+                    current === null ||
+                    current.ulid !== params.ulid ||
+                    !mine(who)
+                ) {
+                    return err(404, 'not_found', 'Not found.');
+                }
+
+                if (current.status !== 'queued') {
+                    return err(
+                        409,
+                        'conversation_not_queued',
+                        'An agent was first.',
+                    );
+                }
+
+                state.conversation = {
+                    ...current,
+                    status: 'closed',
                     endedAt: new Date().toISOString(),
                 };
 
@@ -834,12 +914,20 @@ export function createVisitorBackend(options: BackendOptions = {}) {
 
                 const rated = state.conversation;
 
-                if (
-                    rated === null ||
-                    rated.ulid !== params.ulid ||
-                    rated.status !== 'ended'
-                ) {
-                    return err(409, 'conversation_not_active', 'Not ratable.');
+                if (rated === null || rated.ulid !== params.ulid) {
+                    return err(404, 'not_found', 'Not found.');
+                }
+
+                if (state.ratings.length > 0) {
+                    return err(409, 'already_rated', 'Already rated.');
+                }
+
+                if (rated.status !== 'ended') {
+                    return err(
+                        409,
+                        'conversation_not_ended',
+                        'The chat has not ended.',
+                    );
                 }
 
                 const body = call.body as { score: number; comment?: string };
@@ -860,12 +948,60 @@ export function createVisitorBackend(options: BackendOptions = {}) {
             },
         ),
 
+        http.post(
+            `${API}/conversations/:ulid/rating/skip`,
+            async ({ request, params }) => {
+                const call = await record(request);
+                const forced = injected(call);
+
+                if (forced !== null) {
+                    return forced;
+                }
+
+                const who = bearer(call);
+
+                if (typeof who !== 'string') {
+                    return who;
+                }
+
+                const current = state.conversation;
+
+                if (
+                    current === null ||
+                    current.ulid !== params.ulid ||
+                    !mine(who)
+                ) {
+                    return err(404, 'not_found', 'Not found.');
+                }
+
+                if (current.status !== 'ended') {
+                    return err(
+                        409,
+                        'conversation_not_ended',
+                        'The chat has not ended.',
+                    );
+                }
+
+                state.conversation = { ...current, status: 'closed' };
+
+                return HttpResponse.json({ data: state.conversation });
+            },
+        ),
+
         http.post(`${API}/broadcasting/auth`, async ({ request }) => {
             const call = await record(request);
             const who = bearer(call);
 
             if (typeof who !== 'string') {
                 return who;
+            }
+
+            if (!state.realtimeAuth) {
+                return err(
+                    503,
+                    'realtime_unavailable',
+                    'Live updates are not available right now.',
+                );
             }
 
             const body = call.body as { channel_name?: string };

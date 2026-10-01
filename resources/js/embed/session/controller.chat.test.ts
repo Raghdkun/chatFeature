@@ -322,6 +322,48 @@ describe('starting a chat', () => {
         await until(() => h.state().phase === 'queued');
     });
 
+    it('a signed identity the server refuses (422 identity_token) shows one clear notice and is not retried', async () => {
+        const backend = useBackend();
+        const h = createHarness({ backend });
+
+        await h.init(makeInit({ identityToken: 'bad.jwt.token' }));
+        h.open();
+        h.controller.submitPrechat(FORM);
+        h.controller.chooseCategory('billing');
+        await until(() => h.state().notice !== null);
+
+        expect(h.state().notice).toEqual({ code: 'identity' });
+        expect(h.state().phase).not.toBe('queued');
+        expect(h.state().fieldErrors).toEqual({});
+        await settle(60);
+        expect(backend.callsTo('POST', '/sessions')).toHaveLength(1);
+        expect(backend.callsTo('POST', '/conversations')).toHaveLength(0);
+    });
+
+    it('a 429 with Retry-After on the session is not retried behind the visitor back: the notice says how long to wait', async () => {
+        const backend = useBackend();
+
+        backend.fail(
+            'POST',
+            '/sessions$',
+            429,
+            { error: { code: 'rate_limited', message: 'Slow down.' } },
+            1,
+            { 'Retry-After': '12' },
+        );
+
+        const h = createHarness({ backend });
+
+        await h.init();
+        h.open();
+        h.controller.submitPrechat(FORM);
+        h.controller.chooseCategory('billing');
+        await until(() => h.state().notice !== null);
+
+        expect(h.state().notice).toEqual({ code: 'rate_limited', seconds: 12 });
+        expect(backend.callsTo('POST', '/sessions')).toHaveLength(1);
+    });
+
     it('an expired token mid-start gets a fresh session and the start is retried once', async () => {
         const backend = useBackend();
         const stored = backend.issueToken();
@@ -407,7 +449,7 @@ describe('queued', () => {
         expect(h.state().offline.ticket?.type).toBe('offline');
     });
 
-    it('cancel closes the chat (the server cancels a queued chat on end)', async () => {
+    it('cancel closes the chat through POST .../cancel (ending a queued chat is a 409)', async () => {
         const backend = useBackend();
         const h = createHarness({ backend });
 
@@ -418,9 +460,23 @@ describe('queued', () => {
             phase: 'closed',
             closedReason: 'cancelled',
         });
-        expect(backend.callsTo('POST', '/end')).toHaveLength(1);
+        expect(backend.callsTo('POST', '/cancel')).toHaveLength(1);
+        expect(backend.callsTo('POST', '/end')).toHaveLength(0);
         expect(h.sockets.at(-1)?.closed).toBe(true);
         expect(h.events()).toContain('chat-ended');
+    });
+
+    it('cancel that loses the race to an agent (409 conversation_not_queued) shows the chat the server has', async () => {
+        const backend = useBackend();
+        const h = createHarness({ backend });
+
+        await queue(h);
+        backend.claim('Sam');
+        await h.controller.cancelQueued();
+
+        expect(backend.callsTo('POST', '/cancel')).toHaveLength(1);
+        await until(() => h.state().phase === 'active');
+        expect(h.state().conversation?.agent?.name).toBe('Sam');
     });
 
     it('a transfer sends an active chat back to the queue and the next claim resumes it', async () => {
@@ -428,7 +484,11 @@ describe('queued', () => {
 
         await activate(h);
         // the server re-queues the chat (and the watchdog poll must agree with the event)
-        h.backend.state.conversation = { ...(h.backend.state.conversation as object), status: 'queued', agent: null } as never;
+        h.backend.state.conversation = {
+            ...(h.backend.state.conversation as object),
+            status: 'queued',
+            agent: null,
+        } as never;
         h.socket()?.emit('conversation.transferred', { v: 1 });
         expect(h.state()).toMatchObject({ phase: 'queued', transferred: true });
         expect(h.state().messages).toHaveLength(1);
@@ -806,7 +866,7 @@ describe('ending', () => {
         );
     });
 
-    it('skipping the rating closes locally without calling the server', async () => {
+    it('skipping the rating closes at once and tells the server (POST .../rating/skip), without sending a rating', async () => {
         const backend = useBackend();
         const h = createHarness({ backend });
 
@@ -818,7 +878,47 @@ describe('ending', () => {
             phase: 'closed',
             closedReason: 'skipped',
         });
+        await until(() => backend.callsTo('POST', '/rating/skip').length === 1);
         expect(backend.callsTo('POST', '/rating')).toHaveLength(0);
+        expect(backend.state.conversation?.status).toBe('closed');
+    });
+
+    it('a skip the server cannot take (409 conversation_not_ended, 500, offline) still leaves the rating screen', async () => {
+        for (const [status, code] of [
+            [409, 'conversation_not_ended'],
+            [500, 'server_error'],
+        ] as const) {
+            const backend = useBackend();
+            const h = createHarness({ backend });
+
+            await activate(h);
+            await h.controller.endChat();
+            backend.fail('POST', '/rating/skip$', status, {
+                error: { code, message: 'x' },
+            });
+            h.controller.skipRating();
+
+            expect(h.state()).toMatchObject({
+                phase: 'closed',
+                closedReason: 'skipped',
+            });
+            await until(
+                () => backend.callsTo('POST', '/rating/skip').length === 1,
+            );
+            await settle(20);
+            expect(h.state().phase).toBe('closed');
+        }
+    });
+
+    it('skip does nothing outside the rating screen', async () => {
+        const backend = useBackend();
+        const h = createHarness({ backend });
+
+        await activate(h);
+        h.controller.skipRating();
+
+        expect(h.state().phase).toBe('active');
+        expect(backend.callsTo('POST', '/rating/skip')).toHaveLength(0);
     });
 
     it('the agent ends the chat: rating screen with the transcript, no more socket', async () => {
@@ -961,6 +1061,36 @@ describe('ending', () => {
 
         expect(backend.callsTo('POST', '/conversations')).toHaveLength(2);
         expect(makeMessage().seq).toBeGreaterThan(0);
+    });
+});
+
+describe('offline form: refusals', () => {
+    it('403 feature_disabled (the offline form is off server-side) says so and keeps the form', async () => {
+        const backend = useBackend({ noAgents: true });
+        const h = createHarness({ backend });
+
+        await h.init();
+        h.open();
+        h.controller.submitPrechat(FORM);
+        h.controller.chooseCategory('billing');
+        await until(() => h.state().phase === 'offline');
+
+        backend.fail('POST', '/offline-tickets$', 403, {
+            error: { code: 'feature_disabled', message: 'Switched off.' },
+        });
+        await h.controller.submitOffline({
+            name: 'Vera',
+            email: 'vera@x.test',
+            message: 'Call me',
+            category: 'billing',
+        });
+
+        expect(h.state()).toMatchObject({
+            phase: 'offline',
+            busy: null,
+            notice: { code: 'feature_disabled' },
+        });
+        expect(backend.state.tickets).toHaveLength(0);
     });
 });
 

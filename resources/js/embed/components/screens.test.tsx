@@ -4,18 +4,31 @@ import { fill, choose } from '@/tests/dom';
 import { click } from '@/tests/render';
 import { bootConfig } from '@/tests/msw/chat-visitor';
 import { useBackend } from '@/tests/msw/server';
-import { createHarness, loaderBoot, makeInit, type Harness } from '@/tests/embed-harness';
+import {
+    createHarness,
+    loaderBoot,
+    makeInit,
+    type Harness,
+} from '@/tests/embed-harness';
 import { renderPanel, run, text, waitFor } from '@/tests/embed-render';
 
 const byTestId = (root: ParentNode, id: string): HTMLElement | null =>
     root.querySelector<HTMLElement>(`[data-testid="${id}"]`);
-const phase = (root: ParentNode): string | undefined => byTestId(root, 'chat-state')?.dataset.state;
+const phase = (root: ParentNode): string | undefined =>
+    byTestId(root, 'chat-state')?.dataset.state;
 const submitButton = (root: ParentNode, formId: string): HTMLElement | null =>
-    byTestId(root, formId)?.querySelector<HTMLElement>('button[type="submit"]') ?? null;
+    byTestId(root, formId)?.querySelector<HTMLElement>(
+        'button[type="submit"]',
+    ) ?? null;
 
-type PreChat = { fields: Record<string, { enabled: boolean; required: boolean }>; consentText: string | null };
+type PreChat = {
+    fields: Record<string, { enabled: boolean; required: boolean }>;
+    consentText: string | null;
+};
 
-const preChat = (patch: Partial<PreChat> & { fields?: PreChat['fields'] } = {}): PreChat => ({
+const preChat = (
+    patch: Partial<PreChat> & { fields?: PreChat['fields'] } = {},
+): PreChat => ({
     fields: {
         name: { enabled: true, required: true },
         email: { enabled: true, required: false },
@@ -25,13 +38,22 @@ const preChat = (patch: Partial<PreChat> & { fields?: PreChat['fields'] } = {}):
     consentText: patch.consentText ?? null,
 });
 
-function bootWith(patch: { preChat?: PreChat; features?: Record<string, boolean>; texts?: unknown; availability?: unknown; categories?: unknown; defaultLocale?: string }) {
+function bootWith(patch: {
+    preChat?: PreChat;
+    features?: Record<string, boolean>;
+    texts?: unknown;
+    availability?: unknown;
+    categories?: unknown;
+    defaultLocale?: string;
+}) {
     const base = bootConfig().config as { features: object; texts: object };
 
     return loaderBoot({
         config: {
             ...base,
-            ...(patch.defaultLocale ? { defaultLocale: patch.defaultLocale } : {}),
+            ...(patch.defaultLocale
+                ? { defaultLocale: patch.defaultLocale }
+                : {}),
             features: { ...base.features, ...patch.features },
             ...(patch.preChat ? { preChat: patch.preChat } : {}),
             ...(patch.texts ? { texts: patch.texts } : {}),
@@ -41,7 +63,11 @@ function bootWith(patch: { preChat?: PreChat; features?: Record<string, boolean>
     });
 }
 
-async function panel(init: ReturnType<typeof makeInit>, backend = useBackend(), open = true) {
+async function panel(
+    init: ReturnType<typeof makeInit>,
+    backend = useBackend(),
+    open = true,
+) {
     const h: Harness = createHarness({ backend });
     const view = await renderPanel(h);
 
@@ -58,31 +84,72 @@ afterEach(() => vi.useRealTimers());
 
 describe('pre-chat screen', () => {
     it('shows the enabled fields, marks optional ones, and wires labels, types and autofill hints', async () => {
-        const { c } = await panel(makeInit({ boot: bootWith({ preChat: preChat({ fields: { phone: { enabled: true, required: false } } }) }) }));
-        const label = (name: string) => c.querySelector(`label[for="${c.querySelector<HTMLElement>(`input[name="${name}"]`)?.id}"]`);
+        const { c } = await panel(
+            makeInit({
+                boot: bootWith({
+                    preChat: preChat({
+                        fields: { phone: { enabled: true, required: false } },
+                    }),
+                }),
+            }),
+        );
+        const label = (name: string) =>
+            c.querySelector(
+                `label[for="${c.querySelector<HTMLElement>(`input[name="${name}"]`)?.id}"]`,
+            );
 
         expect(text(label('name'))).toBe('Your name');
         expect(text(label('email'))).toBe('Email (optional)');
         expect(text(label('phone'))).toBe('Phone (optional)');
-        expect(c.querySelector('input[name="name"]')?.getAttribute('autocomplete')).toBe('name');
-        expect(c.querySelector('input[name="email"]')?.getAttribute('type')).toBe('email');
-        expect(c.querySelector('input[name="phone"]')?.getAttribute('type')).toBe('tel');
-        expect(c.querySelector('input[name="name"]')?.hasAttribute('required')).toBe(true);
-        expect(c.querySelector('input[name="email"]')?.hasAttribute('required')).toBe(false);
+        expect(
+            c.querySelector('input[name="name"]')?.getAttribute('autocomplete'),
+        ).toBe('name');
+        expect(
+            c.querySelector('input[name="email"]')?.getAttribute('type'),
+        ).toBe('email');
+        expect(
+            c.querySelector('input[name="phone"]')?.getAttribute('type'),
+        ).toBe('tel');
+        expect(
+            c.querySelector('input[name="name"]')?.hasAttribute('required'),
+        ).toBe(true);
+        expect(
+            c.querySelector('input[name="email"]')?.hasAttribute('required'),
+        ).toBe(false);
         expect(c.querySelector('input[name="consent"]')).toBeNull();
     });
 
     it('hides disabled fields completely', async () => {
-        const { c } = await panel(makeInit({ boot: bootWith({ preChat: preChat({ fields: { email: { enabled: false, required: false } } }) }) }));
+        const { c } = await panel(
+            makeInit({
+                boot: bootWith({
+                    preChat: preChat({
+                        fields: { email: { enabled: false, required: false } },
+                    }),
+                }),
+            }),
+        );
 
         expect(c.querySelector('input[name="email"]')).toBeNull();
         expect(c.querySelector('input[name="phone"]')).toBeNull();
     });
 
     it('validates on submit, focuses the first invalid field, and clears an error as soon as it is edited', async () => {
-        const { h, c } = await panel(makeInit({ boot: bootWith({ preChat: preChat({ fields: { email: { enabled: true, required: true } } }) }) }));
-        const name = c.querySelector<HTMLInputElement>('input[name="name"]') as HTMLInputElement;
-        const email = c.querySelector<HTMLInputElement>('input[name="email"]') as HTMLInputElement;
+        const { h, c } = await panel(
+            makeInit({
+                boot: bootWith({
+                    preChat: preChat({
+                        fields: { email: { enabled: true, required: true } },
+                    }),
+                }),
+            }),
+        );
+        const name = c.querySelector<HTMLInputElement>(
+            'input[name="name"]',
+        ) as HTMLInputElement;
+        const email = c.querySelector<HTMLInputElement>(
+            'input[name="email"]',
+        ) as HTMLInputElement;
 
         await click(submitButton(c, 'prechat-form'));
         await act(async () => {
@@ -99,7 +166,13 @@ describe('pre-chat screen', () => {
 
         await fill(email, 'not-an-email');
         await click(submitButton(c, 'prechat-form'));
-        expect(text(document.getElementById(email.getAttribute('aria-describedby') ?? ''))).toBe('Enter a valid email address.');
+        expect(
+            text(
+                document.getElementById(
+                    email.getAttribute('aria-describedby') ?? '',
+                ),
+            ),
+        ).toBe('Enter a valid email address.');
 
         await fill(email, 'vera@x.test');
         await click(submitButton(c, 'prechat-form'));
@@ -107,10 +180,22 @@ describe('pre-chat screen', () => {
     });
 
     it('a consent checkbox gates the form until it is ticked', async () => {
-        const { h, c } = await panel(makeInit({ boot: bootWith({ preChat: preChat({ consentText: 'I agree to the privacy policy.' }) }) }));
-        const consent = c.querySelector<HTMLInputElement>('input[name="consent"]') as HTMLInputElement;
+        const { h, c } = await panel(
+            makeInit({
+                boot: bootWith({
+                    preChat: preChat({
+                        consentText: 'I agree to the privacy policy.',
+                    }),
+                }),
+            }),
+        );
+        const consent = c.querySelector<HTMLInputElement>(
+            'input[name="consent"]',
+        ) as HTMLInputElement;
 
-        expect(text(consent.closest('label'))).toBe('I agree to the privacy policy.');
+        expect(text(consent.closest('label'))).toBe(
+            'I agree to the privacy policy.',
+        );
 
         await fill(c.querySelector('input[name="name"]'), 'Vera');
         await click(submitButton(c, 'prechat-form'));
@@ -126,9 +211,14 @@ describe('pre-chat screen', () => {
 
     it('shows prefilled values and server-side field errors, which disappear once the field is edited', async () => {
         const backend = useBackend({ requireEmail: true });
-        const { h, c } = await panel(makeInit({ visitor: { name: 'Prefilled' } }), backend);
+        const { h, c } = await panel(
+            makeInit({ visitor: { name: 'Prefilled' } }),
+            backend,
+        );
 
-        expect(c.querySelector<HTMLInputElement>('input[name="name"]')?.value).toBe('Prefilled');
+        expect(
+            c.querySelector<HTMLInputElement>('input[name="name"]')?.value,
+        ).toBe('Prefilled');
 
         await click(submitButton(c, 'prechat-form'));
         await click(byTestId(c, 'category-option-billing'));
@@ -143,7 +233,15 @@ describe('pre-chat screen', () => {
 });
 
 describe('category screen', () => {
-    const noForm = () => bootWith({ preChat: preChat({ fields: { name: { enabled: false, required: false }, email: { enabled: false, required: false } } }) });
+    const noForm = () =>
+        bootWith({
+            preChat: preChat({
+                fields: {
+                    name: { enabled: false, required: false },
+                    email: { enabled: false, required: false },
+                },
+            }),
+        });
 
     it('lists the topics as cards with their name, description and icon, and starts the chat on a click', async () => {
         const { h, c } = await panel(makeInit({ boot: noForm() }));
@@ -174,21 +272,36 @@ describe('category screen', () => {
             ],
             whatsapp: { enabled: false },
         };
-        const { c, h } = await panel(makeInit({ boot: noForm() }), useBackend({ availability }));
+        const { c, h } = await panel(
+            makeInit({ boot: noForm() }),
+            useBackend({ availability }),
+        );
 
-        expect(text(byTestId(c, 'category-option-billing'))).toContain('Offline: leave a message');
+        expect(text(byTestId(c, 'category-option-billing'))).toContain(
+            'Offline: leave a message',
+        );
         expect(text(byTestId(c, 'category-option-tech'))).toContain('Online');
 
         await click(byTestId(c, 'category-option-billing'));
         expect(phase(c)).toBe('offline');
         expect(h.state().category).toBe('billing');
-        expect((c.querySelector('select[name="category"]') as HTMLSelectElement).value).toBe('billing');
+        expect(
+            (c.querySelector('select[name="category"]') as HTMLSelectElement)
+                .value,
+        ).toBe('billing');
     });
 
     it('has a Back button after the form, and a rate limit shows a banner without leaving the screen', async () => {
         const backend = useBackend();
 
-        backend.fail('POST', '/conversations$', 429, { error: { code: 'rate_limited', message: 'x' } }, 1, { 'Retry-After': '7' });
+        backend.fail(
+            'POST',
+            '/conversations$',
+            429,
+            { error: { code: 'rate_limited', message: 'x' } },
+            1,
+            { 'Retry-After': '7' },
+        );
 
         const { c } = await panel(makeInit(), backend);
 
@@ -197,10 +310,16 @@ describe('category screen', () => {
         await click(byTestId(c, 'category-option-billing'));
         await waitFor(() => c.querySelector('[role="alert"]') !== null);
 
-        expect(text(c.querySelector('[role="alert"]'))).toBe('Too many attempts. Try again in 7 seconds.');
+        expect(text(c.querySelector('[role="alert"]'))).toBe(
+            'Too many attempts. Try again in 7 seconds.',
+        );
         expect(phase(c)).toBe('category');
 
-        await click(Array.from(c.querySelectorAll('button')).find((b) => b.textContent === 'Back') ?? null);
+        await click(
+            Array.from(c.querySelectorAll('button')).find(
+                (b) => b.textContent === 'Back',
+            ) ?? null,
+        );
         expect(phase(c)).toBe('prechat');
     });
 });
@@ -220,14 +339,17 @@ describe('queued screen', () => {
 
         expect(phase(c)).toBe('queued');
         expect(text(c)).toContain('Connecting you to an agent…');
-        expect(byTestId(c, 'queued-timer')?.textContent).toMatch(/^Waiting [0-3]:\d\d$/);
+        expect(byTestId(c, 'queued-timer')?.textContent).toMatch(
+            /^Waiting [0-3]:\d\d$/,
+        );
         expect(text(c)).toContain('Keep this window open');
 
         await click(byTestId(c, 'queued-cancel'));
         await waitFor(() => phase(c) === 'closed');
 
         expect(h.state().closedReason).toBe('cancelled');
-        expect(backend.callsTo('POST', '/end')).toHaveLength(1);
+        expect(backend.callsTo('POST', '/cancel')).toHaveLength(1);
+        expect(backend.callsTo('POST', '/end')).toHaveLength(0);
         expect(text(c)).toContain('You cancelled the chat.');
     });
 
@@ -242,7 +364,9 @@ describe('queued screen', () => {
                 await vi.advanceTimersByTimeAsync(5000);
             });
             expect(byTestId(c, 'queued-timer')?.textContent).not.toBe(before);
-            expect(byTestId(c, 'queued-timer')?.textContent).toMatch(/Waiting \d:\d\d/);
+            expect(byTestId(c, 'queued-timer')?.textContent).toMatch(
+                /Waiting \d:\d\d/,
+            );
         } finally {
             vi.useRealTimers();
         }
@@ -253,10 +377,20 @@ describe('queued screen', () => {
 
         await waitFor(() => h.socket()?.status() === 'connected');
         h.backend.claim('Sam');
-        await run(() => h.socket()?.emit('chat.claimed', { v: 1, agent: { name: 'Sam', avatarUrl: null }, claimedAt: 'x' }));
+        await run(() =>
+            h.socket()?.emit('chat.claimed', {
+                v: 1,
+                agent: { name: 'Sam', avatarUrl: null },
+                claimedAt: 'x',
+            }),
+        );
         await waitFor(() => phase(c) === 'active');
         // the server re-queues the chat (and the watchdog poll must agree with the event)
-        h.backend.state.conversation = { ...(h.backend.state.conversation as object), status: 'queued', agent: null } as never;
+        h.backend.state.conversation = {
+            ...(h.backend.state.conversation as object),
+            status: 'queued',
+            agent: null,
+        } as never;
         await run(() => h.socket()?.emit('conversation.transferred', { v: 1 }));
 
         expect(phase(c)).toBe('queued');
@@ -272,11 +406,15 @@ describe('offline screen', () => {
         categories: [],
         whatsapp: { enabled: false },
     };
-    const offline = (extra: Record<string, unknown> = {}) => bootWith({ availability: closed, ...extra });
+    const offline = (extra: Record<string, unknown> = {}) =>
+        bootWith({ availability: closed, ...extra });
     const closedBackend = () => useBackend({ availability: closed });
 
     it('explains why (reopening time) and offers the form with every required field', async () => {
-        const { c } = await panel(makeInit({ boot: offline() }), closedBackend());
+        const { c } = await panel(
+            makeInit({ boot: offline() }),
+            closedBackend(),
+        );
 
         expect(phase(c)).toBe('offline');
         expect(text(c.querySelector('h2'))).toBe('Leave us a message');
@@ -287,7 +425,10 @@ describe('offline screen', () => {
     });
 
     it('validates, then sends the ticket and confirms with the ticket number and the email', async () => {
-        const { c, backend } = await panel(makeInit({ boot: offline() }), closedBackend());
+        const { c, backend } = await panel(
+            makeInit({ boot: offline() }),
+            closedBackend(),
+        );
 
         await click(submitButton(c, 'offline-form'));
         expect(c.querySelectorAll('[aria-invalid="true"]').length).toBe(4);
@@ -296,7 +437,10 @@ describe('offline screen', () => {
         await fill(c.querySelector('input[name="name"]'), 'Vera');
         await fill(c.querySelector('input[name="email"]'), 'vera@x.test');
         await choose(c.querySelector('select[name="category"]'), 'billing');
-        await fill(c.querySelector('textarea[name="message"]'), 'Please call me back');
+        await fill(
+            c.querySelector('textarea[name="message"]'),
+            'Please call me back',
+        );
         await click(submitButton(c, 'offline-form'));
         await waitFor(() => phase(c) === 'closed');
 
@@ -307,7 +451,9 @@ describe('offline screen', () => {
             category: 'billing',
         });
         expect(text(c)).toContain('Message sent');
-        expect(text(c)).toContain("We'll reply to vera@x.test. Your ticket number is T1CKET.");
+        expect(text(c)).toContain(
+            "We'll reply to vera@x.test. Your ticket number is T1CKET.",
+        );
     });
 
     it('a missed queue says nobody was free', async () => {
@@ -316,7 +462,10 @@ describe('offline screen', () => {
 
         backend.seedConversation(stored.token, 'queued');
 
-        const { c } = await panel(makeInit({ visitorSession: stored }), backend);
+        const { c } = await panel(
+            makeInit({ visitorSession: stored }),
+            backend,
+        );
 
         backend.miss();
         await waitFor(() => phase(c) === 'offline', 5000);
@@ -325,10 +474,15 @@ describe('offline screen', () => {
     });
 
     it('with the offline form switched off it only says nobody is available', async () => {
-        const { c } = await panel(makeInit({ boot: offline({ features: { offlineForm: false } }) }), closedBackend());
+        const { c } = await panel(
+            makeInit({ boot: offline({ features: { offlineForm: false } }) }),
+            closedBackend(),
+        );
 
         expect(phase(c)).toBe('offline');
-        expect(text(c.querySelector('h2'))).toBe('No agent is available right now.');
+        expect(text(c.querySelector('h2'))).toBe(
+            'No agent is available right now.',
+        );
         expect(byTestId(c, 'offline-form')).toBeNull();
     });
 });
@@ -344,16 +498,26 @@ describe('closed screen and boot screen', () => {
 
         backend.seedConversation(stored.token, 'active');
 
-        const { c, h } = await panel(makeInit({ visitorSession: stored }), backend);
+        const { c, h } = await panel(
+            makeInit({ visitorSession: stored }),
+            backend,
+        );
 
         await waitFor(() => h.socket()?.status() === 'connected');
         await run(() => {
             if (reason === 'idle') {
-                h.socket()?.emit('conversation.closed', { v: 1, reason: 'idle' });
+                h.socket()?.emit('conversation.closed', {
+                    v: 1,
+                    reason: 'idle',
+                });
             } else if (reason === 'ended') {
-                h.socket()?.emit('conversation.ended', { v: 1, endedBy: 'agent', ratingRequested: false });
+                h.socket()?.emit('conversation.ended', {
+                    v: 1,
+                    endedBy: 'agent',
+                    ratingRequested: false,
+                });
             } else {
-                h.socket()?.authErrorHandler?.(401);
+                h.socket()?.failSubscription(401);
             }
         });
 
@@ -367,10 +531,14 @@ describe('closed screen and boot screen', () => {
         const view = await renderPanel(h);
 
         expect(phase(view.container)).toBe('booting');
-        expect(view.container.querySelector('[aria-busy="true"]')).not.toBeNull();
+        expect(
+            view.container.querySelector('[aria-busy="true"]'),
+        ).not.toBeNull();
         expect(text(view.container)).toContain('Loading chat…');
 
         await run(() => h.init(makeInit({ boot: { key: '', api: {} } })));
-        expect(text(view.container)).toContain('Chat is not available right now.');
+        expect(text(view.container)).toContain(
+            'Chat is not available right now.',
+        );
     });
 });

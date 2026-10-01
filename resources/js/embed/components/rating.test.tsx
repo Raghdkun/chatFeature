@@ -3,11 +3,19 @@ import { fill } from '@/tests/dom';
 import { click } from '@/tests/render';
 import { useBackend } from '@/tests/msw/server';
 import { createHarness, makeInit } from '@/tests/embed-harness';
-import { press, renderPanel, run, settleFrame, text, waitFor } from '@/tests/embed-render';
+import {
+    press,
+    renderPanel,
+    run,
+    settleFrame,
+    text,
+    waitFor,
+} from '@/tests/embed-render';
 
 const byTestId = (root: ParentNode, id: string): HTMLElement | null =>
     root.querySelector<HTMLElement>(`[data-testid="${id}"]`);
-const phase = (root: ParentNode): string | undefined => byTestId(root, 'chat-state')?.dataset.state;
+const phase = (root: ParentNode): string | undefined =>
+    byTestId(root, 'chat-state')?.dataset.state;
 
 async function ended() {
     const backend = useBackend();
@@ -34,18 +42,24 @@ describe('rating screen', () => {
         expect(phase(c)).toBe('ended');
         expect(text(byTestId(c, 'message-list'))).toContain('Anything else?');
         expect(text(c)).toContain('How was this chat?');
-        expect((byTestId(c, 'rating-submit') as HTMLButtonElement).disabled).toBe(true);
+        expect(
+            (byTestId(c, 'rating-submit') as HTMLButtonElement).disabled,
+        ).toBe(true);
         expect(byTestId(c, 'composer-input')).toBeNull();
         expect(byTestId(c, 'end-chat')).toBeNull();
 
         await click(byTestId(c, 'rating-star-5'));
-        expect((byTestId(c, 'rating-submit') as HTMLButtonElement).disabled).toBe(false);
+        expect(
+            (byTestId(c, 'rating-submit') as HTMLButtonElement).disabled,
+        ).toBe(false);
     });
 
     it('stars are a radio group: labelled, roving tabindex, arrow keys move and select', async () => {
         const { c } = await ended();
         const group = byTestId(c, 'rating-stars') as HTMLElement;
-        const stars = Array.from(group.querySelectorAll<HTMLElement>('[role="radio"]'));
+        const stars = Array.from(
+            group.querySelectorAll<HTMLElement>('[role="radio"]'),
+        );
 
         expect(group.getAttribute('role')).toBe('radiogroup');
         expect(group.getAttribute('aria-label')).toBe('How was this chat?');
@@ -80,7 +94,10 @@ describe('rating screen', () => {
         const { backend, c } = await ended();
 
         await click(byTestId(c, 'rating-star-3'));
-        await fill(byTestId(c, 'rating-comment') as HTMLTextAreaElement, '  OK  ');
+        await fill(
+            byTestId(c, 'rating-comment') as HTMLTextAreaElement,
+            '  OK  ',
+        );
         await click(byTestId(c, 'rating-submit'));
         await waitFor(() => phase(c) === 'closed');
 
@@ -91,7 +108,9 @@ describe('rating screen', () => {
     it('a rating without a comment sends just the score; the comment is capped at 2000 characters', async () => {
         const { backend, c } = await ended();
 
-        expect((byTestId(c, 'rating-comment') as HTMLTextAreaElement).maxLength).toBe(2000);
+        expect(
+            (byTestId(c, 'rating-comment') as HTMLTextAreaElement).maxLength,
+        ).toBe(2000);
         await click(byTestId(c, 'rating-star-1'));
         await click(byTestId(c, 'rating-submit'));
         await waitFor(() => phase(c) === 'closed');

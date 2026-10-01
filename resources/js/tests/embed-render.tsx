@@ -29,7 +29,11 @@ if (typeof URL.createObjectURL !== 'function') {
 // The split chunks (conversation, offline form, overlays) are loaded up front so a test never renders a Suspense fallback.
 await preloadHeavy();
 
-export const ENV: PanelEnv = { mode: 'launcher', preview: false, hasHost: true };
+export const ENV: PanelEnv = {
+    mode: 'launcher',
+    preview: false,
+    hasHost: true,
+};
 
 export async function renderPanel(
     harness: Harness,
@@ -58,7 +62,9 @@ export async function flushUi(ms = 20): Promise<void> {
 /** The panel focuses its first control on the next animation frame after opening or changing screen: let that happen. */
 export async function settleFrame(): Promise<void> {
     await act(async () => {
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => resolve()),
+        );
     });
 }
 

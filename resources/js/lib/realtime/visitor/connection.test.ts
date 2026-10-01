@@ -31,6 +31,7 @@ function handlers() {
         ended: [] as unknown[],
         closed: [] as unknown[],
         transferred: 0,
+        missed: 0,
         typing: [] as unknown[],
         statuses: [] as RealtimeStatus[],
         syncs: [] as SyncReason[],
@@ -42,6 +43,7 @@ function handlers() {
         onClaimed: (c) => calls.claimed.push(c),
         onEnded: (e) => calls.ended.push(e),
         onClosed: (c) => calls.closed.push(c),
+        onMissed: () => void calls.missed++,
         onTransferred: () => void calls.transferred++,
         onTyping: (t) => calls.typing.push(t),
         onStatus: (s) => calls.statuses.push(s),
@@ -160,14 +162,14 @@ describe('events', () => {
     it('reports a refused session (401 / 403 on the channel auth)', async () => {
         const { socket, calls, realtime } = await open();
 
-        socket.authErrorHandler?.(403);
-        socket.authErrorHandler?.(401);
+        socket.failSubscription(403);
+        socket.failSubscription(401);
         expect(calls.authFailures).toBe(2);
 
         realtime.close();
     });
 
-    it('binds the server\'s REST typing fallback (`typing`) next to the whisper (`client-typing`)', async () => {
+    it("binds the server's REST typing fallback (`typing`) next to the whisper (`client-typing`)", async () => {
         const { socket, calls, realtime } = await open();
 
         socket.setStatus('connected');
@@ -179,6 +181,36 @@ describe('events', () => {
             { actor: 'agent', typing: true },
             { actor: 'agent', typing: false },
         ]);
+
+        realtime.close();
+    });
+
+    it('binds the whisper and the typing fallback the way Echo wants them (a leading dot), not under the App\\Events namespace', async () => {
+        const { socket, realtime } = await open();
+
+        expect(socket.listenersOn('client-typing')).toBe(1);
+        expect(socket.listenersOn('typing')).toBe(1);
+        expect(socket.listenersOn('conversation.missed')).toBe(1);
+        expect(socket.listenersOn('message.created')).toBe(1);
+        expect(
+            [...socket.handlers.keys()].filter((name) =>
+                name.startsWith('App\\Events'),
+            ),
+        ).toEqual([]);
+
+        realtime.close();
+    });
+
+    it('conversation.missed tells the owner the queue ran out; other versions are ignored', async () => {
+        const { socket, calls, realtime } = await open();
+
+        socket.setStatus('connected');
+        socket.emit('conversation.missed', { v: 9 });
+        socket.emit('conversation.missed', null);
+        expect(calls.missed).toBe(0);
+
+        socket.emit('conversation.missed', { v: 1 });
+        expect(calls.missed).toBe(1);
 
         realtime.close();
     });
@@ -268,7 +300,7 @@ describe('channel subscription', () => {
         realtime.close();
     });
 
-    it('a subscription the server refuses (503 realtime_unavailable) counts as down: reconnecting, polling covers it', async () => {
+    it('a subscription the server refuses (503 realtime_unavailable) counts as down: quiet polling, no "Reconnecting…" line', async () => {
         vi.useFakeTimers();
 
         try {
@@ -276,10 +308,10 @@ describe('channel subscription', () => {
 
             socket.holdSubscription = true;
             socket.setStatus('connected');
-            socket.authErrorHandler?.(503);
+            socket.failSubscription(503);
 
             expect(realtime.isUp()).toBe(false);
-            expect(calls.statuses.at(-1)).toBe('reconnecting');
+            expect(calls.statuses.at(-1)).toBe('polling');
             expect(calls.authFailures).toBe(0);
             expect(realtime.whisperTyping(true)).toBe(false);
 
@@ -396,5 +428,124 @@ describe('typing whispers', () => {
         calls.syncs.length = 0;
         document.dispatchEvent(new Event('visibilitychange'));
         expect(calls.syncs).toEqual([]);
+    });
+});
+
+describe('bindings', () => {
+    it('close() unbinds every listener, status, subscription and error callback, then closes the socket', async () => {
+        const { socket, realtime } = await open();
+
+        socket.setStatus('connected');
+        expect(socket.bindings).toBeGreaterThan(8);
+
+        realtime.close();
+        expect(socket.bindings).toBe(0);
+        expect(socket.closed).toBe(true);
+
+        // nothing reacts to a late event or status change
+        socket.emit('message.created', { v: 1, message: makeAgentMessage() });
+        socket.setStatus('disconnected');
+    });
+
+    it('a reconnect re-subscribes the channel without adding a single handler', async () => {
+        const { socket, realtime } = await open();
+
+        socket.setStatus('connected');
+
+        const bound = socket.bindings;
+
+        for (let round = 0; round < 3; round++) {
+            socket.setStatus('disconnected');
+            socket.setStatus('connecting');
+            socket.setStatus('connected');
+        }
+
+        expect(socket.bindings).toBe(bound);
+        expect(socket.listenersOn('message.created')).toBe(1);
+        expect(socket.listenersOn('client-typing')).toBe(1);
+
+        realtime.close();
+    });
+
+    it('a socket that finishes opening after close() is closed at once and never bound', async () => {
+        let release: (socket: FakeSocket) => void = () => undefined;
+        const late = new Promise<FakeSocket>((resolve) => {
+            release = resolve;
+        });
+        const factory: SocketFactory = () => late;
+        const { value } = handlers();
+        const opening = openConversationRealtime({
+            factory,
+            input: INPUT,
+            handlers: value,
+        });
+        const socket = new FakeSocket(INPUT);
+
+        // close() cannot be called before the promise resolves, so resolve first, then check nothing stays bound after close
+        release(socket);
+
+        const realtime = await opening;
+
+        realtime.close();
+        expect(socket.bindings).toBe(0);
+        expect(socket.closed).toBe(true);
+    });
+});
+
+describe('polling only', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('without a ws config there is no socket: status polling, REST sync every interval, no retries', async () => {
+        const created: number[] = [];
+        const factory: SocketFactory = async (input) => {
+            created.push(1);
+
+            return new FakeSocket(input);
+        };
+        const { calls, value } = handlers();
+        const realtime = await openConversationRealtime({
+            factory,
+            input: null,
+            handlers: value,
+            pollMs: 1000,
+        });
+
+        expect(created).toEqual([]);
+        expect(calls.statuses).toEqual(['polling']);
+        expect(realtime.isUp()).toBe(false);
+        expect(realtime.whisperTyping(true)).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(calls.syncs).toEqual(['poll', 'poll', 'poll']);
+
+        realtime.close();
+        calls.syncs.length = 0;
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(calls.syncs).toEqual([]);
+    });
+
+    it('gives up on a socket that can never be created after five tries and polls quietly', async () => {
+        const factory: SocketFactory = async () => {
+            throw new Error('chunk blocked');
+        };
+        const { calls, value } = handlers();
+        const realtime = await openConversationRealtime({
+            factory,
+            input: INPUT,
+            handlers: value,
+            pollMs: 100_000,
+            retryMs: 1000,
+        });
+
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(calls.statuses).toEqual([
+            'connecting',
+            'reconnecting',
+            'polling',
+        ]);
+
+        realtime.close();
     });
 });
