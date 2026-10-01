@@ -57,7 +57,10 @@ export type ScenarioName =
     // P4 (live chat: real Reverb, the visitor panel, the agent inbox). Ports 8260-8279, 8280-8289, 8340-8349.
     | 'p4-chat'
     | 'p4-chat-views'
-    | 'p4-chat-views-rtl';
+    | 'p4-chat-views-rtl'
+    // P4 staff side (E2): the inbox, the permission matrices and the realtime resilience specs.
+    | 'p4-staff'
+    | 'p4-poll';
 
 export type ProjectName = 'desktop' | 'mobile' | 'pizzasys-outage';
 
@@ -328,6 +331,39 @@ const DEFINITIONS: Record<ScenarioName, Definition> = {
         hostPort: 8283,
         reverbPort: 8343,
         env: { TRUSTED_PROXIES: '*' },
+    },
+    // P4 staff side (E2): `p4-staff` is the staff inbox / permissions / realtime-resilience scenario (real Reverb, n = 4); `p4-poll` is the
+    // same installed chat instance WITHOUT any websocket server (`BROADCAST_CONNECTION=null`: both sides run on REST polling). Their ports
+    // (the customer site of `p4-poll` sits at 8291 / 8296) were assigned to this block by the orchestrator.
+    'p4-staff': {
+        kind: 'installed',
+        port: 8264,
+        dbSuffix: '_p4_staff',
+        mode: 'local',
+        seed: 'chat',
+        hostPort: 8284,
+        reverbPort: 8344,
+        env: { TRUSTED_PROXIES: '*' },
+        perProject: {
+            mobilePort: 8274,
+            mobileDbSuffix: '_p4_staff_mobile',
+            mobileHostPort: 8289,
+            mobileReverbPort: 8348,
+        },
+    },
+    'p4-poll': {
+        kind: 'installed',
+        port: 8265,
+        dbSuffix: '_p4_poll',
+        mode: 'local',
+        seed: 'chat',
+        hostPort: 8291,
+        env: { TRUSTED_PROXIES: '*' },
+        perProject: {
+            mobilePort: 8275,
+            mobileDbSuffix: '_p4_poll_mobile',
+            mobileHostPort: 8296,
+        },
     },
     // Real wizard runs, in token mode, that the screenshot spec walks through for the deck.
     'shots-desktop': {

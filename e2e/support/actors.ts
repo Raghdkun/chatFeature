@@ -65,8 +65,14 @@ export async function signInApi(
     context: BrowserContext,
     instance: Instance,
     user: Pick<TestUser, 'email' | 'password'>,
+    /** `X-Forwarded-For` of the login call: its own login-throttle bucket (the P4 servers trust the header). */
+    address?: string,
 ): Promise<Api> {
-    await context.request.get(`${instance.url}/login`);
+    const forwarded: Record<string, string> = address
+        ? { 'X-Forwarded-For': address }
+        : {};
+
+    await context.request.get(`${instance.url}/login`, { headers: forwarded });
 
     const state = await context.storageState();
     const xsrf = state.cookies.find((cookie) => cookie.name === 'XSRF-TOKEN');
@@ -74,6 +80,7 @@ export async function signInApi(
         headers: {
             Accept: 'application/json',
             'X-XSRF-TOKEN': decodeURIComponent(xsrf?.value ?? ''),
+            ...forwarded,
         },
         data: { email: user.email, password: user.password },
         failOnStatusCode: false,
@@ -118,14 +125,17 @@ class Actor {
     }
 }
 
+/** Who a staff actor is: the three seeded people, or any account a spec created (`Actors.account()`). */
+export type StaffUser = Pick<TestUser, 'name' | 'email' | 'password'>;
+
 export class StaffActor extends Actor {
     readonly api: StaffApi;
     readonly inbox: Inbox;
     private beat: ReturnType<typeof setInterval> | null = null;
 
     constructor(
-        name: StaffName,
-        readonly user: TestUser,
+        name: string,
+        readonly user: StaffUser,
         context: BrowserContext,
         page: Page,
         watch: Watch,
@@ -228,6 +238,46 @@ export class Actors {
 
         this.all.push(actor);
 
+        return this.begin(actor, options);
+    }
+
+    /**
+     * A staff member a spec created through the management API (`POST /api/v1/agents`, see `world.ts`): a FRESH login (own login
+     * throttle bucket, own session) in a context of its own, then like `staff()`. The three seeded people stay `staff()`.
+     */
+    async account(
+        user: StaffUser,
+        options: StaffOptions = {},
+    ): Promise<StaffActor> {
+        const context = await this.browser.newContext({
+            ...contextOptions(this.testInfo, options.device),
+            baseURL: this.instance.url,
+            storageState: { cookies: [], origins: [] },
+        });
+
+        await signInApi(context, this.instance, user, clientAddress());
+
+        const page = await context.newPage();
+        const watch = watchContext(context, user.name, options.allow);
+        const actor = new StaffActor(
+            user.name,
+            user,
+            context,
+            page,
+            watch,
+            this.instance,
+        );
+
+        this.all.push(actor);
+
+        return this.begin(actor, options);
+    }
+
+    /** What both kinds of staff actor do first: presence, heartbeat, the page to open. */
+    private async begin(
+        actor: StaffActor,
+        options: StaffOptions,
+    ): Promise<StaffActor> {
         if (options.presence) {
             await actor.setPresence(options.presence);
         }
@@ -240,7 +290,7 @@ export class Actors {
             if (options.open === '/inbox') {
                 await actor.inbox.goto();
             } else {
-                await page.goto(options.open);
+                await actor.page.goto(options.open);
             }
         }
 
