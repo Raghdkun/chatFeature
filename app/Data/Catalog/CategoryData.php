@@ -9,7 +9,7 @@ use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 
 /**
  * A support category as the dashboard shows it (docs/contracts/dashboard-pages-p3.md). Counts come from
- * `withCount` (`agents_count` = active staff serving it, `widgets_count` = widgets it is enabled on); missing counts read as 0.
+ * `withCount` (`agents_count` = active agents (`is_agent`) serving it, `widgets_count` = widgets it is enabled on); missing counts read as 0.
  */
 #[TypeScript]
 class CategoryData extends Data

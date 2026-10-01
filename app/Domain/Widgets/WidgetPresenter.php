@@ -56,7 +56,7 @@ final class WidgetPresenter
     public function builder(Widget $widget): WidgetBuilderData
     {
         $categories = Category::query()
-            ->withCount(['users as agents_count' => fn ($query) => $query->where('users.is_active', true), 'widgets'])
+            ->withCount(['users as agents_count' => fn ($query) => $query->where('users.is_active', true)->where('users.is_agent', true), 'widgets'])
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get();

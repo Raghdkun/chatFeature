@@ -89,6 +89,15 @@ trait WidgetFixtures
     }
 
     /**
+     * The mode an installed instance has after the wizard: `auth.mode = fortify` is STORED. (AuthModeGuard refuses to guess
+     * when the setting is missing on an installed instance, so tests that manage staff must store it.)
+     */
+    protected function useFortifyMode(): void
+    {
+        settings()->set('auth.mode', 'fortify');
+    }
+
+    /**
      * Switch the installation to pizzasys mode (auth.mode = pizzasys) with a stub driver that vouches for every session.
      */
     protected function usePizzasysMode(): void
