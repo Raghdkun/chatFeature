@@ -399,7 +399,7 @@ describe('Widget (launcher + panel + bridge wired together)', () => {
             }
         });
 
-        it('rejects oversized or non-string tokens', async () => {
+        it('rejects oversized tokens, non-string tokens and sessions without a valid expiry', async () => {
             const b = await boot();
             b.cf('open');
             b.handshake();
