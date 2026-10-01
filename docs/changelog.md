@@ -6,7 +6,41 @@ All notable changes are recorded here, following [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-Nothing yet (P4 chat core is next).
+Nothing yet (P5 presence and notifications is next).
+
+## [0.4.0] - 2026-10-01 (phase-4)
+
+The live-chat core: a visitor starts a chat from the widget, every eligible online agent is offered it, the first to accept wins, and the two talk in realtime (typing, delivered/seen, images) until the chat is ended and rated. Built as a spine (shared schema/contracts), four parallel tracks, two independent review rounds with fix rounds, and a real-stack e2e suite.
+
+### Added
+- **Schema and domain** (`app/Domain/Chat`, `Visitors`, `Presence`): `visitors`, `visitor_sessions`, `conversations`, `conversation_events`, `conversation_agent_alerts` (offers), `messages` (per-conversation `seq`, idempotent `client_msg_id`), `attachments` (with `position`), `ratings`, `agent_presence`; the conversation state machine (`queued -> active -> ended -> closed`, `missed`, offline tickets as separate rows), `ConversationPolicy`, `Conversation::visibleTo`, 19 domain events, visitor-safe vs staff Data classes (generated TypeScript).
+- **Routing**: offers go to active agents who serve the category, are online/away (heartbeat within 90 s) and under `max_concurrent_chats`; waves come from the widget's `config.routing.waves` (default online at 0 s, away after 20 s); first Accept wins through one guarded `UPDATE` (a re-accept by the winner is idempotent); queue timeout -> `missed` -> offline form -> offline ticket (claimed, answered by e-mail, closed); transfer to a colleague or a category with a reachability check (`409 no_agents`); deactivated or demoted agents' chats are requeued.
+- **Public API** (`/api/v1/public`, bearer `vt_...` visitor tokens, no cookies): sessions (signed identity, token rotation with a 60 s overlap, `limits` for the panel), conversations, messages (`after_seq`), attachments (images only), receipts, typing, end/cancel, rating/skip, offline tickets, signed attachment URLs, broadcasting auth. **Management API**: conversations (filters, FULLTEXT/LIKE search shared with the history page, cursor paging), queue, claim, messages, attachments, receipts, typing, end/close/transfer, `transfer-targets`, CSV/JSON export (admin, audited), presence.
+- **Jobs and commands**: `chat:expire-queued`, `chat:offer-waves`, `chat:close-idle`, `chat:close-unrated` (every minute), `chat:prune-visitor-sessions` (daily); a delayed `ExpireQueuedConversation`/`OfferNextWave` per chat (epoch-guarded). **The scheduler (`schedule:work` or cron) must run in production.**
+- **Realtime (Reverb)**: channels `staff.{id}`, `presence-staff`, `conversation.{ulid}`, `admin` (authorised through the policy; visitors only through their own bearer endpoint), 19 events (`message.created` published immediately, the rest queued, `message.delivered`/`message.seen`, `conversation.missed`, `typing` fallback), failure isolation (a Reverb outage never breaks the HTTP request), redacted logs, allowed origins pinned to the app origin, `REVERB_*` env documented in `.env.example`, a real-socket smoke script (`npm run realtime:smoke`). The dashboard learns the Reverb address at runtime from the `realtime` shared prop.
+- **Agent dashboard**: `/inbox` (queue with offer cards and countdown, my chats, unseen badges and tab title, conversation view with date separators, receipts, typing, lightbox, composer with attachments, end/transfer/copy transcript, presence selector with heartbeat), `/history` (admin: filters, search, ratings, paging, export), `/offline-tickets` (claim, reply, close); REST polling fallback when the websocket is down; phone drill-down layout.
+- **Visitor panel** (inside the widget iframe): pre-chat, topic picker, queue with cancel, live chat (optimistic send with retry, receipts, typing, image attachments with lightbox, safe auto-linking), rating, offline form, closed screen, reconnect/visibility/gap sync, polling fallback, error boundary, host `startChat`/identity API, the compare-and-clear session protocol between tabs, English + Arabic built-in texts.
+- **Tests**: PHPUnit and Vitest for every layer (counts in the Notes), a MySQL-gated concurrency suite (12 parallel claims -> exactly one winner), and a real-stack Playwright suite for the chat (`e2e/chat`, real Reverb per scenario, real customer-site page): lifecycle and routing, visitor resilience and identity, staff inbox and history, permission/IDOR matrices, channel authorisation with a real `pusher-js`, rate limits, polling-only mode, axe (light/dark, desktop/phone), 375/320 px, RTL, keyboard, performance, and the deck screenshots (`docs/screenshots/p4`).
+
+### Changed
+- `availability.online` is real now (presence-based, per category, following the widget's wave plan); the P3 builder preview runs the real panel on canned data.
+- Visitor sessions: a rotated token's predecessor expires 60 s later; signing out revokes every session of that visitor; a chat start is limited per widget and network, after a cancel and by queued chats per network.
+- `ConversationStaff` carries `queueExpiresAt`, `pageUrl`, `pageTitle`; `chat.offered` carries `ttlSeconds` (count down from the browser's own arrival time, never trust its clock).
+- Signed attachment URLs live 240 minutes and are built from the configured app origin, not the request host.
+- In mode 2 agents' names shown to visitors never fall back to an e-mail address.
+- `/w/<key>.js` stays as in 0.3.0; the loader is 15.8 KB of its 16 KB budget (only about 200 bytes of headroom left).
+- `BROADCAST_CONNECTION=reverb` in `.env.example`.
+
+### Security (from the independent reviews)
+- Token rotation no longer leaves the old token alive (stolen-token takeover of an open chat); `external_id` is compared case/accent-sensitively (binary collation); animated GIFs are refused and decoding never expands frames (pixel/memory bomb); the raw-byte markup scan that rejected genuine photos was dropped (the image is re-encoded, so polyglots do not survive); per-widget chat-start/offline-ticket budgets, a cancel cooldown and a per-network queue cap; a per-network limiter in front of every visitor route; a per-conversation attachment quota; `mailto:` links are encoded; staff `linkify` rejects credentialed URLs; the panel pins its API origin to the inlined app origin; CSV formula injection neutralised; visitor names are stripped of control characters in mail.
+
+### Fixed (found by the e2e)
+- Visitor panel: socket-close console error on every ended chat; a message burst unpinned the list; the older of two tabs lost its chat after a token rotation; Cancel sometimes ended on the offline form; a stale poll flipped a claimed chat back to queued; receipts of the visitor's own messages never refreshed after a poll.
+- Backend: the loser of a simultaneous Accept got `403` instead of `409 already_claimed`; a MySQL deadlock on first-time verified sessions answered `500` (now retried); a hand-made list cursor answered `500` (now `422`); `DeadlockRetry` also catches nested-transaction deadlocks.
+- Dashboard: sorting of conversations changed in the same second, stale ticks after a catch-up, focus loss on queued -> active, dialogs not returning focus, phone overflow of long names/tokens, blank lazy images, history filter bar overlap, contrast and target-size findings, `dir="auto"` on message text, delivery receipts never broadcast live (`message.delivered` added), attachment order inside a message (`position`).
+
+### Known gaps / backlog
+- Animated GIFs are refused (a chat image is a still); a visitor's socket and a deactivated agent's open socket keep receiving channel events until they disconnect (documented, P7: Reverb control API or channel epochs); server-written system lines ("X joined the chat") are English only; the inbox strings exist in English only (Arabic runs prove mirrored layout); captcha/proof-of-work hook for chat starts (P7); identity tokens expire (<= 5 min) before a lazily created session in a long-open page; no PII retention/erasure job; the phone connection banner is a compact variant only inside open conversations; `lang/ar.json` is partial.
 
 ## [0.3.0] - 2026-10-01 (phase-3)
 
