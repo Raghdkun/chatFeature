@@ -34,6 +34,7 @@ Why per-agent offer channels (not per-category channels): the eligible set is co
 | `presence.changed` | `presence-staff` | `{v, userId, status: 'online'\|'away'\|'offline'}` | queued |
 | `chat.claimed` | `conversation.{ulid}` | `{v, agent: {name, avatarUrl\|null}, claimedAt}` | now |
 | `message.created` | `conversation.{ulid}` | `{v, message: Message}` | **now** (`ShouldBroadcastNow`, latency) |
+| `message.delivered` | `conversation.{ulid}` | `{v, upToSeq: int, by: 'visitor'\|'agent', at}` (the client of `by` received the other side's messages up to `upToSeq` without reading them) | queued |
 | `message.seen` | `conversation.{ulid}` | `{v, upToSeq: int, by: 'visitor'\|'agent', at}` | queued |
 | `client-typing` (whisper) | `conversation.{ulid}` | `{actor: 'visitor'\|'agent', typing: bool}` — debounce 3 s, auto-expire 5 s | client event |
 | `typing` | `conversation.{ulid}` | `{v, actor: 'visitor'\|'agent', typing: bool}` — server event of the REST typing fallback (`POST …/typing`); a server cannot publish `client-*` events. Clients bind both and feed one typing helper | now |
@@ -86,7 +87,7 @@ Losers get `chat.taken` + a silent web-push with the same `tag` that dismisses t
 
 Clients track `lastSeq` per conversation. On Echo `connected` (after a drop), `visibilitychange -> visible`, or a detected gap (`seq > last+1`),
 call `GET …/messages?after_seq=N` and merge idempotently by `ulid`/`seq`. Dashboard lists refetch with `updated_after` and rely on server unseen counters.
-Receipts: clients `POST …/receipts {delivered_upto, seen_upto}` (debounced/batched); the server broadcasts `message.seen`.
+Receipts: clients `POST …/receipts {delivered_upto, seen_upto}` (debounced/batched); the server broadcasts `message.delivered` (only for messages newly delivered beyond what the same call reads) and `message.seen` (a read implies delivery, so a message delivered and read in one call is announced by `message.seen` alone). Clients apply both receipts forward only: `sent` -> `delivered` -> `seen`; a late `message.delivered` never undoes `seen`.
 
 ## Timers (scheduled jobs)
 

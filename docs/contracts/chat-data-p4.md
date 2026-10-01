@@ -101,6 +101,7 @@ Plain `final` classes, `Dispatchable` + `SerializesModels`, `ShouldDispatchAfter
 | `ConversationAssigned` | `conversation, User agent, ?User assignedBy, ?User previousAgent` | transfer to an agent, admin assignment | `chat.assigned`, `conversation.updated` |
 | `ConversationUpdated` | `conversation` | any list-visible change | `conversation.updated` (assignee, offered agents, admin) |
 | `MessageCreated` | `message` | message actions | `message.created` (NOW), unseen counters, push |
+| `MessagesDelivered` | `conversation, int upToSeq, SenderType by` | receipts action | `message.delivered` |
 | `MessagesSeen` | `conversation, int upToSeq, SenderType by` | receipts action | `message.seen` |
 | `ConversationEnded` | `conversation, ConversationEndedBy endedBy` | end action | `conversation.ended`, `conversation.updated` |
 | `ConversationMissed` | `conversation` | queue-expiry action | `conversation.missed` on the conversation channel |
@@ -123,7 +124,7 @@ Plain `final` classes, `Dispatchable` + `SerializesModels`, `ShouldDispatchAfter
 - `events.ts`: `CHAT_EVENT` names, `ChatEventPayloads` (event -> payload type), `channels` (`staff(id)`, `conversation(ulid)`, `admin`, `presenceStaff`; Echo names without `private-` / `presence-`), `echoEvent(name)` (leading dot for custom `broadcastAs` names), `PAYLOAD_VERSION`.
 - `messages.ts`: `toLocalMessage(m)`, `createPendingMessage({clientMsgId, conversation, sender, body, createdAt, type?, attachments?})`, `mergeMessages(existing, incoming) -> LocalMessage[]`
   (idempotent by `ulid` / `seq` / `clientMsgId`, ordered by `seq`, unsent messages last in creation order, server copy wins, receipts only move forward, returns the same array when nothing changed), `findGap(messages, lastSeq) -> {afterSeq, ranges, count} | null`
-  (`afterSeq` is the value for `GET ...?after_seq=`; call it with `Math.max(conversation.lastSeq, highestSeq(merged))`), `highestSeq`, `highestSeqFrom(messages, sender)`, `isPending`, `setPendingStatus(messages, clientMsgId, 'sending' | 'failed')`, `applySeen(messages, {upToSeq, by, at})` (a `message.seen` receipt).
+  (`afterSeq` is the value for `GET ...?after_seq=`; call it with `Math.max(conversation.lastSeq, highestSeq(merged))`), `highestSeq`, `highestSeqFrom(messages, sender)`, `isPending`, `setPendingStatus(messages, clientMsgId, 'sending' | 'failed')`, `applyDelivered(messages, {upToSeq, by, at})` / `applySeen(messages, {upToSeq, by, at})` (a `message.seen` receipt).
 - `typing.ts`: `TYPING_DEBOUNCE_MS = 3000`, `TYPING_EXPIRE_MS = 5000`; sender `createTypingSendState()` / `onLocalTyping(state, typing, now) -> {state, send}`; receiver `onRemoteTyping`, `isRemoteTyping`, `pruneTyping`, `msUntilTypingExpires`; all take `now` explicitly. `createTypingTracker(clock = Date.now)` binds them (`local`, `receive`, `isTyping`, `msUntilExpiry`, `reset`).
 - `fixtures.ts` (tests / mocks only): `makeMessage`, `makeAgentMessage`, `makeSystemMessage`, `makeLocalMessage`, `makeAttachment`, `makeConversationPublic`, `makeConversationStaff`, `makeActiveConversationStaff`, `makeOffer`, `makeRating`, `makePresence`, `fakeUlid`, `fakeTime`, `resetFixtures`.
 
@@ -147,3 +148,4 @@ Plain `final` classes, `Dispatchable` + `SerializesModels`, `ShouldDispatchAfter
 - Offline tickets without a category (a widget with none enabled) are visible to ALL active agents; the default category is the missed chat's topic, else the widget's first active one.
 - Claim by the agent who already holds the chat is idempotent (`200`, no event). Animated GIFs are refused (a chat image is a still).
 - Visitor-facing agent names never contain an e-mail address (`User::public_label`).
+- `attachments.position` (unsigned smallint, default 0) keeps the order the sender picked; the relation is ordered by `position`, then `id`.
