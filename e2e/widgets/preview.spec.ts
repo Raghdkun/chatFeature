@@ -342,11 +342,19 @@ test.describe('live preview', () => {
         ).toHaveAttribute('data-loader', 'ready');
     });
 
-    test('"Open chat" loads the preview panel page; "Reload preview" starts the host page over', async ({
+    test('"Open chat" runs the real panel on canned data (no visitor API call); "Reload preview" starts the host page over', async ({
         page,
         api,
     }) => {
         const { ulid } = await previewWidget(api);
+        const visitorCalls: string[] = [];
+
+        // The preview panel plays a scripted conversation: nothing may reach the visitor API (or create a session / a conversation).
+        page.on('request', (request) => {
+            if (new URL(request.url()).pathname.startsWith('/api/v1/public/')) {
+                visitorCalls.push(`${request.method()} ${request.url()}`);
+            }
+        });
 
         await openBuilderWithPreview(page, ulid);
         const frame = frameOf(page);
@@ -366,9 +374,14 @@ test.describe('live preview', () => {
             'data-open',
             'true',
         );
-        await expect(
-            chat.contentFrame().getByText('Chat panel (coming in P4)'),
-        ).toBeVisible();
+        const panel = chat.contentFrame();
+
+        await expect(panel.getByTestId('chat-panel')).toBeVisible();
+        await expect(panel.getByTestId('chat-state')).not.toHaveAttribute(
+            'data-state',
+            'booting',
+        );
+        expect(visitorCalls).toEqual([]);
 
         await page.getByTestId('builder-preview-reload').click();
         await expect(frame.locator('pne-chat-widget .panel')).toHaveAttribute(

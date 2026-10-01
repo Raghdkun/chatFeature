@@ -35,8 +35,10 @@ export default defineConfig({
     fullyParallel: false,
     workers: process.env.CI ? 2 : 4,
     retries: 1,
-    // Stop (and shut the servers down cleanly) instead of hanging forever.
-    globalTimeout: 15 * 60_000,
+    // Stop (and shut the servers down cleanly) instead of hanging forever. The whole suite (P1-P4, about 1000 tests on
+    // two projects) takes 1-1.5 h on a quiet laptop with four workers; 2.5 h leaves room for a loaded one. The
+    // `pizzasys-outage` project depends on `desktop` and `mobile`, so it starts last and its time is inside this budget.
+    globalTimeout: 2.5 * 60 * 60_000,
     timeout: 60_000,
     expect: { timeout: 10_000 },
     forbidOnly: !!process.env.CI,

@@ -10,15 +10,21 @@ import {
     widget,
     type RecordedEvent,
 } from '../support/host';
-import { collectConsole, liveWidget, POOL } from '../support/loader';
+import {
+    collectConsole,
+    liveWidget,
+    POOL,
+    silencePanel,
+} from '../support/loader';
 import { expect, test } from '../support/test';
 
 /**
  * The REAL embeddable widget on a customer-site page of another origin (`http://localhost:<host port>` includes
  * `http://127.0.0.1:<app port>/w/<key>.js`): shadow-DOM launcher styled from the dashboard config, hostile host CSS,
- * `data-*` / `ChatFeatureSettings` overrides, the greeting popup and its dismiss policies, opening the chat iframe (the P3
- * panel stub never says `ready`, so the loader's handshake watchdog is exercised on desktop and on a phone viewport), and the
- * JS API. Origin and caching rules are in loader-origin.spec.ts.
+ * `data-*` / `ChatFeatureSettings` overrides, the greeting popup and its dismiss policies, opening the chat iframe (the REAL
+ * panel completes the handshake; a panel that never says `ready` is provoked with `silencePanel()`, so the loader's handshake
+ * watchdog is exercised on desktop and on a phone viewport), and the JS API. Origin and caching rules are in
+ * loader-origin.spec.ts.
  *
  * The page plays an anonymous visitor: no dashboard session in this browser (`adminApi` is a context of its own).
  */
@@ -703,7 +709,7 @@ test.describe('greeting popup', () => {
 });
 
 test.describe('opening the chat', () => {
-    test('loads the panel iframe from the app; a panel that never says ready is given up after 10 s', async ({
+    test('loads the panel iframe from the app, sandboxed; the real panel completes the handshake and is not given up', async ({
         page,
         adminApi,
         instance,
@@ -713,6 +719,8 @@ test.describe('opening the chat', () => {
         });
         const log = collectConsole(page);
 
+        // The fake clock lets the loader's 10 s watchdog run out in no time, after the handshake.
+        await page.clock.install();
         await page.setViewportSize({ width: 1280, height: 800 });
         await page.goto(hostPage(instance, { key }));
         const ui = widget(page);
@@ -727,7 +735,7 @@ test.describe('opening the chat', () => {
         await expect(ui.launcher).toHaveAttribute('aria-expanded', 'true');
         await expect(ui.launcher).toHaveAccessibleName('Close chat');
 
-        // The iframe: the app's /embed/<key>, sandboxed, and the P3 stub is what answers.
+        // The iframe: the app's /embed/<key>, sandboxed.
         await expect(ui.iframe).toHaveAttribute(
             'src',
             `${instance.url}/embed/${key}`,
@@ -743,14 +751,69 @@ test.describe('opening the chat', () => {
         );
         expect(sandbox).not.toContain('allow-top-navigation');
         await expect(
-            ui.iframe.contentFrame().getByText('Chat panel (coming in P4)'),
+            ui.iframe.contentFrame().getByTestId('chat-panel'),
         ).toBeVisible();
+
+        // ready -> init -> init:result: the loader knows the panel is alive.
+        await expect
+            .poll(() => chatFeature(page, 'getState'))
+            .toMatchObject({ open: true, panelReady: true });
         const box = (await ui.panel.boundingBox())!;
 
         expect(box.width).toBeLessThanOrEqual(380);
         expect(box.height).toBeLessThanOrEqual(620);
 
-        // The stub never sends `ready`: the watchdog closes the panel and drops the iframe (about 10 s).
+        // The handshake watchdog's whole budget (10 s) and more goes by: a panel that answered is left alone.
+        await page.clock.runFor(12_000);
+        await expect(ui.panel).toHaveAttribute('data-open', 'true');
+        await expect(ui.iframe).toHaveCount(1);
+        expect(await names(page)).not.toContain('error');
+        expect(
+            await chatFeature<{ open: boolean; panelReady: boolean }>(
+                page,
+                'getState',
+            ),
+        ).toMatchObject({ open: true, panelReady: true });
+        expect(
+            log.errors.filter(
+                (line) => !/ERR_|frame|Failed to load/i.test(line),
+            ),
+        ).toEqual([]);
+    });
+
+    test('a panel that never says ready is given up after 10 s, and the next open starts from scratch', async ({
+        page,
+        adminApi,
+        instance,
+    }) => {
+        const { key } = await liveWidget(adminApi, instance, {
+            config: { greetings: { enabled: false } },
+        });
+        const log = collectConsole(page);
+        const silent = await silencePanel(page, key);
+
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await page.goto(hostPage(instance, { key }));
+        const ui = widget(page);
+
+        await expect(ui.launcher).toBeVisible();
+        await expect(ui.iframe).toHaveCount(0);
+
+        await ui.launcher.click();
+        await expect(ui.panel).toHaveAttribute('data-open', 'true');
+        await expect(ui.panel).toHaveAttribute('data-mode', 'panel');
+        await expect(ui.launcher).toHaveAttribute('aria-expanded', 'true');
+        await expect(ui.iframe).toHaveAttribute(
+            'src',
+            `${instance.url}/embed/${key}`,
+        );
+        // The frame loads, and says nothing.
+        await expect(
+            ui.iframe.contentFrame().getByText('Nothing here answers.'),
+        ).toBeVisible();
+        expect(silent.requests()).toBe(1);
+
+        // Nothing answers: the watchdog closes the panel and drops the iframe (about 10 s).
         const opened = Date.now();
         const timeout = await waitForEvent(page, 'error', 20_000);
 
@@ -772,10 +835,11 @@ test.describe('opening the chat', () => {
             ),
         ).toMatchObject({ open: false, panelReady: false });
 
-        // Next open starts from scratch (a new iframe).
+        // Next open starts from scratch (a new iframe, a new request for the panel page).
         await ui.launcher.click();
         await expect(ui.iframe).toHaveCount(1);
         await expect(ui.panel).toHaveAttribute('data-open', 'true');
+        expect(silent.requests()).toBe(2);
         expect(
             log.errors.filter(
                 (line) => !/ERR_|frame|Failed to load/i.test(line),
@@ -783,7 +847,7 @@ test.describe('opening the chat', () => {
         ).toEqual([]);
     });
 
-    test('on a phone the panel is full screen: the launcher stays on top as the close button, and the host scroll is unlocked again when the panel is given up', async ({
+    test('on a phone a panel that never answers keeps the launcher on top as the close button, and the host scroll is unlocked again when it is given up', async ({
         page,
         adminApi,
         instance,
@@ -792,6 +856,7 @@ test.describe('opening the chat', () => {
             config: { greetings: { enabled: false } },
         });
 
+        await silencePanel(page, key);
         await page.setViewportSize({ width: 375, height: 700 });
         await page.goto(hostPage(instance, { key, height: 3000 }));
         const ui = widget(page);
@@ -818,7 +883,7 @@ test.describe('opening the chat', () => {
 
         expect(panel.width).toBe(375);
         expect(panel.height).toBe(700);
-        // ... but the launcher stays above it, so a dead panel can always be closed.
+        // ... but until the panel has answered the launcher stays above it, so a dead panel can always be closed.
         await expect(ui.root).toHaveAttribute('data-fullscreen', 'false');
         const launcher = (await ui.launcher.boundingBox())!;
         const topmost = await page.evaluate(
@@ -847,7 +912,7 @@ test.describe('opening the chat', () => {
             .toBeGreaterThan(scrolled);
     });
 
-    test('the launcher (close button) and Escape unlock the full-screen trap at once', async ({
+    test('on a phone the launcher (close button) and Escape unlock the full-screen trap of a panel that never answers at once', async ({
         page,
         adminApi,
         instance,
@@ -856,6 +921,7 @@ test.describe('opening the chat', () => {
             config: { greetings: { enabled: false } },
         });
 
+        await silencePanel(page, key);
         await page.setViewportSize({ width: 375, height: 700 });
         await page.goto(hostPage(instance, { key, height: 3000 }));
         const ui = widget(page);
@@ -879,6 +945,55 @@ test.describe('opening the chat', () => {
             (document.activeElement as HTMLElement | null)?.blur(),
         );
         await page.locator('body').press('Escape');
+        await expect(ui.panel).toHaveAttribute('data-open', 'false');
+        expect(await overflow()).toBe('');
+        expect((await eventsNamed(page, 'close')).length).toBe(2);
+    });
+
+    test('on a phone the real panel is full screen: once it answers the launcher steps aside, and its own close button and Escape unlock the page', async ({
+        page,
+        adminApi,
+        instance,
+    }) => {
+        const { key } = await liveWidget(adminApi, instance, {
+            config: { greetings: { enabled: false } },
+        });
+
+        await page.setViewportSize({ width: 375, height: 700 });
+        await page.goto(hostPage(instance, { key, height: 3000 }));
+        const ui = widget(page);
+        const overflow = () =>
+            page.evaluate(() => document.documentElement.style.overflow);
+
+        await expect(ui.launcher).toBeVisible();
+
+        await ui.launcher.click();
+        await expect(ui.panel).toHaveAttribute('data-open', 'true');
+        await expect(ui.panel).toHaveAttribute('data-mode', 'fullscreen');
+        const chat = ui.iframe.contentFrame();
+
+        await expect(chat.getByTestId('chat-panel')).toBeVisible();
+        // Answered: the panel's own header carries the close button, so the launcher gives way and the page stays locked.
+        await expect(ui.root).toHaveAttribute('data-fullscreen', 'true');
+        expect(await overflow()).toBe('hidden');
+        await settleWidget(page);
+        const panel = (await ui.panel.boundingBox())!;
+
+        expect(panel.width).toBe(375);
+        expect(panel.height).toBe(700);
+
+        // The panel's close button.
+        await chat.getByRole('button', { name: 'Close chat' }).click();
+        await expect(ui.panel).toHaveAttribute('data-open', 'false');
+        expect(await overflow()).toBe('');
+        await expect(ui.launcher).toBeVisible();
+
+        // Escape pressed inside the panel (the loader cannot see keys there: the panel asks it to close).
+        await ui.launcher.click();
+        await expect(ui.panel).toHaveAttribute('data-open', 'true');
+        await expect(ui.root).toHaveAttribute('data-fullscreen', 'true');
+        await expect(chat.getByTestId('chat-panel')).toBeVisible();
+        await chat.locator('body').press('Escape');
         await expect(ui.panel).toHaveAttribute('data-open', 'false');
         expect(await overflow()).toBe('');
         expect((await eventsNamed(page, 'close')).length).toBe(2);

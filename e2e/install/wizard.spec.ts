@@ -10,6 +10,7 @@ import {
     chooseFortifyMode,
     expectStep,
     fillAdmin,
+    INSTALL_TIMEOUT,
     RUN_STEPS,
     submitAdmin,
     visibleStepper,
@@ -312,7 +313,7 @@ test('walks the whole wizard, installs, signs in and locks the wizard', async ({
         release();
         await page.unroute('**/setup/run/run-migrations');
 
-        await expectStep(page, 'done');
+        await expectStep(page, 'done', INSTALL_TIMEOUT);
     });
 
     await test.step('done: success screen, accessible in both themes, then on to sign-in', async () => {

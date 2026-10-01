@@ -22,13 +22,23 @@ export const RUN_STEPS = [
     'write-lock',
 ] as const;
 
+/** The installation runs every migration, the seeds and the administrator through the web server: well over 10 s on a loaded machine. */
+export const INSTALL_TIMEOUT = 90_000;
+
 /** Wait until the wizard shows `step` (the server picks it; Back/Continue can override it). */
-export async function expectStep(page: Page, step: StepKey): Promise<void> {
+export async function expectStep(
+    page: Page,
+    step: StepKey,
+    timeout?: number,
+): Promise<void> {
     await expect(page.getByTestId('setup-wizard')).toHaveAttribute(
         'data-view',
         step,
+        { timeout },
     );
-    await expect(page.getByTestId(`setup-step-${step}`)).toBeVisible();
+    await expect(page.getByTestId(`setup-step-${step}`)).toBeVisible({
+        timeout,
+    });
 }
 
 /** The stepper that is visible for the viewport: the vertical rail on md+, the compact summary below. */
@@ -65,7 +75,7 @@ export async function submitAdmin(page: Page): Promise<void> {
 /** Start the installation and wait for the `done` screen. */
 export async function runInstall(page: Page): Promise<void> {
     await page.getByTestId('setup-run-start').click();
-    await expectStep(page, 'done');
+    await expectStep(page, 'done', INSTALL_TIMEOUT);
 }
 
 /** Mode 2: pick the Auth Portal on the mode step and continue to the portal screen. */

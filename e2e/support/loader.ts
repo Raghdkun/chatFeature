@@ -114,3 +114,33 @@ export function collectConsole(page: Page): ConsoleLog {
 
     return log;
 }
+
+/**
+ * Makes the chat panel of ONE widget a page that never speaks: its iframe loads `/embed/<key>` (any query) as an empty document, so
+ * no `ready` ever reaches the loader and the loader's handshake watchdog is what ends the wait. The real panel (P4) answers the
+ * handshake at once, so a dead panel has to be provoked; the product is untouched. Call before the page opens the chat. Returns how
+ * often the panel page was asked for.
+ */
+export async function silencePanel(
+    page: Page,
+    key: string,
+): Promise<{ requests: () => number }> {
+    let requests = 0;
+
+    await page.route(`**/embed/${key}*`, async (route) => {
+        if (route.request().resourceType() !== 'document') {
+            await route.fallback();
+
+            return;
+        }
+
+        requests += 1;
+        await route.fulfill({
+            status: 200,
+            contentType: 'text/html; charset=utf-8',
+            body: '<!doctype html><meta charset="utf-8"><title>Silent panel</title><p>Nothing here answers.</p>',
+        });
+    });
+
+    return { requests: () => requests };
+}
