@@ -60,7 +60,7 @@ class PublicSessionApiTest extends TestCase
             ->assertHeader('Cache-Control', 'no-store, private')
             ->assertJsonPath('data.conversation', null)
             ->assertJsonPath('data.ws', null)
-            ->assertJsonStructure(['data' => ['visitorToken', 'expiresAt', 'conversation', 'ws']]);
+            ->assertJsonStructure(['data' => ['visitorToken', 'expiresAt', 'conversation', 'ws', 'limits' => ['maxMessageLength', 'attachmentMaxBytes', 'attachmentMaxDimension', 'attachmentMaxPerMessage']]]);
 
         $token = $response->json('data.visitorToken');
         $this->assertMatchesRegularExpression('/^vt_[A-Za-z0-9]{40}$/', $token);
@@ -77,6 +77,32 @@ class PublicSessionApiTest extends TestCase
         // The plaintext is nowhere in the database.
         $this->assertStringNotContainsString($token, json_encode(VisitorSession::query()->get()->toArray(), JSON_THROW_ON_ERROR));
         $this->assertStringNotContainsString('"id"', (string) $response->getContent());
+    }
+
+    public function test_the_session_carries_the_effective_limits_for_the_panel(): void
+    {
+        $this->open()->assertCreated()->assertJsonPath('data.limits', [
+            'maxMessageLength' => 4000,
+            'attachmentMaxBytes' => 5 * 1024 * 1024,
+            'attachmentMaxDimension' => 4096,
+            'attachmentMaxPerMessage' => 5,
+        ]);
+
+        settings()->set('chat.max_message_length', 1500);
+        settings()->set('chat.attachment_max_bytes', 2 * 1024 * 1024);
+        settings()->set('chat.attachment_max_dimension', 2048);
+
+        $this->open()->assertCreated()->assertJsonPath('data.limits', [
+            'maxMessageLength' => 1500,
+            'attachmentMaxBytes' => 2 * 1024 * 1024,
+            'attachmentMaxDimension' => 2048,
+            'attachmentMaxPerMessage' => 5,
+        ]);
+
+        // A rotation answers exactly like a first session: new token and expiry, plus the limits.
+        $token = $this->visitorSession($this->widget);
+        $this->open(headers: $this->bearer($token))->assertCreated()
+            ->assertJsonStructure(['data' => ['visitorToken', 'expiresAt', 'conversation', 'ws', 'limits']]);
     }
 
     public function test_the_websocket_endpoint_is_given_only_when_reverb_is_configured(): void

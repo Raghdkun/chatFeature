@@ -212,6 +212,7 @@ preview: string | null,
 widget: App.Data.Chat.WidgetRefData,
 wave: number,
 expiresAt: string,
+ttlSeconds: number,
 };
 export type OfferVisitorData = {
 name: string | null,
@@ -234,6 +235,25 @@ conversation: string,
 score: number,
 comment: string | null,
 createdAt: string,
+};
+export type RealtimeEndpointData = {
+key: string,
+host: string,
+port: number,
+scheme: string,
+};
+export type SessionData = {
+visitorToken: string,
+expiresAt: string,
+conversation: App.Data.Chat.ConversationPublicData | null,
+ws: App.Data.Chat.RealtimeEndpointData | null,
+limits: App.Data.Chat.SessionLimitsData,
+};
+export type SessionLimitsData = {
+maxMessageLength: number,
+attachmentMaxBytes: number,
+attachmentMaxDimension: number,
+attachmentMaxPerMessage: number,
 };
 export type StaffAgentRefData = {
 id: number,

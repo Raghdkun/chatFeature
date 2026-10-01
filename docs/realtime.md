@@ -105,7 +105,7 @@ Tests: `tests/Feature/Realtime/RealtimeFailureIsolationTest.php`.
 
 `config/broadcasting.php` (connection `reverb`, key `realtime`), `config/reverb.php`. Two addresses are involved and differ behind Caddy:
 
-- the **public** one clients connect to: `REVERB_HOST` / `REVERB_PORT` / `REVERB_SCHEME` (`chat.example.com`, `443`, `https`). `ReverbEndpoint::forVisitors()` hands exactly these and the app key to the visitor panel (`ws` block of `POST /public/sessions`), never the secret;
+- the **public** one clients connect to: `REVERB_HOST` / `REVERB_PORT` / `REVERB_SCHEME` (`chat.example.com`, `443`, `https`). `ReverbEndpoint::forVisitors()` hands exactly these and the app key to the visitor panel (`ws` block of `POST /public/widgets/{key}/sessions`), never the secret;
 - the **internal** one: the Reverb process binds `REVERB_SERVER_HOST` / `REVERB_SERVER_PORT` (default `127.0.0.1:8080`; `0.0.0.0:8080` in the Docker service) and the application publishes to `REVERB_PUBLISH_HOST` / `REVERB_PUBLISH_PORT` / `REVERB_PUBLISH_SCHEME` (default: the public values; in Docker `reverb`, `8080`, `http`).
 
 | Variable | Default | Meaning |

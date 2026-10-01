@@ -10,7 +10,10 @@ use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 
 /**
  * The payload of the `chat.offered` event, one per eligible agent (`{v, conversation, category, visitor, preview, widget,
- * wave, expiresAt}`): enough for the agent's queue row and OS notification, nothing more. `conversation` is the ulid.
+ * wave, expiresAt, ttlSeconds}`): enough for the agent's queue row and OS notification, nothing more. `conversation` is the ulid.
+ *
+ * `ttlSeconds` is the whole seconds from the moment the payload is built (broadcast / read) until `expiresAt`, never negative: a
+ * browser counts down from ITS OWN arrival time instead of comparing `expiresAt` with a clock that may be minutes off.
  */
 #[TypeScript]
 class OfferData extends Data
@@ -25,6 +28,7 @@ class OfferData extends Data
         public WidgetRefData $widget,
         public int $wave,
         public string $expiresAt,
+        public int $ttlSeconds,
     ) {}
 
     /** Eager-load `category`, `visitor` and `widget` on the conversation. */
@@ -38,6 +42,7 @@ class OfferData extends Data
             widget: WidgetRefData::fromModel($conversation->widget),
             wave: $offer->wave,
             expiresAt: (string) Timestamps::iso($offer->expires_at),
+            ttlSeconds: max(0, $offer->expires_at->getTimestamp() - now()->getTimestamp()),
         );
     }
 }

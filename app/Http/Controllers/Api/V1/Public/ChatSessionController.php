@@ -2,14 +2,14 @@
 
 namespace App\Http\Controllers\Api\V1\Public;
 
-use App\Data\Chat\ConversationPublicData;
+use App\Data\Chat\RealtimeEndpointData;
+use App\Data\Chat\SessionData;
 use App\Domain\Chat\Actions\CancelQueuedConversation;
 use App\Domain\Chat\Enums\ConversationStatus;
 use App\Domain\Chat\Enums\ConversationType;
 use App\Domain\Chat\Realtime\ReverbEndpoint;
 use App\Domain\Visitors\Actions\StartSession;
 use App\Domain\Visitors\VisitorTokenService;
-use App\Domain\Widgets\Support\Timestamps;
 use App\Http\Exceptions\ApiProblemException;
 use App\Http\Requests\Chat\StartSessionRequest;
 use App\Models\Conversation;
@@ -28,12 +28,8 @@ class ChatSessionController extends ChatVisitorController
     {
         $started = $action->handle($this->widget($request), $request->validated(), $request->bearerToken(), $request->userAgent(), $request->ip());
 
-        return $this->data([
-            'visitorToken' => $started->token->plaintext,
-            'expiresAt' => Timestamps::iso($started->token->session->expires_at),
-            'conversation' => $started->conversation === null ? null : ConversationPublicData::fromModel($started->conversation)->toArray(),
-            'ws' => $realtime->isAvailable() ? $realtime->forVisitors() : null,
-        ], 201)->header('Cache-Control', 'no-store');
+        return $this->data(SessionData::fromStarted($started, $realtime->isAvailable() ? RealtimeEndpointData::fromArray($realtime->forVisitors()) : null), 201)
+            ->header('Cache-Control', 'no-store');
     }
 
     /**

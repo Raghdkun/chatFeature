@@ -376,11 +376,13 @@ class ChatDataTest extends TestCase
     public function test_the_offer_payload_is_exactly_chat_offered(): void
     {
         $this->conversation->forceFill(['status' => ConversationStatus::Queued, 'assigned_agent_id' => null])->save();
-        $offer = ConversationOffer::factory()->create(['conversation_id' => $this->conversation->id, 'user_id' => $this->agent->id, 'wave' => 2]);
+        $this->travelTo('2026-11-20 10:00:00');
+        $offer = ConversationOffer::factory()->create(['conversation_id' => $this->conversation->id, 'user_id' => $this->agent->id, 'wave' => 2, 'expires_at' => now()->addSeconds(90)]);
 
         $payload = $this->toPayload(OfferData::fromModel($this->fresh(), $offer));
 
-        $this->assertKeys(['v', 'conversation', 'category', 'visitor', 'preview', 'widget', 'wave', 'expiresAt'], $payload);
+        $this->assertKeys(['v', 'conversation', 'category', 'visitor', 'preview', 'widget', 'wave', 'expiresAt', 'ttlSeconds'], $payload);
+        $this->assertSame(90, $payload['ttlSeconds']);
         $this->assertSame(1, $payload['v']);
         $this->assertSame($this->conversation->ulid, $payload['conversation']);
         $this->assertSame(['slug' => 'billing', 'label' => 'Billing'], $payload['category']);
@@ -391,6 +393,22 @@ class ChatDataTest extends TestCase
         $this->assertSame($offer->expires_at->utc()->format('Y-m-d\TH:i:s.v\Z'), $payload['expiresAt']);
         $this->assertStringNotContainsString('vera@visitor.example', (string) json_encode($payload));
         $this->assertNoIntegerIds($payload);
+    }
+
+    public function test_the_offer_ttl_counts_down_from_the_moment_the_payload_is_built_and_never_goes_negative(): void
+    {
+        $this->travelTo('2026-11-20 10:00:00');
+        $offer = ConversationOffer::factory()->create(['conversation_id' => $this->conversation->id, 'user_id' => $this->agent->id, 'expires_at' => now()->addSeconds(60)]);
+        $conversation = $this->fresh();
+
+        $this->assertSame(60, OfferData::fromModel($conversation, $offer)->ttlSeconds);
+
+        $this->travelTo('2026-11-20 10:00:45');
+        $this->assertSame(15, OfferData::fromModel($conversation, $offer)->ttlSeconds);
+        $this->assertSame('2026-11-20T10:01:00.000Z', OfferData::fromModel($conversation, $offer)->expiresAt, 'the absolute time stays');
+
+        $this->travelTo('2026-11-20 10:05:00');
+        $this->assertSame(0, OfferData::fromModel($conversation, $offer)->ttlSeconds);
     }
 
     public function test_an_offer_for_an_anonymous_visitor_without_category_or_message(): void

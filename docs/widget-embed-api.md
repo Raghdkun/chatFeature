@@ -76,7 +76,7 @@ Full table: [contracts/postmessage-protocol.md](contracts/postmessage-protocol.m
 
 ## Signed identity (HS256 JWT)
 
-The host backend mints a JWT with the widget's rotatable `identity_secret` (shown once in the dashboard). Unsigned identity (`setVisitor`) is accepted but marked **unverified**. The verifier (`IdentityTokenVerifier`) ships in P3; the endpoint that accepts the token (`POST /public/sessions`) arrives with P4. Claims:
+The host backend mints a JWT with the widget's rotatable `identity_secret` (shown once in the dashboard). Unsigned identity (`setVisitor`) is accepted but marked **unverified**. The verifier (`IdentityTokenVerifier`) ships in P3; the endpoint that accepts the token (`POST /public/widgets/{key}/sessions`) is part of P4. Claims:
 
 | Claim | Meaning |
 |---|---|

@@ -4,7 +4,7 @@ namespace App\Domain\Chat\Realtime;
 
 /**
  * Where the visitor panel opens its websocket: the Reverb app key and the PUBLIC address of the Reverb server (the `ws` block
- * of `POST /public/sessions`). Never the internal address the application publishes to (`broadcasting.connections.reverb.options`,
+ * of `POST /public/widgets/{key}/sessions`). Never the internal address the application publishes to (`broadcasting.connections.reverb.options`,
  * REVERB_PUBLISH_*), never the secret. Behind Caddy that is `REVERB_HOST` / `REVERB_PORT` / `REVERB_SCHEME` (for example
  * `chat.example.com`, 443, `https`), while the Reverb process listens on `REVERB_SERVER_HOST` / `REVERB_SERVER_PORT`.
  */
