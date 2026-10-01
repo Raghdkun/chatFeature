@@ -28,6 +28,11 @@ export default defineConfig({
             formVariants: true,
         }),
     ]),
+    test: {
+        environment: 'jsdom',
+        include: ['resources/**/*.{test,spec}.{ts,tsx}'],
+        globals: false,
+    },
     server: {
         watch: {
             ignored: [
@@ -50,6 +55,7 @@ export default defineConfig({
             'resources/js/components/ui/*',
             'resources/js/routes/**',
             'resources/js/wayfinder/**',
+            'resources/js/types/generated.d.ts',
         ],
         options: {
             denyWarnings: true,
@@ -65,6 +71,12 @@ export default defineConfig({
         htmlWhitespaceSensitivity: 'css',
         ignorePatterns: [
             '.github/**',
+            'AGENTS.md',
+            'CLAUDE.md',
+            'README.md',
+            'docs/**',
+            'resources/js/types/generated.d.ts',
+            'resources/js/types/typescript-transformer-manifest.json',
             'composer.json',
             'resources/js/components/ui/*',
             'resources/views/mail/*',

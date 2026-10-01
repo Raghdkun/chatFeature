@@ -1,0 +1,67 @@
+# Dev-only helpers. Nothing here is required for the default workflow: the app uses
+# the local MySQL + Redis. Start what you need with profiles, e.g.
+#   docker compose -f docker/compose.dev.yml up -d mailpit
+#   docker compose -f docker/compose.dev.yml --profile nats up -d
+#   docker compose -f docker/compose.dev.yml --profile whatsapp up -d
+#   docker compose -f docker/compose.dev.yml --profile full up -d   # mysql + redis in containers
+name: pne-chat-dev
+
+services:
+    mailpit:
+        image: axllent/mailpit:latest
+        ports:
+            - '8025:8025' # web UI
+            - '1025:1025' # SMTP  (MAIL_MAILER=smtp MAIL_HOST=127.0.0.1 MAIL_PORT=1025)
+
+    mysql:
+        profiles: [full]
+        image: mysql:8.4
+        environment:
+            MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+            MYSQL_DATABASE: chatfeature
+        ports:
+            - '3307:3306' # 3307 so it never collides with a local MySQL on 3306
+        volumes:
+            - mysql-data:/var/lib/mysql
+
+    redis:
+        profiles: [full]
+        image: redis:7-alpine
+        command: ['redis-server', '--appendonly', 'yes']
+        ports:
+            - '6380:6379'
+        volumes:
+            - redis-data:/data
+
+    # NATS with JetStream: used by the pizzasys auth mode (user/role event mirror).
+    nats:
+        profiles: [nats]
+        image: nats:2.11-alpine
+        command: ['-js', '-sd', '/data', '-m', '8222']
+        ports:
+            - '4222:4222'
+            - '8222:8222' # monitoring
+        volumes:
+            - nats-data:/data
+
+    # OpenWA WhatsApp gateway (API + dashboard on :2785). Pin the image digest in production.
+    # SSRF_ALLOWED_HOSTS lets OpenWA deliver webhooks to the app running on the host.
+    openwa:
+        profiles: [whatsapp]
+        image: ghcr.io/rmyndharis/openwa:latest
+        environment:
+            ENGINE_TYPE: whatsapp-web.js
+            SSRF_ALLOWED_HOSTS: host.docker.internal
+            RESOLVE_LID_TO_PHONE: 'true'
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
+        ports:
+            - '2785:2785'
+        volumes:
+            - openwa-data:/app/data
+
+volumes:
+    mysql-data:
+    redis-data:
+    nats-data:
+    openwa-data:
