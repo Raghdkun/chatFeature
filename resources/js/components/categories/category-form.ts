@@ -5,6 +5,7 @@
  */
 import type { ApiFieldErrors } from '@/lib/api-client';
 import { LIMITS, SLUG_PATTERN } from '@/lib/limits';
+import { humaniseField, withFieldLabel } from '@/lib/validation-messages';
 import { isHexColor, isLocaleCode } from '@/lib/widget-config';
 import type { CategoryData, CategoryInput } from '@/types/widgets';
 
@@ -170,10 +171,15 @@ export function categoryRequestBody(
     return body;
 }
 
-/** Maps the server's `details` onto the dialog's field keys (`name_i18n.xx` -> the matching row). */
+/**
+ * Maps the server's `details` onto the dialog's field keys (`name_i18n.xx` -> the matching row).
+ * With `rowLabel` the server's text names the row ("Name in translation 2") instead of embedding
+ * the dotted attribute ("The name i18n.ar must not be greater than ...").
+ */
 export function mapCategoryErrors(
     details: ApiFieldErrors,
     values: CategoryFormValues,
+    rowLabel?: (position: number) => string,
 ): CategoryFormErrors {
     const errors: CategoryFormErrors = {};
 
@@ -182,11 +188,17 @@ export function mapCategoryErrors(
 
         if (field.startsWith('name_i18n.')) {
             const locale = field.slice('name_i18n.'.length);
-            const row = values.names.find(
+            const position = values.names.findIndex(
                 (entry) => entry.locale.trim() === locale,
             );
+            const row = values.names[position];
+            const named = withFieldLabel(
+                message,
+                field,
+                row && rowLabel ? rowLabel(position + 1) : humaniseField(field),
+            );
 
-            errors[row ? `names.${row.id}` : 'name_i18n'] = message;
+            errors[row ? `names.${row.id}` : 'name_i18n'] = named;
         } else {
             errors[field] = message;
         }

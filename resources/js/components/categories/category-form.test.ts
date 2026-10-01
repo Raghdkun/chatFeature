@@ -133,6 +133,29 @@ describe('validateCategoryForm', () => {
     });
 });
 
+describe('mapCategoryErrors with row labels', () => {
+    it('names the translation row instead of the dotted attribute', () => {
+        const first = newLocaleRow('fr', 'x');
+        const second = newLocaleRow('ar', 'y');
+        const errors = mapCategoryErrors(
+            {
+                'name_i18n.ar': [
+                    'The name i18n.ar field must not be greater than 120 characters.',
+                ],
+                'name_i18n.zz': ['The name i18n.zz field is invalid.'],
+            },
+            { ...emptyCategoryForm(), names: [first, second] },
+            (n) => `Name in translation ${n}`,
+        );
+
+        expect(errors[`names.${second.id}`]).toBe(
+            'The Name in translation 2 field must not be greater than 120 characters.',
+        );
+        // Unknown locale: no row to attach it to, but still readable.
+        expect(errors.name_i18n).toBe('The name i18n zz field is invalid.');
+    });
+});
+
 describe('mapCategoryErrors', () => {
     it('maps field errors and attaches name_i18n errors to their row', () => {
         const row = newLocaleRow('ar', 'x');

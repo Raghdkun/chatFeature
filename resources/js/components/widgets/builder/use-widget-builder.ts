@@ -19,6 +19,7 @@ import {
     type FieldErrors,
     type SliceName,
 } from '@/components/widgets/builder-state';
+import { builderFieldLabel } from '@/components/widgets/builder-labels';
 import { useUnsavedChangesGuard } from '@/components/widgets/use-unsaved-guard';
 import { useTrans } from '@/hooks/use-trans';
 import { api, describeApiError, isApiError } from '@/lib/api-client';
@@ -59,7 +60,8 @@ function formatList(items: string[], locale: string): string {
  * (each independent, errors mapped onto fields) -> publish. The page only renders what this returns.
  */
 export function useWidgetBuilder(data: WidgetBuilderData) {
-    const { t, locale } = useTrans();
+    const translator = useTrans();
+    const { t, locale } = translator;
     const [state, dispatch] = useReducer(
         builderReducer,
         data,
@@ -229,7 +231,9 @@ export function useWidgetBuilder(data: WidgetBuilderData) {
                 if (isApiError(error) && error.isValidation) {
                     errors = {
                         ...errors,
-                        ...mapApiErrors(slice, error.details),
+                        ...mapApiErrors(slice, error.details, (path) =>
+                            builderFieldLabel(path, translator),
+                        ),
                     };
                 } else {
                     general = describeApiError(error, t);

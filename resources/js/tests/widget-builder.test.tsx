@@ -2454,6 +2454,49 @@ describe('unexpected failures', () => {
     });
 });
 
+describe('server messages read like labels, not attributes', () => {
+    it('puts the field label into the server text instead of the dotted attribute', async () => {
+        fakeApi({
+            'GET /widget/v1/loader.js': { status: 404 },
+            'PUT /api/v1/widgets/w1/draft': unprocessable({
+                'config.theme.primary': [
+                    'The config.theme.primary field format is invalid.',
+                ],
+                'config.hours.holidays.0.date': [
+                    'The config.hours.holidays.0.date field has a duplicate value.',
+                ],
+            }),
+        });
+
+        const view = await render(<WidgetBuilder {...DATA()} />);
+
+        await flush();
+        await openTab(view, 'hours');
+        await click(byTestId(view.container, 'builder-holiday-add'));
+        await fill(
+            byTestId(view.container, 'builder-holiday-date-0'),
+            '2026-12-25',
+        );
+        await openTab(view, 'branding');
+        await fill(byLabelText(view.container, 'Primary color'), '#333333');
+        await click(view.byTestId('builder-save'));
+        await flush();
+
+        expect(view.byTestId('builder-panel-branding')?.textContent).toContain(
+            'The Primary color field format is invalid.',
+        );
+        expect(
+            view.byTestId('builder-panel-branding')?.textContent,
+        ).not.toContain('config.theme.primary');
+
+        await openTab(view, 'hours');
+
+        expect(view.byTestId('builder-panel-hours')?.textContent).toContain(
+            'The Holiday 1 date field has a duplicate value.',
+        );
+    });
+});
+
 describe('server error placement', () => {
     it('shows category errors reported per entry (category_ulids.N)', async () => {
         const view = await render(<WidgetBuilder {...DATA()} />);

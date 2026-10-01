@@ -165,7 +165,11 @@ function CategoryForm({
             onDone(saved);
         } catch (error) {
             if (isApiError(error) && error.isValidation) {
-                setErrors(mapCategoryErrors(error.details, values));
+                setErrors(
+                    mapCategoryErrors(error.details, values, (n) =>
+                        t('categories.dialog.locale_name', { n }),
+                    ),
+                );
             } else {
                 setFormError(describeApiError(error, t));
             }

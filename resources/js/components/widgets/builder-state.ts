@@ -13,6 +13,7 @@
  */
 import type { ApiFieldErrors } from '@/lib/api-client';
 import { LIMITS } from '@/lib/limits';
+import { humaniseField, withFieldLabel } from '@/lib/validation-messages';
 import {
     clampToRange,
     defaultWidgetConfig,
@@ -988,10 +989,15 @@ export function errorCount(errors: FieldErrors): number {
 /* Error mapping                                                              */
 /* -------------------------------------------------------------------------- */
 
-/** Namespaces the server's `details` keys so every slice can live in one error map. */
+/**
+ * Namespaces the server's `details` keys so every slice can live in one error map. With `label`
+ * the server's messages lose the dotted attribute they embed ("The config.theme.primary field ...")
+ * in favour of the field's label; the rule text stays the server's.
+ */
 export function mapApiErrors(
     slice: SliceName,
     details: ApiFieldErrors,
+    label?: (path: string) => string | undefined,
 ): FieldErrors {
     const mapped: FieldErrors = {};
 
@@ -1025,7 +1031,19 @@ export function mapApiErrors(
                 break;
         }
 
-        mapped[path] = [...(mapped[path] ?? []), ...messages];
+        const named = label?.(path) ?? humaniseField(path);
+
+        mapped[path] = [
+            ...(mapped[path] ?? []),
+            // The server spells the attribute the way it received the key.
+            ...messages.map((message) =>
+                withFieldLabel(
+                    withFieldLabel(message, field, named),
+                    path,
+                    named,
+                ),
+            ),
+        ];
     }
 
     return mapped;

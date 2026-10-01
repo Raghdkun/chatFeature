@@ -1218,6 +1218,69 @@ describe('server error placement', () => {
         expect(errorsUnder(errors, 'config.hours.schedule.1')).toEqual([]);
     });
 
+    it('replaces the dotted attribute the server embeds in its message by the field label, keeping the rule text', () => {
+        const label = (path: string) =>
+            path === 'config.hours.holidays.1.date'
+                ? 'Holiday 2 date'
+                : undefined;
+        const errors = mapApiErrors(
+            'config',
+            {
+                'config.hours.holidays.1.date': [
+                    'The config.hours.holidays.1.date field has a duplicate value.',
+                ],
+                'config.theme.primaryText': [
+                    'The config.theme.primary text field format is invalid.',
+                ],
+            },
+            label,
+        );
+
+        expect(errors['config.hours.holidays.1.date']).toEqual([
+            'The Holiday 2 date field has a duplicate value.',
+        ]);
+        // No label known: a readable name instead of the dotted key.
+        expect(errors['config.theme.primaryText']).toEqual([
+            'The theme primary text field format is invalid.',
+        ]);
+    });
+
+    it('does the same for the other slices and leaves custom texts alone', () => {
+        expect(
+            mapApiErrors(
+                'categories',
+                {
+                    'category_ulids.0': [
+                        'The selected category ulids.0 is invalid.',
+                    ],
+                },
+                (path) => (path === 'categories.0' ? 'Category 1' : undefined),
+            ),
+        ).toEqual({
+            'categories.0': ['The selected Category 1 is invalid.'],
+        });
+        expect(
+            mapApiErrors('domains', {
+                'domains.0': ['"x" is not a valid domain.'],
+            }),
+        ).toEqual({ 'domains.0': ['"x" is not a valid domain.'] });
+        expect(
+            mapApiErrors(
+                'settings',
+                {
+                    idle_timeout_minutes: [
+                        'The idle timeout minutes field must be between 5 and 10080.',
+                    ],
+                },
+                () => 'Idle timeout',
+            ),
+        ).toEqual({
+            'settings.idle_timeout_minutes': [
+                'The Idle timeout field must be between 5 and 10080.',
+            ],
+        });
+    });
+
     it('maps category_ulids.N onto the categories tab and finds it under the list prefix', () => {
         const errors = mapApiErrors('categories', {
             'category_ulids.0': ['The selected category is invalid.'],
