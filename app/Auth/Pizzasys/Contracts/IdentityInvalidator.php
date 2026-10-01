@@ -15,8 +15,9 @@ interface IdentityInvalidator
     public function flushForExternalId(string $externalId): void;
 
     /**
-     * user.deleted / "deactivation": revoke all sessions and Sanctum tokens, set users.is_active = false
-     * and identity.deactivated_at.
+     * user.deleted / "deactivation": set identity.deactivated_at on that portal account and revoke ITS sessions and
+     * Sanctum tokens. The local user (`users.is_active`) is left alone, so a wrong event cannot lock a person out for
+     * good; `chat:auth:reactivate` reverses a deactivation.
      */
     public function deactivateExternalId(string $externalId): void;
 

@@ -66,7 +66,7 @@ class SetupController extends Controller
      */
     public function token(VerifySetupTokenRequest $request): RedirectResponse
     {
-        if ($this->token->isMisconfigured()) {
+        if ($this->token->isMisconfigured($request)) {
             throw ValidationException::withMessages([
                 'token' => __('No setup token is configured on this server. Run "php artisan chat:bootstrap-secrets", restart the app and try again.'),
             ]);

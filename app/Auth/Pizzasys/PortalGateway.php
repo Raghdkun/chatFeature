@@ -34,8 +34,7 @@ final class PortalGateway
         $result = $this->client->login($env, $email, $password);
 
         if ($result->status === PortalStatus::Unavailable) {
-            $this->breaker->recordFailure($env->key);
-            $this->health->markFailure($env->key, (string) $result->reason);
+            $this->observeFailure($env, $result->reason);
         } else {
             $this->breaker->recordSuccess($env->key);
         }
@@ -135,8 +134,7 @@ final class PortalGateway
                 return $this->rejected($env, $token, $result->message, $userTokenFallback);
 
             default:
-                $this->breaker->recordFailure($env->key);
-                $this->health->markFailure($env->key, (string) $result->reason);
+                $this->observeFailure($env, $result->reason);
 
                 return $result;
         }
@@ -154,8 +152,7 @@ final class PortalGateway
         $me = $this->client->me($env, $token);
 
         if ($me->status === PortalStatus::Unavailable) {
-            $this->breaker->recordFailure($env->key);
-            $this->health->markFailure($env->key, (string) $me->reason);
+            $this->observeFailure($env, $me->reason);
 
             return $me;
         }
@@ -169,6 +166,26 @@ final class PortalGateway
         }
 
         return $me->viaUserToken();
+    }
+
+    /**
+     * The call did not give an answer we can use. Only a failure that says the portal is DOWN (connect error, timeout,
+     * TLS failure, 5xx) counts toward the circuit breaker and the health card; a rate limit (429), an unexpected body or
+     * another 4xx proves the portal is alive, and a refused address never reached it, so neither can open the circuit
+     * (that would turn a password spray into an outage for every signed-in user).
+     */
+    private function observeFailure(PizzasysEndpoint $env, ?string $reason): void
+    {
+        if (PortalFailure::countsAgainstBreaker($reason)) {
+            $this->breaker->recordFailure($env->key);
+            $this->health->markFailure($env->key, (string) $reason);
+
+            return;
+        }
+
+        if ($reason === PortalFailure::RATE_LIMITED || $reason === PortalFailure::UNEXPECTED_RESPONSE || str_starts_with((string) $reason, 'http_4')) {
+            $this->breaker->recordSuccess($env->key);
+        }
     }
 
     private function observeReachable(PizzasysEndpoint $env): void

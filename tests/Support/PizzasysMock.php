@@ -36,6 +36,9 @@ final class PizzasysMock
 
     private ?string $serviceRejection = null;
 
+    /** @var list<string> service tokens accepted besides {@see SERVICE_TOKEN} (a rotated or re-entered credential) */
+    private array $extraServiceTokens = [];
+
     private ?string $outage = null;
 
     private int $sequence = 10;
@@ -134,6 +137,14 @@ final class PizzasysMock
     public function rejectServiceCredential(string $message = 'Invalid service token.'): self
     {
         $this->serviceRejection = $message;
+
+        return $this;
+    }
+
+    /** The portal also knows this service token (for example one an administrator just typed in Settings). */
+    public function acceptServiceToken(string $token): self
+    {
+        $this->extraServiceTokens[] = $token;
 
         return $this;
     }
@@ -260,7 +271,7 @@ final class PizzasysMock
             return Http::response(['message' => $this->serviceRejection], 401);
         }
 
-        if ($bearer !== self::SERVICE_TOKEN) {
+        if ($bearer !== self::SERVICE_TOKEN && ! in_array($bearer, $this->extraServiceTokens, true)) {
             return Http::response(self::fixture('token-verify-bad-service-wrong-bearer'), 401);
         }
 

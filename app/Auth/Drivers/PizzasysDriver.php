@@ -13,6 +13,7 @@ use App\Auth\Pizzasys\PizzasysCircuitBreaker;
 use App\Auth\Pizzasys\PizzasysEndpoint;
 use App\Auth\Pizzasys\PortalGateway;
 use App\Auth\Pizzasys\PortalHealth;
+use App\Auth\Pizzasys\PortalLabel;
 use App\Auth\Pizzasys\Results\PortalFailure;
 use App\Auth\Pizzasys\Results\PortalStatus;
 use App\Auth\Pizzasys\Results\PortalVerifyResult;
@@ -33,6 +34,7 @@ use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Laravel\Fortify\Fortify;
+use SensitiveParameter;
 
 /**
  * Mode 2: staff sign in with their account in the external pizzasys auth portal.
@@ -76,7 +78,8 @@ final class PizzasysDriver implements AuthDriver
             canResetPassword: false,
             canManage2fa: false,
             profileEditable: false,
-            portalUrl: $this->environments->active()?->base_url,
+            // Shared with anonymous visitors on every page: only a public label, never the portal's real API address.
+            portalUrl: PortalLabel::forBaseUrl($this->environments->active()?->base_url),
         );
     }
 
@@ -100,7 +103,7 @@ final class PizzasysDriver implements AuthDriver
         return $result;
     }
 
-    public function attemptForApi(array $credentials, string $deviceName): ApiAuthResult
+    public function attemptForApi(#[SensitiveParameter] array $credentials, string $deviceName): ApiAuthResult
     {
         $email = $credentials[Fortify::username()] ?? null;
         $password = $credentials['password'] ?? null;
@@ -235,7 +238,7 @@ final class PizzasysDriver implements AuthDriver
      *
      * @return array{0: AuthResult, 1: PendingPortalLogin|null}
      */
-    private function authenticate(string $email, string $password): array
+    private function authenticate(string $email, #[SensitiveParameter] string $password): array
     {
         $environment = $this->environments->active();
         $endpoint = $environment?->endpoint();
@@ -281,7 +284,7 @@ final class PizzasysDriver implements AuthDriver
         }
 
         $user = $synced->user;
-        $this->roles->sync($user);
+        $this->roles->syncFromIdentity($user, $synced->identity);
         $user->refresh();
 
         if (! $user->hasChatAccess()) {
@@ -302,12 +305,14 @@ final class PizzasysDriver implements AuthDriver
             ShadowSyncResult::IDENTITY_DEACTIVATED, ShadowSyncResult::ACCOUNT_DEACTIVATED => AuthResult::invalid(__('This account has been deactivated. Contact an administrator.')),
             ShadowSyncResult::EMAIL_CONFLICT => AuthResult::invalid(__('This email address already belongs to a local account. Contact an administrator.')),
             ShadowSyncResult::NOT_CREATED => AuthResult::noChatAccess(null, __('This account has no access to the chat dashboard. Ask an administrator to grant it.')),
+            // Deliberately the plain "wrong credentials" answer: it must not tell a stranger that the email exists here.
+            ShadowSyncResult::IDENTITY_CONFLICT => AuthResult::invalid(),
             default => AuthResult::invalid(),
         };
     }
 
     /** A just-issued upstream token we will not use is closed again: upstream tokens never expire on their own. */
-    private function discard(PizzasysEndpoint $endpoint, string $token): void
+    private function discard(PizzasysEndpoint $endpoint, #[SensitiveParameter] string $token): void
     {
         $this->gateway->logout($endpoint, $token);
     }
@@ -349,7 +354,7 @@ final class PizzasysDriver implements AuthDriver
                 'stale_at' => null,
             ])->save();
 
-            $this->roles->sync($user);
+            $this->roles->syncFromIdentity($user, $identity);
             $user->refresh();
 
             if (! $user->hasChatAccess()) {

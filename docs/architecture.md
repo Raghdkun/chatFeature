@@ -70,7 +70,7 @@ The widget opens no websocket until the visitor starts a chat. Eligibility is co
 - `InstallAwareConfigProvider` forces `session=file`, `cache=file`, `queue=sync`, `broadcast=null` until installed, so nothing touches the database before install. `.env` holds the real drivers, which activate once the lock exists.
 - `InstallGate` (global middleware) redirects web requests to `/setup`, returns `503 not_installed` for API calls, and exempts `/up`, `/setup/*` and assets.
 - Lock: `storage/app/installed.lock` (authoritative) plus a DB flag. After the lock, `/setup/*` is 404 forever and `/` is `auth`-guarded.
-- Takeover guard: one-time `SETUP_TOKEN` printed in the app logs (skipped when `APP_ENV=local`). Non-interactive path: `chat:install --mode=local|pizzasys`.
+- Takeover guard: one-time `SETUP_TOKEN` printed in the app logs (skipped only for `APP_ENV=local` requests from 127.0.0.1 / ::1 with no proxy headers). Non-interactive path: `chat:install --mode=local|pizzasys`.
 
 ## Flow 3: auth drivers
 

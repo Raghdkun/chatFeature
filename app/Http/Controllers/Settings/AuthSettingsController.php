@@ -5,13 +5,12 @@ namespace App\Http\Controllers\Settings;
 use App\Auth\Contracts\AuthDriver;
 use App\Auth\Pizzasys\Actions\ActivateEnvironment;
 use App\Auth\Pizzasys\Actions\BuildAuthSettingsData;
+use App\Auth\Pizzasys\Actions\PortalPreflightFailed;
+use App\Auth\Pizzasys\Actions\SaveAuthEnvironment;
 use App\Auth\Pizzasys\Actions\TestPortalConnection;
 use App\Auth\Pizzasys\AuthEnvironmentRepository;
 use App\Auth\Pizzasys\Contracts\IdentityInvalidator;
-use App\Auth\Pizzasys\NatsRestartSignal;
-use App\Auth\Pizzasys\PizzasysCircuitBreaker;
-use App\Auth\Pizzasys\PortalHealth;
-use App\Auth\Pizzasys\VerifyCache;
+use App\Data\Auth\PortalCheckKey;
 use App\Data\Auth\PortalCheckStatus;
 use App\Domain\Audit\AuditLogger;
 use App\Domain\Settings\SettingsRepository;
@@ -19,7 +18,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\ActivateAuthEnvironmentRequest;
 use App\Http\Requests\Auth\UpdateAuthEnvironmentRequest;
 use App\Http\Requests\Auth\UpdateAuthRolesRequest;
-use App\Models\AuthEnvironment;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -46,71 +44,14 @@ class AuthSettingsController extends Controller
         return Inertia::render('settings/auth', ['authSettings' => $build()]);
     }
 
-    public function updateEnvironment(UpdateAuthEnvironmentRequest $request, string $key): RedirectResponse
+    public function updateEnvironment(UpdateAuthEnvironmentRequest $request, string $key, SaveAuthEnvironment $save): RedirectResponse|JsonResponse
     {
         $this->requirePortalMode();
 
-        $environment = $this->environments->find($key) ?? new AuthEnvironment(['key' => $key]);
-        $creating = ! $environment->exists;
-        $before = $environment->only(['label', 'base_url', 'api_prefix', 'service_name', 'nats_url', 'verify_tls']);
-        $serviceToken = $request->validated('service_token');
-        $natsUrl = $request->validated('nats_url');
-        $changes = [];
-
-        $environment->fill([
-            'label' => $this->nullableString($request->validated('label')) ?? ($environment->label ?: ucfirst($key)),
-            'base_url' => rtrim((string) $request->validated('base_url'), '/'),
-            'api_prefix' => $this->nullableString($request->validated('api_prefix')) !== null ? '/'.trim((string) $request->validated('api_prefix'), '/') : ($environment->api_prefix ?: '/api/v1'),
-            'service_name' => (string) $request->validated('service_name'),
-            'nats_url' => $this->nullableString($natsUrl),
-            'verify_tls' => $request->has('verify_tls') ? $request->boolean('verify_tls') : ($creating ? true : $environment->verify_tls),
-        ]);
-
-        if (is_string($serviceToken) && $serviceToken !== '') {
-            $environment->service_token = $serviceToken;
-            $changes['service_credential_changed'] = true;
-        }
-
-        if ($this->nullableString($natsUrl) === null) {
-            // No NATS URL, no NATS token.
-            if ($environment->hasNatsToken()) {
-                $environment->nats_token = null;
-                $changes['nats_credential_changed'] = true;
-            }
-        } elseif ($request->wantsNatsTokenChange()) {
-            $environment->nats_token = $this->nullableString($request->validated('nats_token'));
-            $changes['nats_credential_changed'] = true;
-        }
-
-        foreach ($before as $field => $old) {
-            if ($environment->isDirty($field)) {
-                $changes[$field] = ['old' => $old, 'new' => $environment->getAttribute($field)];
-            }
-        }
-
-        if ($changes !== [] || $creating) {
-            // The last test result described the old settings.
-            $environment->fill(['last_check_at' => null, 'last_check_status' => null, 'last_check_message' => null]);
-        }
-
-        DB::transaction(function () use ($environment, $changes, $creating, $request): void {
-            $environment->save();
-
-            if ($changes !== [] || $creating) {
-                $this->audit->record($creating ? 'auth.environment_created' : 'auth.environment_updated', $environment, $changes, $request->user());
-            }
-        });
-
-        if ($changes !== [] || $creating) {
-            // New address or credentials: what was observed about the old ones no longer applies.
-            app(PortalHealth::class)->clearServiceRejected($environment->key);
-            app(PizzasysCircuitBreaker::class)->reset($environment->key);
-        }
-
-        if ($environment->key === $this->environments->activeKey() && ($changes !== [] || $creating)) {
-            $this->environments->syncNatsEnabled();
-            app(VerifyCache::class)->flushAll();
-            app(NatsRestartSignal::class)->request();
+        try {
+            $save($key, $request->toInput(), $request->user(), 'dashboard');
+        } catch (PortalPreflightFailed $failure) {
+            return $this->preflightFailed($request, $failure);
         }
 
         return back()->with('success', __('Saved.'));
@@ -192,8 +133,37 @@ class AuthSettingsController extends Controller
         abort_unless($this->settings->string('auth.mode', 'fortify') === 'pizzasys', 404);
     }
 
-    private function nullableString(mixed $value): ?string
+    /**
+     * Nothing was saved because the portal did not accept the settings of the active environment. Plain JSON callers get
+     * the failing checks; form posts get field errors (`base_url`: not reachable, `service_token`: credential refused,
+     * `connection`: the summary).
+     */
+    private function preflightFailed(Request $request, PortalPreflightFailed $failure): JsonResponse
     {
-        return is_string($value) && trim($value) !== '' ? trim($value) : null;
+        $errors = ['connection' => [__('These settings were not saved because the portal did not accept them. Fix them and save again.')]];
+
+        foreach ($failure->result->checks as $check) {
+            $message = is_string($check->message) ? $check->message : null;
+
+            if ($check->ok || $message === null) {
+                continue;
+            }
+
+            $field = match ($check->key) {
+                PortalCheckKey::Reachable => 'base_url',
+                PortalCheckKey::ServiceCredential => 'service_token',
+                default => null,
+            };
+
+            if ($field !== null) {
+                $errors[$field][] = $message;
+            }
+        }
+
+        if (! $request->expectsJson()) {
+            throw ValidationException::withMessages($errors);
+        }
+
+        return response()->json(['message' => $errors['connection'][0], 'errors' => $errors, 'checks' => $failure->result->toArray()['checks']], 422);
     }
 }

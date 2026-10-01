@@ -3,6 +3,8 @@
 namespace App\Infrastructure\Nats;
 
 use App\Infrastructure\Nats\Contracts\JetStreamGateway;
+use App\Support\Network\OutboundTarget;
+use App\Support\Network\OutboundUrlGuard;
 use Basis\Nats\Client;
 use Basis\Nats\Configuration;
 use Basis\Nats\Consumer\Configuration as ConsumerConfiguration;
@@ -22,6 +24,11 @@ use Throwable;
  *
  * The client's built-in reconnect is switched off: a broken socket surfaces as a GatewayException and the consumer
  * reconnects with its own backoff, re-ensuring the stream and consumer.
+ *
+ * Before every connection the address goes through {@see OutboundUrlGuard} again (the settings may have been changed or
+ * the name re-pointed since they were validated) and the socket is opened to the address that was just validated, with
+ * the certificate checked against the original host name. TLS is enforced by {@see StrictTlsConnection} /
+ * {@see TlsPolicy}.
  */
 final class BasisJetStreamGateway implements JetStreamGateway
 {
@@ -43,24 +50,34 @@ final class BasisJetStreamGateway implements JetStreamGateway
 
     private int $pullRemaining = 0;
 
+    public function __construct(private readonly ?OutboundUrlGuard $guard = null) {}
+
     public function connect(NatsSettings $settings): void
     {
         $this->disconnect();
 
         $endpoint = NatsEndpoint::parse((string) $settings->url);
         $token = $settings->token !== null && $settings->token !== '' ? $settings->token : null;
+        $target = ($this->guard ?? app(OutboundUrlGuard::class))->checkHost($endpoint->host, $endpoint->port, $endpoint->tls ? 'tls' : 'nats');
+
+        if (! $target->ok) {
+            throw new GatewayException('The NATS address is not allowed.');
+        }
+
+        $policy = TlsPolicy::for($endpoint, $target, $settings->verifyTls, $settings->tlsCaFile);
 
         try {
             $client = new Client(new Configuration(
-                host: $endpoint->host,
+                host: $this->pinnedHost($target, $endpoint->host),
                 port: $endpoint->port,
                 user: $token === null ? $endpoint->user : null,
                 pass: $token === null ? $endpoint->password : null,
                 token: $token,
-                tlsCaFile: $settings->tlsCaFile,
+                tlsCaFile: $policy->caFile,
                 reconnect: false,
                 timeout: 3.0,
             ));
+            $client->connection = new StrictTlsConnection($client, $policy);
             $client->setName('pne-chat-consumer');
 
             // The first PING completes INFO/CONNECT; bad credentials surface here as an -ERR.
@@ -72,6 +89,16 @@ final class BasisJetStreamGateway implements JetStreamGateway
         } catch (Throwable $exception) {
             throw $this->wrap($exception, 'Could not connect to NATS');
         }
+    }
+
+    /** The validated address to open the socket to (IPv4 preferred, IPv6 in brackets); the literal host when it is one. */
+    private function pinnedHost(OutboundTarget $target, string $host): string
+    {
+        $addresses = $target->addresses;
+        usort($addresses, fn (string $a, string $b): int => str_contains($a, ':') <=> str_contains($b, ':'));
+        $address = $addresses[0] ?? $host;
+
+        return str_contains($address, ':') ? '['.$address.']' : $address;
     }
 
     public function disconnect(): void

@@ -2,10 +2,12 @@
 
 namespace App\Domain\Install\Actions;
 
+use App\Auth\Pizzasys\SecretReentry;
 use App\Auth\Roles\RoleMapping;
 use App\Domain\Install\InstallState;
 use App\Domain\Install\Support\PizzasysAnswers;
 use Illuminate\Support\Facades\Hash;
+use SensitiveParameter;
 
 /**
  * Persists the wizard answers into install-state.json (no database involved).
@@ -29,7 +31,7 @@ final class StoreInstallAnswers
         });
     }
 
-    public function admin(string $name, string $email, string $plainPassword): void
+    public function admin(string $name, string $email, #[SensitiveParameter] string $plainPassword): void
     {
         $hash = Hash::make($plainPassword);
 
@@ -42,13 +44,15 @@ final class StoreInstallAnswers
 
     /**
      * Mode 2: the portal environments, the active one and the role mapping. A token left out (null) keeps the one
-     * already stored for that environment; new tokens are encrypted with the application key before they are written.
-     * Any change drops the connection-test results and the verified portal administrator, which were proven against
-     * the old answers.
+     * already stored for that environment, but only while it keeps going to the same place: when the portal address,
+     * the service name or the NATS address changes (or certificate verification is switched off) the stored token is
+     * dropped instead ({@see SecretReentry}; the request validation asks for it again before this is reached). New
+     * tokens are encrypted with the application key before they are written. Any change drops the connection-test
+     * results and the verified portal administrator, which were proven against the old answers.
      *
      * @param  array<string, array{base_url: string, api_prefix?: string, service_name: string, service_token: string|null, nats_url: string|null, nats_token: string|null, nats_token_clear?: bool, verify_tls: bool, label?: string}|null>  $environments  Keyed production|testing; a null or missing testing entry removes it.
      */
-    public function pizzasys(array $environments, string $activeEnv, RoleMapping $roles): void
+    public function pizzasys(#[SensitiveParameter] array $environments, string $activeEnv, RoleMapping $roles): void
     {
         $this->state->mutate(function (array $state) use ($environments, $activeEnv, $roles): array {
             $previous = PizzasysAnswers::from($state['auth_environments']);
@@ -62,19 +66,41 @@ final class StoreInstallAnswers
                 }
 
                 $before = $previous->environment($key);
+                $serviceTokenGiven = $input['service_token'] !== null && $input['service_token'] !== '';
+                $natsTokenGiven = ($input['nats_token'] !== null && $input['nats_token'] !== '') || ($input['nats_token_clear'] ?? false) === true;
+                $mustReenter = $before === null ? [] : SecretReentry::missing(
+                    [
+                        'base_url' => $before['base_url'],
+                        'service_name' => $before['service_name'],
+                        'nats_url' => $before['nats_url'],
+                        'verify_tls' => $before['verify_tls'],
+                        'has_service_token' => $before['service_token'] !== null,
+                        'has_nats_token' => $before['nats_token'] !== null,
+                    ],
+                    [
+                        'base_url' => $input['base_url'],
+                        'service_name' => $input['service_name'],
+                        'nats_url' => $input['nats_url'],
+                        'verify_tls' => $input['verify_tls'],
+                        'service_token_given' => $serviceTokenGiven,
+                        'nats_token_given' => $natsTokenGiven,
+                    ],
+                );
 
                 $stored[$key] = [
                     'base_url' => rtrim($input['base_url'], '/'),
                     'api_prefix' => $input['api_prefix'] ?? '/api/v1',
                     'service_name' => $input['service_name'],
-                    'service_token' => $input['service_token'] !== null && $input['service_token'] !== ''
-                        ? PizzasysAnswers::encrypt($input['service_token'])
-                        : ($before['service_token'] ?? null),
+                    'service_token' => $serviceTokenGiven
+                        ? PizzasysAnswers::encrypt((string) $input['service_token'])
+                        : (isset($mustReenter[SecretReentry::SERVICE_TOKEN]) ? null : ($before['service_token'] ?? null)),
                     'nats_url' => $input['nats_url'] !== null && $input['nats_url'] !== '' ? $input['nats_url'] : null,
-                    // No NATS URL, no NATS token; otherwise an empty token keeps the stored one.
+                    // No NATS URL, no NATS token; otherwise an empty token keeps the stored one (unless it would go somewhere new).
                     'nats_token' => $input['nats_url'] === null || $input['nats_url'] === '' || ($input['nats_token_clear'] ?? false) === true
                         ? null
-                        : ($input['nats_token'] !== null && $input['nats_token'] !== '' ? PizzasysAnswers::encrypt($input['nats_token']) : ($before['nats_token'] ?? null)),
+                        : ($input['nats_token'] !== null && $input['nats_token'] !== ''
+                            ? PizzasysAnswers::encrypt($input['nats_token'])
+                            : (isset($mustReenter[SecretReentry::NATS_TOKEN]) ? null : ($before['nats_token'] ?? null))),
                     'verify_tls' => $input['verify_tls'],
                     'label' => $input['label'] ?? ucfirst($key),
                     'tested' => false,

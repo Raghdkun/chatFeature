@@ -134,6 +134,13 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::confirmPasswordView(fn () => Inertia::render('auth/confirm-password'));
     }
 
+    private function loginLimit(string $key, int $default): int
+    {
+        $value = config('chat.login_throttle.'.$key);
+
+        return is_int($value) && $value > 0 ? $value : $default;
+    }
+
     /**
      * Configure rate limiting.
      */
@@ -143,10 +150,25 @@ class FortifyServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($request->session()->get('login.id'));
         });
 
-        RateLimiter::for('login', function (Request $request) {
-            $throttleKey = Str::transliterate(Str::lower($request->input(Fortify::username())).'|'.$request->ip());
+        // Three counters, so neither one address spraying many emails nor many addresses attacking one account get past:
+        // email + address (the original), address alone, email alone.
+        RateLimiter::for('login', function (Request $request): array {
+            $submitted = $request->input(Fortify::username());
+            $email = is_string($submitted) ? Str::lower(trim($submitted)) : '';
+            $ip = (string) $request->ip();
 
-            return Limit::perMinute(5)->by($throttleKey);
+            $limits = [
+                // The original key, unchanged: one person at one address.
+                Limit::perMinute($this->loginLimit('per_email_and_ip', 5))->by(Str::transliterate($email.'|'.$ip)),
+                Limit::perMinute($this->loginLimit('per_ip', 30))->by('login-ip|'.$ip),
+            ];
+
+            // No email to count (the form is invalid anyway): never share one bucket between all such requests.
+            if ($email !== '') {
+                $limits[] = Limit::perMinute($this->loginLimit('per_email', 10))->by('login-email|'.Str::transliterate($email));
+            }
+
+            return $limits;
         });
 
         RateLimiter::for('passkeys', function (Request $request) {

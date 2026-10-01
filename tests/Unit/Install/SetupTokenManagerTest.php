@@ -3,6 +3,7 @@
 namespace Tests\Unit\Install;
 
 use App\Domain\Install\SetupTokenManager;
+use Illuminate\Http\Request;
 use Illuminate\Session\ArraySessionHandler;
 use Illuminate\Session\Store;
 use Tests\TestCase;
@@ -51,6 +52,24 @@ class SetupTokenManagerTest extends TestCase
         $this->app->detectEnvironment(fn () => 'local');
         $this->assertFalse($this->manager->isRequired());
         $this->assertTrue($this->manager->isVerified($this->freshSession()), 'nothing to verify locally');
+    }
+
+    public function test_local_needs_a_loopback_peer_and_no_proxy(): void
+    {
+        $this->app->detectEnvironment(fn () => 'local');
+        $fromHere = Request::create('/setup', server: ['REMOTE_ADDR' => '127.0.0.1']);
+        $fromElsewhere = Request::create('/setup', server: ['REMOTE_ADDR' => '203.0.113.9']);
+        $proxied = Request::create('/setup', server: ['REMOTE_ADDR' => '127.0.0.1', 'HTTP_X_FORWARDED_FOR' => '203.0.113.9']);
+
+        $this->assertFalse($this->manager->isRequired($fromHere));
+        $this->assertTrue($this->manager->isRequired($fromElsewhere));
+        $this->assertTrue($this->manager->isRequired($proxied));
+        $this->assertTrue($this->manager->isVerified($this->freshSession(), $fromHere));
+        $this->assertFalse($this->manager->isVerified($this->freshSession(), $fromElsewhere));
+        $this->assertFalse($this->manager->isMisconfigured($fromHere));
+
+        config(['install.setup_token' => null]);
+        $this->assertTrue($this->manager->isMisconfigured($fromElsewhere), 'no token configured and a stranger asking: fail closed');
     }
 
     public function test_an_unconfigured_token_fails_closed(): void

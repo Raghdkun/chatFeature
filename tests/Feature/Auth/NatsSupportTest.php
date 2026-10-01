@@ -49,26 +49,27 @@ class NatsSupportTest extends TestCase
         $this->assertStringContainsString("PING\r\n", $sent);
     }
 
-    public function test_rejected_credentials_are_reported_plainly(): void
+    public function test_rejected_credentials_fail_like_every_other_failure_without_echoing_the_token(): void
     {
         [$client, $server] = $this->server(['INFO {"auth_required":true}', "-ERR 'Authorization Violation'"]);
 
         $result = (new NatsProbe)->handshake($client, 'wrong-token');
 
         $this->assertFalse($result['ok']);
-        $this->assertStringContainsString('rejected the credentials', $result['message']);
         $this->assertStringNotContainsString('wrong-token', $result['message']);
+        $this->assertStringStartsWith('Could not establish a NATS session', $result['message']);
         $this->assertIsResource($server);
     }
 
-    public function test_a_server_that_is_not_nats_is_recognised(): void
+    public function test_a_server_that_is_not_nats_fails_without_saying_so(): void
     {
         [$client, $server] = $this->server(['HTTP/1.1 400 Bad Request']);
 
         $result = (new NatsProbe)->handshake($client, null);
 
         $this->assertFalse($result['ok']);
-        $this->assertStringContainsString('not NATS', $result['message']);
+        $this->assertStringStartsWith('Could not establish a NATS session', $result['message']);
+        $this->assertStringNotContainsString('not NATS', $result['message']);
         $this->assertIsResource($server);
     }
 
@@ -87,16 +88,18 @@ class NatsSupportTest extends TestCase
         foreach (['http://host:4222', 'not a url', 'nats://', ''] as $url) {
             $result = $probe->probe($url, null);
             $this->assertFalse($result['ok'], $url);
-            $this->assertStringContainsString('nats://', $result['message']);
+            $this->assertStringStartsWith('Could not establish a NATS session', $result['message']);
         }
     }
 
-    public function test_an_unreachable_server_is_reported_with_its_address_only(): void
+    public function test_an_unreachable_server_is_reported_without_its_address_or_the_token(): void
     {
+        config(['chat.portal_allow_private_hosts' => true]);
+
         $result = (new NatsProbe)->probe('nats://127.0.0.1:1', 'secret-token');
 
         $this->assertFalse($result['ok']);
-        $this->assertStringContainsString('127.0.0.1:1', $result['message']);
+        $this->assertStringNotContainsString('127.0.0.1', $result['message']);
         $this->assertStringNotContainsString('secret-token', $result['message']);
     }
 

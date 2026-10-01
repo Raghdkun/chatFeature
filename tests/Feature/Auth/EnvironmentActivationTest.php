@@ -141,7 +141,7 @@ class EnvironmentActivationTest extends TestCase
         $this->assertSame(2, $before->externalIdentities()->count());
         $this->assertSame('Test Admin', $before->fresh()->name);
         $this->assertSame(1, ExternalSession::query()->whereNull('revoked_at')->count());
-        $this->assertSame(self::TESTING_URL, app(AuthDriver::class)->capabilities()->portalUrl);
+        $this->assertNull(app(AuthDriver::class)->capabilities()->portalUrl, 'a reserved .test name is not shown to visitors');
     }
 
     public function test_wrong_credentials_on_the_target_are_refused_and_nothing_changes(): void

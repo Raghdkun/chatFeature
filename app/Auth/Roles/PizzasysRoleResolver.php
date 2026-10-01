@@ -51,8 +51,9 @@ final class PizzasysRoleResolver implements RoleResolver
     }
 
     /**
-     * Recompute and persist `users.is_admin` / `users.is_agent` from the identity in the active environment. A user
-     * without such an identity is left alone.
+     * Recompute and persist `users.is_admin` / `users.is_agent` from the live identity in the active environment. A
+     * user without such an identity is left alone. The database allows at most one live identity per user and
+     * environment; callers that just verified a specific identity should use {@see syncFromIdentity()} instead.
      */
     public function sync(User $user): void
     {
@@ -66,9 +67,30 @@ final class PizzasysRoleResolver implements RoleResolver
             ->where('user_id', $user->getKey())
             ->where('auth_environment_id', $environment->getKey())
             ->whereNull('deactivated_at')
+            ->orderByDesc('last_verified_at')
+            ->orderByDesc('id')
             ->first();
 
         if ($identity === null) {
+            return;
+        }
+
+        $this->apply($user, $this->decideFor($identity));
+    }
+
+    /**
+     * Persist the chat roles of exactly this identity (the one whose token was just verified), never of "whichever
+     * identity the user happens to have". Nothing happens for an identity that is deactivated, belongs to another user
+     * or lives in an environment that is not the active one.
+     */
+    public function syncFromIdentity(User $user, UserExternalIdentity $identity): void
+    {
+        $environment = $this->environments->active();
+
+        if ($environment === null
+            || $identity->isDeactivated()
+            || $identity->user_id !== $user->getKey()
+            || $identity->auth_environment_id !== $environment->getKey()) {
             return;
         }
 

@@ -8,7 +8,9 @@ use App\Auth\Shadow\ShadowUserSync;
 use App\Models\AuthEnvironment;
 use App\Models\User;
 use App\Models\UserExternalIdentity;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
 class ShadowUserSyncTest extends TestCase
@@ -206,5 +208,144 @@ class ShadowUserSyncTest extends TestCase
         $this->assertTrue($a->user->is($b->user), 'matched by email when the new environment has no identity yet');
         $this->assertSame(2, $a->user->externalIdentities()->count());
         $this->assertSame(1, User::query()->count());
+    }
+
+    // ---- account takeover by email linking ---------------------------------------------------------------------
+
+    public function test_a_second_portal_account_with_the_same_email_is_refused_while_the_first_identity_is_live(): void
+    {
+        $first = $this->sync->upsert($this->production, $this->claims(sub: '1', permissions: ['chat.admin']));
+
+        $second = $this->sync->upsert($this->production, $this->claims(sub: '2', permissions: ['chat.agent']));
+
+        $this->assertFalse($second->isSynced());
+        $this->assertSame(ShadowSyncResult::IDENTITY_CONFLICT, $second->refusal);
+        $this->assertNull($second->user, 'the refusal does not hand out the account that already exists');
+        $this->assertNull($second->identity);
+        $this->assertSame(1, User::query()->count());
+        $this->assertSame(['1'], UserExternalIdentity::query()->pluck('external_id')->all(), 'no identity was linked for the newcomer');
+        $this->assertSame(['chat.admin'], $first->identity->refresh()->permissions, 'the first identity is untouched');
+    }
+
+    public function test_the_refusal_is_logged_with_ids_only(): void
+    {
+        $this->sync->upsert($this->production, $this->claims(sub: '1', email: 'secret.person@example.test'));
+        $logged = [];
+        Log::listen(function ($event) use (&$logged): void {
+            $logged[] = $event->message.' '.json_encode($event->context);
+        });
+
+        $this->sync->upsert($this->production, $this->claims(sub: '2', email: 'secret.person@example.test', name: 'Secret Person'));
+
+        $dump = implode("\n", $logged);
+        $this->assertStringContainsString('identity_conflict', $dump);
+        $this->assertStringNotContainsString('secret.person@example.test', $dump);
+        $this->assertStringNotContainsString('Secret Person', $dump);
+    }
+
+    public function test_the_conflict_check_ignores_the_letter_case_of_the_email(): void
+    {
+        $this->sync->upsert($this->production, $this->claims(sub: '1', email: 'ada@example.test'));
+
+        $result = $this->sync->upsert($this->production, $this->claims(sub: '2', email: 'ADA@Example.TEST'));
+
+        $this->assertSame(ShadowSyncResult::IDENTITY_CONFLICT, $result->refusal);
+        $this->assertSame(1, UserExternalIdentity::query()->count());
+    }
+
+    public function test_a_stored_mixed_case_email_is_matched_too(): void
+    {
+        $user = User::factory()->create(['email' => 'Ada@Example.test', 'auth_source' => 'pizzasys', 'password' => null]);
+        UserExternalIdentity::factory()->create(['user_id' => $user->id, 'auth_environment_id' => $this->production->id, 'external_id' => '1']);
+
+        $result = $this->sync->upsert($this->production, $this->claims(sub: '2', email: 'ada@example.test'));
+
+        $this->assertSame(ShadowSyncResult::IDENTITY_CONFLICT, $result->refusal);
+    }
+
+    public function test_a_new_account_may_take_over_the_local_user_once_the_old_identity_is_deactivated(): void
+    {
+        $old = $this->sync->upsert($this->production, $this->claims(sub: '1', permissions: ['chat.admin']));
+        $old->identity->forceFill(['active' => false, 'deactivated_at' => now()])->save();
+
+        $result = $this->sync->upsert($this->production, $this->claims(sub: '2', permissions: ['chat.agent']));
+
+        $this->assertTrue($result->isSynced());
+        $this->assertFalse($result->created);
+        $this->assertTrue($old->user->is($result->user), 'the person keeps their local account and history');
+        $this->assertSame('2', $result->identity->external_id);
+        $this->assertSame(['chat.agent'], $result->identity->permissions, 'the newcomer carries its own permissions');
+        $this->assertNotNull($old->identity->refresh()->deactivated_at, 'the old identity stays deactivated');
+        $this->assertSame(2, UserExternalIdentity::query()->count());
+    }
+
+    public function test_an_identity_in_the_other_environment_does_not_block_a_link(): void
+    {
+        $testing = AuthEnvironment::factory()->testing()->create();
+        $this->sync->upsert($testing, $this->claims(sub: '900'));
+
+        $result = $this->sync->upsert($this->production, $this->claims(sub: '1'));
+
+        $this->assertTrue($result->isSynced());
+        $this->assertSame(1, User::query()->count());
+    }
+
+    public function test_the_database_allows_one_live_identity_per_user_and_environment(): void
+    {
+        $user = User::factory()->create(['auth_source' => 'pizzasys', 'password' => null]);
+        $live = UserExternalIdentity::factory()->create(['user_id' => $user->id, 'auth_environment_id' => $this->production->id, 'external_id' => '1']);
+
+        $this->assertThrows(
+            fn () => UserExternalIdentity::factory()->create(['user_id' => $user->id, 'auth_environment_id' => $this->production->id, 'external_id' => '2']),
+            UniqueConstraintViolationException::class,
+        );
+
+        // deactivated rows do not count, however many there are ...
+        UserExternalIdentity::factory()->deactivated()->create(['user_id' => $user->id, 'auth_environment_id' => $this->production->id, 'external_id' => '3']);
+        UserExternalIdentity::factory()->deactivated()->create(['user_id' => $user->id, 'auth_environment_id' => $this->production->id, 'external_id' => '4']);
+
+        // ... another environment is independent ...
+        $testing = AuthEnvironment::factory()->testing()->create();
+        UserExternalIdentity::factory()->create(['user_id' => $user->id, 'auth_environment_id' => $testing->id, 'external_id' => '1']);
+
+        // ... and deactivating the live one frees the slot.
+        $live->forceFill(['active' => false, 'deactivated_at' => now()])->save();
+        UserExternalIdentity::factory()->create(['user_id' => $user->id, 'auth_environment_id' => $this->production->id, 'external_id' => '5']);
+
+        $this->assertSame(1, UserExternalIdentity::query()->where('auth_environment_id', $this->production->id)->whereNull('deactivated_at')->count());
+    }
+
+    // ---- unique-key races ----------------------------------------------------------------------------------------------
+
+    private function failInsertOfIdentity(int $times): void
+    {
+        $remaining = $times;
+
+        UserExternalIdentity::creating(function () use (&$remaining): void {
+            if ($remaining-- > 0) {
+                throw new UniqueConstraintViolationException('sqlite', 'insert into "user_external_identities"', [], new \Exception('UNIQUE constraint failed'));
+            }
+        });
+    }
+
+    public function test_losing_a_first_login_race_retries_once_and_succeeds(): void
+    {
+        $this->failInsertOfIdentity(1);
+
+        $result = $this->sync->upsert($this->production, $this->claims());
+
+        $this->assertTrue($result->isSynced());
+        $this->assertSame(1, User::query()->count(), 'the failed attempt left nothing behind');
+        $this->assertSame(1, UserExternalIdentity::query()->count());
+    }
+
+    public function test_a_second_unique_violation_is_a_refusal_not_a_crash(): void
+    {
+        $this->failInsertOfIdentity(2);
+
+        $result = $this->sync->upsert($this->production, $this->claims());
+
+        $this->assertSame(ShadowSyncResult::IDENTITY_CONFLICT, $result->refusal);
+        $this->assertSame(0, User::query()->count(), 'nothing half-created');
     }
 }

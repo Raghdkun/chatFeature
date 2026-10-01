@@ -29,6 +29,7 @@ final class ConfigNatsSettingsProvider implements NatsSettingsProvider
             ensureStream: (bool) $this->config->get('nats.ensure_stream', true),
             environmentKey: $this->text('nats.environment_key') ?? 'production',
             tlsCaFile: $this->text('nats.tls_ca_file'),
+            verifyTls: (bool) $this->config->get('nats.verify_tls', true),
         );
     }
 

@@ -3,8 +3,10 @@
 namespace Tests\Feature\Auth;
 
 use App\Auth\Contracts\AuthDriver;
+use App\Models\AuthEnvironment;
 use App\Models\ExternalSession;
 use App\Models\User;
+use App\Models\UserExternalIdentity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
@@ -60,7 +62,23 @@ class PizzasysLoginFlowTest extends TestCase
             ->where('canRegister', false)
             ->where('canResetPassword', false)
             ->where('auth.mode', 'pizzasys')
-            ->where('auth.capabilities.portalUrl', PizzasysMock::BASE_URL));
+            ->where('auth.capabilities.portalUrl', null));
+    }
+
+    public function test_visitors_never_see_the_portals_real_address(): void
+    {
+        AuthEnvironment::query()->update(['base_url' => 'http://10.0.0.5:8200/internal-portal']);
+
+        $response = $this->get(route('login'));
+
+        $response->assertInertia(fn (Assert $page) => $page->where('auth.capabilities.portalUrl', null));
+        $json = (string) json_encode($response->inertiaProps());
+        foreach (['10.0.0.5', '8200', 'internal-portal'] as $leak) {
+            $this->assertStringNotContainsString($leak, $json);
+        }
+
+        AuthEnvironment::query()->update(['base_url' => 'https://auth.example.com/api/private']);
+        $this->get(route('login'))->assertInertia(fn (Assert $page) => $page->where('auth.capabilities.portalUrl', 'https://auth.example.com'));
     }
 
     public function test_an_agent_signs_in_through_the_portal_and_lands_on_the_dashboard(): void
@@ -90,7 +108,7 @@ class PizzasysLoginFlowTest extends TestCase
             ->where('auth.user.auth_source', 'pizzasys')
             ->where('auth.user.is_agent', true)
             ->where('auth.user.is_admin', false)
-            ->where('auth.capabilities', ['canRegister' => false, 'canResetPassword' => false, 'canManage2fa' => false, 'profileEditable' => false, 'portalUrl' => PizzasysMock::BASE_URL]));
+            ->where('auth.capabilities', ['canRegister' => false, 'canResetPassword' => false, 'canManage2fa' => false, 'profileEditable' => false, 'portalUrl' => null]));
 
         $json = (string) json_encode($response->inertiaProps());
         foreach ([$this->portal->tokenFor('agent@test.local'), PizzasysMock::SERVICE_TOKEN, 'external_id', 'chat.agent', 'permissions'] as $secret) {
@@ -288,5 +306,59 @@ class PizzasysLoginFlowTest extends TestCase
         $local = User::factory()->agent()->create(['auth_source' => 'local']);
 
         $this->actingAs($local)->get(route('dashboard'))->assertRedirect(route('login'));
+    }
+
+    public function test_a_second_portal_account_with_an_admins_email_cannot_sign_in_as_that_admin(): void
+    {
+        $this->signIn('admin@test.local', 'admin-pass')->assertRedirect(route('dashboard', absolute: false));
+        $this->post(route('logout'));
+        $admin = User::query()->where('email', 'admin@test.local')->sole();
+        $this->assertTrue($admin->is_admin);
+        $firstSub = $this->portal->idFor('admin@test.local');
+        $logoutsBefore = $this->portal->calls('logout');
+
+        // The portal account is re-created (new id, no admin role) and the newcomer logs in with the same email.
+        $this->portal->user('admin@test.local', 'newcomer-pass', 'agent', 'Newcomer');
+        $this->assertNotSame($firstSub, $this->portal->idFor('admin@test.local'));
+
+        $this->signIn('admin@test.local', 'newcomer-pass')->assertSessionHasErrors('email');
+
+        $this->assertGuest();
+        $this->assertSame(1, User::query()->count());
+        $this->assertSame([$firstSub], $admin->externalIdentities()->pluck('external_id')->all(), 'the newcomer was not linked');
+        $this->assertSame('Test Admin', $admin->refresh()->name, 'nothing about the account followed the newcomer');
+        $this->assertTrue($admin->is_admin);
+        $this->assertSame(0, ExternalSession::query()->whereNull('revoked_at')->count());
+        $this->assertSame($logoutsBefore + 1, $this->portal->calls('logout'), 'the newcomer\'s fresh upstream token was closed again');
+    }
+
+    public function test_the_same_refusal_applies_to_the_mobile_login(): void
+    {
+        app(AuthDriver::class)->attemptForApi(['email' => 'admin@test.local', 'password' => 'admin-pass'], 'phone');
+        $this->portal->user('admin@test.local', 'newcomer-pass', 'agent', 'Newcomer');
+
+        $result = app(AuthDriver::class)->attemptForApi(['email' => 'admin@test.local', 'password' => 'newcomer-pass'], 'laptop');
+
+        $this->assertFalse($result->isOk());
+        $this->assertNull($result->token);
+        $this->assertSame(1, PersonalAccessToken::query()->count(), 'only the first login got a token');
+        $this->assertSame(1, UserExternalIdentity::query()->count());
+    }
+
+    public function test_a_returning_account_whose_old_identity_was_deactivated_signs_in_with_its_own_roles_only(): void
+    {
+        $this->signIn('admin@test.local', 'admin-pass');
+        $this->post(route('logout'));
+        $admin = User::query()->where('email', 'admin@test.local')->sole();
+        $admin->externalIdentities()->update(['active' => false, 'deactivated_at' => now()]);
+        $this->portal->user('admin@test.local', 'newcomer-pass', 'agent', 'Newcomer');
+
+        $this->signIn('admin@test.local', 'newcomer-pass')->assertRedirect(route('dashboard', absolute: false));
+
+        $admin->refresh();
+        $this->assertFalse($admin->is_admin, 'the old identity\'s admin roles do not leak into the new account');
+        $this->assertTrue($admin->is_agent);
+        $this->assertSame(2, $admin->externalIdentities()->count());
+        $this->assertSame(1, $admin->externalIdentities()->whereNull('deactivated_at')->count());
     }
 }

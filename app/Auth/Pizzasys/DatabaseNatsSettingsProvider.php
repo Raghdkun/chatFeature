@@ -38,6 +38,8 @@ final class DatabaseNatsSettingsProvider implements NatsSettingsProvider
             stream: $environment->nats_stream,
             ensureStream: $this->settings->bool('auth.pizzasys.nats.ensure_stream', true),
             environmentKey: $environment->key,
+            tlsCaFile: is_string($ca = config('nats.tls_ca_file')) && trim($ca) !== '' ? trim($ca) : null,
+            verifyTls: $environment->verify_tls,
         );
     }
 }

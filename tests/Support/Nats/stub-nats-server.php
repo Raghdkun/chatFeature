@@ -17,6 +17,9 @@
  *   "consumer_exists": false,                  // CONSUMER.INFO succeeds from the start
  *   "messages": [{"subject": "...", "body": "..."}],   // queued for delivery
  *   "late": [{"after": 0.5, "subject": "...", "body": "..."}],  // appear this many seconds after startup
+ *   "tls": {"pem": "/path/cert-and-key.pem"},  // announce tls_required in INFO and upgrade the connection (self-signed test certificate)
+ *   "garbage_info": 100000,                    // instead of INFO, write this many bytes without a line end (a hostile server)
+ *   "banner": "HTTP/1.1 400 Bad Request",       // instead of INFO, write this line (a server that is not NATS)
  *   "push_before_info_reply": [{"subject": "...", "body": "..."}],  // delivered on the active pull just BEFORE the next CONSUMER.INFO reply
  *   "idle_exit": 12                            // give up after this many seconds
  * }
@@ -29,7 +32,8 @@ $log = static function (string $line) use ($logFile): void {
     file_put_contents($logFile, $line."\n", FILE_APPEND | LOCK_EX);
 };
 
-$server = stream_socket_server('tcp://127.0.0.1:0', $errorCode, $errorMessage);
+$serverContext = isset($scenario['tls']['pem']) ? stream_context_create(['ssl' => ['local_cert' => $scenario['tls']['pem'], 'verify_peer' => false]]) : null;
+$server = stream_socket_server('tcp://127.0.0.1:0', $errorCode, $errorMessage, STREAM_SERVER_BIND | STREAM_SERVER_LISTEN, $serverContext);
 if ($server === false) {
     fwrite(STDERR, "cannot listen: {$errorMessage}\n");
     exit(1);
@@ -43,6 +47,38 @@ $client = @stream_socket_accept($server, 15);
 if ($client === false) {
     exit(1);
 }
+
+$info = ['server_id' => 'STUB', 'server_name' => 'stub', 'version' => '2.11.0', 'proto' => 1, 'headers' => true, 'max_payload' => 1048576, 'jetstream' => true, 'auth_required' => $scenario['token'] !== null];
+
+// Hostile or foreign servers, for the probe tests: something other than a normal INFO line.
+if (isset($scenario['garbage_info']) || isset($scenario['banner'])) {
+    $payload = isset($scenario['banner']) ? $scenario['banner']."\r\n" : str_repeat('A', (int) $scenario['garbage_info']);
+    $offset = 0;
+    stream_set_blocking($client, false);
+    $until = microtime(true) + 3;
+    while ($offset < strlen($payload) && microtime(true) < $until) {
+        $written = @fwrite($client, substr($payload, $offset));
+        $offset += is_int($written) ? $written : 0;
+        usleep(1000);
+    }
+    $log('SENT '.$offset);
+    sleep(1);
+    exit(0);
+}
+
+if (isset($scenario['tls']['pem'])) {
+    // INFO goes out in clear (that is how NATS announces TLS), then the client upgrades the connection.
+    $info['tls_required'] = true;
+    fwrite($client, 'INFO '.json_encode($info)."\r\n");
+
+    if (@stream_socket_enable_crypto($client, true, STREAM_CRYPTO_METHOD_TLS_SERVER) !== true) {
+        $log('TLS_FAILED');
+        exit(0);
+    }
+
+    $log('TLS_OK');
+}
+
 stream_set_blocking($client, false);
 
 $started = microtime(true);
@@ -101,8 +137,9 @@ $respond = function (string $replySubject, array $payload) use (&$subscriptions,
 
 $apiError = static fn (int $code, int $errCode, string $description): array => ['type' => 'io.nats.jetstream.api.v1.error', 'error' => ['code' => $code, 'err_code' => $errCode, 'description' => $description]];
 
-$info = ['server_id' => 'STUB', 'server_name' => 'stub', 'version' => '2.11.0', 'proto' => 1, 'headers' => true, 'max_payload' => 1048576, 'jetstream' => true, 'auth_required' => $scenario['token'] !== null];
-$send('INFO '.json_encode($info)."\r\n");
+if (! isset($scenario['tls']['pem'])) {
+    $send('INFO '.json_encode($info)."\r\n");
+}
 
 $deliver = function () use (&$queue, &$inflight, &$pulls, &$subscriptions, $send): void {
     foreach ($pulls as $index => &$pull) {

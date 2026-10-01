@@ -10,15 +10,19 @@ use App\Models\User;
 use App\Models\UserExternalIdentity;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Keeps a local "shadow" user for every portal account that signs in.
  *
  * Identity key is `(environment, external_id = pizzasys sub)`, never the email. Only when no identity exists yet is
- * the account linked by email to an existing portal user (`auth_source = pizzasys`); otherwise a new user with a NULL
- * password is created. Name and email follow the portal on every sync. An identity with `deactivated_at`, or a
+ * the account linked by email to an existing portal user (`auth_source = pizzasys`), and only when that user has no
+ * LIVE (not deactivated) identity in this environment: a second portal account that merely shares the email must never
+ * inherit the first one's local account, chats or roles (the login is refused instead). Otherwise a new user with a
+ * NULL password is created. Name and email follow the portal on every sync. An identity with `deactivated_at`, or a
  * deactivated local user, can never sign in. Roles are NOT touched here: {@see PizzasysRoleResolver}
- * derives them afterwards.
+ * derives them afterwards, from the identity this sync returns. The database backs the one-live-identity rule with a
+ * unique key, and the matched user row is locked while the check and the insert run.
  */
 final class ShadowUserSync
 {
@@ -31,8 +35,13 @@ final class ShadowUserSync
         try {
             return DB::transaction(fn (): ShadowSyncResult => $this->sync($environment, $claims, $createIfMissing));
         } catch (UniqueConstraintViolationException) {
-            // Two first logins of the same person raced: the other one won, so this one now finds its rows.
-            return DB::transaction(fn (): ShadowSyncResult => $this->sync($environment, $claims, $createIfMissing));
+            // Two first logins raced: the other one won, so this one now finds its rows ...
+            try {
+                return DB::transaction(fn (): ShadowSyncResult => $this->sync($environment, $claims, $createIfMissing));
+            } catch (UniqueConstraintViolationException) {
+                // ... and when the database still says no, somebody else owns the slot: refuse instead of crashing.
+                return ShadowSyncResult::refused(ShadowSyncResult::IDENTITY_CONFLICT);
+            }
         }
     }
 
@@ -54,10 +63,22 @@ final class ShadowUserSync
 
             $user = $identity->user;
         } else {
-            $user = User::query()->whereRaw('lower(email) = ?', [$email])->first();
+            $user = User::query()->whereRaw('lower(email) = ?', [$email])->lockForUpdate()->first();
 
             if ($user !== null && ! $user->isPortalUser()) {
                 return ShadowSyncResult::refused(ShadowSyncResult::EMAIL_CONFLICT);
+            }
+
+            if ($user !== null && $this->hasLiveIdentity($user, $environment)) {
+                // Only ids and the outcome are logged: never the email, a name or a token.
+                Log::warning('Portal login refused: the user behind this email already has a live identity in this environment.', [
+                    'environment' => $environment->key,
+                    'external_id' => $claims->sub,
+                    'user_id' => $user->getKey(),
+                    'outcome' => ShadowSyncResult::IDENTITY_CONFLICT,
+                ]);
+
+                return ShadowSyncResult::refused(ShadowSyncResult::IDENTITY_CONFLICT);
             }
 
             if ($user === null) {
@@ -93,6 +114,15 @@ final class ShadowUserSync
         ])->save();
 
         return ShadowSyncResult::synced($user, $identity, $created);
+    }
+
+    private function hasLiveIdentity(User $user, AuthEnvironment $environment): bool
+    {
+        return UserExternalIdentity::query()
+            ->where('user_id', $user->getKey())
+            ->where('auth_environment_id', $environment->getKey())
+            ->whereNull('deactivated_at')
+            ->exists();
     }
 
     private function createUser(PortalClaims $claims, string $email): User

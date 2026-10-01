@@ -20,6 +20,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Timebox;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
+use SensitiveParameter;
 
 /**
  * Mode 1: the starter kit's local email + password login (2FA and passkeys stay Fortify's job).
@@ -59,7 +60,7 @@ final class FortifyDriver implements AuthDriver
         return $this->verify([Fortify::username() => $username, 'password' => $password]);
     }
 
-    public function attemptForApi(array $credentials, string $deviceName): ApiAuthResult
+    public function attemptForApi(#[SensitiveParameter] array $credentials, string $deviceName): ApiAuthResult
     {
         $username = $credentials[Fortify::username()] ?? null;
         $password = $credentials['password'] ?? null;
@@ -104,7 +105,7 @@ final class FortifyDriver implements AuthDriver
     /**
      * @param  array<string, string>  $credentials
      */
-    private function verify(array $credentials): AuthResult
+    private function verify(#[SensitiveParameter] array $credentials): AuthResult
     {
         $provider = $this->provider();
 

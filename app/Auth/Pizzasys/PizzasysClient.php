@@ -9,6 +9,8 @@ use App\Auth\Pizzasys\Results\PortalProbeResult;
 use App\Auth\Pizzasys\Results\PortalStatus;
 use App\Auth\Pizzasys\Results\PortalVerifyResult;
 use App\Domain\Settings\SettingsRepository;
+use App\Support\Network\OutboundTarget;
+use App\Support\Network\OutboundUrlGuard;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\PendingRequest;
@@ -28,6 +30,11 @@ use Throwable;
  *
  * Never logs request or response bodies. Transport problems are reduced to a reason code
  * ({@see PortalFailure}); raw exception text is dropped.
+ *
+ * Every call re-checks the portal address with {@see OutboundUrlGuard} first (the stored address may have changed, or
+ * the name may have been re-pointed at an internal host since it was validated) and, with the curl handler, connects to
+ * the address that was just validated (CURLOPT_RESOLVE), so the bearer token cannot be steered to an internal target.
+ * A refused address looks like "could not connect" to everybody.
  */
 final class PizzasysClient
 {
@@ -39,6 +46,7 @@ final class PizzasysClient
     public function __construct(
         private readonly HttpFactory $http,
         private readonly SettingsRepository $settings,
+        private readonly OutboundUrlGuard $guard,
     ) {}
 
     /**
@@ -46,8 +54,12 @@ final class PizzasysClient
      */
     public function login(PizzasysEndpoint $env, string $email, #[SensitiveParameter] string $password): PortalLoginResult
     {
+        if (($target = $this->target($env))->ok === false) {
+            return PortalLoginResult::unavailable(PortalFailure::BLOCKED);
+        }
+
         try {
-            $response = $this->request($env, null, $this->loginTimeout())
+            $response = $this->request($env, null, $this->loginTimeout(), target: $target)
                 ->post($env->url('/auth/login'), ['email' => $email, 'password' => $password]);
         } catch (ConnectionException $exception) {
             return PortalLoginResult::unavailable($this->reasonFor($exception));
@@ -80,8 +92,12 @@ final class PizzasysClient
      */
     public function verify(PizzasysEndpoint $env, #[SensitiveParameter] string $userToken): PortalVerifyResult
     {
+        if (($target = $this->target($env))->ok === false) {
+            return PortalVerifyResult::unavailable(PortalFailure::BLOCKED);
+        }
+
         try {
-            $response = $this->request($env, $env->serviceToken, $this->verifyTimeout())
+            $response = $this->request($env, $env->serviceToken, $this->verifyTimeout(), target: $target)
                 ->post($env->url('/auth/token-verify'), ['service' => $env->serviceName, 'token' => $userToken]);
         } catch (ConnectionException $exception) {
             return PortalVerifyResult::unavailable($this->reasonFor($exception));
@@ -125,8 +141,12 @@ final class PizzasysClient
      */
     public function me(PizzasysEndpoint $env, #[SensitiveParameter] string $userToken): PortalVerifyResult
     {
+        if (($target = $this->target($env))->ok === false) {
+            return PortalVerifyResult::unavailable(PortalFailure::BLOCKED);
+        }
+
         try {
-            $response = $this->request($env, $userToken, $this->verifyTimeout())->get($env->url('/auth/me'));
+            $response = $this->request($env, $userToken, $this->verifyTimeout(), target: $target)->get($env->url('/auth/me'));
         } catch (ConnectionException $exception) {
             return PortalVerifyResult::unavailable($this->reasonFor($exception));
         }
@@ -158,7 +178,13 @@ final class PizzasysClient
     public function logout(PizzasysEndpoint $env, #[SensitiveParameter] string $userToken): bool
     {
         try {
-            return $this->request($env, $userToken, self::LOGOUT_TIMEOUT_SECONDS, retry: false)
+            $target = $this->target($env);
+
+            if (! $target->ok) {
+                return false;
+            }
+
+            return $this->request($env, $userToken, self::LOGOUT_TIMEOUT_SECONDS, retry: false, target: $target)
                 ->post($env->url('/auth/logout'))
                 ->successful();
         } catch (Throwable) {
@@ -185,12 +211,23 @@ final class PizzasysClient
         };
     }
 
-    private function request(PizzasysEndpoint $env, #[SensitiveParameter] ?string $bearer, float|int $timeout, bool $retry = true): PendingRequest
+    /** The portal address, checked again right before the call. */
+    private function target(PizzasysEndpoint $env): OutboundTarget
+    {
+        return $this->guard->checkHttpUrl($env->baseUrl);
+    }
+
+    private function request(PizzasysEndpoint $env, #[SensitiveParameter] ?string $bearer, float|int $timeout, bool $retry = true, ?OutboundTarget $target = null): PendingRequest
     {
         $request = $this->http->acceptJson()
             ->connectTimeout(self::CONNECT_TIMEOUT_SECONDS)
             ->timeout($timeout)
             ->withoutRedirecting();
+
+        // Connect to the address that was just validated instead of resolving the name a second time.
+        if (($entry = $target?->curlResolveEntry()) !== null && defined('CURLOPT_RESOLVE')) {
+            $request = $request->withOptions(['curl' => [CURLOPT_RESOLVE => [$entry]]]);
+        }
 
         if ($bearer !== null) {
             $request = $request->withToken($bearer);

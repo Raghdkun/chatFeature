@@ -69,7 +69,7 @@ class ChatBootstrapSecrets extends Command
         if (! $installed) {
             $token = $generated['SETUP_TOKEN'] ?? $env->get('SETUP_TOKEN');
 
-            $this->line('Setup token (needed on the /setup screen unless APP_ENV=local): '.$token);
+            $this->line('Setup token (needed on the /setup screen; skipped only for APP_ENV=local requests from this machine): '.$token);
         }
 
         if (is_file(base_path('bootstrap/cache/config.php'))) {

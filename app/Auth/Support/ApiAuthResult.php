@@ -4,6 +4,7 @@ namespace App\Auth\Support;
 
 use App\Auth\Enums\AuthOutcome;
 use App\Models\User;
+use SensitiveParameter;
 
 /** Result of a mobile/API login. `token` is OUR Sanctum plain-text token, never an upstream one. */
 final readonly class ApiAuthResult
@@ -11,11 +12,12 @@ final readonly class ApiAuthResult
     public function __construct(
         public AuthOutcome $outcome,
         public ?User $user = null,
+        #[SensitiveParameter]
         public ?string $token = null,
         public ?string $message = null,
     ) {}
 
-    public static function ok(User $user, string $token): self
+    public static function ok(User $user, #[SensitiveParameter] string $token): self
     {
         return new self(AuthOutcome::Ok, $user, $token);
     }

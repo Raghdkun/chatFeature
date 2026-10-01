@@ -30,6 +30,9 @@ class BasisJetStreamGatewayTest extends TestCase
     {
         parent::setUp();
 
+        // The stub listens on 127.0.0.1, which the outbound guard only allows on a private-network deployment.
+        config(['chat.portal_allow_private_hosts' => true]);
+
         $this->logFile = storage_path('framework/testing/nats-stub-'.bin2hex(random_bytes(4)).'.log');
         $this->scenarioFile = $this->logFile.'.json';
         @mkdir(dirname($this->logFile), 0775, true);

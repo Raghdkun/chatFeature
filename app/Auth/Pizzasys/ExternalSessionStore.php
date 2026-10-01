@@ -5,6 +5,7 @@ namespace App\Auth\Pizzasys;
 use App\Auth\Support\SessionContext;
 use App\Models\ExternalSession;
 use App\Models\User;
+use App\Models\UserExternalIdentity;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Session\SessionManager;
@@ -88,6 +89,12 @@ final class ExternalSessionStore
     public function revokeAllForUser(User $user, string $reason): int
     {
         return $this->revokeWhere(ExternalSession::query()->where('user_id', $user->getKey()), $reason);
+    }
+
+    /** Revoke every live session of one portal identity (its account was deleted upstream). @return int How many were revoked. */
+    public function revokeForIdentity(UserExternalIdentity $identity, string $reason): int
+    {
+        return $this->revokeWhere(ExternalSession::query()->where('identity_id', $identity->getKey()), $reason);
     }
 
     /** Revoke every live session that does NOT belong to the given environment (environment switch). */

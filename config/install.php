@@ -33,8 +33,9 @@ return [
     'installed' => env('APP_INSTALLED'),
 
     /*
-     * One-time takeover guard for the wizard (printed by `chat:bootstrap-secrets`).
-     * Not required when APP_ENV=local. Never rendered into a response.
+     * One-time takeover guard for the wizard (printed by `chat:bootstrap-secrets`). Skipped only for APP_ENV=local
+     * requests that come straight from 127.0.0.1 / ::1 (no proxy headers); required for everybody else, and the wizard
+     * refuses to start when none is configured. Never rendered into a response.
      */
     'setup_token' => env('SETUP_TOKEN'),
 

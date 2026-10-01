@@ -61,8 +61,8 @@ final class BuildSetupData
     public function __invoke(Request $request, ?string $requestedStep = null): SetupData
     {
         $data = $this->state->read();
-        $needsToken = $this->token->isRequired();
-        $verified = $this->token->isVerified($request->session());
+        $needsToken = $this->token->isRequired($request);
+        $verified = $this->token->isVerified($request->session(), $request);
         $checks = $this->environment->run();
         $environmentOk = EnvironmentChecker::passes($checks);
         $mode = AuthMode::tryFrom((string) $data['mode']);

@@ -47,7 +47,9 @@ TBD in P8, after the P7 load test. One known input: the default OpenWA engine (`
 | `TRUSTED_PROXIES` (Caddy's address list, or `*` on the internal compose network) | **Required behind Caddy**: real client IP, scheme and host for rate limiters, audit log, secure cookies and generated URLs. Empty = trust nothing. |
 | `SESSION_SECURE_COOKIE=true`, `SESSION_SAME_SITE=lax` | Session cookie hardening (HTTPS only). |
 | `SANCTUM_EXPIRATION_MINUTES` (default 43200 = 30 days) | Lifetime of staff API tokens (mobile app). |
-| `SETUP_TOKEN` | One-time takeover guard for `/setup` (printed by `chat:bootstrap-secrets` / `docker compose logs app`); not needed after install. |
+| `SETUP_TOKEN` | One-time takeover guard for `/setup` (printed by `chat:bootstrap-secrets` / `docker compose logs app`); not needed after install. Skipped only for `APP_ENV=local` requests from loopback, so keep `APP_ENV=production` anyway. |
+| `PORTAL_ALLOW_PRIVATE_HOSTS` (default `false`) | Set `true` ONLY when the pizzasys portal / its NATS server live on a private network (Docker network, VPN): the app otherwise refuses loopback, private, CGNAT and link-local targets for those addresses. |
+| `NATS_TLS_CA_FILE` | CA bundle the NATS server certificate is verified against (empty = system store). |
 | `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` | MySQL |
 | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `REDIS_CLIENT` | Redis |
 | `SESSION_DRIVER`, `CACHE_STORE`, `QUEUE_CONNECTION` | Real drivers (activate once installed) |
