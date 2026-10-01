@@ -7,6 +7,7 @@ use App\Models\Message;
 use App\Models\User;
 use App\Models\Visitor;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\WidgetFixtures;
 use Tests\TestCase;
@@ -90,6 +91,11 @@ class ConversationSearchParityTest extends TestCase
     #[DataProvider('searches')]
     public function test_the_same_text_finds_the_same_conversations_in_the_api_and_on_the_history_page(string $q, array $expected): void
     {
+        // MySQL's full-text index only sees committed rows and a RefreshDatabase test never commits (ConcurrencyMySqlTest covers it).
+        if ($q === 'refund' && in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            $this->markTestSkipped('Message words go through the FULLTEXT index on MySQL.');
+        }
+
         $ulids = array_map(fn (string $key): string => $this->chats[$key]->ulid, $expected);
 
         $api = $this->viaApi($q);

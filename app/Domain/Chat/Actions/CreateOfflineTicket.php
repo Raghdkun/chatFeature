@@ -121,7 +121,11 @@ final class CreateOfflineTicket
         if ($slug === null || $slug === '') {
             // The topic of the chat it follows up on, else the widget's first one (staff find a ticket by its topic); a widget without
             // any leaves it empty and every agent sees it (`Conversation::scopeVisibleTo`).
-            return $missed?->category ?? $widget->categories()->where('categories.is_active', true)->first();
+            if ($missed !== null && $missed->category !== null) {
+                return $missed->category;
+            }
+
+            return $widget->categories()->where('categories.is_active', true)->first();
         }
 
         $category = $widget->categories()->where('categories.is_active', true)->where('categories.slug', $slug)->first();

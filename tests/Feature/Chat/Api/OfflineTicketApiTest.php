@@ -95,7 +95,8 @@ class OfflineTicketApiTest extends TestCase
         $sales = Category::factory()->create(['slug' => 'sales', 'name' => 'Sales']);
         $this->widget->categories()->attach($sales->id, ['sort_order' => 5]);
         $inactive = Category::factory()->create(['slug' => 'old', 'name' => 'Old', 'is_active' => false]);
-        $this->widget->categories()->attach($inactive->id, ['sort_order' => -1]);
+        $this->widget->categories()->attach($inactive->id, ['sort_order' => 0]);
+        $this->widget->categories()->updateExistingPivot($this->billing->id, ['sort_order' => 3]);
 
         $response = $this->leave($this->visitorSession($this->widget))->assertCreated()->assertJsonPath('data.category.slug', 'billing');
 

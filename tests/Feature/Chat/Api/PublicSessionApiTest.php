@@ -253,10 +253,12 @@ class PublicSessionApiTest extends TestCase
             $current = $response->json('data.visitorToken');
         }
 
+        // The newest submission always survives whole; older keys fill what is left (a MySQL JSON column does not keep their order).
         $stored = Visitor::query()->sole()->meta;
         $this->assertCount(StartSession::META_MAX_KEYS, $stored);
-        $this->assertSame(4, $stored['r4_k1']);
-        $this->assertArrayNotHasKey('r1_k1', $stored);
+        foreach (range(1, 12) as $i) {
+            $this->assertSame(4, $stored["r4_k{$i}"]);
+        }
 
         // Same key again: the newest value wins.
         $this->open(['visitor' => ['meta' => ['r4_k1' => 'changed']]], ['Authorization' => 'Bearer '.$current])->assertCreated();

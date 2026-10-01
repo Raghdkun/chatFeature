@@ -91,32 +91,31 @@ final class TransferTargets
             ->orderBy('id')
             ->get();
 
-        $ids = $candidates->pluck('id')->map(intval(...))->all();
+        $ids = array_values($candidates->pluck('id')->map(intval(...))->all());
         $presence = AgentPresence::query()->whereIn('user_id', $ids)->get()->keyBy('user_id');
         $loads = $this->agents->activeChatCounts($ids);
         $reachable = array_flip($this->agents->availableAmong($ids, $this->directStatuses()));
 
-        $agents = $candidates->map(fn (User $agent): TransferAgentData => TransferAgentData::fromModel(
+        $agents = array_values($candidates->map(fn (User $agent): TransferAgentData => TransferAgentData::fromModel(
             $agent,
             $this->presence->effectiveStatus($presence->get($agent->id)),
             $loads[$agent->id] ?? 0,
             isset($reachable[$agent->id]),
-        ))->values()->all();
+        ))->all());
 
         $categories = $conversation->widget->categories()
             ->where('categories.is_active', true)
             ->when($conversation->category_id !== null, fn ($query) => $query->whereKeyNot($conversation->category_id))
             ->orderBy('categories.name')
             ->get();
-        $counts = $this->categoriesWithReachableAgents($conversation, $categories->pluck('id')->map(intval(...))->all(), $caller);
+        $counts = $this->categoriesWithReachableAgents($conversation, array_values($categories->pluck('id')->map(intval(...))->all()), $caller);
 
         return new TransferTargetsData(
             agents: $agents,
-            categories: $categories
+            categories: array_values($categories
                 ->filter(fn (Category $category): bool => ($counts[$category->id] ?? 0) > 0)
                 ->map(fn (Category $category): CategoryRefData => CategoryRefData::fromModel($category))
-                ->values()
-                ->all(),
+                ->all()),
         );
     }
 
