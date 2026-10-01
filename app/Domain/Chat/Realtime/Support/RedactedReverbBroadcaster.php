@@ -14,6 +14,10 @@ use Throwable;
  */
 final class RedactedReverbBroadcaster extends PusherBroadcaster
 {
+    /**
+     * @param  array<int, mixed>  $channels
+     * @param  array<string, mixed>  $payload
+     */
     public function broadcast(array $channels, $event, array $payload = []): void
     {
         try {
