@@ -7,13 +7,19 @@
  *   locks itself after the last step, so scenarios cannot be shared between tests that install.
  *   Servers are started and stopped by Playwright only (`webServer`); `e2e/global-setup.ts`
  *   resets their databases and state before the suite and installs the `installed` ones.
+ * - Mode 2 (Auth Portal): the scenarios with `auth: 'pizzasys'` talk to the local pizzasys harness
+ *   (`../chatFeature.harness`, port 8200), which `e2e/global-setup.ts` starts and stops.
+ *   `auth/portal-outage.spec.ts` STOPS that harness mid-test, so it runs alone in the last project
+ *   (`pizzasys-outage`), after every other project finished.
  * - `E2E_SCREENSHOTS=1` additionally starts the screenshot scenarios and runs
- *   e2e/screenshots/p1.spec.ts (writes docs/screenshots/p1/*.png).
+ *   e2e/screenshots/p1.spec.ts and p2.spec.ts (write docs/screenshots/p1|p2/*.png).
  */
 import { defineConfig, devices } from '@playwright/test';
 import { ACTIVE_INSTANCES } from './e2e/support/scenarios';
 
 const screenshots = process.env.E2E_SCREENSHOTS === '1';
+/** Stops the shared pizzasys harness: runs on its own, last. */
+const PORTAL_OUTAGE = '**/auth/portal-outage.spec.ts';
 
 export default defineConfig({
     testDir: './e2e',
@@ -48,12 +54,23 @@ export default defineConfig({
         {
             name: 'desktop',
             use: { viewport: { width: 1280, height: 800 } },
+            // A project-level `testIgnore` replaces the top-level one: repeat the screenshot rule here.
+            testIgnore: [
+                PORTAL_OUTAGE,
+                ...(screenshots ? [] : ['**/screenshots/**']),
+            ],
         },
         {
             name: 'mobile',
             use: { ...devices['Pixel 7'] },
-            // One run is enough for the spec that renders both viewports itself.
-            testIgnore: ['**/screenshots/**'],
+            // One run is enough for the specs that render both viewports themselves.
+            testIgnore: ['**/screenshots/**', PORTAL_OUTAGE],
+        },
+        {
+            name: 'pizzasys-outage',
+            use: { viewport: { width: 1280, height: 800 } },
+            testMatch: PORTAL_OUTAGE,
+            dependencies: ['desktop', 'mobile'],
         },
     ],
 

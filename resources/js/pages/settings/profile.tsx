@@ -4,6 +4,7 @@ import ProfileController from '@/actions/App/Http/Controllers/Settings/ProfileCo
 import DeleteUser from '@/components/delete-user';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
+import { ManagedProfile } from '@/components/settings/managed-profile';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,6 +28,23 @@ export default function Profile({
     // verification notice below stays inert until the contract adds it.
     const emailVerifiedAt = (auth.user as { email_verified_at?: string | null })
         .email_verified_at;
+
+    // Auth Portal mode: name, email and password belong to the portal account; saving or deleting here answers 404.
+    if (!auth.capabilities.profileEditable) {
+        return (
+            <>
+                <Head title="Profile settings" />
+
+                <h1 className="sr-only">Profile settings</h1>
+
+                <ManagedProfile
+                    name={auth.user.name}
+                    email={auth.user.email}
+                    portalUrl={auth.capabilities.portalUrl}
+                />
+            </>
+        );
+    }
 
     return (
         <>

@@ -5,6 +5,7 @@
  * the specs that really type credentials use their own account per project; everything else
  * reuses a saved session (see `authStatePath`).
  */
+import { harnessSecrets, roleChangeEmail } from './harness';
 import type { Instance } from './scenarios';
 
 /** Shared by every test account. */
@@ -83,4 +84,53 @@ export function authStatePath(
     role: 'admin' | 'agent',
 ): string {
     return `${instance.authDir}/${role}.json`;
+}
+
+/**
+ * Mode 2: the accounts of the local pizzasys harness (docs/pizzasys-findings.md). Emails are fixed by the harness,
+ * the shared password is read from its `secrets.local.env` at runtime and never written down here.
+ */
+export type PortalUser = {
+    name: string;
+    email: string;
+    password: string;
+    /** What the app should make of this account. */
+    expect: 'admin' | 'agent' | 'none';
+};
+
+export function portalUsers() {
+    const password = harnessSecrets().password;
+    const user = (
+        name: string,
+        email: string,
+        expected: PortalUser['expect'],
+    ): PortalUser => ({ name, email, password, expect: expected });
+
+    return {
+        /** Role `super-admin`, no `chat.*` permission: admin through the "super roles" mapping. */
+        admin: user('Test Admin', 'admin@test.local', 'admin'),
+        /** Direct permission `chat.admin`. */
+        chatAdmin: user('Test Chat Admin', 'chatadmin@test.local', 'admin'),
+        /** Direct permission `chat.agent`. */
+        agent: user('Test Agent', 'agent@test.local', 'agent'),
+        /** `chat.agent` through the role `chat-agent-role`. */
+        roleAgent: user('Test Role Agent', 'roleagent@test.local', 'agent'),
+        /** No role, no permission. */
+        noRole: user('Test NoRole', 'norole@test.local', 'none'),
+        /** Only a store-scoped role (invisible to `token-verify`). */
+        storeUser: user('Test Store User', 'storeuser@test.local', 'none'),
+    };
+}
+
+/** Saved sessions of mode-2 scenarios: the portal's `admin@` and `agent@` accounts. */
+export function portalSessionUser(role: 'admin' | 'agent'): PortalUser {
+    return role === 'admin' ? portalUsers().admin : portalUsers().agent;
+}
+
+/** The portal account whose permissions the role-change spec edits (one per project, never shared). */
+export function roleChangeAccount(project: 'desktop' | 'mobile') {
+    return {
+        email: roleChangeEmail(project),
+        password: harnessSecrets().password,
+    };
 }

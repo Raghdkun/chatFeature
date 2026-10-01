@@ -71,8 +71,17 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        // The setup token must never be flashed back into a form.
-        $exceptions->dontFlash(['token']);
+        // Secrets must never be flashed back into a form (and so into the session store) when it is rejected:
+        // the setup token and the Auth Portal service/NATS tokens (wizard: nested per environment, settings: flat).
+        $exceptions->dontFlash([
+            'token',
+            'service_token',
+            'nats_token',
+            'environments.production.service_token',
+            'environments.production.nats_token',
+            'environments.testing.service_token',
+            'environments.testing.nats_token',
+        ]);
 
         // `api/*` errors use the documented envelope {error:{code,message,details?}} (docs/contracts/rest-shapes.md).
         $exceptions->render(fn (Throwable $e, Request $request) => ApiErrorRenderer::render($e, $request));

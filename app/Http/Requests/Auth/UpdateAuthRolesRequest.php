@@ -20,6 +20,9 @@ class UpdateAuthRolesRequest extends FormRequest
 {
     public function authorize(): bool
     {
+        // Mode 1 has no portal to configure: 404 before the payload is even looked at.
+        abort_unless(settings('auth.mode', 'fortify') === 'pizzasys', 404);
+
         $user = $this->user();
 
         return $user instanceof User && $user->is_admin && $user->is_active;

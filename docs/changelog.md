@@ -6,6 +6,15 @@ All notable changes are recorded here, following [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Added (e2e, mode 2 / Auth Portal)
+- Playwright specs for auth mode 2 against a real local pizzasys instance (the throwaway harness, started and stopped by `e2e/global-setup.ts`): the whole wizard in Auth Portal mode (`install/wizard-pizzasys.spec.ts`), sign-in/roles/revocation/role changes (`auth/login-pizzasys.spec.ts`), a portal outage with grace, 503 and recovery (`auth/portal-outage.spec.ts`, own `pizzasys-outage` project, runs last), Settings > Auth (`settings/auth-settings.spec.ts`), plus axe, 375px and RTL coverage of every mode-2 screen and `docs/screenshots/p2/` deck screenshots. New scenarios `fresh-pizzasys`, `installed-pizzasys`, `settings-pizzasys`, `wizard-views-pizzasys(-rtl)`, `installed-pizzasys-rtl`. The P1 wizard spec now asserts that the Auth Portal option is selectable. See `docs/testing.md`.
+
+### Fixed (found by the mode-2 e2e)
+- A rejected Auth Portal form (wizard or Settings > Auth) flashed the typed service/NATS tokens into the session store as "old input"; they are excluded from flashing now (`bootstrap/app.php`).
+- Inertia's local DevTools recorded the typed `service_token` / `nats_token` in clear text under `storage/inertia-devtools`; both keys are redacted now.
+- Settings > Auth write endpoints answered 422 instead of 404 in mode 1 when the payload was invalid; the 404 comes first now.
+- Auth Portal mode: Settings still linked to the Security page (a 404) and showed an editable profile form (saving answered 404) and "Delete account"; the Security link is gone and the profile is read-only with a pointer to the portal.
+
 ## [0.1.0] - 2026-09-30 (phase-1)
 
 Install gate, setup wizard, settings, mode-1 auth, role-aware shell, e2e suite.

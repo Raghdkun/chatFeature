@@ -12,17 +12,19 @@ import { edit } from '@/routes/profile';
 import { edit as editSecurity } from '@/routes/security';
 import type { NavItem } from '@/types';
 
+const securityNavItem: NavItem = {
+    title: 'Security',
+    href: editSecurity(),
+    icon: null,
+};
+
 const sidebarNavItems: NavItem[] = [
     {
         title: 'Profile',
         href: edit(),
         icon: null,
     },
-    {
-        title: 'Security',
-        href: editSecurity(),
-        icon: null,
-    },
+    securityNavItem,
     {
         title: 'Appearance',
         href: editAppearance(),
@@ -35,11 +37,16 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
     const { auth } = usePage().props;
     const { t } = useTrans();
 
+    // Passwords, two-factor and passkeys live in the Auth Portal in mode 2: the page is gone (404), so is its link.
+    const accountItems = auth.capabilities.profileEditable
+        ? sidebarNavItems
+        : sidebarNavItems.filter((item) => item !== securityNavItem);
+
     // Admin-only (the route is guarded server side too). Mode 2 calls it the Auth Portal; in mode 1
     // the page only explains that sign-in is managed by this app.
     const items: NavItem[] = auth.user?.is_admin
         ? [
-              ...sidebarNavItems,
+              ...accountItems,
               {
                   title: t(
                       auth.mode === 'pizzasys'
@@ -50,7 +57,7 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
                   icon: null,
               },
           ]
-        : sidebarNavItems;
+        : accountItems;
 
     return (
         <div className="px-4 py-6">

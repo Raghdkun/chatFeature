@@ -301,10 +301,11 @@ describe('Settings layout item', () => {
         expect(items(view).some((item) => item.href === '/settings/auth')).toBe(
             false,
         );
-        // The ordinary settings pages are still there.
-        expect(items(view).map((item) => item.text)).toEqual(
-            expect.arrayContaining(['Profile', 'Security', 'Appearance']),
-        );
+        // The ordinary settings pages are still there (Security is not: the portal owns passwords and 2FA).
+        expect(items(view).map((item) => item.text)).toEqual([
+            'Profile',
+            'Appearance',
+        ]);
     });
 
     it('hides it from a user without any chat role', async () => {

@@ -230,6 +230,27 @@ class PizzasysSetupWizardTest extends InstallTestCase
         $this->get(route('setup.index'))->assertInertia(fn (Assert $page) => $page->where('setup.step', 'portal-admin'));
     }
 
+    public function test_a_rejected_portal_form_does_not_flash_the_tokens_into_the_session(): void
+    {
+        $this->choosePizzasys();
+
+        $this->post(route('setup.pizzasys'), $this->pizzasysPayload([
+            'environments' => [
+                'production' => ['base_url' => 'ftp://x', 'nats_url' => 'nats://nats.example.test:4222', 'nats_token' => 'nats-secret-token'],
+                'testing' => ['base_url' => self::TESTING_URL, 'service_name' => 'chat-testing', 'service_token' => 'testing-service-secret'],
+            ],
+            'active_env' => 'staging',
+        ]))->assertSessionHasErrors(['environments.production.base_url', 'active_env']);
+
+        $old = session()->getOldInput();
+        $this->assertSame('ftp://x', data_get($old, 'environments.production.base_url'), 'the rest of the input is still given back');
+
+        $flashed = (string) json_encode($old);
+        foreach ([PizzasysMock::SERVICE_TOKEN, 'nats-secret-token', 'testing-service-secret'] as $secret) {
+            $this->assertStringNotContainsString($secret, $flashed);
+        }
+    }
+
     public function test_connection_test_messages_are_plain_curated_text_without_upstream_content(): void
     {
         $this->choosePizzasys();

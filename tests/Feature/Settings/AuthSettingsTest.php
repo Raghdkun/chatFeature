@@ -59,6 +59,25 @@ class AuthSettingsTest extends TestCase
         ];
     }
 
+    public function test_a_rejected_environment_form_does_not_flash_its_tokens_into_the_session(): void
+    {
+        $this->signIn();
+
+        $this->put(route('settings.auth.environments.update', 'production'), $this->environmentPayload([
+            'base_url' => 'ftp://x',
+            'service_token' => 'brand-new-service-token',
+            'nats_url' => 'nats://nats.example.test:4222',
+            'nats_token' => 'brand-new-nats-token',
+        ]))->assertSessionHasErrors('base_url');
+
+        $old = session()->getOldInput();
+        $this->assertSame('ftp://x', $old['base_url'] ?? null, 'the rest of the input is still given back');
+
+        $flashed = (string) json_encode($old);
+        $this->assertStringNotContainsString('brand-new-service-token', $flashed);
+        $this->assertStringNotContainsString('brand-new-nats-token', $flashed);
+    }
+
     // ---- authorization ------------------------------------------------------------------------------------------
 
     public function test_guests_are_sent_to_the_login_page(): void
@@ -161,6 +180,16 @@ class AuthSettingsTest extends TestCase
         $this->actingAs($admin)->putJson(route('settings.auth.environments.update', 'production'), $this->environmentPayload())->assertNotFound();
         $this->actingAs($admin)->postJson(route('settings.auth.environments.test', 'production'))->assertNotFound();
         $this->actingAs($admin)->putJson(route('settings.auth.roles.update'), ['admin_permission' => 'a', 'agent_permission' => 'b', 'super_roles' => []])->assertNotFound();
+    }
+
+    public function test_mode_one_answers_404_before_the_payload_is_validated(): void
+    {
+        settings()->set('auth.mode', 'fortify');
+        $admin = User::factory()->admin()->create();
+
+        $this->actingAs($admin)->putJson(route('settings.auth.environments.update', 'production'), [])->assertNotFound();
+        $this->actingAs($admin)->postJson(route('settings.auth.active-environment'), [])->assertNotFound();
+        $this->actingAs($admin)->putJson(route('settings.auth.roles.update'), [])->assertNotFound();
     }
 
     public function test_agents_in_mode_one_are_still_refused(): void

@@ -10,87 +10,23 @@
  * transition settled, animations disabled, caret hidden, no focus ring left behind.
  */
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { type Browser, type Page, type TestInfo } from '@playwright/test';
+import { ROOT, SETUP_TOKEN, type Instance } from '../support/scenarios';
 import {
-    type Browser,
-    type BrowserContext,
-    type Page,
-    type TestInfo,
-} from '@playwright/test';
-import { setTheme, settle } from '../support/helpers';
-import {
-    ALL_INSTANCES,
-    ROOT,
-    SETUP_TOKEN,
-    type Instance,
-} from '../support/scenarios';
+    captureTo,
+    instance,
+    newContext,
+    type Viewport,
+} from '../support/shots';
 import { expect, test } from '../support/test';
 import { ADMIN, authStatePath, NO_ACCESS } from '../support/users';
 import { expectStep, fillAdmin, submitAdmin } from '../support/wizard';
 
 const OUTPUT = `${ROOT}docs/screenshots/p1`;
 
-type Viewport = 'desktop' | 'mobile';
-
-const VIEWPORTS: Record<Viewport, Parameters<Browser['newContext']>[0]> = {
-    desktop: { viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 },
-    mobile: {
-        viewport: { width: 375, height: 812 },
-        deviceScaleFactor: 2,
-        isMobile: true,
-        hasTouch: true,
-    },
-};
-
-const instance = (key: string): Instance => {
-    const found = ALL_INSTANCES.find((item) => item.key === key);
-
-    if (!found) {
-        throw new Error(`Unknown scenario ${key}`);
-    }
-
-    return found;
-};
-
-async function newContext(
-    browser: Browser,
-    viewport: Viewport,
-    target: Instance,
-    storageState?: string,
-): Promise<BrowserContext> {
-    return browser.newContext({
-        ...VIEWPORTS[viewport],
-        baseURL: target.url,
-        colorScheme: 'light',
-        reducedMotion: 'reduce',
-        locale: target.locale === 'ar' ? 'ar' : 'en-US',
-        timezoneId: 'UTC',
-        storageState,
-    });
-}
-
 /** Saves the current screen in light and dark. */
-async function capture(
-    page: Page,
-    viewport: Viewport,
-    name: string,
-): Promise<void> {
-    for (const theme of ['light', 'dark'] as const) {
-        await setTheme(page, theme);
-        await settle(page);
-        await page.evaluate(() => {
-            (document.activeElement as HTMLElement | null)?.blur();
-        });
-
-        await page.screenshot({
-            path: `${OUTPUT}/${name}-${viewport}-${theme}.png`,
-            fullPage: true,
-            animations: 'disabled',
-            caret: 'hide',
-        });
-    }
-
-    await setTheme(page, 'light');
-}
+const capture = (page: Page, viewport: Viewport, name: string) =>
+    captureTo(OUTPUT, page, viewport, name);
 
 async function walkTheWizard(
     browser: Browser,

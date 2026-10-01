@@ -212,3 +212,153 @@ test.describe('signed-out and signed-in pages in Arabic', () => {
         });
     });
 });
+
+/**
+ * Mode 2 (Auth Portal) in Arabic: <html dir="rtl">, no sideways scrolling on desktop or phone.
+ * Needs the local pizzasys harness (docs/testing.md).
+ */
+test.describe(
+    'install wizard in Arabic, Auth Portal mode',
+    { tag: '@pizzasys' },
+    () => {
+        test.use({ scenario: 'wizard-views-pizzasys-rtl' });
+
+        const steps: StepKey[] = [
+            'mode',
+            'pizzasys',
+            'portal-admin',
+            'basics',
+            'run',
+        ];
+
+        for (const step of steps) {
+            test(`${step} step renders right-to-left`, async ({ page }) => {
+                await page.goto(`/setup?step=${step}`);
+                await expectStep(page, step);
+                await expectRtlDocument(page);
+
+                await expectNoHorizontalScroll(page);
+            });
+        }
+
+        test('the portal fields keep addresses and tokens left to right inside the mirrored form', async ({
+            page,
+        }) => {
+            await page.setViewportSize({ width: 1280, height: 800 });
+            await page.goto('/setup?step=pizzasys');
+            await expectStep(page, 'pizzasys');
+            await expectRtlDocument(page);
+
+            for (const testId of [
+                'setup-env-production-base-url',
+                'setup-env-production-service-name',
+                'setup-roles-admin-permission',
+            ]) {
+                await expect(page.getByTestId(testId), testId).toHaveAttribute(
+                    'dir',
+                    'ltr',
+                );
+            }
+
+            // The progress rail sits on the right of the card.
+            const rail = await page.getByTestId('setup-stepper').boundingBox();
+            const content = await page
+                .getByTestId('setup-wizard')
+                .boundingBox();
+            expect(rail!.x).toBeGreaterThan(content!.x);
+
+            await page.getByTestId('setup-env-testing-toggle').click();
+            await expect(
+                page.getByTestId('setup-env-testing-base-url'),
+            ).toBeVisible();
+            await expectNoHorizontalScroll(page);
+        });
+
+        test('it also fits a phone', async ({ page }) => {
+            await page.setViewportSize({ width: 375, height: 812 });
+
+            for (const step of steps) {
+                await page.goto(`/setup?step=${step}`);
+                await expectStep(page, step);
+                await expect(
+                    page.getByTestId('setup-stepper-compact'),
+                ).toBeVisible();
+                await expectNoHorizontalScroll(page);
+            }
+        });
+    },
+);
+
+test.describe(
+    'sign-in and Settings > Auth in Arabic, Auth Portal mode',
+    { tag: '@pizzasys' },
+    () => {
+        test.use({ scenario: 'installed-pizzasys-rtl' });
+
+        test('the portal login renders right-to-left on desktop and phone', async ({
+            page,
+        }) => {
+            for (const width of [1280, 375]) {
+                await page.setViewportSize({ width, height: 800 });
+                await page.goto('/login');
+                await expectRtlDocument(page);
+                await expect(
+                    page.getByTestId('login-portal-hint'),
+                ).toBeVisible();
+
+                // The email address stays readable inside the RTL form.
+                await page.locator('#email').fill('someone@example.test');
+                await expect(page.locator('#email')).toHaveValue(
+                    'someone@example.test',
+                );
+                await expectNoHorizontalScroll(page);
+            }
+        });
+
+        test.describe('as an administrator', () => {
+            test.use({ role: 'admin' });
+
+            test('Settings > Auth is mirrored and does not overflow', async ({
+                page,
+            }) => {
+                for (const width of [1280, 375]) {
+                    await page.setViewportSize({ width, height: 800 });
+                    await page.goto('/settings/auth');
+                    await expectRtlDocument(page);
+                    await expect(
+                        page.getByTestId('settings-auth'),
+                    ).toBeVisible();
+                    await expect(
+                        page.getByTestId('settings-auth-health'),
+                    ).toBeVisible();
+
+                    // The portal's technical values read left to right.
+                    await expect(
+                        page.getByTestId(
+                            'settings-auth-env-production-base-url',
+                        ),
+                    ).toHaveAttribute('dir', 'ltr');
+                    await expectNoHorizontalScroll(page);
+                }
+            });
+
+            test('the environment switch dialog fits a phone in Arabic', async ({
+                page,
+            }) => {
+                await page.setViewportSize({ width: 375, height: 812 });
+                await page.goto('/settings/auth');
+                await expectRtlDocument(page);
+
+                await page.getByTestId('settings-auth-switch-open').click();
+                const dialog = page.getByTestId('settings-auth-switch-dialog');
+                await expect(dialog).toBeVisible();
+                await settle(page);
+
+                const box = await dialog.boundingBox();
+                expect(box!.x).toBeGreaterThanOrEqual(0);
+                expect(box!.x + box!.width).toBeLessThanOrEqual(375);
+                await expectNoHorizontalScroll(page);
+            });
+        });
+    },
+);

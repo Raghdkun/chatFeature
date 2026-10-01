@@ -98,17 +98,33 @@ test('walks the whole wizard, installs, signs in and locks the wizard', async ({
         await expectStep(page, 'mode');
     });
 
-    await test.step('mode: starter-kit auth is selectable, the Auth Portal is coming soon', async () => {
+    await test.step('mode: starter-kit auth is preselected, the Auth Portal is selectable and leads to its own screen', async () => {
         await expect(page.locator('#setup-mode-fortify')).toBeEnabled();
         await expect(page.locator('#setup-mode-fortify')).toBeChecked();
-        await expect(page.locator('#setup-mode-pizzasys')).toBeDisabled();
+        await expect(page.locator('#setup-mode-pizzasys')).toBeEnabled();
         await expect(page.locator('#setup-mode-pizzasys')).not.toBeChecked();
-        await expect(page.getByTestId('setup-mode-badge-pizzasys')).toHaveText(
-            'Coming soon',
+        // Mode 2 exists since P2: no "Coming soon" badge on either option.
+        await expect(page.getByTestId('setup-mode-badge-pizzasys')).toHaveCount(
+            0,
         );
         await expect(page.getByTestId('setup-mode-badge-fortify')).toHaveCount(
             0,
         );
+        await expect(
+            page.getByTestId('setup-mode-option-pizzasys'),
+        ).toHaveAttribute('data-disabled', 'false');
+
+        // Choosing the Auth Portal routes to the portal screen (the full mode-2 flow: wizard-pizzasys.spec.ts) ...
+        await page.getByTestId('setup-mode-option-pizzasys').click();
+        await expect(page.locator('#setup-mode-pizzasys')).toBeChecked();
+        await page.getByTestId('setup-mode-submit').click();
+        await expectStep(page, 'pizzasys');
+
+        // ... and Back with the starter kit returns to the mode-1 flow below.
+        await page.getByTestId('setup-back').click();
+        await expectStep(page, 'mode');
+        await expect(page.locator('#setup-mode-pizzasys')).toBeChecked();
+        await page.getByTestId('setup-mode-option-fortify').click();
 
         await chooseFortifyMode(page);
         await expectStep(page, 'admin');

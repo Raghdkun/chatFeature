@@ -16,6 +16,7 @@ const sources = import.meta.glob<string>(
     [
         '/resources/js/components/setup/*.tsx',
         '/resources/js/components/settings/auth/*.tsx',
+        '/resources/js/components/settings/managed-profile.tsx',
         '/resources/js/pages/setup/index.tsx',
         '/resources/js/pages/settings/auth.tsx',
         '/resources/js/pages/auth/login.tsx',

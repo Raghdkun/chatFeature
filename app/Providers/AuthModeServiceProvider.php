@@ -63,6 +63,7 @@ class AuthModeServiceProvider extends ServiceProvider
         $this->app->bind(NatsSettingsProvider::class, DatabaseNatsSettingsProvider::class);
 
         $this->configureRateLimiting();
+        $this->redactPortalSecretsInDevTools();
 
         // A portal login becomes a session when the guard logs the user in, and ends with the guard's logout.
         Event::listen(Login::class, [OpenExternalSession::class, 'handle']);
@@ -72,6 +73,17 @@ class AuthModeServiceProvider extends ServiceProvider
         $this->callAfterResolving(Schedule::class, function (Schedule $schedule): void {
             $schedule->command(ChatAuthPruneSessions::class)->dailyAt('03:30')->onOneServer()->withoutOverlapping();
         });
+    }
+
+    /**
+     * Inertia's local DevTools record every request body to disk; its redact list knows "password" and "token" but not
+     * the Auth Portal's `service_token` / `nats_token`, which the setup wizard and Settings > Auth post.
+     */
+    private function redactPortalSecretsInDevTools(): void
+    {
+        $keys = array_values(array_filter((array) config('inertia.devtools.redact.keys', []), 'is_string'));
+
+        config(['inertia.devtools.redact.keys' => array_values(array_unique([...$keys, 'service_token', 'nats_token']))]);
     }
 
     /**

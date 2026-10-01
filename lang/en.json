@@ -281,6 +281,14 @@
     "setup.pizzasys.portal.error.server": "The server reported an error. Try again in a moment.",
     "setup.pizzasys.portal.error.invalid_response": "The server sent an unexpected answer.",
 
+    "settings.profile.title": "Profile",
+    "settings.profile.name": "Name",
+    "settings.profile.email": "Email address",
+    "settings.profile.managed.description": "Your name and email address, as your Auth Portal account has them.",
+    "settings.profile.managed.title": "Managed in the Auth Portal",
+    "settings.profile.managed.body": "Your name, email address and password belong to your Auth Portal account, so they cannot be changed here.",
+    "settings.profile.managed.portal_link": "Open the Auth Portal",
+
     "settings.auth.nav": "Auth portal",
     "settings.auth.nav_local": "Sign-in method",
     "settings.auth.title": "Authentication",

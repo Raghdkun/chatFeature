@@ -7,7 +7,7 @@
  * environment. Nothing here touches the developer's real `chatfeature` database: every database
  * name must start with `chatfeature_e2e` (enforced in `assertSafe`).
  *
- * Add a scenario: append it to `DEFINITIONS` (free ports are 8110-8119), then point a spec at it
+ * Add a scenario: append it to `DEFINITIONS` (the suite owns ports 8110-8129; 8120-8129 are the mode-2 ones), then point a spec at it
  * with `test.use({ scenario: '<name>' })`. See docs/testing.md.
  */
 import { fileURLToPath } from 'node:url';
@@ -31,9 +31,16 @@ export type ScenarioName =
     | 'wizard-views-rtl'
     | 'installed-rtl'
     | 'shots-desktop'
-    | 'shots-mobile';
+    | 'shots-mobile'
+    // Mode 2 (Auth Portal / pizzasys): these need the local pizzasys harness (e2e/support/harness.ts).
+    | 'fresh-pizzasys'
+    | 'installed-pizzasys'
+    | 'settings-pizzasys'
+    | 'wizard-views-pizzasys'
+    | 'wizard-views-pizzasys-rtl'
+    | 'installed-pizzasys-rtl';
 
-export type ProjectName = 'desktop' | 'mobile';
+export type ProjectName = 'desktop' | 'mobile' | 'pizzasys-outage';
 
 type Definition = {
     kind: ScenarioKind;
@@ -48,6 +55,17 @@ type Definition = {
     perProject?: { mobilePort: number; mobileDbSuffix: string };
     /** Only started when E2E_SCREENSHOTS=1. */
     screenshotsOnly?: boolean;
+    /**
+     * `pizzasys` scenarios talk to the local pizzasys harness: `installed` ones are installed with
+     * `chat:install --mode=pizzasys`, `seeded` ones get mode-2 wizard answers, `fresh` ones start the
+     * wizard from scratch (the spec picks the Auth Portal itself).
+     */
+    auth?: 'local' | 'pizzasys';
+    /**
+     * Mode 2 only: a configured Testing environment next to Production (the `other-svc` service client of the
+     * harness), so Settings > Auth can offer the environment switch. Read-only scenarios use it.
+     */
+    testingEnvironment?: boolean;
 };
 
 const DEFINITIONS: Record<ScenarioName, Definition> = {
@@ -91,6 +109,60 @@ const DEFINITIONS: Record<ScenarioName, Definition> = {
         mode: 'local',
         locale: 'ar',
     },
+    // Mode 2 (Auth Portal). Ports 8120-8129 belong to these.
+    'fresh-pizzasys': {
+        kind: 'fresh',
+        port: 8120,
+        dbSuffix: '_pz_fresh',
+        mode: 'local',
+        auth: 'pizzasys',
+        perProject: { mobilePort: 8121, mobileDbSuffix: '_pz_fresh_mobile' },
+    },
+    'installed-pizzasys': {
+        kind: 'installed',
+        port: 8122,
+        dbSuffix: '_pz_installed',
+        mode: 'local',
+        auth: 'pizzasys',
+        testingEnvironment: true,
+        perProject: {
+            mobilePort: 8123,
+            mobileDbSuffix: '_pz_installed_mobile',
+        },
+    },
+    // Settings > Auth writes (edits environments, switches the active one): its own server per project.
+    'settings-pizzasys': {
+        kind: 'installed',
+        port: 8124,
+        dbSuffix: '_pz_settings',
+        mode: 'local',
+        auth: 'pizzasys',
+        perProject: { mobilePort: 8125, mobileDbSuffix: '_pz_settings_mobile' },
+    },
+    'wizard-views-pizzasys': {
+        kind: 'seeded',
+        port: 8126,
+        dbSuffix: '_pz_views',
+        mode: 'local',
+        auth: 'pizzasys',
+    },
+    'wizard-views-pizzasys-rtl': {
+        kind: 'seeded',
+        port: 8127,
+        dbSuffix: '_pz_views_rtl',
+        mode: 'local',
+        locale: 'ar',
+        auth: 'pizzasys',
+    },
+    'installed-pizzasys-rtl': {
+        kind: 'installed',
+        port: 8128,
+        dbSuffix: '_pz_installed_rtl',
+        mode: 'local',
+        locale: 'ar',
+        auth: 'pizzasys',
+        testingEnvironment: true,
+    },
     // Real wizard runs, in token mode, that the screenshot spec walks through for the deck.
     'shots-desktop': {
         kind: 'fresh',
@@ -131,6 +203,10 @@ export type Instance = {
     /** Directory with the saved login sessions (installed scenarios). */
     authDir: string;
     screenshotsOnly: boolean;
+    /** Signs people in through the local pizzasys harness (mode 2). */
+    auth: 'local' | 'pizzasys';
+    /** Mode 2: a Testing environment is configured next to Production. */
+    testingEnvironment: boolean;
     /** Environment shared by the web server and every artisan call made for this instance. */
     env: Record<string, string>;
 };
@@ -188,6 +264,8 @@ function build(
         stateDir: `${dir}/state`,
         authDir: `${dir}/auth`,
         screenshotsOnly: definition.screenshotsOnly === true,
+        auth: definition.auth ?? 'local',
+        testingEnvironment: definition.testingEnvironment === true,
         env,
     };
 }
@@ -224,7 +302,8 @@ export const ALL_INSTANCES: readonly Instance[] = expand();
 
 /**
  * The instances this run needs: screenshot scenarios only with E2E_SCREENSHOTS=1, and
- * E2E_ONLY=installed,fresh-token limits a run to some scenarios (handy while writing a spec).
+ * E2E_ONLY=installed,fresh-token limits a run to some scenarios (handy while writing a spec), and
+ * E2E_SKIP_PIZZASYS=1 leaves out every mode-2 scenario (use it with `--grep-invert @pizzasys`).
  */
 const only = (process.env.E2E_ONLY ?? '')
     .split(',')
@@ -234,6 +313,9 @@ const only = (process.env.E2E_ONLY ?? '')
 export const ACTIVE_INSTANCES: readonly Instance[] = ALL_INSTANCES.filter(
     (instance) =>
         (!instance.screenshotsOnly || process.env.E2E_SCREENSHOTS === '1') &&
+        // No pizzasys harness on this machine: leave the mode-2 scenarios (and the harness) out.
+        (instance.auth !== 'pizzasys' ||
+            process.env.E2E_SKIP_PIZZASYS !== '1') &&
         (only.length === 0 ||
             only.includes(instance.key) ||
             only.includes(instance.scenario)),
