@@ -1,0 +1,929 @@
+{
+  "_note": "Real pizzasys outbox envelopes (payload column == the JSON published on auth.v1.<type>), captured from a local throwaway clone by exercising every admin endpoint; redacted (password hashes replaced). 34 events covering all 27 subjects.",
+  "events": [
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCWV4NRSSY7H4131KBAZC",
+      "type": "auth.v1.user.updated",
+      "source": "auth-system",
+      "subject": "auth.v1.user.updated",
+      "time": "2026-10-01T02:41:18+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "user_id": 10,
+        "changed_fields": {
+          "name": {
+            "from": "Pw Change 2",
+            "to": "Pw Change 2"
+          },
+          "email": {
+            "from": "pwchange2@test.local",
+            "to": "pwchange2@test.local"
+          },
+          "password": {
+            "from": "<bcrypt-hash>",
+            "to": "<bcrypt-hash>"
+          }
+        }
+      },
+      "meta": {
+        "correlation_id": "525f9fba-1288-464c-9ef9-9e1784d63511",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCWXT6RB86PZKX3CCMHAP",
+      "type": "auth.v1.user.role.synced",
+      "source": "auth-system",
+      "subject": "auth.v1.user.role.synced",
+      "time": "2026-10-01T02:41:18+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "user_id": 10,
+        "roles": {
+          "from": [],
+          "to": [
+            "chat-agent-role"
+          ],
+          "added": [
+            "chat-agent-role"
+          ],
+          "removed": []
+        }
+      },
+      "meta": {
+        "correlation_id": "96be0906-f84e-4c6b-a4e9-aee27bbe10cb",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCWXT6RB86PZKX3CCMHAR",
+      "type": "auth.v1.user.permission.synced",
+      "source": "auth-system",
+      "subject": "auth.v1.user.permission.synced",
+      "time": "2026-10-01T02:41:18+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "user_id": 10,
+        "permissions": {
+          "from": [],
+          "to": [
+            "chat.admin"
+          ],
+          "added": [
+            "chat.admin"
+          ],
+          "removed": []
+        }
+      },
+      "meta": {
+        "correlation_id": "3d64f4e5-bd9b-4a79-ba0a-0def4269c695",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCWZKVQZWWSCX90JYXNBH",
+      "type": "auth.v1.user.role.synced",
+      "source": "auth-system",
+      "subject": "auth.v1.user.role.synced",
+      "time": "2026-10-01T02:41:18+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "user_id": 10,
+        "roles": {
+          "from": [
+            "chat-agent-role"
+          ],
+          "to": [
+            "super-admin"
+          ],
+          "added": [
+            "super-admin"
+          ],
+          "removed": [
+            "chat-agent-role"
+          ]
+        }
+      },
+      "meta": {
+        "correlation_id": "ee609faa-75c0-4d7a-b98a-c991a41fbff4",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCX166WP79ZAYWNT20GK3",
+      "type": "auth.v1.user.role.assigned",
+      "source": "auth-system",
+      "subject": "auth.v1.user.role.assigned",
+      "time": "2026-10-01T02:41:18+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "user_id": 10,
+        "roles": [
+          "chat-agent-role"
+        ]
+      },
+      "meta": {
+        "correlation_id": "388a0d34-6427-4efb-8d48-95582418fef1",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCX2RHMSY0XVE8X6KHM32",
+      "type": "auth.v1.user.role.removed",
+      "source": "auth-system",
+      "subject": "auth.v1.user.role.removed",
+      "time": "2026-10-01T02:41:18+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "user_id": 10,
+        "roles": [
+          "chat-agent-role"
+        ]
+      },
+      "meta": {
+        "correlation_id": "8abee94f-ba11-4979-99da-76d9b5c10f92",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCX4BGB1MHDZKBN8XRK29",
+      "type": "auth.v1.user.permission.granted",
+      "source": "auth-system",
+      "subject": "auth.v1.user.permission.granted",
+      "time": "2026-10-01T02:41:18+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "user_id": 10,
+        "permissions": [
+          "chat.agent"
+        ]
+      },
+      "meta": {
+        "correlation_id": "2841f452-f4df-459e-867c-529e82950bc4",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCX70PRAQ9RPNXW9R20NZ",
+      "type": "auth.v1.user.permission.revoked",
+      "source": "auth-system",
+      "subject": "auth.v1.user.permission.revoked",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "user_id": 10,
+        "permissions": [
+          "chat.agent"
+        ]
+      },
+      "meta": {
+        "correlation_id": "08dc6aa6-0bfb-4de5-a34b-974e72c0ea57",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCX8H1XCX1PJGBCCWAZV6",
+      "type": "auth.v1.user.permission.synced",
+      "source": "auth-system",
+      "subject": "auth.v1.user.permission.synced",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "user_id": 10,
+        "permissions": {
+          "from": [
+            "chat.admin"
+          ],
+          "to": [
+            "chat.agent",
+            "chat.admin"
+          ],
+          "added": [
+            "chat.agent"
+          ],
+          "removed": []
+        }
+      },
+      "meta": {
+        "correlation_id": "553e98f6-3a59-4253-bcdc-b04611f6a4db",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCXAA4PYGT3B4ZW1805YY",
+      "type": "auth.v1.permission.created",
+      "source": "auth-system",
+      "subject": "auth.v1.permission.created",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "permission": {
+          "id": 11,
+          "name": "harness.perm",
+          "guard_name": "web",
+          "created_at": "2026-10-01T02:41:19+00:00",
+          "updated_at": "2026-10-01T02:41:19+00:00"
+        }
+      },
+      "meta": {
+        "correlation_id": "95be2dd7-57b0-4b87-8c48-932d0002243c",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCXCRKSJDMS3HXGCSSGAV",
+      "type": "auth.v1.permission.updated",
+      "source": "auth-system",
+      "subject": "auth.v1.permission.updated",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "permission_id": 11,
+        "changed_fields": {
+          "name": {
+            "from": "harness.perm",
+            "to": "harness.perm2"
+          }
+        },
+        "updated_at": "2026-10-01T02:41:19+00:00"
+      },
+      "meta": {
+        "correlation_id": "3e2f51e7-b523-4500-9fae-9ff61fc9da8c",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCXEK2GZPPPMGMR207DK6",
+      "type": "auth.v1.role.created",
+      "source": "auth-system",
+      "subject": "auth.v1.role.created",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "role": {
+          "id": 3,
+          "name": "harness-role",
+          "guard_name": "web",
+          "permissions": [
+            {
+              "id": 10,
+              "name": "chat.agent",
+              "guard_name": "web"
+            }
+          ],
+          "created_at": "2026-10-01T02:41:19+00:00",
+          "updated_at": "2026-10-01T02:41:19+00:00"
+        }
+      },
+      "meta": {
+        "correlation_id": "a312bae2-14af-4274-98db-4cf98f32ab90",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCXEK2GZPPPMGMR207DK8",
+      "type": "auth.v1.assignment.role_permission.assigned",
+      "source": "auth-system",
+      "subject": "auth.v1.assignment.role_permission.assigned",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "role_id": 3,
+        "permissions": [
+          "chat.agent"
+        ],
+        "assigned_at": "2026-10-01T02:41:19+00:00",
+        "source": "create_role"
+      },
+      "meta": {
+        "correlation_id": "d0e3e49c-531b-4339-bf96-151dfd91c79d",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCXH64E7MF8VQS1X5STE8",
+      "type": "auth.v1.role.created",
+      "source": "auth-system",
+      "subject": "auth.v1.role.created",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "role": {
+          "id": 4,
+          "name": "harness-role-low",
+          "guard_name": "web",
+          "permissions": [],
+          "created_at": "2026-10-01T02:41:19+00:00",
+          "updated_at": "2026-10-01T02:41:19+00:00"
+        }
+      },
+      "meta": {
+        "correlation_id": "277a0a1f-3ed2-462a-b271-df8c03b072e2",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCXKJ7JWN92RE1FS19JDQ",
+      "type": "auth.v1.assignment.role_permission.synced",
+      "source": "auth-system",
+      "subject": "auth.v1.assignment.role_permission.synced",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "role_id": 3,
+        "added": [
+          "chat.admin"
+        ],
+        "removed": [
+          "chat.agent"
+        ],
+        "final": [
+          "chat.admin"
+        ],
+        "synced_at": "2026-10-01T02:41:19+00:00",
+        "source": "update_role"
+      },
+      "meta": {
+        "correlation_id": "6cb57a0f-80a5-4602-92dd-b18c57703a66",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCXKKD6K2NZ6AZ7HNYN28",
+      "type": "auth.v1.role.updated",
+      "source": "auth-system",
+      "subject": "auth.v1.role.updated",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "role_id": 3,
+        "changed_fields": {
+          "name": {
+            "from": "harness-role",
+            "to": "harness-role-renamed"
+          }
+        },
+        "updated_at": "2026-10-01T02:41:19+00:00"
+      },
+      "meta": {
+        "correlation_id": "c5fb86ef-8858-4b3f-8d10-6f03d84295e2",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCXNHG5ZSND3VEJ3YJWJ5",
+      "type": "auth.v1.assignment.role_permission.assigned",
+      "source": "auth-system",
+      "subject": "auth.v1.assignment.role_permission.assigned",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "role_id": 3,
+        "permissions": [
+          "chat.agent"
+        ],
+        "assigned_at": "2026-10-01T02:41:19+00:00",
+        "source": "assign_permissions_to_role"
+      },
+      "meta": {
+        "correlation_id": "33146e97-8993-4bdb-8ffd-26069e316bce",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCXQB00RCDVHP4F1VBCRZ",
+      "type": "auth.v1.assignment.role_permission.revoked",
+      "source": "auth-system",
+      "subject": "auth.v1.assignment.role_permission.revoked",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "role_id": 3,
+        "permissions": [
+          "chat.agent"
+        ],
+        "revoked_at": "2026-10-01T02:41:19+00:00",
+        "source": "remove_permissions_from_role"
+      },
+      "meta": {
+        "correlation_id": "7d40be28-6729-47f7-927d-a2aea312edde",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCXS4GAK849BPJ8B9HHZ2",
+      "type": "auth.v1.assignment.role_permission.synced",
+      "source": "auth-system",
+      "subject": "auth.v1.assignment.role_permission.synced",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "role_id": 3,
+        "added": [
+          "chat.agent",
+          "harness.perm2"
+        ],
+        "removed": [
+          "chat.admin"
+        ],
+        "final": [
+          "chat.agent",
+          "harness.perm2"
+        ],
+        "synced_at": "2026-10-01T02:41:19+00:00",
+        "source": "sync_role_permissions"
+      },
+      "meta": {
+        "correlation_id": "051f982e-234d-4df1-affd-3d191b8c9a39",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCXTWY51YQCCS6T2JP7N9",
+      "type": "auth.v1.store.created",
+      "source": "auth-system",
+      "subject": "auth.v1.store.created",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "store": {
+          "id": "S900",
+          "name": "Harness Store",
+          "metadata": {
+            "a": 1
+          },
+          "is_active": true,
+          "created_at": "2026-10-01T02:41:19+00:00",
+          "updated_at": "2026-10-01T02:41:19+00:00"
+        }
+      },
+      "meta": {
+        "correlation_id": "f5f27a90-4fc8-4280-bb48-fc675746a662",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCXWCH08MN2W97E153EE8",
+      "type": "auth.v1.store.updated",
+      "source": "auth-system",
+      "subject": "auth.v1.store.updated",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "store_id": "S900",
+        "changed_fields": {
+          "name": {
+            "from": "Harness Store",
+            "to": "Harness Store 2"
+          },
+          "is_active": {
+            "from": true,
+            "to": false
+          }
+        },
+        "updated_at": "2026-10-01T02:41:19+00:00"
+      },
+      "meta": {
+        "correlation_id": "7e7bb7cd-15f6-416d-8717-731c7d44d147",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCXXW2WFBV4QGVHEHEXHR",
+      "type": "auth.v1.assignment.user_role_store.assigned",
+      "source": "auth-system",
+      "subject": "auth.v1.assignment.user_role_store.assigned",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "assignment": {
+          "id": null,
+          "user_id": 10,
+          "role_id": 3,
+          "store_id": "S900",
+          "metadata": null,
+          "is_active": true,
+          "created_at": "2026-10-01T02:41:19+00:00",
+          "updated_at": "2026-10-01T02:41:19+00:00"
+        }
+      },
+      "meta": {
+        "correlation_id": "fbe1a6d6-539f-4519-91a4-28c714093a77",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCXZDPCPB2JS18129VQF6",
+      "type": "auth.v1.assignment.user_role_store.toggled",
+      "source": "auth-system",
+      "subject": "auth.v1.assignment.user_role_store.toggled",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "assignment_id": 2,
+        "user_id": 10,
+        "role_id": 3,
+        "store_id": "S900",
+        "before_is_active": true,
+        "after_is_active": false,
+        "toggled_at": "2026-10-01T02:41:19+00:00"
+      },
+      "meta": {
+        "correlation_id": "b6ff994d-b423-4fe4-8837-7122cb01c3fc",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCY0XJ2ZRTNGBCZM0HYE6",
+      "type": "auth.v1.assignment.user_role_store.bulk_assigned",
+      "source": "auth-system",
+      "subject": "auth.v1.assignment.user_role_store.bulk_assigned",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "user_id": 10,
+        "count": 1,
+        "assignments": [
+          {
+            "id": null,
+            "role_id": 4,
+            "store_id": "S900",
+            "metadata": null,
+            "is_active": true,
+            "created_at": "2026-10-01T02:41:19+00:00"
+          }
+        ]
+      },
+      "meta": {
+        "correlation_id": "2bca4292-0f73-4fa2-9300-3fac036e72e3",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCY2D2S2G6APBVNV1WR6C",
+      "type": "auth.v1.assignment.user_role_store.removed",
+      "source": "auth-system",
+      "subject": "auth.v1.assignment.user_role_store.removed",
+      "time": "2026-10-01T02:41:19+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "user_id": 10,
+        "role_id": 3,
+        "store_id": "S900",
+        "assignment_id": 2,
+        "removed_at": "2026-10-01T02:41:19+00:00"
+      },
+      "meta": {
+        "correlation_id": "3ea1f27b-1922-4f09-a6bd-d1b5891f6855",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCY41HDXRX7Z5BGP22HX3",
+      "type": "auth.v1.assignment.role_hierarchy.created",
+      "source": "auth-system",
+      "subject": "auth.v1.assignment.role_hierarchy.created",
+      "time": "2026-10-01T02:41:20+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "hierarchy": {
+          "id": 1,
+          "store_id": "S900",
+          "higher_role_id": 3,
+          "lower_role_id": 4,
+          "is_active": true,
+          "metadata": null,
+          "created_at": "2026-10-01T02:41:20+00:00",
+          "updated_at": "2026-10-01T02:41:20+00:00"
+        }
+      },
+      "meta": {
+        "correlation_id": "c101d2a1-b69c-4e8b-a853-1d0d3bacb423",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCY5PJ0K6KB04NMJNS9T1",
+      "type": "auth.v1.assignment.role_hierarchy.removed",
+      "source": "auth-system",
+      "subject": "auth.v1.assignment.role_hierarchy.removed",
+      "time": "2026-10-01T02:41:20+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "store_id": "S900",
+        "higher_role_id": 3,
+        "lower_role_id": 4,
+        "hierarchy_id": 1,
+        "removed_at": "2026-10-01T02:41:20+00:00"
+      },
+      "meta": {
+        "correlation_id": "5f516081-bb23-48b7-850b-43bb99fd6bd4",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCY76YFF9QS2HWD85NW4J",
+      "type": "auth.v1.store.deleted",
+      "source": "auth-system",
+      "subject": "auth.v1.store.deleted",
+      "time": "2026-10-01T02:41:20+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "store_id": "S900",
+        "store_name": "Harness Store 2",
+        "deleted_at": "2026-10-01T02:41:20+00:00"
+      },
+      "meta": {
+        "correlation_id": "0de5e8d0-711d-4167-af34-c9c52be4ab05",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCY8R6CFDC8B8AAC9VFK0",
+      "type": "auth.v1.role.deleted",
+      "source": "auth-system",
+      "subject": "auth.v1.role.deleted",
+      "time": "2026-10-01T02:41:20+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "role_id": 4,
+        "name": "harness-role-low",
+        "guard_name": "web",
+        "deleted_at": "2026-10-01T02:41:20+00:00"
+      },
+      "meta": {
+        "correlation_id": "bfb3f508-d185-47a7-8013-dcce7c8b8e82",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCYAFA0PQXHE2P42F7XX1",
+      "type": "auth.v1.permission.deleted",
+      "source": "auth-system",
+      "subject": "auth.v1.permission.deleted",
+      "time": "2026-10-01T02:41:20+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "permission_id": 11,
+        "name": "harness.perm2",
+        "guard_name": "web",
+        "deleted_at": "2026-10-01T02:41:20+00:00"
+      },
+      "meta": {
+        "correlation_id": "a62b0bf0-de19-478c-a7f7-b3091f541257",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNCYC8F9R9Q23QYAPQVHW4",
+      "type": "auth.v1.user.deleted",
+      "source": "auth-system",
+      "subject": "auth.v1.user.deleted",
+      "time": "2026-10-01T02:41:20+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "user_id": 10,
+        "email": "pwchange2@test.local",
+        "deleted_at": "2026-10-01T02:41:20+00:00"
+      },
+      "meta": {
+        "correlation_id": "3075cea7-c635-4323-857a-3ad4dd66b395",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNDJMCMH5R7H0PZ4KRN5F2",
+      "type": "auth.v1.user.created",
+      "source": "auth-system",
+      "subject": "auth.v1.user.created",
+      "time": "2026-10-01T02:41:41+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "user": {
+          "id": 11,
+          "name": "Event User",
+          "email": "eventuser@test.local",
+          "email_verified_at": "2026-10-01T02:41:41+00:00",
+          "created_at": "2026-10-01T02:41:41+00:00",
+          "updated_at": "2026-10-01T02:41:41+00:00"
+        },
+        "roles": [
+          "chat-agent-role"
+        ],
+        "permissions_direct": [
+          "chat.admin"
+        ]
+      },
+      "meta": {
+        "correlation_id": "daa4905e-8773-44d0-b170-178df1bd8d92",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNDJMCMH5R7H0PZ4KRN5F4",
+      "type": "auth.v1.user.role.assigned",
+      "source": "auth-system",
+      "subject": "auth.v1.user.role.assigned",
+      "time": "2026-10-01T02:41:41+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "user_id": 11,
+        "roles": [
+          "chat-agent-role"
+        ]
+      },
+      "meta": {
+        "correlation_id": "828f6295-6960-4d58-b06c-c053e0a3a68d",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    },
+    {
+      "specversion": "1.0",
+      "id": "01M3TNDJMCMH5R7H0PZ4KRN5F6",
+      "type": "auth.v1.user.permission.granted",
+      "source": "auth-system",
+      "subject": "auth.v1.user.permission.granted",
+      "time": "2026-10-01T02:41:41+00:00",
+      "datacontenttype": "application/json",
+      "data": {
+        "user_id": 11,
+        "permissions": [
+          "chat.admin"
+        ]
+      },
+      "meta": {
+        "correlation_id": "3c5fde17-fcbb-4631-b594-15c0114a0a7f",
+        "causation_id": null,
+        "actor_user_id": 2,
+        "actor_type": "user",
+        "actor_ip": "127.0.0.1",
+        "user_agent": "curl/8.7.1"
+      }
+    }
+  ]
+}
