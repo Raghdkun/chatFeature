@@ -1,4 +1,5 @@
 import { liveWidget } from '../support/loader';
+import { PASSWORD } from '../support/users';
 import { expect, test } from '../support/test';
 
 /**
@@ -35,4 +36,52 @@ test('sixteen administrators configuring widgets in parallel never get a 500', a
 
     expect(failures).toEqual([]);
     expect(created).toBe(80);
+});
+
+test('sixteen agents having their categories assigned at the same moment never get a 500', async ({
+    adminApi,
+}) => {
+    test.setTimeout(120_000);
+
+    const categories = (
+        (await adminApi.ok('GET', '/api/v1/categories')).data as {
+            ulid: string;
+        }[]
+    ).map((category) => category.ulid);
+    const agents: number[] = [];
+
+    for (let index = 0; index < 16; index += 1) {
+        const created = await adminApi.ok('POST', '/api/v1/agents', {
+            name: `Parallel Agent ${index}`,
+            email: `parallel.${index}.${Math.random().toString(36).slice(2, 8)}@example.test`,
+            password: PASSWORD,
+        });
+
+        agents.push(created.data.id);
+    }
+
+    const failures: string[] = [];
+
+    // Every round gives each agent another half of the categories: deletes and inserts in the same index, all at once.
+    await Promise.all(
+        agents.map(async (id, index) => {
+            for (let round = 0; round < 8; round += 1) {
+                const set = categories.filter(
+                    (_, position) => (position + round + index) % 2 === 0,
+                );
+                const answer = await adminApi.patch(
+                    `/api/v1/agents/${id}/categories`,
+                    { category_ulids: set },
+                );
+
+                if (!answer.ok) {
+                    failures.push(
+                        `${answer.status} ${JSON.stringify(answer.body).slice(0, 160)}`,
+                    );
+                }
+            }
+        }),
+    );
+
+    expect(failures).toEqual([]);
 });

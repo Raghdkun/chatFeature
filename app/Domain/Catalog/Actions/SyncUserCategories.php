@@ -13,6 +13,12 @@ use Illuminate\Support\Facades\DB;
  */
 final class SyncUserCategories
 {
+    /**
+     * MySQL aborts one of two transactions that delete and insert rows next to each other in an index (gap locks, error 1213, e.g.
+     * two agents saving their categories at the same moment): the loser simply runs again.
+     */
+    private const ATTEMPTS = 3;
+
     public function __construct(private readonly AuditLogger $audit) {}
 
     /**
@@ -25,20 +31,26 @@ final class SyncUserCategories
         $ids = array_map('intval', Category::query()->whereIn('ulid', $categoryUlids)->pluck('id')->all());
 
         DB::transaction(function () use ($user, $ids): void {
-            DB::table('category_user')->where('user_id', $user->id)->whereNotIn('category_id', $ids)->delete();
+            // A plain read (no locks), then exact-key deletes and inserts: `delete ... where user_id = ? and category_id not in (...)`
+            // scans a range of the `user_id` index and its gap locks make two agents saving at the same moment deadlock (1213).
+            $current = array_map('intval', DB::table('category_user')->where('user_id', $user->id)->pluck('category_id')->all());
+
+            foreach (array_diff($current, $ids) as $categoryId) {
+                DB::table('category_user')->where('category_id', $categoryId)->where('user_id', $user->id)->delete();
+            }
 
             $now = now();
 
-            // An upsert, not read-then-insert: a double submit must not collide in the `(category_id, user_id)` key.
+            // An upsert, not a plain insert: a double submit must not collide in the `(category_id, user_id)` key.
             $rows = array_map(
                 fn (int $id): array => ['category_id' => $id, 'user_id' => $user->id, 'created_at' => $now, 'updated_at' => $now],
-                array_values($ids),
+                array_values(array_diff($ids, $current)),
             );
 
             if ($rows !== []) {
                 DB::table('category_user')->upsert($rows, ['category_id', 'user_id'], ['updated_at']);
             }
-        });
+        }, self::ATTEMPTS);
 
         $this->audit->record($action, $user, ['category_ulids' => $categoryUlids], $actor ?? $user);
 
