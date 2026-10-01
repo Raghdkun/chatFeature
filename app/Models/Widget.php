@@ -126,6 +126,22 @@ class Widget extends Model
             ->orderBy('categories.id');
     }
 
+    /**
+     * @return HasMany<Visitor, $this>
+     */
+    public function visitors(): HasMany
+    {
+        return $this->hasMany(Visitor::class);
+    }
+
+    /**
+     * @return HasMany<Conversation, $this>
+     */
+    public function conversations(): HasMany
+    {
+        return $this->hasMany(Conversation::class);
+    }
+
     public function hasIdentitySecret(): bool
     {
         return $this->identity_secret_encrypted !== null && $this->identity_secret_encrypted !== '';

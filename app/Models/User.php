@@ -9,7 +9,9 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
@@ -117,6 +119,46 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function externalIdentities(): HasMany
     {
         return $this->hasMany(UserExternalIdentity::class);
+    }
+
+    /**
+     * Categories this agent serves (the `category_user` pivot; soft-deleted categories are detached when deleted).
+     *
+     * @return BelongsToMany<Category, $this>
+     */
+    public function categories(): BelongsToMany
+    {
+        return $this->belongsToMany(Category::class, 'category_user')->withTimestamps();
+    }
+
+    /**
+     * Conversations currently or formerly assigned to this agent (a transfer clears the assignee).
+     *
+     * @return HasMany<Conversation, $this>
+     */
+    public function assignedConversations(): HasMany
+    {
+        return $this->hasMany(Conversation::class, 'assigned_agent_id');
+    }
+
+    /**
+     * Offers of queued chats made to this agent.
+     *
+     * @return HasMany<ConversationOffer, $this>
+     */
+    public function conversationOffers(): HasMany
+    {
+        return $this->hasMany(ConversationOffer::class);
+    }
+
+    /**
+     * The DB mirror of this staff member's presence (absent until they first go online).
+     *
+     * @return HasOne<AgentPresence, $this>
+     */
+    public function presence(): HasOne
+    {
+        return $this->hasOne(AgentPresence::class);
     }
 
     /**
