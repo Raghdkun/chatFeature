@@ -1,5 +1,5 @@
 import { Form, Head, usePage } from '@inertiajs/react';
-import { ExternalLink, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { ExternalLink, ShieldAlert, ShieldCheck, WifiOff } from 'lucide-react';
 import type { ReactNode } from 'react';
 import InputError from '@/components/input-error';
 import PasskeyVerify from '@/components/passkey-verify';
@@ -14,6 +14,8 @@ import { Spinner } from '@/components/ui/spinner';
 import { useTrans } from '@/hooks/use-trans';
 import AuthLayout from '@/layouts/auth-layout';
 import { hasNoChatAccess } from '@/lib/login-notice';
+import { hostOf } from '@/lib/pizzasys-form';
+import { hasPortalUnavailable } from '@/lib/portal-login';
 import { safeExternalUrl } from '@/lib/urls';
 import { register } from '@/routes';
 import { store } from '@/routes/login';
@@ -21,7 +23,10 @@ import { request } from '@/routes/password';
 
 type Props = {
     status?: string;
-    /** Set by the backend when a sign-in succeeded upstream but the user has no chat role. */
+    /**
+     * Set by the backend: `no_chat_access` when a sign-in succeeded upstream but the user has no
+     * chat role; `unavailable` (Auth Portal mode) when the portal could not be reached.
+     */
     reason?: string;
 };
 
@@ -31,8 +36,14 @@ export default function Login({ status, reason }: Props) {
     const { capabilities } = auth;
     const portal = auth.mode === 'pizzasys';
     const portalUrl = safeExternalUrl(capabilities.portalUrl);
+    const portalHost = hostOf(portalUrl);
     const noChatAccess = (errors: Record<string, string | undefined>) =>
         hasNoChatAccess({ reason, errors });
+    // Only the Auth Portal can be "unreachable"; local sign-in keeps the starter-kit behaviour.
+    const portalUnavailable = (errors: Record<string, string | undefined>) =>
+        portal &&
+        !hasNoChatAccess({ reason, errors }) &&
+        hasPortalUnavailable({ reason, errors });
 
     return (
         <>
@@ -66,6 +77,16 @@ export default function Login({ status, reason }: Props) {
                         <p className="text-muted-foreground">
                             {t('auth.login.portal_hint')}
                         </p>
+                        {portalHost && (
+                            <p
+                                className="[overflow-wrap:anywhere] text-muted-foreground"
+                                data-testid="login-portal-host"
+                            >
+                                {t('auth.portal.host_hint', {
+                                    host: portalHost,
+                                })}
+                            </p>
+                        )}
                         {portalUrl && (
                             <a
                                 href={portalUrl}
@@ -103,6 +124,25 @@ export default function Login({ status, reason }: Props) {
                                 </AlertTitle>
                                 <AlertDescription>
                                     {t('auth.no_chat_access.body')}
+                                    {portal && (
+                                        <> {t('auth.portal.no_access_hint')}</>
+                                    )}
+                                </AlertDescription>
+                            </Alert>
+                        )}
+
+                        {portalUnavailable(errors) && (
+                            <Alert
+                                variant="destructive"
+                                className="border-destructive/40 bg-destructive/5 *:data-[slot=alert-description]:text-foreground/80"
+                                data-testid="login-portal-unavailable"
+                            >
+                                <WifiOff />
+                                <AlertTitle>
+                                    {t('auth.portal.unreachable.title')}
+                                </AlertTitle>
+                                <AlertDescription>
+                                    {t('auth.portal.unreachable.body')}
                                 </AlertDescription>
                             </Alert>
                         )}
@@ -125,7 +165,8 @@ export default function Login({ status, reason }: Props) {
                                 {/* The notice above already says it; no second line under the field. */}
                                 <InputError
                                     message={
-                                        noChatAccess(errors)
+                                        noChatAccess(errors) ||
+                                        portalUnavailable(errors)
                                             ? undefined
                                             : errors.email
                                     }

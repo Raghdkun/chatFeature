@@ -19,10 +19,15 @@ export function SetupStepper({
     const { t, has } = useTrans();
     const items = stepperItems(steps, view);
     const progress = stepProgress(items, view);
-    const labelFor = (step: SetupStepSummary) =>
-        has(`setup.steps.${step.key}`)
-            ? t(`setup.steps.${step.key}`)
-            : step.label;
+    // The Auth Portal steps keep their labels under their own prefix (`setup.pizzasys.steps.*`).
+    const labelFor = (step: SetupStepSummary) => {
+        const key = [
+            `setup.steps.${step.key}`,
+            `setup.pizzasys.steps.${step.key}`,
+        ].find(has);
+
+        return key ? t(key) : step.label;
+    };
 
     return (
         <>

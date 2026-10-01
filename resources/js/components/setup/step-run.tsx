@@ -77,7 +77,7 @@ export function StepRun({
 }) {
     const { t, has } = useTrans();
     const [rows, setRows] = useState<SetupRunRow[]>(() =>
-        initialRunRows(setup.run, setup.mode),
+        initialRunRows(setup.run),
     );
     const [busy, setBusy] = useState(false);
     const phase = derivePhase(rows, busy);
@@ -196,6 +196,51 @@ export function StepRun({
                                         {setup.admin.email}
                                     </span>
                                 </dd>
+                            </>
+                        )}
+
+                        {mode === 'pizzasys' && setup.pizzasys && (
+                            <>
+                                <dt className="text-muted-foreground">
+                                    {t('setup.pizzasys.summary.portal')}
+                                </dt>
+                                <dd
+                                    className="mb-2 [overflow-wrap:anywhere] sm:mb-0"
+                                    data-testid="setup-run-summary-portal"
+                                >
+                                    <span className="font-medium">
+                                        {t(
+                                            `setup.pizzasys.env.${setup.pizzasys.active_env}`,
+                                        )}
+                                    </span>
+                                    <span className="block text-muted-foreground sm:ms-2 sm:inline">
+                                        {setup.pizzasys.environments[
+                                            setup.pizzasys.active_env
+                                        ]?.base_url ?? ''}
+                                    </span>
+                                </dd>
+
+                                {setup.pizzasys.portal_admin && (
+                                    <>
+                                        <dt className="text-muted-foreground">
+                                            {t('setup.run.summary.admin')}
+                                        </dt>
+                                        <dd className="mb-2 [overflow-wrap:anywhere] sm:mb-0">
+                                            <span className="font-medium">
+                                                {
+                                                    setup.pizzasys.portal_admin
+                                                        .name
+                                                }
+                                            </span>
+                                            <span className="block text-muted-foreground sm:ms-2 sm:inline">
+                                                {
+                                                    setup.pizzasys.portal_admin
+                                                        .email
+                                                }
+                                            </span>
+                                        </dd>
+                                    </>
+                                )}
                             </>
                         )}
 

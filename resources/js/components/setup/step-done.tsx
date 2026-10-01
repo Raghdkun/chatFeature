@@ -12,9 +12,12 @@ const hardNavigate = (url: string) => window.location.assign(url);
 
 export function StepDone({
     redirect,
+    portal = false,
     navigate = hardNavigate,
 }: {
     redirect: string;
+    /** Auth Portal mode: people sign in with their portal account. */
+    portal?: boolean;
     /** Injectable for tests. */
     navigate?: (url: string) => void;
 }) {
@@ -33,7 +36,11 @@ export function StepDone({
         <StepFrame
             step="done"
             title={t('setup.done.title')}
-            description={t('setup.done.description')}
+            description={t(
+                portal
+                    ? 'setup.pizzasys.done_description'
+                    : 'setup.done.description',
+            )}
         >
             <div className="flex flex-col items-start gap-5">
                 <span
