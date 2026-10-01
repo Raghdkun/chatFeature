@@ -119,12 +119,17 @@ export class Panel {
      * answer of `POST /public/conversations`.
      */
     async startChat(options: StartChatOptions): Promise<StartedChat> {
-        const created = this.page.waitForResponse(
-            (response) =>
-                new URL(response.url()).pathname ===
-                    '/api/v1/public/conversations' &&
-                response.request().method() === 'POST',
-        );
+        // Never rejects (a spec that fails earlier must not leave an unhandled "page closed" error behind), and resolves to `null` when
+        // no conversation is created (the panel shows the offline form without asking the server).
+        const created = this.page
+            .waitForResponse(
+                (response) =>
+                    new URL(response.url()).pathname ===
+                        '/api/v1/public/conversations' &&
+                    response.request().method() === 'POST',
+                { timeout: 30_000 },
+            )
+            .catch(() => null);
         let last: PanelState | null = null;
 
         for (let step = 0; step < 8; step += 1) {
@@ -157,7 +162,15 @@ export class Panel {
             if (state === 'idle') {
                 await this.tid('idle-start').click();
             } else if (state === 'prechat') {
-                await this.fillPrechat(options);
+                // A submit that lands before the panel has hydrated does nothing (a loaded machine): fill and submit until it takes.
+                await expect(async () => {
+                    await this.fillPrechat(options);
+                    await expect(this.stateElement).not.toHaveAttribute(
+                        'data-state',
+                        'prechat',
+                        { timeout: 3_000 },
+                    );
+                }).toPass({ timeout: 20_000, intervals: [250] });
             } else if (state === 'category') {
                 await this.tid(`category-option-${options.category}`).click();
             }
@@ -167,7 +180,12 @@ export class Panel {
 
         await this.expectState(['queued', 'offline', 'active']);
 
-        const response = await created.catch(() => null);
+        const response = await Promise.race([
+            created,
+            new Promise<null>((resolve) =>
+                setTimeout(() => resolve(null), 3_000),
+            ),
+        ]);
         const data = response
             ? ((await response.json().catch(() => ({}))) as { data?: any }).data
             : undefined;
@@ -197,7 +215,7 @@ export class Panel {
             await consent.check();
         }
 
-        await form.locator('button[type="submit"]').click();
+        await form.locator('button[type="submit"]').click({ timeout: 5_000 });
     }
 
     /** Types into the composer and sends (the send button, as a visitor would). */

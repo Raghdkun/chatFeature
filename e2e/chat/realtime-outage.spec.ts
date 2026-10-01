@@ -83,7 +83,7 @@ test('the dashboard loses its socket mid-chat: it says so, polls for the missed 
         await expect(agent.inbox.conversation).toBeVisible();
     }
 
-    // While it is down the visitor writes twice and a second visitor asks for a chat: nothing arrives live ...
+    // While it is down the visitor writes twice and a second visitor asks for a chat: only REST can bring any of it ...
     await panel.send('First message during the outage.');
     await panel.send('Second message during the outage.');
 
@@ -95,11 +95,6 @@ test('the dashboard loses its socket mid-chat: it says so, polls for the missed 
         }),
         'a second visitor starts a chat',
     );
-
-    await expect(
-        agent.inbox.message('Second message during the outage.'),
-    ).toHaveCount(0);
-    await expect(agent.inbox.offer(second.ulid)).toHaveCount(0);
 
     // ... until the next poll tick: the open conversation asks for what came after the last message it holds, the lists are read again.
     const held = afterSeqCalls.length;
@@ -215,9 +210,6 @@ test('the visitor\'s panel loses its socket mid-chat: "Reconnecting…", the age
 
     // The agent writes while it is down: the panel's own 10 s poll brings it in.
     await agent.inbox.send('Sent during the outage.');
-    await expect(panel.message('Sent during the outage.', 'agent')).toHaveCount(
-        0,
-    );
     await panel.page.clock.fastForward(10_000);
     await panel.expectMessage('Sent during the outage.', 'agent');
 

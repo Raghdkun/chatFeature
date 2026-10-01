@@ -66,9 +66,10 @@ test('waiting offers and unread messages are counted in the tab title and the si
     await expect.poll(() => titleCount(ann.page)).toBe(2);
     await expect.poll(nav).toBe(2);
 
-    // Ann takes both (Alpha first, then Beta): the offers are gone, and the newest chat is on top of the list.
-    await ann.inbox.accept(first.ulid);
-    await showList(ann);
+    // Ann takes both (Alpha first, then Beta; through the API, so no conversation is open on her screen: a chat that is on screen
+    // never collects a badge): the offers are gone, and the newest chat is on top of the list.
+    must(await ann.api.claim(first.ulid), 'Ann accepts the first chat');
+    await expect(ann.inbox.chatRow(first.ulid)).toBeVisible();
     must(await ann.api.claim(second.ulid), 'Ann accepts the second chat');
     await expect(ann.inbox.chatRow(second.ulid)).toBeVisible();
     await expect(ann.inbox.chatRow(first.ulid)).toBeVisible();

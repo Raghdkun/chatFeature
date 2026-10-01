@@ -252,6 +252,7 @@ test('filters narrow the list by status, type, category, agent and date, and the
     adminApi,
     instance,
 }) => {
+    test.slow(); // seeding five conversations through the real flows takes a while on a loaded machine
     const data = await seedHistory(actors, adminApi, instance);
     const { world } = data;
     const admin = await actors.staff('admin');
@@ -361,6 +362,7 @@ test('search finds a conversation by what was said and by who the visitor is: me
     adminApi,
     instance,
 }) => {
+    test.slow(); // seeding five conversations through the real flows takes a while on a loaded machine
     const data = await seedHistory(actors, adminApi, instance);
     const admin = await actors.staff('admin');
     const page = admin.page;
@@ -417,6 +419,7 @@ test('the CSV export: a header row, one row per conversation of the filter, and 
     adminApi,
     instance,
 }, testInfo) => {
+    test.slow();
     const data = await seedHistory(actors, adminApi, instance);
     const admin = await actors.staff('admin');
     const page = admin.page;
@@ -526,6 +529,7 @@ test('the history is paged 25 at a time, with Previous and Next', async ({
     adminApi,
     instance,
 }) => {
+    test.slow(); // 27 tickets
     const world = await createWorld(adminApi, instance, {
         agents: { ann: ['main'] },
     });

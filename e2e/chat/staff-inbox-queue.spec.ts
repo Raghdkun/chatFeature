@@ -123,17 +123,66 @@ test('when another agent accepts first the card turns into "taken" and leaves; a
     await ann.inbox.expectOffer(ulid);
     await ben.inbox.expectOffer(ulid);
 
+    // The "taken" card is on screen for under two seconds: record what the card shows from inside the page, so a slow machine
+    // cannot make the spec miss it.
+    await ben.page.evaluate((id) => {
+        const log: {
+            state: string | null;
+            outcome: string;
+            accept: boolean;
+        }[] = [];
+        const read = () => {
+            const card = document.querySelector(`[data-testid="offer-${id}"]`);
+
+            if (card) {
+                log.push({
+                    state: card.getAttribute('data-state'),
+                    outcome:
+                        card.querySelector(
+                            `[data-testid="offer-outcome-${id}"]`,
+                        )?.textContent ?? '',
+                    accept:
+                        card.querySelector(
+                            `[data-testid="offer-accept-${id}"]`,
+                        ) !== null,
+                });
+            }
+        };
+
+        (window as unknown as { __offerLog: typeof log }).__offerLog = log;
+        new MutationObserver(read).observe(document.body, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            characterData: true,
+        });
+        read();
+    }, ulid);
+
     await ann.inbox.accept(ulid);
 
-    // Ben's card says who won, then goes away by itself.
-    await expect(ben.inbox.offer(ulid)).toHaveAttribute('data-state', 'taken');
-    await expect(ben.inbox.tid(`offer-outcome-${ulid}`)).toContainText(
-        world.agents.ann.name,
+    // Ben's card says who won (and has no Accept button any more), then goes away by itself.
+    const taken = await expectEventually(
+        () =>
+            ben.page.evaluate(
+                () =>
+                    (
+                        window as unknown as {
+                            __offerLog: {
+                                state: string | null;
+                                outcome: string;
+                                accept: boolean;
+                            }[];
+                        }
+                    ).__offerLog,
+            ),
+        (log) => log.some((entry) => entry.state === 'taken'),
+        { message: "Ben's card turned into 'taken'" },
     );
-    await expect(
-        ben.inbox.tid(`offer-accept-${ulid}`),
-        'no Accept button on a taken card',
-    ).toHaveCount(0);
+    const card = taken.find((entry) => entry.state === 'taken')!;
+
+    expect(card.outcome).toContain(world.agents.ann.name);
+    expect(card.accept, 'no Accept button on a taken card').toBe(false);
     await ben.inbox.expectNoOffer(ulid);
 
     // Ben's late claim (a stale tab, a script) is the documented conflict, naming the winner.
