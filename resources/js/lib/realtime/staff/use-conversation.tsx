@@ -32,8 +32,9 @@ import type {
     MessageData,
     TypingWhisper,
 } from '@/lib/chat/types';
-import { isApiError } from '@/lib/api-client';
+import { ApiError, isApiError } from '@/lib/api-client';
 import { newClientMsgId } from '@/lib/realtime/staff/client-id';
+import { failureOf } from '@/lib/realtime/staff/send-failure';
 import {
     canSend,
     conversationReducer,
@@ -53,6 +54,37 @@ const PAGE_LIMIT = 100;
 /** The server's fallback for the typing whisper (it cannot publish `client-*` events): `{ v, actor, typing }`. Both feed the same typing helper. */
 const TYPING_FALLBACK_EVENT = echoEvent(CHAT_EVENT.typingFallback);
 const MAX_PAGES = 20;
+/** After the attachment URLs were refreshed, a picture that still fails is broken: no second refresh for a while. */
+export const ATTACHMENT_REFRESH_COOLDOWN_MS = 20_000;
+/** A send that has not been answered by now is given up on (the message turns into a retryable failure; the queue moves on). */
+export const SEND_TIMEOUT_MS = 20_000;
+
+function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(
+            () =>
+                reject(
+                    new ApiError({
+                        status: 0,
+                        code: 'network',
+                        message: 'The server took too long to answer.',
+                    }),
+                ),
+            ms,
+        );
+
+        promise.then(
+            (value) => {
+                clearTimeout(timer);
+                resolve(value);
+            },
+            (error: unknown) => {
+                clearTimeout(timer);
+                reject(error);
+            },
+        );
+    });
+}
 
 export type ConversationViewer = {
     id: number;
@@ -138,6 +170,37 @@ export function useConversation({
             dispatch({ type: 'conversation', conversation: listed });
         }
     }, [listed]);
+
+    // A chat that LEAVES the agent's lists (transferred away, taken over by an admin) is no longer sent to this open view by
+    // `conversation.updated`: read it again, and when the server no longer lets this agent see it say so.
+    const wasListed = useRef(listed !== null);
+    const [lostAccess, setLostAccess] = useState(false);
+
+    useEffect(() => {
+        if (listed) {
+            wasListed.current = true;
+            setLostAccess(false);
+
+            return;
+        }
+
+        if (!wasListed.current || viewer.isAdmin) {
+            return;
+        }
+
+        wasListed.current = false;
+        api.conversation(ulid).then(
+            (fresh) => dispatch({ type: 'conversation', conversation: fresh }),
+            (error: unknown) => {
+                if (
+                    isApiError(error) &&
+                    (error.status === 403 || error.status === 404)
+                ) {
+                    setLostAccess(true);
+                }
+            },
+        );
+    }, [listed, viewer.isAdmin, api, ulid]);
 
     /* ---------------------------------------------------------------- */
     /* Catch-up                                                         */
@@ -240,6 +303,52 @@ export function useConversation({
 
         wasVisible.current = visible;
     }, [visible, catchUp]);
+
+    /**
+     * Signed attachment URLs expire: when a picture fails to load the messages are read again (the server signs them afresh) and the
+     * new URLs merged in. Single-flight, and once per failure burst: a picture that still fails afterwards is broken, not expired.
+     */
+    const refreshing = useRef<Promise<void> | null>(null);
+    const refreshedAt = useRef(0);
+
+    const refreshAttachmentUrls = useCallback((): Promise<void> => {
+        if (refreshing.current) {
+            return refreshing.current;
+        }
+
+        if (Date.now() - refreshedAt.current < ATTACHMENT_REFRESH_COOLDOWN_MS) {
+            return Promise.resolve();
+        }
+
+        refreshing.current = (async () => {
+            try {
+                let after = 0;
+
+                for (let page = 0; page < MAX_PAGES; page++) {
+                    const batch = await api.messages(ulid, {
+                        afterSeq: after,
+                        limit: PAGE_LIMIT,
+                    });
+
+                    if (batch.length > 0) {
+                        dispatch({ type: 'received', messages: batch });
+                        after = Math.max(after, ...batch.map((m) => m.seq));
+                    }
+
+                    if (batch.length < PAGE_LIMIT) {
+                        break;
+                    }
+                }
+            } catch {
+                // The next failure after the cooldown tries again.
+            } finally {
+                refreshedAt.current = Date.now();
+                refreshing.current = null;
+            }
+        })();
+
+        return refreshing.current;
+    }, [api, ulid]);
 
     /* ---------------------------------------------------------------- */
     /* Typing                                                           */
@@ -351,31 +460,43 @@ export function useConversation({
     /* Sending                                                          */
     /* ---------------------------------------------------------------- */
 
+    // Messages leave one after the other, so the server numbers them in the order they were typed (two quick sends can overtake each other).
+    const sendChain = useRef<Promise<void>>(Promise.resolve());
+
     const deliver = useCallback(
-        async (
+        (
             clientMsgId: string,
             body: string,
             attachments: AttachmentData[],
         ): Promise<void> => {
-            try {
-                const message = await api.sendMessage(ulid, {
-                    clientMsgId,
-                    body,
-                    attachmentUlids: attachments.map((a) => a.ulid),
-                });
+            const run = async (): Promise<void> => {
+                try {
+                    const message = await withDeadline(
+                        api.sendMessage(ulid, {
+                            clientMsgId,
+                            body,
+                            attachmentUlids: attachments.map((a) => a.ulid),
+                        }),
+                        SEND_TIMEOUT_MS,
+                    );
 
-                dispatch({ type: 'acked', message });
-            } catch (error) {
-                dispatch({ type: 'failed', clientMsgId });
+                    dispatch({ type: 'acked', message });
+                } catch (error) {
+                    const failure = failureOf(error);
 
-                if (
-                    isApiError(error) &&
-                    error.code === 'conversation_not_active'
-                ) {
-                    toast.error(describeStaffError(error, t));
-                    void catchUp();
+                    dispatch({ type: 'failed', clientMsgId, failure });
+
+                    if (failure === 'closed') {
+                        toast.error(describeStaffError(error, t));
+                        void catchUp();
+                    }
                 }
-            }
+            };
+            const next = sendChain.current.then(run);
+
+            sendChain.current = next;
+
+            return next;
         },
         [api, ulid, catchUp, t],
     );
@@ -439,6 +560,8 @@ export function useConversation({
     const act = useCallback(
         async (
             call: () => Promise<ConversationStaff>,
+            report: (message: string) => void = (message) =>
+                void toast.error(message),
         ): Promise<ConversationStaff | null> => {
             try {
                 const answer = await call();
@@ -455,7 +578,7 @@ export function useConversation({
 
                 return next;
             } catch (error) {
-                toast.error(describeStaffError(error, t));
+                report(describeStaffError(error, t));
 
                 return null;
             }
@@ -469,7 +592,8 @@ export function useConversation({
         [act, api, ulid],
     );
     const transfer = useCallback(
-        (target: TransferTarget) => act(() => api.transfer(ulid, target)),
+        (target: TransferTarget, report?: (message: string) => void) =>
+            act(() => api.transfer(ulid, target), report),
         [act, api, ulid],
     );
 
@@ -522,6 +646,8 @@ export function useConversation({
         conversation: state.conversation,
         messages: state.messages as LocalMessage[],
         typing,
+        /** The server no longer lets this agent see the chat (it was handed to somebody else). */
+        lostAccess,
         canSend: canSend(state.conversation),
         connection,
         send,
@@ -529,6 +655,7 @@ export function useConversation({
         discard,
         notifyTyping,
         catchUp,
+        refreshAttachmentUrls,
         end,
         close,
         transfer,

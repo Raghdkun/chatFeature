@@ -21,6 +21,7 @@ vi.mock('../src/sound', () => ({ ping: vi.fn(), unlockSound: vi.fn() }));
 type Dict = Record<string, unknown>;
 const SESSION_KEY = `chatfeature:${KEY}:session`;
 const FUTURE = '2999-01-01T00:00:00.000Z';
+const PAST = '2000-01-01T00:00:00.000Z';
 
 type Posted = ReturnType<Booted['posts']>[number];
 
@@ -221,6 +222,18 @@ describe('Widget (launcher + panel + bridge wired together)', () => {
     });
 
     describe('handshake and init payload', () => {
+        it("caps page.title at the server's 255 characters", async () => {
+            document.title = 'T'.repeat(400);
+
+            const b = await boot();
+            b.cf('open');
+            b.fromPanel('ready', { protocol: 1 });
+
+            const init = last(b, 'init')?.payload as Dict;
+
+            expect((init.page as Dict).title).toBe('T'.repeat(255));
+        });
+
         it('sends init only after the panel says ready, then flushes queued host messages', async () => {
             document.title = 'Pricing';
             Object.defineProperty(document, 'referrer', {
@@ -345,6 +358,78 @@ describe('Widget (launcher + panel + bridge wired together)', () => {
             ).toEqual({ token: 'vt_1', expiresAt: FUTURE, id: 'anonymous' });
             b.fromPanel('session', null);
             expect(localStorage.getItem(SESSION_KEY)).toBeNull();
+        });
+
+        it('compare-and-clear: a drop removes the stored session only while it still holds that token, else answers with the stored one', async () => {
+            const b = await boot();
+            b.cf('open');
+            b.handshake();
+            b.fromPanel('session', { token: 'vt_1', expiresAt: FUTURE });
+
+            // another tab of the page rotated the session in the meantime
+            localStorage.setItem(
+                SESSION_KEY,
+                JSON.stringify({
+                    token: 'vt_2',
+                    expiresAt: FUTURE,
+                    id: 'anonymous',
+                }),
+            );
+            b.fromPanel('session', { drop: 'vt_1' });
+            expect(
+                JSON.parse(localStorage.getItem(SESSION_KEY) ?? '{}').token,
+            ).toBe('vt_2');
+            expect(b.posts().filter((m) => m.type === 'session')).toEqual([
+                {
+                    type: 'session',
+                    payload: { token: 'vt_2', expiresAt: FUTURE },
+                    id: undefined,
+                    origin: APP,
+                },
+            ]);
+
+            // the stored session IS the refused one: gone for good, and the panel is told so
+            b.fromPanel('session', { drop: 'vt_2' });
+            expect(localStorage.getItem(SESSION_KEY)).toBeNull();
+            expect(
+                b
+                    .posts()
+                    .filter((m) => m.type === 'session')
+                    .at(-1),
+            ).toMatchObject({
+                payload: {},
+            });
+
+            // nothing stored at all: also cleared, also answered
+            b.fromPanel('session', { drop: 'vt_3' });
+            expect(b.posts().filter((m) => m.type === 'session')).toHaveLength(
+                3,
+            );
+        });
+
+        it('a drop with an expired entry stored just removes it and answers cleared', async () => {
+            const b = await boot();
+            b.cf('open');
+            b.handshake();
+            localStorage.setItem(
+                SESSION_KEY,
+                JSON.stringify({
+                    token: 'vt_x',
+                    expiresAt: PAST,
+                    id: 'anonymous',
+                }),
+            );
+            b.fromPanel('session', { drop: 'vt_1' });
+            // an expired entry is no session: it is removed and the panel hears "cleared"
+            expect(localStorage.getItem(SESSION_KEY)).toBeNull();
+            expect(
+                b
+                    .posts()
+                    .filter((m) => m.type === 'session')
+                    .at(-1),
+            ).toMatchObject({
+                payload: {},
+            });
         });
 
         it('survives localStorage being unusable (memory fallback)', async () => {

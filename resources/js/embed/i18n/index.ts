@@ -51,10 +51,45 @@ export function createTranslate(input: TranslateInput): Translate {
     const { texts, textLocale, defaultLocale, builtin = {} } = input;
 
     return (key, vars) => {
-        const edited = WIDGET_KEYS.has(key)
+        const written = WIDGET_KEYS.has(key)
             ? (texts[textLocale]?.[key] ?? texts[defaultLocale]?.[key])
             : undefined;
+        // The server fills every editable text with the English default when an admin wrote nothing for a locale: a text that still
+        // equals that default is "not edited", so a built-in translation of the visitor's language wins over it.
+        const edited =
+            written !== undefined &&
+            builtin[key] !== undefined &&
+            written === EN[key]
+                ? undefined
+                : written;
 
         return interpolate(edited ?? builtin[key] ?? EN[key] ?? key, vars);
     };
+}
+
+/**
+ * The plural form of a text: `<base>.<zero|one|two|few|many|other>` for the visitor's locale (as the dashboard's `usePlural`),
+ * falling back to `<base>.other`. `:count` is filled in.
+ */
+export function pluralText(
+    t: Translate,
+    locale: string,
+    base: string,
+    count: number,
+    vars: Replacements = {},
+): string {
+    let category: Intl.LDMLPluralRule = 'other';
+
+    try {
+        category = new Intl.PluralRules(locale).select(count);
+    } catch {
+        category = count === 1 ? 'one' : 'other';
+    }
+
+    const specific = `${base}.${category}` as MessageKey;
+    const text = t(specific, { ...vars, count });
+
+    return text === specific
+        ? t(`${base}.other` as MessageKey, { ...vars, count })
+        : text;
 }

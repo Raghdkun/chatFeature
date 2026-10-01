@@ -21,7 +21,12 @@ import {
     type ControllerDeps,
     type StoredSession,
 } from '@/embed/session/controller';
-import { loadStoredSession, saveStoredSession } from '@/embed/session/storage';
+import { createHostSessionLink } from '@/embed/session/host-session';
+import {
+    dropStoredSession,
+    loadStoredSession,
+    saveStoredSession,
+} from '@/embed/session/storage';
 import { createVisitorApi } from '@/lib/chat-api/visitor';
 import type { SocketFactory } from '@/lib/realtime/visitor/types';
 
@@ -41,8 +46,14 @@ async function start(boot: EmbedBoot, container: HTMLElement): Promise<void> {
             originOf(document.referrer),
             window.location.ancestorOrigins?.[0],
         ],
-        onMessage: (message) => controller.handleHostMessage(message),
+        onMessage: (message) =>
+            message.type === 'session'
+                ? hostSession.answer(message.payload)
+                : controller.handleHostMessage(message),
     });
+    const hostSession = createHostSessionLink((token) =>
+        channel.send({ type: 'session', payload: { drop: token } }),
+    );
     // A loader exists only when this page is framed by it; a direct visit or the hosted page boots itself.
     const withHost = boot.mode === 'launcher' && channel.hasParent;
     const mode = withHost
@@ -68,12 +79,20 @@ async function start(boot: EmbedBoot, container: HTMLElement): Promise<void> {
             saveStoredSession(boot.key, session);
         }
     };
+    const dropSession = (token: string): Promise<StoredSession | null> =>
+        boot.preview
+            ? Promise.resolve(null)
+            : withHost
+              ? hostSession.drop(token)
+              : Promise.resolve(dropStoredSession(boot.key, token));
     const deps: ControllerDeps = {
         host: { send: (message) => channel.send(message) },
         persistSession,
+        dropSession,
         socketFactory: demo?.socketFactory ?? lazySocket,
         createApi: demo ? () => demo.api : undefined,
         sound: { ping: sound.ping },
+        appOrigin: boot.appOrigin,
         preview: boot.preview,
         // Standalone: the page fetches the public config itself, so that copy is already the fresh one.
         bootIsFresh: !withHost,
@@ -123,7 +142,7 @@ async function start(boot: EmbedBoot, container: HTMLElement): Promise<void> {
                     ? document.referrer
                     : window.location.href
                 ).slice(0, 2000),
-                title: document.title.slice(0, 300),
+                title: document.title.slice(0, 255),
                 referrer: document.referrer.slice(0, 2000),
             },
             embedMode: 'launcher',

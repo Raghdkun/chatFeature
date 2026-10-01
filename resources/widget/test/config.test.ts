@@ -255,6 +255,31 @@ describe('sanitizeOverrides: validation', () => {
         expect(sanitizeToken('a.b')).toBeUndefined();
     });
 
+    it("keeps visitor fields inside the server's limits: a field POST /sessions would refuse is dropped, never sent", () => {
+        const visitor = (v: Record<string, unknown>) =>
+            sanitizeOverrides({ visitor: v }, ctx).visitor;
+
+        expect(visitor({ name: 'n'.repeat(500) })).toEqual({
+            name: 'n'.repeat(120),
+        });
+        expect(
+            visitor({ email: 'not an email', phone: 'call me' }),
+        ).toBeUndefined();
+        expect(
+            visitor({ email: `${'a'.repeat(190)}@x.io`, name: 'Ann' }),
+        ).toEqual({
+            name: 'Ann',
+        });
+        expect(
+            visitor({ email: 'ann@example.com', phone: '+1 (555) 010-9999' }),
+        ).toEqual({
+            email: 'ann@example.com',
+            phone: '+1 (555) 010-9999',
+        });
+        expect(visitor({ phone: '12' })).toBeUndefined();
+        expect(visitor({ phone: '1'.repeat(41) })).toBeUndefined();
+    });
+
     it('filters visitor meta keys before capping them, so valid keys are never crowded out', () => {
         const meta: Record<string, unknown> = {};
 
@@ -773,6 +798,35 @@ describe('boot config validation', () => {
         expect(b?.config.theme.mode).toBe('light');
         expect(b?.categories).toHaveLength(3);
         expect(b?.greetings[0].weight).toBe(1);
+    });
+
+    it("hands the panel each category's description, icon and colour (it validates them), and nothing else of the entry", () => {
+        const b = parseBoot(
+            makeBoot({
+                categories: [
+                    {
+                        slug: 'billing',
+                        label: 'Billing',
+                        description: 'Invoices',
+                        icon: 'credit-card',
+                        color: '#7c3aed',
+                        secret: 'x',
+                    },
+                    { slug: 'tech', label: 'Tech', description: 5 },
+                ],
+            }),
+            KEY,
+        );
+        const panel = b?.panel.categories as Record<string, unknown>[];
+
+        expect(panel[0]).toEqual({
+            slug: 'billing',
+            label: 'Billing',
+            description: 'Invoices',
+            icon: 'credit-card',
+            color: '#7c3aed',
+        });
+        expect(panel[1]).toEqual({ slug: 'tech', label: 'Tech' });
     });
 
     it.each([

@@ -1,5 +1,5 @@
 import { Download, Search, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
     exportUrl,
     hasActiveFilters,
@@ -44,11 +44,16 @@ export function HistoryFiltersBar({
 }) {
     const { t } = useTrans();
     const [query, setQuery] = useState(filters.q);
+    // The last search text THIS box sent: the server's echo of it must not overwrite what has been typed since.
+    const sent = useRef(filters.q);
 
-    // Follow the server's echo (reset, back button).
+    // Follow the server only for changes that did not come from here (reset, back button).
     useEffect(() => {
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- mirrors an externally controlled value
-        setQuery(filters.q);
+        if (filters.q !== sent.current) {
+            sent.current = filters.q;
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- mirrors an externally controlled value
+            setQuery(filters.q);
+        }
     }, [filters.q]);
 
     useEffect(() => {
@@ -56,10 +61,10 @@ export function HistoryFiltersBar({
             return;
         }
 
-        const timer = setTimeout(
-            () => onChange({ ...filters, q: query }),
-            SEARCH_DEBOUNCE_MS,
-        );
+        const timer = setTimeout(() => {
+            sent.current = query;
+            onChange({ ...filters, q: query });
+        }, SEARCH_DEBOUNCE_MS);
 
         return () => clearTimeout(timer);
     }, [query, filters, onChange]);
@@ -74,6 +79,7 @@ export function HistoryFiltersBar({
             data-testid="history-filters"
             onSubmit={(event) => {
                 event.preventDefault();
+                sent.current = query;
                 onChange({ ...filters, q: query });
             }}
             className="grid gap-3 border-b p-3 sm:p-4"

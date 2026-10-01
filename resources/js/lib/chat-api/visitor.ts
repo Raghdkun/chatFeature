@@ -24,12 +24,22 @@ export type WsConfig = {
     scheme: string;
 };
 
+/** What the server accepts for one message (the `limits` block of a session response); `null` fields fall back to the panel's defaults. */
+export type SessionLimits = {
+    maxMessageLength: number | null;
+    attachmentMaxBytes: number | null;
+    attachmentMaxDimension: number | null;
+    attachmentMaxPerMessage: number | null;
+};
+
 export type SessionResponse = {
     visitorToken: string;
     expiresAt: string;
     conversation: ConversationPublic | null;
     /** `null` when Reverb is not configured on the server: the panel then stays on REST polling. */
     ws: WsConfig | null;
+    /** `null` while the server does not send limits (an older backend): the panel's built-in defaults apply. */
+    limits: SessionLimits | null;
 };
 
 export type VisitorFields = {
@@ -167,6 +177,10 @@ export type VisitorApiOptions = {
     maxRateLimitRetries?: number;
     /** Longest `Retry-After` we are willing to wait for before giving up, in seconds (default 8). */
     maxRetryAfterSeconds?: number;
+    /** A request (connect, answer and body) that takes longer fails as a `network` error (milliseconds, default 20 000). */
+    timeoutMs?: number;
+    /** The same for an image upload (default 90 000). */
+    uploadTimeoutMs?: number;
     /** Replace `setTimeout` based waiting (tests). */
     sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
     xhrFactory?: () => XMLHttpRequest;
@@ -287,6 +301,7 @@ export function createVisitorApi(options: VisitorApiOptions) {
     const sleep = options.sleep ?? defaultSleep;
     const maxRetries = options.maxRateLimitRetries ?? 2;
     const maxRetryAfter = options.maxRetryAfterSeconds ?? 8;
+    const timeoutMs = options.timeoutMs ?? 20_000;
     const widget = encodeURIComponent(options.widgetKey);
 
     function url(path: string, query?: Query): string {
@@ -351,16 +366,46 @@ export function createVisitorApi(options: VisitorApiOptions) {
         });
     }
 
-    /** Returns the parsed body (`null` for 204). Throws {@link VisitorApiError}. */
-    async function request(
+    /**
+     * One round trip (request, answer, body) that must finish within `timeoutMs`: a stalled connection or body is a `network` error,
+     * never a spinner that never ends. A caller's own `signal` still wins (`aborted`).
+     */
+    async function attempt(
         path: string,
-        init: RequestInitLite = {},
-    ): Promise<{ body: unknown; status: number }> {
-        const method = init.method ?? 'GET';
-        const safe = init.safe ?? method === 'GET';
-        let attempt = 0;
+        init: RequestInitLite,
+        method: string,
+    ): Promise<
+        | { ok: true; body: unknown; status: number }
+        | { ok: false; failure: VisitorApiError }
+    > {
+        const control = new AbortController();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let onAbort: () => void = () => undefined;
 
-        for (;;) {
+        // Settles the attempt when the clock runs out or the caller gives up, even if the transport itself never answers.
+        const stop = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+                control.abort();
+                reject(
+                    new VisitorApiError({
+                        status: 0,
+                        code: 'network',
+                        message: 'The server took too long to answer.',
+                    }),
+                );
+            }, timeoutMs);
+            onAbort = () => {
+                control.abort();
+                reject(abortError());
+            };
+        });
+
+        init.signal?.addEventListener('abort', onAbort, { once: true });
+
+        const run = async (): Promise<
+            | { ok: true; body: unknown; status: number }
+            | { ok: false; failure: VisitorApiError }
+        > => {
             let response: Response;
 
             try {
@@ -373,7 +418,7 @@ export function createVisitorApi(options: VisitorApiOptions) {
                         init.json === undefined
                             ? undefined
                             : JSON.stringify(init.json),
-                    signal: init.signal,
+                    signal: control.signal,
                 });
             } catch (error) {
                 if (init.signal?.aborted === true) {
@@ -392,28 +437,64 @@ export function createVisitorApi(options: VisitorApiOptions) {
 
             if (response.ok) {
                 if (response.status === 204) {
-                    return { body: null, status: 204 };
+                    return { ok: true, body: null, status: 204 };
                 }
 
                 try {
                     return {
+                        ok: true,
                         body: (await response.json()) as unknown,
                         status: response.status,
                     };
                 } catch {
+                    if (init.signal?.aborted === true) {
+                        throw abortError();
+                    }
+
                     throw invalid(response.status);
                 }
             }
 
-            const failure = await toError(response);
+            return { ok: false, failure: await toError(response) };
+        };
+
+        try {
+            return await Promise.race([run(), stop]);
+        } finally {
+            clearTimeout(timer);
+            init.signal?.removeEventListener('abort', onAbort);
+        }
+    }
+
+    /** Returns the parsed body (`null` for 204). Throws {@link VisitorApiError}. */
+    async function request(
+        path: string,
+        init: RequestInitLite = {},
+    ): Promise<{ body: unknown; status: number }> {
+        const method = init.method ?? 'GET';
+        const safe = init.safe ?? method === 'GET';
+        let tries = 0;
+
+        for (;;) {
+            if (init.signal?.aborted === true) {
+                throw abortError();
+            }
+
+            const result = await attempt(path, init, method);
+
+            if (result.ok) {
+                return { body: result.body, status: result.status };
+            }
+
+            const { failure } = result;
 
             if (
                 failure.status === 429 &&
                 safe &&
-                attempt < maxRetries &&
+                tries < maxRetries &&
                 (failure.retryAfter ?? 1) <= maxRetryAfter
             ) {
-                attempt += 1;
+                tries += 1;
                 await sleep((failure.retryAfter ?? 1) * 1000, init.signal);
 
                 continue;
@@ -453,6 +534,27 @@ export function createVisitorApi(options: VisitorApiOptions) {
             : null;
     }
 
+    function asLimits(value: unknown): SessionLimits | null {
+        if (!isRecord(value)) {
+            return null;
+        }
+
+        const positive = (field: unknown): number | null =>
+            typeof field === 'number' && Number.isFinite(field) && field > 0
+                ? Math.floor(field)
+                : null;
+        const limits: SessionLimits = {
+            maxMessageLength: positive(value.maxMessageLength),
+            attachmentMaxBytes: positive(value.attachmentMaxBytes),
+            attachmentMaxDimension: positive(value.attachmentMaxDimension),
+            attachmentMaxPerMessage: positive(value.attachmentMaxPerMessage),
+        };
+
+        return Object.values(limits).some((limit) => limit !== null)
+            ? limits
+            : null;
+    }
+
     function asSession(value: unknown, status: number): SessionResponse {
         if (
             !isRecord(value) ||
@@ -467,6 +569,7 @@ export function createVisitorApi(options: VisitorApiOptions) {
             expiresAt: value.expiresAt,
             conversation: asConversation(value.conversation),
             ws: asWs(value.ws),
+            limits: asLimits(value.limits),
         };
     }
 
@@ -729,7 +832,8 @@ export function createVisitorApi(options: VisitorApiOptions) {
                         upload.onProgress?.(event.loaded / event.total);
                     }
                 };
-                xhr.onerror = (): void =>
+                xhr.timeout = options.uploadTimeoutMs ?? 90_000;
+                xhr.onerror = xhr.ontimeout = (): void =>
                     reject(
                         new VisitorApiError({
                             status: 0,

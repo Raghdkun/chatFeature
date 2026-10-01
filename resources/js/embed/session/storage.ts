@@ -71,3 +71,23 @@ export function saveStoredSession(
         // blocked: memory only
     }
 }
+
+/**
+ * Compare-and-clear: forgets the stored session only while it still holds `token`. Another tab of the same page may have rotated
+ * the token in the meantime; its (newer) session is then returned untouched so this tab adopts it instead of wiping it.
+ */
+export function dropStoredSession(
+    widgetKey: string,
+    token: string,
+    now: number = Date.now(),
+): StoredSession | null {
+    const stored = loadStoredSession(widgetKey, now);
+
+    if (stored !== null && stored.token !== token) {
+        return stored;
+    }
+
+    saveStoredSession(widgetKey, null);
+
+    return null;
+}

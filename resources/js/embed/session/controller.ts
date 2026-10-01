@@ -34,6 +34,11 @@ import type {
     ViewportPayload,
 } from '@/embed/protocol/messages';
 import { toCreateFailure, toNotice } from '@/embed/session/errors';
+import {
+    bareSessionBody,
+    isUnsignedFieldRefusal,
+    serverSafeSessionBody,
+} from '@/embed/session/session-body';
 import { deriveFlow } from '@/embed/session/flow';
 import {
     createInitialState,
@@ -50,6 +55,7 @@ import {
     isVisitorApiError,
     type CreateConversationRequest,
     type CreateSessionRequest,
+    type SessionLimits,
     type SessionResponse,
     type VisitorApi,
     type VisitorFields,
@@ -66,6 +72,7 @@ import type {
     ConversationPublic,
     LocalMessage,
     MessageData,
+    MessageFailure,
 } from '@/lib/chat/types';
 import { createTypingTracker } from '@/lib/chat/typing';
 import {
@@ -83,6 +90,11 @@ export type ControllerDeps = {
     host: HostPort;
     /** Called when the visitor session changes: the launcher mode forwards it to the host, standalone pages store it. */
     persistSession: (session: StoredSession | null) => void;
+    /**
+     * Compare-and-clear for a token the server refused: the stored copy is removed only while it still holds `token`; when another
+     * tab stored a newer session it is returned (and adopted) instead. Without it the copy is cleared unconditionally.
+     */
+    dropSession?: (token: string) => Promise<StoredSession | null>;
     socketFactory: SocketFactory;
     createApi?: (options: {
         base: string;
@@ -95,6 +107,11 @@ export type ControllerDeps = {
     sound?: { ping(): void };
     navigatorLanguages?: readonly string[];
     document?: Document;
+    /**
+     * The origin the panel page itself was served from (inlined by the server). `init.boot.api.*` comes from the host page and is
+     * only honoured when it names this origin; the API base and the font origin derive from it.
+     */
+    appOrigin?: string;
     /** The builder preview: no visitor API calls, ever (the injected demo API answers instead). */
     preview?: boolean;
     loadBuiltin?: (locale: string) => Promise<Messages>;
@@ -113,9 +130,15 @@ export type Snapshot = {
     viewport: ViewportPayload | null;
     /** The config could not be loaded at all (standalone page, widget gone). */
     unavailable: boolean;
+    /** What the server accepts per message (from the session response); `null` until a session exists: use the defaults. */
+    limits: SessionLimits | null;
 };
 
 const WATCHDOG_MS = 10_000;
+/** A sync pass that has been running this long is presumed lost (a hung request): the next call starts a fresh one. */
+const SYNC_STALE_MS = 45_000;
+/** After the signed attachment URLs were refreshed, a picture that still fails is genuinely broken: no second refresh for a while. */
+const URL_REFRESH_COOLDOWN_MS = 20_000;
 const ATTACHMENT_LIMIT = 4;
 
 export const MAX_ATTACHMENTS = ATTACHMENT_LIMIT;
@@ -135,6 +158,31 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
             },
         );
     });
+}
+
+/** Why a send failed (what the bubble tells the visitor, and whether a retry is offered). */
+function failureOf(error: unknown): MessageFailure {
+    if (!isVisitorApiError(error)) {
+        return 'unknown';
+    }
+
+    if (error.status === 422) {
+        return 'body' in error.details ? 'too_long' : 'rejected';
+    }
+
+    if (error.status === 403) {
+        return 'forbidden';
+    }
+
+    if (error.code === 'conversation_not_active') {
+        return 'closed';
+    }
+
+    return error.status === 429
+        ? 'rate_limited'
+        : error.isNetwork
+          ? 'network'
+          : 'unknown';
 }
 
 const isRecord = (value: unknown): value is Dict =>
@@ -189,8 +237,11 @@ export class ChatController {
     });
     private viewport: ViewportPayload | null = null;
     private unavailable = false;
+    private limits: SessionLimits | null = null;
     private booted = false;
     private disposed = false;
+    /** `startChat` from the host that arrived while the panel was still booting (the loader flushes it right after `init:result`). */
+    private pendingStart: { category?: string; message?: string } | null = null;
 
     private identityToken: string | undefined;
     private hostVisitor: VisitorFields = {};
@@ -204,6 +255,8 @@ export class ChatController {
     private sessionPromise: Promise<void> | null = null;
     private rotation: Promise<void> | null = null;
     private rotatedAt = 0;
+    /** A refused token is being dropped (the host is asked whether another tab holds a newer one). */
+    private dropping = false;
 
     private realtime: ConversationRealtime | null = null;
     private realtimeFor: string | null = null;
@@ -213,6 +266,10 @@ export class ChatController {
     private realtimeRetryTimer: ReturnType<typeof setTimeout> | undefined;
     private watchdog: ReturnType<typeof setInterval> | undefined;
     private syncing: Promise<void> | null = null;
+    private urlRefresh: Promise<void> | null = null;
+    private urlRefreshedAt = -Infinity;
+    private syncStartedAt = 0;
+    private syncPass = 0;
     private syncAgain = false;
     private sendChain: Promise<void> = Promise.resolve();
     private readonly typing = createTypingTracker(() => this.now());
@@ -261,6 +318,7 @@ export class ChatController {
             t: this.t,
             viewport: this.viewport,
             unavailable: this.unavailable,
+            limits: this.limits,
         };
     }
 
@@ -384,6 +442,18 @@ export class ChatController {
 
         if (action.type === 'CLAIMED') {
             this.emit('agent-joined', { agentName: action.agent.name });
+        }
+
+        if (
+            action.type === 'ENDED' &&
+            action.ratingRequested &&
+            next.phase === 'closed' &&
+            previous.conversation !== null
+        ) {
+            // The widget has ratings switched off: the server still waits for the rating window unless it is told the visitor declined.
+            void this.api?.skipRating(previous.conversation.ulid).catch(() => {
+                // best effort: the window closes the chat anyway
+            });
         }
     }
 
@@ -512,7 +582,8 @@ export class ChatController {
                 conversation = null;
 
                 if (isVisitorApiError(error) && error.isSessionGone) {
-                    this.clearSession();
+                    // A newer session another tab stored is adopted: a new chat then finds its conversation (`409 conversation_exists`).
+                    await this.forgetToken();
                 }
             }
         }
@@ -528,6 +599,14 @@ export class ChatController {
             now: this.resumedQueueStart(conversation),
         });
         this.afterResume();
+
+        const pending = this.pendingStart;
+
+        this.pendingStart = null;
+
+        if (pending !== null) {
+            this.startFromHost(pending);
+        }
     }
 
     /** Queue time of a resumed chat: when the server created it, never in the future (clock skew). */
@@ -551,15 +630,33 @@ export class ChatController {
             return;
         }
 
+        const request = this.api.getConfig(config.locale);
         const fresh = await withTimeout(
-            this.api.getConfig(config.locale),
-            this.deps.configTimeoutMs ?? 2500,
+            request,
+            this.deps.configTimeoutMs ?? 1500,
         );
 
         if (fresh !== null) {
             this.fresh = fresh;
             this.lastAvailabilityAt = this.now();
+
+            return;
         }
+
+        // Too slow to hold the first screen back (the loader's boot copy already carries everything the picker needs): render from
+        // that copy, and let the answer correct availability (and anything else it changes) whenever it does arrive.
+        void request.then(
+            (late) => {
+                if (this.disposed) {
+                    return;
+                }
+
+                this.fresh = late;
+                this.lastAvailabilityAt = this.now();
+                this.reconfigure();
+            },
+            () => undefined,
+        );
     }
 
     private async ensureBuiltin(): Promise<void> {
@@ -597,6 +694,7 @@ export class ChatController {
                       }
                     : this.fresh,
             draft: this.draft,
+            trustedOrigin: this.deps.appOrigin,
             navigatorLanguages:
                 this.deps.navigatorLanguages ??
                 (typeof navigator === 'undefined'
@@ -764,7 +862,7 @@ export class ChatController {
     /* ---------------------------------------------------------- session */
 
     private sessionBody(): CreateSessionRequest {
-        return {
+        return serverSafeSessionBody({
             ...(this.identityToken === undefined
                 ? {}
                 : { identity_token: this.identityToken }),
@@ -773,7 +871,28 @@ export class ChatController {
                 : { visitor: this.hostVisitor }),
             page: this.page,
             locale: this.config?.locale ?? 'en',
-        };
+        });
+    }
+
+    /**
+     * `POST .../sessions`. A 422 that blames only the optional visitor / page / locale fields (nothing the visitor could fix: they
+     * are not on screen) is retried once without them; a signed identity the server refuses is not retried.
+     */
+    private async createSessionSafely(
+        resumeToken?: string,
+    ): Promise<SessionResponse> {
+        const api = this.requireApi();
+        const body = this.sessionBody();
+
+        try {
+            return await api.createSession(body, resumeToken);
+        } catch (error) {
+            if (isVisitorApiError(error) && isUnsignedFieldRefusal(error)) {
+                return api.createSession(bareSessionBody(body), resumeToken);
+            }
+
+            throw error;
+        }
     }
 
     /** Creates a visitor session when there is none. Single-flight. */
@@ -784,9 +903,7 @@ export class ChatController {
 
         this.sessionPromise ??= (async () => {
             try {
-                const api = this.requireApi();
-
-                this.adopt(await api.createSession(this.sessionBody()));
+                this.adopt(await this.createSessionSafely());
             } finally {
                 this.sessionPromise = null;
             }
@@ -800,6 +917,12 @@ export class ChatController {
         this.token = session.visitorToken;
         this.ws = session.ws;
         this.wsKnown = true;
+
+        if (session.limits !== null) {
+            this.limits = session.limits;
+            this.publish();
+        }
+
         this.persist({
             token: session.visitorToken,
             expiresAt: session.expiresAt,
@@ -821,10 +944,7 @@ export class ChatController {
                     return;
                 }
 
-                const session = await this.requireApi().createSession(
-                    this.sessionBody(),
-                    held,
-                );
+                const session = await this.createSessionSafely(held);
 
                 this.adopt(session);
                 this.rotatedAt = this.now();
@@ -903,6 +1023,63 @@ export class ChatController {
     }
 
     /**
+     * The server refused the token: forget it, unless another tab of the page already rotated the session and stored a newer
+     * one (two tabs share the host's storage and a rotation revokes the other tab's token). The host removes its copy only while
+     * it still holds the refused token and otherwise answers with the newer session, which is adopted here (the socket config
+     * stays: it does not depend on the token). Resolves `true` while a session is still in hand, `false` once it is gone.
+     */
+    private async forgetToken(): Promise<boolean> {
+        const refused = this.token;
+
+        if (refused === null || this.deps.preview === true) {
+            this.clearSession(false);
+
+            return false;
+        }
+
+        const drop = this.deps.dropSession;
+
+        if (drop === undefined) {
+            this.clearSession();
+
+            return false;
+        }
+
+        const newer = await drop(refused).catch(() => null);
+
+        if (this.disposed) {
+            return false;
+        }
+
+        if (this.token !== refused) {
+            // Replaced while the host was asked (a rotation landed): nothing to forget.
+            return this.token !== null;
+        }
+
+        if (newer !== null && newer.token !== refused) {
+            this.closeRealtime();
+            this.token = newer.token;
+
+            return true;
+        }
+
+        this.clearSession(false);
+
+        return false;
+    }
+
+    /** The conversation carries on with the adopted session: the socket re-authorises with it and the state is read again. */
+    private resumeAfterAdopt(): void {
+        const conversation = this.state.conversation;
+
+        if (conversation !== null && isLiveChat(this.state)) {
+            void this.connectRealtime(conversation);
+        }
+
+        void this.syncConversation();
+    }
+
+    /**
      * The server refused the token. `staleRequest`: a REST call that may have left with the token a rotation has just replaced is
      * refused as revoked, which is not the end of the session (the socket's own refusal always is).
      */
@@ -921,8 +1098,37 @@ export class ChatController {
             }
         }
 
-        this.clearSession();
-        this.dispatch({ type: 'SESSION_LOST' });
+        if (
+            this.token === null ||
+            this.deps.dropSession === undefined ||
+            this.deps.preview === true
+        ) {
+            this.clearSession();
+            this.dispatch({ type: 'SESSION_LOST' });
+
+            return;
+        }
+
+        if (this.dropping) {
+            return;
+        }
+
+        this.dropping = true;
+        void this.forgetToken()
+            .then((kept) => {
+                if (this.disposed) {
+                    return;
+                }
+
+                if (kept) {
+                    this.resumeAfterAdopt();
+                } else {
+                    this.dispatch({ type: 'SESSION_LOST' });
+                }
+            })
+            .finally(() => {
+                this.dropping = false;
+            });
     }
 
     /* ----------------------------------------------------------- start */
@@ -933,9 +1139,15 @@ export class ChatController {
     }): void {
         const config = this.config;
 
+        if (this.state.phase === 'booting') {
+            // Not ready to start anything yet: remembered and applied once the first screen is known (`handleInit`).
+            this.pendingStart = options;
+
+            return;
+        }
+
         if (
             config === null ||
-            this.state.phase === 'booting' ||
             isLiveChat(this.state) ||
             this.state.phase === 'ended'
         ) {
@@ -943,6 +1155,7 @@ export class ChatController {
         }
 
         if (this.state.phase === 'closed') {
+            this.resetConversationScopedState();
             this.dispatch({ type: 'NEW_CHAT' });
         }
 
@@ -1063,7 +1276,8 @@ export class ChatController {
             } catch (error) {
                 if (isVisitorApiError(error)) {
                     if (error.isSessionGone && attempt === 0) {
-                        this.clearSession();
+                        // Gone for good: the next pass creates a session. Rotated by another tab: its token is tried instead.
+                        await this.forgetToken();
 
                         continue;
                     }
@@ -1354,6 +1568,46 @@ export class ChatController {
         return all;
     }
 
+    /**
+     * Signed attachment URLs expire (and a long chat outlives them): when a picture fails to load, the messages are read again and
+     * the fresh URLs merged in. Single-flight, and at most once per failure burst (a picture that still fails afterwards is broken).
+     */
+    refreshAttachmentUrls(): Promise<void> {
+        if (this.urlRefresh !== null) {
+            return this.urlRefresh;
+        }
+
+        const conversation = this.state.conversation;
+
+        if (
+            conversation === null ||
+            this.api === null ||
+            this.disposed ||
+            this.now() - this.urlRefreshedAt < URL_REFRESH_COOLDOWN_MS
+        ) {
+            return Promise.resolve();
+        }
+
+        this.urlRefresh = (async () => {
+            try {
+                this.dispatch({
+                    type: 'MESSAGES',
+                    messages: await this.fetchMessagesAfter(
+                        conversation.ulid,
+                        0,
+                    ),
+                });
+            } catch (error) {
+                this.onBackgroundError(error);
+            } finally {
+                this.urlRefreshedAt = this.now();
+                this.urlRefresh = null;
+            }
+        })();
+
+        return this.urlRefresh;
+    }
+
     /** Where a catch-up fetch starts: the first hole in what we have, else the end of it. */
     private catchUpFrom(): number {
         const { conversation, messages } = this.state;
@@ -1407,22 +1661,33 @@ export class ChatController {
      * runs causes exactly one more pass.
      */
     syncConversation(): Promise<void> {
-        if (this.syncing !== null) {
+        if (
+            this.syncing !== null &&
+            this.now() - this.syncStartedAt < SYNC_STALE_MS
+        ) {
             this.syncAgain = true;
 
             return this.syncing;
         }
 
-        this.syncing = (async () => {
+        this.syncStartedAt = this.now();
+
+        const id = ++this.syncPass;
+        const pass: Promise<void> = (async () => {
             do {
                 this.syncAgain = false;
                 await this.syncOnce();
-            } while (this.syncAgain && !this.disposed);
+            } while (this.syncAgain && !this.disposed && this.syncPass === id);
         })().finally(() => {
-            this.syncing = null;
+            // a pass that was given up on must not clear its successor
+            if (this.syncPass === id) {
+                this.syncing = null;
+            }
         });
 
-        return this.syncing;
+        this.syncing = pass;
+
+        return pass;
     }
 
     private async syncOnce(): Promise<void> {
@@ -1448,7 +1713,10 @@ export class ChatController {
                 return;
             }
 
-            this.applyServerConversation(latest);
+            // An answer that was in flight while the chat moved on (a `chat.claimed` landed) describes the past: never apply it.
+            if (this.state.phase === phase) {
+                this.applyServerConversation(latest);
+            }
 
             if (isLiveChat(this.state) || this.state.phase === 'ended') {
                 const messages = await this.fetchMessagesAfter(
@@ -1619,6 +1887,7 @@ export class ChatController {
             this.dispatch({
                 type: 'MESSAGE_FAILED',
                 clientMsgId: message.clientMsgId,
+                failure: failureOf(error),
             });
 
             if (isVisitorApiError(error)) {
@@ -1919,7 +2188,11 @@ export class ChatController {
                     ...(missed === null ? {} : { missed_conversation: missed }),
                 });
 
-                this.dispatch({ type: 'OFFLINE_SENT', ticket });
+                this.dispatch({
+                    type: 'OFFLINE_SENT',
+                    ticket,
+                    email: values.email.trim(),
+                });
                 this.dispatch({
                     type: 'PREFILL',
                     values: { name: values.name, email: values.email },
@@ -1932,7 +2205,7 @@ export class ChatController {
                     error.isSessionGone &&
                     attempt === 0
                 ) {
-                    this.clearSession();
+                    await this.forgetToken();
 
                     continue;
                 }
@@ -1949,6 +2222,19 @@ export class ChatController {
 
     /* ---------------------------------------------------------- new chat */
 
+    /** What belongs to ONE conversation and must not leak into the next: typing, the receipt counters (and their pending flush). */
+    private resetConversationScopedState(): void {
+        this.typing.reset();
+        clearTimeout(this.typingTimer);
+        clearTimeout(this.receipts.timer);
+        this.receipts.delivered = 0;
+        this.receipts.seen = 0;
+        this.receipts.sentDelivered = 0;
+        this.receipts.sentSeen = 0;
+        this.lastUnread = 0;
+        this.realtimeRetries = 0;
+    }
+
     /** "Start a new chat": the old ticket and session are left behind. */
     newChat(): void {
         if (this.state.phase !== 'closed') {
@@ -1964,11 +2250,7 @@ export class ChatController {
         }
 
         this.clearSession();
-        this.typing.reset();
-        this.receipts.delivered = 0;
-        this.receipts.seen = 0;
-        this.receipts.sentDelivered = 0;
-        this.receipts.sentSeen = 0;
+        this.resetConversationScopedState();
         this.dispatch({ type: 'NEW_CHAT' });
 
         // Nothing to ask: the visitor asked for a chat, so start it.

@@ -456,6 +456,32 @@ describe('offline screen', () => {
         );
     });
 
+    it('the confirmation names the address that was submitted, not a prefilled one', async () => {
+        const { c, backend } = await panel(
+            makeInit({
+                boot: offline(),
+                visitor: { name: 'Vera', email: 'old@x.test' },
+            }),
+            closedBackend(),
+        );
+
+        expect(
+            c.querySelector<HTMLInputElement>('input[name="email"]')?.value,
+        ).toBe('old@x.test');
+
+        await fill(c.querySelector('input[name="email"]'), 'new@x.test');
+        await choose(c.querySelector('select[name="category"]'), 'billing');
+        await fill(c.querySelector('textarea[name="message"]'), 'Call me');
+        await click(submitButton(c, 'offline-form'));
+        await waitFor(() => phase(c) === 'closed');
+
+        expect(
+            backend.callsTo('POST', '/offline-tickets')[0].body,
+        ).toMatchObject({ email: 'new@x.test' });
+        expect(text(c)).toContain("We'll reply to new@x.test.");
+        expect(text(c)).not.toContain('old@x.test');
+    });
+
     it('a missed queue says nobody was free', async () => {
         const backend = useBackend();
         const stored = backend.issueToken();

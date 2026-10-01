@@ -14,6 +14,7 @@ import {
     type Overlay,
     type PanelEnv,
 } from '@/embed/components/context';
+import { PanelErrorBoundary } from '@/embed/components/error-boundary';
 import { Footer } from '@/embed/components/footer';
 import { Header } from '@/embed/components/header';
 import {
@@ -82,6 +83,8 @@ function Panel() {
     const [overlay, setOverlay] = useState<Overlay>(null);
     const scheme = resolveScheme(config?.theme.mode ?? 'auto', dark);
     const keyboard = viewport?.keyboardInset ?? 0;
+    // The footer already clears the home indicator: what sits above it (composer, rating card) must not add the inset a second time.
+    const footerShown = config?.features.poweredBy === true && keyboard === 0;
 
     useFontLink(config?.theme.fontUrl ?? null);
     useScreenFocus(root, state.phase, state.open);
@@ -129,8 +132,8 @@ function Panel() {
         <OverlayContext.Provider
             value={{
                 overlay,
-                openImage: (url, alt) =>
-                    setOverlay({ type: 'image', url, alt }),
+                openImage: (url, alt, ulid) =>
+                    setOverlay({ type: 'image', url, alt, ulid }),
                 openEnd: () => setOverlay({ type: 'end' }),
                 close: () => setOverlay(null),
             }}
@@ -152,27 +155,43 @@ function Panel() {
                     <main
                         data-testid="chat-state"
                         data-state={state.phase}
+                        style={
+                            footerShown
+                                ? ({ '--pne-safe-b': '0px' } as CSSProperties)
+                                : undefined
+                        }
                         className="flex min-h-0 flex-1 flex-col"
                     >
-                        <Suspense fallback={<BootScreen />}>
-                            <Screen key={state.phase} phase={state.phase} />
-                        </Suspense>
+                        <PanelErrorBoundary resetKey={state.phase}>
+                            <Suspense fallback={<BootScreen />}>
+                                <Screen key={state.phase} phase={state.phase} />
+                            </Suspense>
+                        </PanelErrorBoundary>
                     </main>
                     <Footer />
                 </div>
-                <Suspense fallback={null}>
-                    {overlay?.type === 'image' ? (
-                        <Lightbox url={overlay.url} alt={overlay.alt} />
-                    ) : null}
-                    {overlay?.type === 'end' ? (
-                        <EndChatDialog
-                            onConfirm={() => {
-                                setOverlay(null);
-                                void controller.endChat();
-                            }}
-                        />
-                    ) : null}
-                </Suspense>
+                <PanelErrorBoundary
+                    resetKey={overlay?.type}
+                    onClose={() => setOverlay(null)}
+                >
+                    <Suspense fallback={null}>
+                        {overlay?.type === 'image' ? (
+                            <Lightbox
+                                url={overlay.url}
+                                alt={overlay.alt}
+                                ulid={overlay.ulid}
+                            />
+                        ) : null}
+                        {overlay?.type === 'end' ? (
+                            <EndChatDialog
+                                onConfirm={() => {
+                                    setOverlay(null);
+                                    void controller.endChat();
+                                }}
+                            />
+                        ) : null}
+                    </Suspense>
+                </PanelErrorBoundary>
             </div>
         </OverlayContext.Provider>
     );

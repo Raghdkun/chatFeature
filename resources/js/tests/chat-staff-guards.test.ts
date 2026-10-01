@@ -46,7 +46,7 @@ const dynamicKeys = (): string[] => [
             (part) => `inbox.${mode}.${part}`,
         ),
     ),
-    ...['queued', 'ended', 'closed', 'missed'].map(
+    ...['queued', 'ended', 'closed', 'missed', 'not_yours'].map(
         (status) => `inbox.composer.disabled.${status}`,
     ),
     ...['all', 'unread', 'active', 'finished'].map(
@@ -55,6 +55,18 @@ const dynamicKeys = (): string[] => [
     ...['sending', 'sent', 'delivered', 'seen', 'failed'].map(
         (status) => `inbox.message.status.${status}`,
     ),
+    'inbox.message.not_sent',
+    ...['offline', 'capacity', 'unavailable'].map(
+        (reason) => `inbox.transfer.reason.${reason}`,
+    ),
+    ...[
+        'too_long',
+        'rejected',
+        'forbidden',
+        'closed',
+        'rate_limited',
+        'network',
+    ].map((failure) => `inbox.message.failed.${failure}`),
     ...['online', 'away', 'offline'].map(
         (status) => `inbox.presence.${status}`,
     ),

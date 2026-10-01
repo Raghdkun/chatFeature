@@ -9,12 +9,14 @@ import {
 import { Avatar } from '@/embed/components/ui';
 import { formatTime } from '@/embed/lib/format';
 import { messageTestId } from '@/embed/lib/group';
-import { linkify } from '@/embed/lib/linkify';
+import { linkify } from '@/lib/chat/linkify';
 import type { Translate } from '@/embed/i18n';
-import type {
-    AttachmentData,
-    LocalMessage,
-    MessageStatus,
+import {
+    isFinalFailure,
+    type AttachmentData,
+    type LocalMessage,
+    type MessageFailure,
+    type MessageStatus,
 } from '@/lib/chat/types';
 
 /** Plain text with URLs turned into links (`rel="noopener noreferrer nofollow"`); never HTML. */
@@ -47,6 +49,16 @@ const STATUS_KEY = {
     seen: 'embed.chat.message.seen',
     failed: 'embed.chat.message.failed',
 } as const satisfies Record<MessageStatus, string>;
+
+const FAILURE_KEY = {
+    too_long: 'embed.chat.message.failed_too_long',
+    rejected: 'embed.chat.message.failed_rejected',
+    forbidden: 'embed.chat.message.failed_rejected',
+    closed: 'embed.chat.message.failed_closed',
+    rate_limited: 'embed.chat.message.failed_rate_limited',
+    network: 'embed.chat.message.failed',
+    unknown: 'embed.chat.message.failed',
+} as const satisfies Record<MessageFailure, string>;
 
 /** Delivered / seen ticks. The status is also written out for screen readers (and for the newest message, for everyone). */
 export function Receipt({
@@ -91,6 +103,10 @@ type Props = {
     onRetry: (clientMsgId: string) => void;
     onDiscard: (clientMsgId: string) => void;
     onOpenImage: (attachment: AttachmentData, alt: string) => void;
+    /** An attached picture finished loading (the list got taller). */
+    onImageLoad?: () => void;
+    /** An attached picture failed to load (its signed URL may have expired): the caller refreshes the URLs. */
+    onImageError?: () => void;
 };
 
 export function MessageBubble({
@@ -104,6 +120,8 @@ export function MessageBubble({
     onRetry,
     onDiscard,
     onOpenImage,
+    onImageLoad,
+    onImageError,
 }: Props) {
     const mine = message.sender.type === 'visitor';
     const failed = message.status === 'failed';
@@ -178,6 +196,8 @@ export function MessageBubble({
                                                 attachment.height ?? undefined
                                             }
                                             referrerPolicy="no-referrer"
+                                            onLoad={onImageLoad}
+                                            onError={onImageError}
                                             className="block h-auto max-h-48 w-auto max-w-full object-cover"
                                             style={{ maxInlineSize: '220px' }}
                                         />
@@ -195,20 +215,24 @@ export function MessageBubble({
                                 aria-hidden="true"
                                 className="size-3.5"
                             />
-                            {t('embed.chat.message.failed')}
+                            {t(FAILURE_KEY[message.failure ?? 'unknown'])}
                         </span>
-                        <button
-                            type="button"
-                            data-testid="message-retry"
-                            onClick={() => onRetry(message.clientMsgId ?? '')}
-                            className="pne-focus inline-flex items-center gap-1 rounded-sm font-semibold underline underline-offset-2"
-                        >
-                            <RotateCcw
-                                aria-hidden="true"
-                                className="size-3.5"
-                            />
-                            {t('embed.chat.message.retry')}
-                        </button>
+                        {isFinalFailure(message.failure) ? null : (
+                            <button
+                                type="button"
+                                data-testid="message-retry"
+                                onClick={() =>
+                                    onRetry(message.clientMsgId ?? '')
+                                }
+                                className="pne-focus inline-flex items-center gap-1 rounded-sm font-semibold underline underline-offset-2"
+                            >
+                                <RotateCcw
+                                    aria-hidden="true"
+                                    className="size-3.5"
+                                />
+                                {t('embed.chat.message.retry')}
+                            </button>
+                        )}
                         <button
                             type="button"
                             onClick={() => onDiscard(message.clientMsgId ?? '')}
@@ -218,7 +242,11 @@ export function MessageBubble({
                         </button>
                     </div>
                 ) : groupEnd || message.status === 'sending' ? (
-                    <div className="text-subtle mt-1 flex items-center gap-2 px-1 text-[11px]">
+                    // The time and the receipts are read in browse mode, but never announced as the log changes.
+                    <div
+                        aria-live="off"
+                        className="text-subtle mt-1 flex items-center gap-2 px-1 text-[11px]"
+                    >
                         <time dateTime={message.createdAt}>
                             {formatTime(message.createdAt, locale)}
                         </time>

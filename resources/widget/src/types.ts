@@ -88,6 +88,10 @@ export interface Greeting {
 export interface Category {
     slug: string;
     label: string;
+    /** Passed to the panel as received (it validates them): the picker shows them without waiting for the config call. */
+    description?: string;
+    icon?: string;
+    color?: string;
 }
 
 export interface Boot {

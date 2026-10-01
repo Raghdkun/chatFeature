@@ -271,47 +271,6 @@ export function buildListEntries(
 /* Text                                                                       */
 /* -------------------------------------------------------------------------- */
 
-export type TextPart =
-    | { kind: 'text'; text: string }
-    | { kind: 'link'; text: string; href: string };
-
-const URL_PATTERN = /https?:\/\/[^\s<>"']+/giu;
-const TRAILING = /[.,;:!?)\]}]+$/u;
-
-/** Split plain text into text and http(s) links (URL auto-linking at render time, decision P4-D11); never produces HTML. */
-export function linkify(text: string): TextPart[] {
-    const parts: TextPart[] = [];
-    let last = 0;
-
-    for (const match of text.matchAll(URL_PATTERN)) {
-        const start = match.index ?? 0;
-        const trimmed = match[0].replace(TRAILING, '');
-
-        try {
-            const url = new URL(trimmed);
-
-            if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-                continue;
-            }
-        } catch {
-            continue;
-        }
-
-        if (start > last) {
-            parts.push({ kind: 'text', text: text.slice(last, start) });
-        }
-
-        parts.push({ kind: 'link', text: trimmed, href: trimmed });
-        last = start + trimmed.length;
-    }
-
-    if (last < text.length) {
-        parts.push({ kind: 'text', text: text.slice(last) });
-    }
-
-    return parts;
-}
-
 /** Plain-text transcript of a conversation for "Copy transcript". */
 export function buildTranscript(
     messages: readonly LocalMessage[],

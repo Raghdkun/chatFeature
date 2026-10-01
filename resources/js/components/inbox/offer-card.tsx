@@ -79,14 +79,15 @@ export function OfferCard({
     const total =
         item.expiresAt === null
             ? 0
-            : Math.max(
+            : (item.totalSeconds ??
+              Math.max(
                   1,
                   Math.round(
                       (Date.parse(item.expiresAt) -
                           Date.parse(item.waitingSince)) /
                           1000,
                   ),
-              );
+              ));
     const open = item.state === 'open';
     const name = item.visitorName ?? t('inbox.visitor.anonymous');
 

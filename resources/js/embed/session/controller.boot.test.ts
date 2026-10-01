@@ -60,8 +60,57 @@ describe('boot', () => {
             'billing',
             'tech',
         ]);
-        expect(h.snapshot().config?.categories[0].description).toBeNull();
+        // the loader passes description / icon / colour through: the picker does not depend on the config call
+        expect(h.snapshot().config?.categories[0]).toMatchObject({
+            description: 'Invoices and payments',
+            icon: 'credit-card',
+            color: '#7c3aed',
+        });
         expect(h.state().phase).toBe('prechat');
+    });
+
+    it('does not hold the first screen back for a slow config call, and applies its answer when it arrives', async () => {
+        const backend = useBackend();
+        const base = bootConfig().config as object;
+        const { createVisitorApi } = await import('@/lib/chat-api/visitor');
+        let release: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const h = createHarness({
+            backend,
+            deps: {
+                configTimeoutMs: 30,
+                createApi: (options) => {
+                    const real = createVisitorApi(options);
+
+                    return {
+                        ...real,
+                        getConfig: async (locale?: string) => {
+                            await gate;
+
+                            return real.getConfig(locale);
+                        },
+                    };
+                },
+            },
+        });
+
+        // the loader's copy says "open"; the config call (late) will say nobody is available
+        await h.init(makeInit({ boot: loaderBoot({ config: base }) }));
+        expect(h.state().phase).toBe('prechat');
+
+        backend.state.availability = {
+            online: false,
+            openNow: true,
+            nextOpenAt: null,
+            categories: [],
+            whatsapp: { enabled: false },
+        };
+        release();
+        await until(() => h.state().phase === 'offline');
+
+        expect(h.state().offline.reason).toBe('no_agents');
     });
 
     it('creates no session and opens no socket just because the panel opened', async () => {
@@ -600,5 +649,34 @@ describe('identity and prefill', () => {
             locale: 'en-US',
         });
         expect(KEY).toContain('wk_');
+    });
+});
+
+describe('a hostile init', () => {
+    it('cannot send the visitor API calls to another origin: only the inlined app origin is ever called', async () => {
+        const backend = useBackend();
+        const h = createHarness({
+            backend,
+            deps: { appOrigin: 'https://chat.test' },
+        });
+
+        await h.init(
+            makeInit({
+                boot: loaderBoot({
+                    api: {
+                        base: 'https://evil.example/api/v1/public',
+                        embed: 'https://evil.example/embed/x',
+                        appOrigin: 'https://evil.example',
+                    },
+                }),
+            }),
+        );
+
+        // the config call and everything after it went to the trusted origin (MSW fails the test on any other host)
+        expect(backend.callsTo('GET', '/config')).toHaveLength(1);
+        expect(h.snapshot().config?.apiBase).toBe(
+            'https://chat.test/api/v1/public',
+        );
+        expect(h.snapshot().config?.appOrigin).toBe('https://chat.test');
     });
 });

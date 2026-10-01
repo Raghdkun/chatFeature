@@ -28,7 +28,7 @@ export function ChatScreen() {
             ) : null}
             <MessageList
                 onOpenImage={(attachment, alt) =>
-                    openImage(attachment.url, alt)
+                    openImage(attachment.url, alt, attachment.ulid)
                 }
             />
             {state.phase === 'active' ? <Composer /> : <RatingCard />}

@@ -1124,6 +1124,29 @@ describe('other actions', () => {
         ).toBe('mailto:vera@visitor.example');
     });
 
+    it("the details show the page the session reported, with its title as the link's tooltip, as the header does", async () => {
+        const { view } = await mount(
+            props({
+                conversation: activeChat({
+                    pageUrl: 'https://shop.example/checkout?step=2',
+                    pageTitle: 'Checkout - Shop',
+                }),
+            }),
+        );
+
+        await click(view.byTestId('conversation-info'));
+
+        const link = (
+            body.byTestId('conversation-details') as HTMLElement
+        ).querySelector(
+            'a[href^="https://shop.example/checkout"]',
+        ) as HTMLAnchorElement;
+
+        expect(link.href).toBe('https://shop.example/checkout?step=2');
+        expect(link.title).toBe('Checkout - Shop');
+        expect(link.rel).toBe('noopener noreferrer');
+    });
+
     it('lets the agent accept a chat they opened while it was still queued', async () => {
         const queued = makeConversationStaff({
             ulid: CONVERSATION,
@@ -1327,5 +1350,579 @@ describe('attachments', () => {
         expect(
             byTestId(view.container, 'composer-send')?.hasAttribute('disabled'),
         ).toBe(true);
+    });
+});
+
+const MESSAGES_URL = `/api/v1/conversations/${CONVERSATION}/messages`;
+
+const refuse = (
+    status: number,
+    code: string,
+    message: string,
+    details?: Record<string, string[]>,
+) =>
+    http.post(MESSAGES_URL, () =>
+        HttpResponse.json(
+            { error: { code, message, ...(details ? { details } : {}) } },
+            { status },
+        ),
+    );
+
+describe('a send that does not go through', () => {
+    const failedBubble = (view: { container: HTMLElement }) =>
+        view.container.querySelector<HTMLElement>('[data-status="failed"]');
+
+    const attempt = async (
+        view: { byTestId: (id: string) => HTMLElement | null },
+        text: string,
+    ) => {
+        await fill(composer(view), text);
+        await press(composer(view), 'Enter');
+    };
+
+    it('says why a message is too long, and offers no futile retry (only discard)', async () => {
+        backend.server.use(
+            refuse(422, 'validation_failed', 'Too long.', {
+                body: [
+                    'The body field must not be greater than 4000 characters.',
+                ],
+            }),
+        );
+
+        const { view } = await mount();
+
+        await attempt(view, 'A very long message');
+        await waitFor(() => expect(failedBubble(view)).not.toBeNull());
+
+        const bubble = failedBubble(view) as HTMLElement;
+
+        expect(bubble.textContent).toContain(
+            'Not sent: the message is too long.',
+        );
+        expect(
+            bubble.querySelector('[data-testid^="message-retry-"]'),
+        ).toBeNull();
+        expect(
+            bubble.querySelector('[data-testid^="message-discard-"]'),
+        ).not.toBeNull();
+    });
+
+    it('a refusal of the content (422) and a lost permission (403) are final too, with their own reason', async () => {
+        backend.server.use(
+            refuse(422, 'validation_failed', 'Nope.', { attachments: ['bad'] }),
+        );
+
+        const first = await mount();
+
+        await attempt(first.view, 'With a picture');
+        await waitFor(() => expect(failedBubble(first.view)).not.toBeNull());
+        expect(failedBubble(first.view)?.textContent).toContain(
+            'the server refused this message',
+        );
+        expect(
+            failedBubble(first.view)?.querySelector(
+                '[data-testid^="message-retry-"]',
+            ),
+        ).toBeNull();
+        await first.view.unmount();
+
+        backend.server.use(
+            refuse(403, 'forbidden', 'This action is unauthorized.'),
+        );
+
+        const second = await mount();
+
+        await attempt(second.view, 'Not mine any more');
+        await waitFor(() => expect(failedBubble(second.view)).not.toBeNull());
+        expect(failedBubble(second.view)?.textContent).toContain(
+            'you cannot reply in this chat any more',
+        );
+        expect(
+            failedBubble(second.view)?.querySelector(
+                '[data-testid^="message-retry-"]',
+            ),
+        ).toBeNull();
+    });
+
+    it('a rate limit asks to wait and still allows the retry', async () => {
+        backend.server.use(refuse(429, 'rate_limited', 'Too many requests.'));
+
+        const { view } = await mount();
+
+        await attempt(view, 'Fast fingers');
+        await waitFor(() => expect(failedBubble(view)).not.toBeNull());
+
+        expect(failedBubble(view)?.textContent).toContain('too many messages');
+        expect(
+            failedBubble(view)?.querySelector(
+                '[data-testid^="message-retry-"]',
+            ),
+        ).not.toBeNull();
+    });
+
+    it('leaves one message per request: two quick sends go out one after the other, in the order they were typed', async () => {
+        let inFlight = 0;
+        let mostInFlight = 0;
+        const order: string[] = [];
+        let releaseFirst: () => void = () => undefined;
+        const firstDone = new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+        });
+
+        backend.server.use(
+            http.post(MESSAGES_URL, async ({ request }) => {
+                const sent = (await request.json()) as {
+                    client_msg_id: string;
+                    body: string;
+                };
+
+                inFlight += 1;
+                mostInFlight = Math.max(mostInFlight, inFlight);
+                order.push(sent.body);
+
+                if (sent.body === 'first') {
+                    await firstDone;
+                }
+
+                inFlight -= 1;
+
+                return HttpResponse.json(
+                    {
+                        data: makeAgentMessage({
+                            ulid: fakeUlid(5100 + order.length),
+                            seq: 3 + order.length,
+                            conversation: CONVERSATION,
+                            body: sent.body,
+                            clientMsgId: sent.client_msg_id,
+                            sender: {
+                                type: 'agent',
+                                name: 'Sam',
+                                avatarUrl: null,
+                                id: AGENT.id,
+                            },
+                        }),
+                    },
+                    { status: 201 },
+                );
+            }),
+        );
+
+        const { view } = await mount();
+
+        await attempt(view, 'first');
+        await attempt(view, 'second');
+        // the second request has not left while the first is still out
+        await act(
+            async () => new Promise((resolve) => setTimeout(resolve, 60)),
+        );
+        expect(order).toEqual(['first']);
+
+        releaseFirst();
+        await waitFor(() => expect(order).toEqual(['first', 'second']));
+        expect(mostInFlight).toBe(1);
+    });
+
+    it('a request that never answers fails after the deadline, so the next message is not stuck behind it', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+        try {
+            backend.server.use(
+                http.post(MESSAGES_URL, () => new Promise(() => undefined)),
+            );
+
+            const { view } = await mount();
+
+            await attempt(view, 'Hello?');
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(20_001);
+            });
+            await waitFor(() => expect(failedBubble(view)).not.toBeNull());
+
+            expect(failedBubble(view)?.textContent).toContain(
+                'the connection dropped',
+            );
+            expect(
+                failedBubble(view)?.querySelector(
+                    '[data-testid^="message-retry-"]',
+                ),
+            ).not.toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('gives the box a sane length limit', async () => {
+        const { view } = await mount();
+
+        expect(composer(view).maxLength).toBe(4000);
+    });
+});
+
+describe('offline tickets and images', () => {
+    it('does not offer to attach images to an offline ticket (the server only takes them for live chats)', async () => {
+        const ticket = activeChat({ type: 'offline', category: null });
+        const { view } = await mount(props({ conversation: ticket }));
+
+        expect(view.byTestId('composer-input')).not.toBeNull();
+        expect(view.byTestId('composer-attach')).toBeNull();
+        expect(view.byTestId('composer-file')).toBeNull();
+    });
+
+    it('keeps the attach control for a live chat', async () => {
+        const { view } = await mount();
+
+        expect(view.byTestId('composer-attach')).not.toBeNull();
+    });
+});
+
+describe("a chat that stops being the agent's", () => {
+    it('re-reads it when it leaves the lists and then shows who has it, with the composer off', async () => {
+        const { view, session } = await mount();
+
+        await act(async () =>
+            session.store.dispatch({
+                type: 'hydrate',
+                queue: [],
+                mine: [activeChat()],
+            }),
+        );
+        expect(view.byTestId('composer-input')).not.toBeNull();
+
+        // somebody else has it now: the server's copy says so; the agent's own `conversation.updated` has it leave "My chats"
+        const handedOver = activeChat({
+            assignedAgent: { id: 99, name: 'Mia' },
+        });
+
+        backend.current.state.conversations.set(CONVERSATION, handedOver);
+        await act(async () =>
+            session.store.dispatch({
+                type: 'conversationUpdated',
+                conversation: handedOver,
+                viewer: { id: AGENT.id, isAdmin: false },
+            }),
+        );
+        await waitFor(() =>
+            expect(view.byTestId('conversation-reassigned')).not.toBeNull(),
+        );
+
+        expect(view.byTestId('conversation-reassigned')?.textContent).toContain(
+            'Mia',
+        );
+        expect(view.byTestId('composer-input')).toBeNull();
+        expect(view.byTestId('composer-disabled')?.textContent).toBe(
+            'This chat is no longer assigned to you.',
+        );
+    });
+
+    it('when the server no longer lets the agent see the chat at all, it is read-only as well', async () => {
+        const { view, session } = await mount();
+
+        await act(async () =>
+            session.store.dispatch({
+                type: 'hydrate',
+                queue: [],
+                mine: [activeChat()],
+            }),
+        );
+
+        backend.server.use(
+            http.get(`/api/v1/conversations/${CONVERSATION}`, () =>
+                HttpResponse.json(
+                    { error: { code: 'forbidden', message: 'Forbidden.' } },
+                    { status: 403 },
+                ),
+            ),
+        );
+        await act(async () =>
+            session.store.dispatch({
+                type: 'removed',
+                conversation: CONVERSATION,
+            }),
+        );
+        await waitFor(() =>
+            expect(view.byTestId('conversation-reassigned')).not.toBeNull(),
+        );
+
+        expect(view.byTestId('composer-input')).toBeNull();
+    });
+
+    it("an admin watching a colleague's chat is not locked out by this", async () => {
+        const { view, session } = await mount(props(), { viewer: ADMIN });
+
+        await act(async () =>
+            session.store.dispatch({
+                type: 'hydrate',
+                queue: [],
+                mine: [activeChat()],
+            }),
+        );
+        await act(async () =>
+            session.store.dispatch({
+                type: 'removed',
+                conversation: CONVERSATION,
+            }),
+        );
+
+        expect(view.byTestId('conversation-reassigned')).toBeNull();
+    });
+});
+
+describe('expiring attachment URLs', () => {
+    const picture = (version: number) =>
+        makeAttachment({
+            ulid: fakeUlid(8800),
+            url: `https://files.test/full.webp?v=${version}`,
+            thumbUrl: `https://files.test/thumb.webp?v=${version}`,
+        });
+    const withPicture = () =>
+        props({
+            messages: [
+                visitorMsg(1, 'Hello'),
+                visitorMsg(2, 'Here is the bill', {
+                    attachments: [picture(1)],
+                    type: 'image',
+                }),
+            ],
+            conversation: activeChat({ lastSeq: 2 }),
+        });
+    const thumb = (view: { container: HTMLElement }) =>
+        view.container.querySelector<HTMLImageElement>(
+            `[data-testid="attachment-${fakeUlid(8800)}"] img`,
+        );
+    const fail = (element: Element | null) =>
+        act(async () => {
+            element?.dispatchEvent(new Event('error'));
+        });
+    const refreshed = (): void => {
+        const list = backend.current.state.messages.get(CONVERSATION) ?? [];
+
+        backend.current.state.messages.set(
+            CONVERSATION,
+            list.map((message) =>
+                message.attachments.length > 0
+                    ? { ...message, attachments: [picture(2)] }
+                    : message,
+            ),
+        );
+    };
+    const reads = () => backend.current.calls('GET', MESSAGES_URL).length;
+
+    it('a picture that fails to load makes the page read the messages again and use the fresh URL, once per failure burst', async () => {
+        const { view } = await mount(withPicture());
+
+        expect(thumb(view)?.getAttribute('src')).toBe(
+            'https://files.test/thumb.webp?v=1',
+        );
+        refreshed();
+
+        const before = reads();
+
+        await fail(thumb(view));
+        await waitFor(() =>
+            expect(thumb(view)?.getAttribute('src')).toBe(
+                'https://files.test/thumb.webp?v=2',
+            ),
+        );
+        expect(reads()).toBe(before + 1);
+
+        // still failing right after: broken, not expired: no second read
+        await fail(thumb(view));
+        await act(
+            async () => new Promise((resolve) => setTimeout(resolve, 40)),
+        );
+        expect(reads()).toBe(before + 1);
+    });
+
+    it('an open lightbox follows the refreshed URL', async () => {
+        const { view } = await mount(withPicture());
+
+        await click(
+            view.container.querySelector(
+                `[data-testid="attachment-${fakeUlid(8800)}"]`,
+            ) as HTMLElement,
+        );
+
+        const big = () =>
+            document.querySelector<HTMLImageElement>(
+                '[data-testid="lightbox"] img',
+            );
+
+        expect(big()?.getAttribute('src')).toBe(
+            'https://files.test/full.webp?v=1',
+        );
+        refreshed();
+        await fail(big());
+        await waitFor(() =>
+            expect(big()?.getAttribute('src')).toBe(
+                'https://files.test/full.webp?v=2',
+            ),
+        );
+    });
+});
+
+describe('the transfer dialog with the server-side list', () => {
+    const TRANSFER_URL = `/api/v1/conversations/${CONVERSATION}/transfer`;
+    const targets = {
+        agents: [
+            {
+                id: 21,
+                name: 'Zed (away, full)',
+                avatarUrl: null,
+                status: 'online',
+                activeChats: 3,
+                maxConcurrentChats: 3,
+                reachable: false,
+            },
+            {
+                id: 22,
+                name: 'Omar',
+                avatarUrl: null,
+                status: 'away',
+                activeChats: 1,
+                maxConcurrentChats: 5,
+                reachable: true,
+            },
+            {
+                id: 23,
+                name: 'Nadia',
+                avatarUrl: null,
+                status: 'offline',
+                activeChats: 0,
+                maxConcurrentChats: 5,
+                reachable: false,
+            },
+            {
+                id: AGENT.id,
+                name: 'Sam',
+                avatarUrl: null,
+                status: 'online',
+                activeChats: 1,
+                maxConcurrentChats: 5,
+                reachable: true,
+            },
+        ],
+        categories: [
+            { slug: 'billing', label: 'Billing' },
+            { slug: 'sales', label: 'Sales' },
+        ],
+    };
+    const open = async () => {
+        backend.current.state.transferTargets.set(CONVERSATION, targets);
+
+        const mounted = await mount();
+
+        await click(mounted.view.byTestId('transfer-chat'));
+        await waitFor(() =>
+            expect(body.byTestId('transfer-loading')).toBeNull(),
+        );
+
+        return mounted;
+    };
+
+    it('lists only agents who serve the category, reachable ones first, the others greyed out with the reason and their load', async () => {
+        await open();
+
+        const rows = Array.from(
+            (body.byTestId('transfer-dialog') as HTMLElement).querySelectorAll(
+                '[data-testid^="transfer-agent-"][role="radio"]',
+            ),
+        );
+
+        // the viewer is never offered; reachable first, then by presence
+        expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual([
+            'transfer-agent-22',
+            'transfer-agent-21',
+            'transfer-agent-23',
+        ]);
+        expect((rows[0] as HTMLButtonElement).disabled).toBe(false);
+        expect((rows[1] as HTMLButtonElement).disabled).toBe(true);
+        expect((rows[2] as HTMLButtonElement).disabled).toBe(true);
+
+        const dialog =
+            (body.byTestId('transfer-dialog') as HTMLElement).textContent ?? '';
+
+        expect(dialog).toContain('At capacity');
+        expect(dialog).toContain('Offline');
+        expect(body.byTestId('transfer-load-21')?.textContent).toBe(
+            '3 of 3 chats',
+        );
+        expect(body.byTestId('transfer-load-22')?.textContent).toBe(
+            '1 of 5 chats',
+        );
+    });
+
+    it("offers only the topics the server says someone can take (not the chat's own), and sends the picked agent", async () => {
+        await open();
+
+        const tab = body.byTestId('transfer-tab-category') as HTMLElement;
+
+        await act(async () => {
+            tab.dispatchEvent(
+                new MouseEvent('mousedown', { bubbles: true, button: 0 }),
+            );
+            tab.focus();
+            tab.click();
+        });
+        expect(
+            Array.from(
+                (body.byTestId('transfer-category') as HTMLSelectElement)
+                    .options,
+            ).map((option) => option.value),
+        ).toEqual(['', 'sales']);
+
+        // back to the agents: pick a reachable one
+        const agents = body.byTestId('transfer-tab-agent') as HTMLElement;
+
+        await act(async () => {
+            agents.dispatchEvent(
+                new MouseEvent('mousedown', { bubbles: true, button: 0 }),
+            );
+            agents.focus();
+            agents.click();
+        });
+        await click(body.byTestId('transfer-agent-22'));
+        await click(body.byTestId('transfer-confirm'));
+        await waitFor(() =>
+            expect(backend.current.calls('POST', TRANSFER_URL)).toHaveLength(1),
+        );
+
+        expect(backend.current.calls('POST', TRANSFER_URL)[0].body).toEqual({
+            agent_id: 22,
+        });
+    });
+
+    it('says so plainly when the server refuses with 409 no_agents, inside the dialog, which stays open', async () => {
+        await open();
+        backend.current.state.transferNoAgents = true;
+
+        await click(body.byTestId('transfer-agent-22'));
+        await click(body.byTestId('transfer-confirm'));
+        await waitFor(() =>
+            expect(body.byTestId('transfer-error')).not.toBeNull(),
+        );
+
+        expect(body.byTestId('transfer-error')?.textContent).toBe(
+            'Nobody is available for that right now. Pick another colleague or topic.',
+        );
+        expect(body.byTestId('transfer-dialog')).not.toBeNull();
+        expect(routerMock.visit).not.toHaveBeenCalled();
+    });
+
+    it('with nobody reachable for the topic it says so instead of listing colleagues who cannot take the chat', async () => {
+        backend.current.state.transferTargets.set(CONVERSATION, {
+            agents: [],
+            categories: [],
+        });
+
+        const { view } = await mount();
+
+        await click(view.byTestId('transfer-chat'));
+        await waitFor(() =>
+            expect(body.byTestId('transfer-no-agents')).not.toBeNull(),
+        );
+
+        expect(body.byTestId('transfer-no-agents')?.textContent).toContain(
+            'Nobody who handles this topic',
+        );
     });
 });

@@ -184,21 +184,11 @@ export class FakeSocket implements ConversationSocket {
     }
 }
 
-/** The boot config as the loader hands it to the panel: categories reduced to `{slug, label}`. */
+/** The boot config as the loader hands it to the panel (categories keep their description, icon and colour). */
 export function loaderBoot(
     overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
-    const full = bootConfig(overrides);
-
-    return {
-        ...full,
-        categories: (full.categories as { slug: string; label: string }[]).map(
-            (c) => ({
-                slug: c.slug,
-                label: c.label,
-            }),
-        ),
-    };
+    return bootConfig(overrides);
 }
 
 export function makeInit(

@@ -17,6 +17,7 @@ import {
     fakeTime,
     makeAgentMessage,
     makeMessage,
+    makeSystemMessage,
     resetFixtures,
 } from '@/lib/chat/fixtures';
 import type { LocalMessage } from '@/lib/chat/types';
@@ -42,6 +43,7 @@ const item = (overrides: Partial<QueueItem> = {}): QueueItem => ({
     wave: 1,
     waitingSince: new Date(NOW).toISOString(),
     expiresAt: new Date(NOW + 90_000).toISOString(),
+    totalSeconds: null,
     state: 'open',
     takenBy: null,
     ...overrides,
@@ -308,6 +310,7 @@ describe('MessageList scrolling', () => {
         const [messages, set] = useState(initial);
 
         harness.add = (message) => set((current) => [...current, message]);
+        harness.replace = (next) => set(next);
 
         return (
             <MessageList
@@ -321,8 +324,12 @@ describe('MessageList scrolling', () => {
         );
     }
 
-    const harness: { add: (message: LocalMessage) => void } = {
+    const harness: {
+        add: (message: LocalMessage) => void;
+        replace: (messages: LocalMessage[]) => void;
+    } = {
         add: () => undefined,
+        replace: () => undefined,
     };
 
     const geometry = (element: HTMLElement, scrollTop: number) => {
@@ -389,6 +396,36 @@ describe('MessageList scrolling', () => {
         expect(view.byTestId('messages-jump')).toBeNull();
     });
 
+    it('counts what is new by identity, not by position: an older line a catch-up filled in is not a new message', async () => {
+        const first = [make(1, 'one'), make(2, 'two'), make(3, 'three')];
+        const view = await render(<Harness initial={first} />);
+        const log = view.byTestId('message-list') as HTMLElement;
+
+        geometry(log, 0);
+        await act(async () => log.dispatchEvent(new Event('scroll')));
+
+        // a catch-up inserts an older system line and the visitor's newest message arrives: one new message, not two
+        const system = toLocalMessage(
+            makeSystemMessage({
+                seq: 0,
+                ulid: '01JFAKE0000000000000000900',
+                body: 'Sam joined the chat.',
+                createdAt: fakeTime(0),
+            }),
+        );
+
+        await act(async () =>
+            harness.replace([system, ...first, make(4, 'four')]),
+        );
+
+        expect(view.byTestId('messages-jump')?.textContent).toContain(
+            '1 new message',
+        );
+        expect(view.byTestId('messages-jump')?.textContent).not.toContain(
+            '2 new',
+        );
+    });
+
     it('is a labelled, focusable, polite live log', async () => {
         const view = await render(<Harness initial={[make(1, 'one')]} />);
         const log = view.byTestId('message-list') as HTMLElement;
@@ -398,6 +435,41 @@ describe('MessageList scrolling', () => {
         expect(log.getAttribute('aria-relevant')).toBe('additions');
         expect(log.getAttribute('aria-label')).toBe('Messages with Vera');
         expect(log.tabIndex).toBe(0);
+    });
+});
+
+describe('a long unbroken word in the transcript', () => {
+    it('wraps inside its bubble instead of widening it: the bubble may shrink and the text breaks anywhere', async () => {
+        const token = `https://example.com/${'a'.repeat(600)}`;
+        const view = await render(
+            <MessageList
+                messages={[
+                    toLocalMessage(
+                        makeMessage({
+                            seq: 1,
+                            ulid: '01JFAKE0000000000000000001',
+                            body: `${'x'.repeat(500)} ${token}`,
+                            createdAt: fakeTime(1),
+                        }),
+                    ),
+                ]}
+                typing={false}
+                visitorName="Vera"
+                label="Messages with Vera"
+                onRetry={() => undefined}
+                onDiscard={() => undefined}
+            />,
+        );
+        const body = view.container.querySelector(
+            '[data-testid="message-01JFAKE0000000000000000001"] p',
+        ) as HTMLElement;
+        const bubble = body.parentElement as HTMLElement;
+
+        expect(body.className).toContain('[overflow-wrap:anywhere]');
+        expect(body.className).toContain('min-w-0');
+        expect(bubble.className).toContain('min-w-0');
+        // the long URL is still a link (its text wraps; nothing is cut)
+        expect(body.querySelector('a')?.getAttribute('href')).toBe(token);
     });
 });
 
@@ -469,7 +541,8 @@ describe('SoundToggle', () => {
         const toggle = view.byTestId('sound-toggle') as HTMLElement;
 
         expect(toggle.getAttribute('data-state')).toBe('locked');
-        expect(toggle.getAttribute('aria-label')).toBe(
+        expect(toggle.getAttribute('aria-label')).toBe('Notification sounds');
+        expect(toggle.getAttribute('title')).toBe(
             'Sounds start after your first click on this page',
         );
 
@@ -489,7 +562,9 @@ describe('SoundToggle', () => {
         await click(toggle);
         expect(toggle.getAttribute('data-state')).toBe('muted');
         expect(toggle.getAttribute('aria-pressed')).toBe('false');
-        expect(toggle.getAttribute('aria-label')).toBe('Unmute sounds');
+        // the name stays; the state is aria-pressed, the tooltip says what a click does
+        expect(toggle.getAttribute('aria-label')).toBe('Notification sounds');
+        expect(toggle.getAttribute('title')).toBe('Unmute sounds');
         await click(toggle);
         expect(toggle.getAttribute('data-state')).toBe('on');
     });

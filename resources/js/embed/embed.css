@@ -112,6 +112,18 @@
     box-sizing: border-box;
 }
 
+/*
+ * iOS Safari zooms the page when a field under 16px takes focus, and the iframe never zooms back out. On touch devices the panel's
+ * fields are 16px whatever the design size; unlayered on purpose so it beats the utility classes.
+ */
+@media (pointer: coarse) {
+    .pne-root input,
+    .pne-root textarea,
+    .pne-root select {
+        font-size: 16px;
+    }
+}
+
 /* The standalone hosted page: a centred card on a quiet backdrop (the loader's frame does this job in launcher mode). */
 html[data-mode='hosted'] body,
 html[data-mode='inline'] body {

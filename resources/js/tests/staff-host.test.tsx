@@ -112,6 +112,50 @@ describe('who gets a session', () => {
         }
     });
 
+    it("opens the websocket when the server's shared realtime prop names Reverb, even in a build without VITE_REVERB_*", async () => {
+        const view = await render(
+            <StaffRealtimeHost
+                initialPage={{
+                    props: {
+                        ...page(staffUser).props,
+                        realtime: {
+                            key: 'k',
+                            host: 'ws.chat.example',
+                            port: 443,
+                            scheme: 'https',
+                        },
+                    },
+                }}
+                sound={fakeSound()}
+            >
+                <Probe />
+            </StaffRealtimeHost>,
+        );
+
+        expect(fakeEcho.channels()).toContain(`private:staff.${AGENT.id}`);
+        await view.unmount();
+    });
+
+    it('stays on REST polling when neither the prop nor the build has an address', async () => {
+        vi.stubEnv('VITE_REVERB_APP_KEY', '');
+
+        const view = await render(
+            <StaffRealtimeHost
+                initialPage={page(staffUser)}
+                sound={fakeSound()}
+            >
+                <Probe />
+            </StaffRealtimeHost>,
+        );
+
+        expect(fakeEcho.channels()).toEqual([]);
+        expect(view.byTestId('probe')?.getAttribute('data-connection')).toBe(
+            'unavailable',
+        );
+        await view.unmount();
+        vi.unstubAllEnvs();
+    });
+
     it('gives one to an agent: the staff channel and the roster, not the admin channel', async () => {
         const view = await render(
             <StaffRealtimeHost

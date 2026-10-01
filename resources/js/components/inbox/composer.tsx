@@ -19,6 +19,7 @@ import { useTrans } from '@/hooks/use-trans';
 import {
     ATTACHMENT_MAX_BYTES,
     ATTACHMENT_MIME_TYPES,
+    MESSAGE_MAX_LENGTH,
 } from '@/lib/chat-api/staff';
 import type { AttachmentData } from '@/lib/chat/types';
 import { cn } from '@/lib/utils';
@@ -148,6 +149,7 @@ function AttachmentChip({
 export function Composer({
     conversation,
     disabledReason,
+    allowAttachments = true,
     emailNotice,
     onSend,
     onTyping,
@@ -155,6 +157,8 @@ export function Composer({
     conversation: string;
     /** Why nothing can be sent (the chat ended, was transferred, ...); `null` = the agent can write. */
     disabledReason: string | null;
+    /** Images go only into live chats: the server refuses uploads to an offline ticket, so the controls are not offered. */
+    allowAttachments?: boolean;
     /** Offline tickets: the address the reply is also e-mailed to. */
     emailNotice: string | null;
     onSend: (input: {
@@ -225,7 +229,7 @@ export function Composer({
             file.type.startsWith('image/'),
         );
 
-        if (pasted.length > 0 && !blocked) {
+        if (pasted.length > 0 && !blocked && allowAttachments) {
             event.preventDefault();
             attachments.add(pasted);
         }
@@ -235,7 +239,7 @@ export function Composer({
         event.preventDefault();
         setDragging(false);
 
-        if (!blocked) {
+        if (!blocked && allowAttachments) {
             attachments.add(Array.from(event.dataTransfer.files));
         }
     };
@@ -245,7 +249,11 @@ export function Composer({
             data-testid="composer"
             data-dragging={dragging ? 'true' : undefined}
             onDragOver={(event) => {
-                if (!blocked && event.dataTransfer.types.includes('Files')) {
+                if (
+                    !blocked &&
+                    allowAttachments &&
+                    event.dataTransfer.types.includes('Files')
+                ) {
                     event.preventDefault();
                     setDragging(true);
                 }
@@ -293,31 +301,37 @@ export function Composer({
                     )}
 
                     <div className="flex items-end gap-1.5 rounded-2xl border bg-background p-1.5 shadow-xs transition-[box-shadow] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/40">
-                        <input
-                            ref={files}
-                            type="file"
-                            multiple
-                            hidden
-                            data-testid="composer-file"
-                            accept={ATTACHMENT_MIME_TYPES.join(',')}
-                            onChange={(event) => {
-                                attachments.add(
-                                    Array.from(event.target.files ?? []),
-                                );
-                                event.target.value = '';
-                            }}
-                        />
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            data-testid="composer-attach"
-                            aria-label={t('inbox.composer.attach')}
-                            title={t('inbox.composer.attach')}
-                            onClick={() => files.current?.click()}
-                        >
-                            <ImagePlus aria-hidden />
-                        </Button>
+                        {allowAttachments && (
+                            <>
+                                <input
+                                    ref={files}
+                                    type="file"
+                                    multiple
+                                    hidden
+                                    data-testid="composer-file"
+                                    accept={ATTACHMENT_MIME_TYPES.join(',')}
+                                    onChange={(event) => {
+                                        attachments.add(
+                                            Array.from(
+                                                event.target.files ?? [],
+                                            ),
+                                        );
+                                        event.target.value = '';
+                                    }}
+                                />
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    data-testid="composer-attach"
+                                    aria-label={t('inbox.composer.attach')}
+                                    title={t('inbox.composer.attach')}
+                                    onClick={() => files.current?.click()}
+                                >
+                                    <ImagePlus aria-hidden />
+                                </Button>
+                            </>
+                        )}
                         <CannedRepliesSlot />
 
                         <label htmlFor={inputId} className="sr-only">
@@ -328,6 +342,7 @@ export function Composer({
                             ref={area}
                             rows={1}
                             value={value}
+                            maxLength={MESSAGE_MAX_LENGTH}
                             data-testid="composer-input"
                             placeholder={t('inbox.composer.placeholder')}
                             enterKeyHint="send"

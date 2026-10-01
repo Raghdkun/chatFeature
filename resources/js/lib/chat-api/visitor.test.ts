@@ -786,3 +786,110 @@ describe('attachment upload', () => {
         expect((await failure(promise)).code).toBe('invalid_response');
     });
 });
+
+describe('timeouts and limits', () => {
+    it('a request that never settles fails as a network error after the timeout (never a spinner that does not end)', async () => {
+        vi.useFakeTimers();
+
+        try {
+            const api = client(null, {
+                fetchImpl: () => new Promise<Response>(() => undefined),
+                timeoutMs: 1000,
+            });
+            const pending = failure(api.getConversation());
+
+            await vi.advanceTimersByTimeAsync(1000);
+
+            const error = await pending;
+
+            expect(error.code).toBe('network');
+            expect(error.isNetwork).toBe(true);
+            expect(error.message).toMatch(/too long/i);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('an answer whose body never arrives times out as well, and the request is aborted', async () => {
+        vi.useFakeTimers();
+
+        try {
+            let signal: AbortSignal | null | undefined;
+            const api = client('vt_x', {
+                fetchImpl: async (_url, init) => {
+                    signal = init?.signal;
+
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: () => new Promise(() => undefined),
+                    } as unknown as Response;
+                },
+                timeoutMs: 500,
+            });
+            const pending = failure(api.getConversation());
+
+            await vi.advanceTimersByTimeAsync(500);
+
+            expect((await pending).code).toBe('network');
+            expect(signal?.aborted).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('a caller that aborts wins over the timeout, and a quick answer clears the timer', async () => {
+        const abort = new AbortController();
+        const never = client(null, {
+            fetchImpl: () => new Promise<Response>(() => undefined),
+            timeoutMs: 60_000,
+        });
+        const pending = failure(never.getConfig('en', abort.signal));
+
+        abort.abort();
+        expect((await pending).code).toBe('aborted');
+
+        useBackend();
+        await expect(client('vt_x').getAvailability()).resolves.toBeTruthy();
+    });
+
+    it('reads the limits block of a session (and tolerates an older backend without it)', async () => {
+        const backend = useBackend();
+
+        expect(
+            (await client().createSession({ page: PAGE, locale: 'en' })).limits,
+        ).toBeNull();
+
+        server.use(
+            http.post(`${API}/widgets/:key/sessions`, () =>
+                HttpResponse.json(
+                    {
+                        data: {
+                            visitorToken: 'vt_limits',
+                            expiresAt: '2030-01-01T00:00:00.000Z',
+                            conversation: null,
+                            ws: null,
+                            limits: {
+                                maxMessageLength: 1500,
+                                attachmentMaxBytes: 2097152,
+                                attachmentMaxDimension: 2048,
+                                attachmentMaxPerMessage: 2,
+                            },
+                        },
+                    },
+                    { status: 201 },
+                ),
+            ),
+        );
+
+        expect(
+            (await client().createSession({ page: PAGE, locale: 'en' })).limits,
+        ).toEqual({
+            maxMessageLength: 1500,
+            attachmentMaxBytes: 2097152,
+            attachmentMaxDimension: 2048,
+            attachmentMaxPerMessage: 2,
+        });
+        expect(backend.calls.length).toBeGreaterThan(0);
+    });
+});

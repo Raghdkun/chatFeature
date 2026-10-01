@@ -1,5 +1,9 @@
 import { useEffect, useId, useRef, type KeyboardEvent } from 'react';
-import { useOverlay, useSnapshot } from '@/embed/components/context';
+import {
+    useController,
+    useOverlay,
+    useSnapshot,
+} from '@/embed/components/context';
 import { X } from '@/embed/components/icons';
 import { Button } from '@/embed/components/ui';
 
@@ -13,9 +17,25 @@ function useRestoreFocus(): void {
 }
 
 /** Full-size image over the panel. Escape closes the lightbox only (the panel's own Escape handler never sees it). */
-export function Lightbox({ url, alt }: { url: string; alt: string }) {
-    const { t } = useSnapshot();
+export function Lightbox({
+    url,
+    alt,
+    ulid,
+}: {
+    url: string;
+    alt: string;
+    ulid?: string;
+}) {
+    const { t, state } = useSnapshot();
+    const controller = useController();
     const { close } = useOverlay();
+    // The signed URL may have expired since the picture was opened or while it was open: follow the refreshed one.
+    const current =
+        ulid === undefined
+            ? url
+            : (state.messages
+                  .flatMap((message) => message.attachments)
+                  .find((attachment) => attachment.ulid === ulid)?.url ?? url);
     const closeButton = useRef<HTMLButtonElement>(null);
 
     useRestoreFocus();
@@ -61,8 +81,9 @@ export function Lightbox({ url, alt }: { url: string; alt: string }) {
                 className="flex min-h-0 flex-1 cursor-zoom-out items-center justify-center p-3 pt-0"
             >
                 <img
-                    src={url}
+                    src={current}
                     alt={alt}
+                    onError={() => void controller.refreshAttachmentUrls()}
                     referrerPolicy="no-referrer"
                     className="max-h-full max-w-full rounded-md object-contain"
                 />

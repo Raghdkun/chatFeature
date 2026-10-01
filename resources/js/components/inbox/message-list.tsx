@@ -16,6 +16,13 @@ import { usePlural } from '@/components/widgets/page-chrome';
 import { useTrans } from '@/hooks/use-trans';
 import type { AttachmentData, LocalMessage } from '@/lib/chat/types';
 
+/** Every identity a message goes by: the server's ulid and the client-generated id (an optimistic copy only has the latter). */
+function identities(message: LocalMessage): string[] {
+    return [message.ulid, message.clientMsgId].filter(
+        (id): id is string => id !== null,
+    );
+}
+
 /** How close to the bottom (px) still counts as "reading the latest": new messages keep the list pinned there. */
 const PIN_THRESHOLD = 80;
 
@@ -31,6 +38,7 @@ export function MessageList({
     label,
     onRetry,
     onDiscard,
+    onImageError,
 }: {
     messages: LocalMessage[];
     typing: boolean;
@@ -38,16 +46,27 @@ export function MessageList({
     label: string;
     onRetry: (clientMsgId: string) => void;
     onDiscard: (clientMsgId: string) => void;
+    /** A picture failed to load (its signed URL may have expired): the owner reads the messages again. */
+    onImageError?: () => void;
 }) {
     const { t, locale } = useTrans();
     const plural = usePlural();
     const now = useNow();
     const scroller = useRef<HTMLDivElement>(null);
     const pinned = useRef(true);
-    const seen = useRef(messages.length);
+    // What the list has already shown, by identity (not by position: a list that is re-sorted or refilled by a catch-up fetch is not append-only).
+    const seen = useRef(new Set(messages.flatMap(identities)));
     const [missed, setMissed] = useState(0);
     const [image, setImage] = useState<AttachmentData | null>(null);
     const entries = useMemo(() => buildListEntries(messages), [messages]);
+    // The lightbox follows the picture's current (possibly refreshed) URL.
+    const shown =
+        image === null
+            ? null
+            : (messages
+                  .flatMap((message) => message.attachments)
+                  .find((attachment) => attachment.ulid === image.ulid) ??
+              image);
 
     const toBottom = useCallback(() => {
         const element = scroller.current;
@@ -63,9 +82,16 @@ export function MessageList({
     }, [toBottom]);
 
     useLayoutEffect(() => {
-        const added = messages.slice(seen.current);
+        const added = messages.filter(
+            (message) =>
+                !identities(message).some((id) => seen.current.has(id)),
+        );
 
-        seen.current = messages.length;
+        for (const message of messages) {
+            for (const id of identities(message)) {
+                seen.current.add(id);
+            }
+        }
 
         if (added.length === 0) {
             return;
@@ -166,6 +192,7 @@ export function MessageList({
                                 onRetry={onRetry}
                                 onDiscard={onDiscard}
                                 onOpenImage={setImage}
+                                onImageError={onImageError}
                                 onImageLoad={() => {
                                     if (pinned.current) {
                                         toBottom();
@@ -194,7 +221,11 @@ export function MessageList({
                 </button>
             )}
 
-            <Lightbox attachment={image} onClose={() => setImage(null)} />
+            <Lightbox
+                attachment={shown}
+                onClose={() => setImage(null)}
+                onError={onImageError}
+            />
         </div>
     );
 }

@@ -1,5 +1,5 @@
 import '@/tests/dom-polyfills';
-import { act } from 'react';
+import { act, useState } from 'react';
 import {
     afterEach,
     beforeEach,
@@ -355,6 +355,50 @@ describe('the filters', () => {
 
         expect(routerMock.get).toHaveBeenCalledTimes(1);
         expect(filtersCall()[1]).toEqual({ q: 'refund' });
+    });
+
+    it('keeps what is typed while an earlier search is still on its way back, and follows the server for a reset', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+        const page: { set: (next: HistoryPageProps) => void } = {
+            set: () => undefined,
+        };
+
+        function Page() {
+            const [current, set] = useState(props());
+
+            page.set = set;
+
+            return <HistoryIndex {...current} />;
+        }
+
+        const view = await render(<Page />);
+        const search = view.byTestId('history-search') as HTMLInputElement;
+
+        await fill(search, 'ab');
+        await act(async () => {
+            vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+        });
+        expect(filtersCall()[1]).toEqual({ q: 'ab' });
+
+        // the agent keeps typing while the reload for "ab" is in flight ...
+        await fill(search, 'abc');
+
+        // ... and the page comes back echoing "ab": the box must not jump back to it
+        await act(async () =>
+            page.set(props({ filters: { ...NO_FILTERS, q: 'ab' } })),
+        );
+        expect(search.value).toBe('abc');
+
+        // the pause that follows searches for what was typed
+        await act(async () => {
+            vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+        });
+        expect(filtersCall()[1]).toEqual({ q: 'abc' });
+
+        // a change that did not come from this box (reset, back button) still wins
+        await act(async () => page.set(props({ filters: NO_FILTERS })));
+        expect(search.value).toBe('');
     });
 
     it('searches at once when the form is submitted', async () => {

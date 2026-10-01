@@ -253,10 +253,21 @@ function sanitizeVisitor(raw: unknown): Visitor | undefined {
         return undefined;
     }
 
+    // The server's limits (POST /sessions): a field it would reject is dropped here, never sent.
+    const email = clean(raw.email, 191);
+    const phone = clean(raw.phone, 41);
     const out: Dict = {
-        ...opt('name', clean(raw.name, 200)),
-        ...opt('email', clean(raw.email, 254)),
-        ...opt('phone', clean(raw.phone, 40)),
+        ...opt('name', clean(raw.name, 120)),
+        ...opt(
+            'email',
+            email && /^(?=.{0,190}$)[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+                ? email
+                : null,
+        ),
+        ...opt(
+            'phone',
+            phone && /^[0-9+().\- ]{3,40}$/.test(phone) ? phone : null,
+        ),
     };
 
     if (isRecord(raw.meta)) {
@@ -492,7 +503,15 @@ export function parseBoot(
         Array.isArray(raw.categories) ? raw.categories : []
     ).flatMap((x: unknown) =>
         isRecord(x) && typeof x.slug === 'string' && SLUG.test(x.slug)
-            ? [{ slug: x.slug, label: clean(x.label, 100) ?? x.slug }]
+            ? [
+                  {
+                      slug: x.slug,
+                      label: clean(x.label, 100) ?? x.slug,
+                      ...opt('description', clean(x.description, 300)),
+                      ...opt('icon', clean(x.icon, 64)),
+                      ...opt('color', clean(x.color, 9)),
+                  },
+              ]
             : [],
     );
     const base = safeUrl(raw.api.base);

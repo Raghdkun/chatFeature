@@ -26,11 +26,16 @@ import {
 } from '@/lib/realtime/staff/use-conversation';
 import type { CategoryData } from '@/types/widgets';
 
-/** Reasons the composer is replaced by a sentence (the conversation is not writable). */
+/** Reasons the composer is replaced by a sentence (the conversation is not writable, or no longer this agent's). */
 function disabledReason(
     conversation: ConversationStaff,
+    reassigned: boolean,
     t: (key: string) => string,
 ): string | null {
+    if (reassigned) {
+        return t('inbox.composer.disabled.not_yours');
+    }
+
     return conversation.status === 'active'
         ? null
         : t(`inbox.composer.disabled.${conversation.status}`);
@@ -59,6 +64,7 @@ export function ConversationView({
     const [transferring, setTransferring] = useState(false);
     const [ending, setEnding] = useState(false);
     const [claiming, setClaiming] = useState(false);
+    const [transferError, setTransferError] = useState<string | null>(null);
     const user = auth.user;
 
     const chat = useConversation({
@@ -79,6 +85,12 @@ export function ConversationView({
         viewer.isAdmin &&
         conversation.assignedAgent !== null &&
         conversation.assignedAgent.id !== viewer.id;
+    // An agent's live chat that now belongs to somebody else (a transfer, an admin took it over): read-only for them.
+    const reassigned =
+        !viewer.isAdmin &&
+        !offline &&
+        conversation.status === 'active' &&
+        (chat.lostAccess || conversation.assignedAgent?.id !== viewer.id);
 
     const copyTranscript = async (): Promise<void> => {
         const ok = await copy(
@@ -107,11 +119,8 @@ export function ConversationView({
         }
     };
 
-    const endAction: 'end' | 'close' | null = !active
-        ? null
-        : offline
-          ? 'close'
-          : 'end';
+    const endAction: 'end' | 'close' | null =
+        !active || reassigned ? null : offline ? 'close' : 'end';
 
     return (
         <section
@@ -130,7 +139,7 @@ export function ConversationView({
             <ConversationHeader
                 conversation={conversation}
                 waiting={waiting}
-                canTransfer={active && !offline}
+                canTransfer={active && !offline && !reassigned}
                 endAction={endAction}
                 onDetails={() => setDetails(true)}
                 onCopy={() => void copyTranscript()}
@@ -172,6 +181,21 @@ export function ConversationView({
                 </p>
             )}
 
+            {reassigned && (
+                <p
+                    data-testid="conversation-reassigned"
+                    role="status"
+                    className="border-b bg-muted/60 px-4 py-2 text-xs text-muted-foreground"
+                >
+                    {conversation.assignedAgent &&
+                    conversation.assignedAgent.id !== viewer.id
+                        ? t('inbox.conversation.reassigned', {
+                              name: conversation.assignedAgent.name,
+                          })
+                        : t('inbox.conversation.reassigned_anon')}
+                </p>
+            )}
+
             <MessageList
                 messages={chat.messages}
                 typing={chat.typing}
@@ -179,11 +203,13 @@ export function ConversationView({
                 label={t('inbox.log.label', { name: visitorName })}
                 onRetry={chat.retry}
                 onDiscard={chat.discard}
+                onImageError={() => void chat.refreshAttachmentUrls()}
             />
 
             <Composer
                 conversation={conversation.ulid}
-                disabledReason={disabledReason(conversation, t)}
+                disabledReason={disabledReason(conversation, reassigned, t)}
+                allowAttachments={!offline}
                 emailNotice={
                     offline && conversation.visitor.email
                         ? t('inbox.composer.email_notice', {
@@ -210,13 +236,20 @@ export function ConversationView({
             />
             <TransferDialog
                 open={transferring}
-                onOpenChange={setTransferring}
+                onOpenChange={(open) => {
+                    setTransferError(null);
+                    setTransferring(open);
+                }}
                 conversation={conversation}
                 roster={roster}
                 categories={categories}
                 viewerId={viewer.id}
+                error={transferError}
                 onTransfer={async (target) => {
-                    const next = await chat.transfer(target);
+                    setTransferError(null);
+
+                    // The reason (`409 no_agents`: nobody can take it) is shown inside the dialog, not in a toast behind it.
+                    const next = await chat.transfer(target, setTransferError);
 
                     if (next && !viewer.isAdmin) {
                         // It left this agent's hands: back to the list.

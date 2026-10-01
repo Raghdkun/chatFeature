@@ -123,7 +123,7 @@ const DEFAULT_PRECHAT: Record<PreChatFieldName, PreChatField> = {
 
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const FONT_FAMILY = /^[A-Za-z0-9 ,._'"-]{1,200}$/;
-const SLUG = /^[a-z0-9][a-z0-9_-]{0,62}$/i;
+const SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 const LOCALE = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,3}$/;
 const RTL = /^(?:ar|he|fa|ur|ps|sd|ug|yi|dv|ckb)$/i;
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.bunny.net'];
@@ -414,7 +414,21 @@ export type BuildInput = {
     navigatorLanguages?: readonly string[];
     /** A builder preview draft (`draft` message): replaces the restyleable parts of the config. */
     draft?: Dict | null;
+    /**
+     * The origin this page was served from (inlined by the server, not sent by the host). In launcher mode `boot.api.*` arrives
+     * over postMessage from a page that may host hostile scripts: when this is set the panel talks only to this origin and
+     * ignores a base URL / origin that names another one.
+     */
+    trustedOrigin?: string;
 };
+
+function sameOrigin(url: string | undefined, origin: string): boolean {
+    try {
+        return url !== undefined && new URL(url).origin === origin;
+    } catch {
+        return false;
+    }
+}
 
 /** Reduces `categories` to the host's slug subset, keeping the server's display order. */
 function restrictCategories(
@@ -437,9 +451,16 @@ export function buildPanelConfig(input: BuildInput): PanelConfig {
     const { boot } = input;
     const overrides = input.overrides ?? {};
     const api = isRecord(boot.api) ? boot.api : {};
-    const appOrigin = str(api.appOrigin) ?? '';
+    const trusted = input.trustedOrigin;
+    const appOrigin = trusted ?? str(api.appOrigin) ?? '';
+    const claimedBase = str(api.base);
     const apiBase =
-        str(api.base) ?? (appOrigin === '' ? '' : `${appOrigin}/api/v1/public`);
+        trusted === undefined
+            ? (claimedBase ??
+              (appOrigin === '' ? '' : `${appOrigin}/api/v1/public`))
+            : sameOrigin(claimedBase, trusted)
+              ? (claimedBase as string)
+              : `${trusted}/api/v1/public`;
     const rawConfig = isRecord(boot.config) ? boot.config : {};
     const draft = input.draft ?? null;
     const source: Dict = { ...rawConfig, ...draft };

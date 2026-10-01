@@ -56,6 +56,8 @@ export type HostMessage =
     | { type: 'setCategory'; payload: { slug: string } }
     | { type: 'startChat'; payload: { category?: string; message?: string } }
     | { type: 'viewport'; payload: ViewportPayload }
+    /** The answer to a panel `session { drop }`: the newer session another tab stored (adopt it), or `null` (cleared). */
+    | { type: 'session'; payload: { token: string; expiresAt: string } | null }
     | { type: 'draft'; payload: { config: Dict; greetings: unknown } };
 
 export type HostMessageType = HostMessage['type'];
@@ -217,6 +219,20 @@ export function parseHostMessage(data: unknown): HostMessage | null {
                 ? null
                 : { type: 'viewport', payload: viewport };
         }
+        case 'session': {
+            const token = str(payload.token);
+            const expiresAt = str(payload.expiresAt);
+
+            return {
+                type: 'session',
+                payload:
+                    token !== undefined &&
+                    token !== '' &&
+                    expiresAt !== undefined
+                        ? { token, expiresAt }
+                        : null,
+            };
+        }
         case 'draft':
             return isRecord(payload.config)
                 ? {
@@ -266,7 +282,14 @@ export type PanelMessage =
     | { type: 'init:result'; payload: Dict; id: string }
     | {
           type: 'session';
-          payload: { token: string; expiresAt: string } | null;
+          /**
+           * `{ token, expiresAt }`: a new session. `{ drop }`: compare-and-clear, the host removes its stored copy only while it
+           * still holds that token and answers with the newer one otherwise. `null`: unconditional clear (legacy).
+           */
+          payload:
+              | { token: string; expiresAt: string }
+              | { drop: string }
+              | null;
       }
     | { type: 'state'; payload: StatePayload }
     | {
