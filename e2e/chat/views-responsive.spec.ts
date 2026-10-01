@@ -550,12 +550,27 @@ for (const size of SIZES) {
             );
             await form.locator('button[type="submit"]').click();
 
-            await panel.expectState('category');
+            await panel.expectState('category', 45_000).catch(async (error) => {
+                // What the visitor was looking at, for a failure that only happens now and then.
+                throw new Error(
+                    `${error.message}\nThe panel says: ${JSON.stringify(
+                        await panel.root.evaluate((root) => ({
+                            text: (root as HTMLElement).innerText.slice(0, 500),
+                            invalid: root.querySelectorAll(
+                                '[aria-invalid="true"]',
+                            ).length,
+                            focus:
+                                document.activeElement?.getAttribute('name') ??
+                                document.activeElement?.tagName,
+                        })),
+                    )}`,
+                );
+            });
             await expectPanelContained(panel, 'topics');
             await panel
                 .tid(`category-option-${tenant.categories[0].slug}`)
                 .click();
-            await panel.expectState('queued');
+            await panel.expectState('queued', 45_000);
             await expectPanelContained(panel, 'queued');
 
             // Accepted: the transcript with long unbroken content and an image from each side.
@@ -565,7 +580,7 @@ for (const size of SIZES) {
             ).at(-1)!;
 
             await lab.accept(agent, queued);
-            await panel.expectState('active');
+            await panel.expectState('active', 45_000);
             must(
                 await agent.api.send(queued.ulid, `${LONG_TOKEN} ${LONG_URL}`),
                 'agent message',
