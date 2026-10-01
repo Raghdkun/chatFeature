@@ -92,6 +92,15 @@ describe('standalone boot (hosted page)', () => {
         // a launcher page that was opened directly has no loader either: it behaves like the hosted page
         expect(document.documentElement.dataset.mode).toBe('hosted');
         expect(byTestId('queued-cancel')).not.toBeNull();
+
+        // resuming a live chat rotated the token: the page's own storage holds the new one, the old one is dead
+        const stored = JSON.parse(
+            window.localStorage.getItem(`chatfeature:${KEY}:session`) ?? 'null',
+        ) as { token: string };
+
+        expect(stored.token).not.toBe(token);
+        expect(stored.token).toBe(backend.state.rotated.get(token));
+        expect(backend.state.revoked.has(token)).toBe(true);
     });
 
     it('a widget that cannot be loaded shows the unavailable screen', async () => {

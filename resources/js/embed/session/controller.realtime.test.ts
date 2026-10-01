@@ -609,6 +609,58 @@ describe('rotation and the websocket', () => {
         expect(h.sessions.at(-1)?.token).toBe(rotated);
     });
 
+    it('a call refused as revoked while the rotation is still landing does not end the session, and the socket then opens with the new token', async () => {
+        const backend = useBackend();
+        const stored = backend.issueToken();
+
+        backend.seedConversation(stored.token, 'active');
+        backend.fail('POST', '/sessions$', 503, undefined, 1);
+
+        const { makeInit } = await import('@/tests/embed-harness');
+        const { createVisitorApi } = await import('@/lib/chat-api/visitor');
+        const h = createHarness({
+            backend,
+            pollMs: 100,
+            deps: {
+                // the answer to the rotation arrives late: the server has revoked the old token, the panel still holds it
+                createApi: (options) => {
+                    const real = createVisitorApi(options);
+
+                    return {
+                        ...real,
+                        createSession: async (body, token) => {
+                            const session = await real.createSession(
+                                body,
+                                token,
+                            );
+
+                            await new Promise((resolve) =>
+                                setTimeout(resolve, 150),
+                            );
+
+                            return session;
+                        },
+                    };
+                },
+            },
+        });
+
+        await h.init(makeInit({ visitorSession: stored }));
+        expect(h.state().phase).toBe('active');
+        await until(() => backend.state.rotated.size === 1);
+
+        await h.controller.syncConversation();
+        expect(h.state().phase).toBe('active');
+
+        await until(() => h.sockets.length === 1);
+
+        const rotated = backend.state.rotated.get(stored.token);
+
+        expect(h.socket()?.input.token).toBe(rotated);
+        expect(h.state().phase).toBe('active');
+        expect(h.sessions.at(-1)?.token).toBe(rotated);
+    });
+
     it('a REST call that left with the token a rotation just replaced does not end the session', async () => {
         const backend = useBackend();
         const stored = backend.issueToken();
@@ -636,5 +688,31 @@ describe('rotation and the websocket', () => {
         await h.controller.syncConversation();
         expect(h.state().phase).toBe('closed');
         expect(h.state().closedReason).toBe('expired');
+    });
+});
+
+describe('page lifecycle', () => {
+    it('pagehide (not from the back/forward cache) closes the socket cleanly and unbinds everything; a persisted page keeps it', async () => {
+        const backend = useBackend();
+        const h = createHarness({ backend, pollMs: 100_000 });
+
+        await queued(h);
+
+        const off = h.controller.attachPageLifecycle(window);
+        const socket = h.socket();
+
+        window.dispatchEvent(
+            Object.assign(new Event('pagehide'), { persisted: true }),
+        );
+        expect(socket?.closed).toBe(false);
+        expect(socket?.bindings).toBeGreaterThan(0);
+
+        window.dispatchEvent(
+            Object.assign(new Event('pagehide'), { persisted: false }),
+        );
+        expect(socket?.closed).toBe(true);
+        expect(socket?.bindings).toBe(0);
+
+        off();
     });
 });

@@ -626,6 +626,62 @@ describe('attachments', () => {
         expect(all(c, 'composer-attachment')).toHaveLength(0);
     });
 
+    it.each([
+        [
+            422,
+            'validation_failed',
+            "That image can't be sent. Try a smaller JPEG, PNG, WebP or GIF.",
+        ],
+        [403, 'feature_disabled', "Images can't be sent in this chat."],
+        [429, 'rate_limited', 'Too many uploads. Wait a moment and try again.'],
+    ] as const)(
+        'a refused upload (%i %s) is explained in the panel language, not with the server text',
+        async (status, code, copy) => {
+            const { backend, c } = await activeChat();
+
+            backend.fail(
+                'POST',
+                '/attachments$',
+                status,
+                {
+                    error: {
+                        code,
+                        message: 'Server wording',
+                        details: { file: ['Server wording'] },
+                    },
+                },
+                1,
+            );
+            await pickFile(byTestId(c, 'composer-file') as HTMLInputElement, [
+                png(),
+            ]);
+            await waitFor(
+                () =>
+                    byTestId(c, 'composer-attachment')?.dataset.status ===
+                    'error',
+            );
+
+            expect(c.querySelector('[role="alert"]')?.textContent).toBe(copy);
+        },
+    );
+
+    it('an upload to a chat that has just ended re-reads the chat instead of leaving the visitor stuck', async () => {
+        const { backend, h, c } = await activeChat();
+
+        backend.agentEnds(true);
+        backend.fail(
+            'POST',
+            '/attachments$',
+            409,
+            { error: { code: 'conversation_not_active', message: 'x' } },
+            1,
+        );
+        await pickFile(byTestId(c, 'composer-file') as HTMLInputElement, [
+            png(),
+        ]);
+        await waitFor(() => h.state().phase === 'ended');
+    });
+
     it('pasting an image stages it', async () => {
         const { c } = await activeChat();
         const input = byTestId(c, 'composer-input') as HTMLTextAreaElement;
