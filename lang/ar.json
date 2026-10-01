@@ -33,5 +33,23 @@
     "setup.mode.coming_soon": "قريبًا",
     "setup.basics.idle_timeout_hint": "تُغلق المحادثات تلقائيًا بعد :minutes دقيقة بلا رسائل. الافتراضي: 120.",
     "setup.run.start": "ابدأ التثبيت",
-    "setup.done.title": "كل شيء جاهز"
+    "setup.done.title": "كل شيء جاهز",
+
+    "auth.portal.unreachable.title": "بوابة المصادقة غير متاحة",
+    "setup.pizzasys.steps.pizzasys": "بوابة المصادقة",
+    "setup.pizzasys.steps.portal-admin": "مسؤول البوابة",
+    "setup.pizzasys.title": "اربط بوابة المصادقة",
+    "setup.pizzasys.submit": "متابعة",
+    "setup.pizzasys.env.production": "الإنتاج",
+    "setup.pizzasys.env.testing": "الاختبار",
+    "setup.pizzasys.env.required": "مطلوب",
+    "setup.pizzasys.env.optional": "اختياري",
+    "setup.pizzasys.test.button": "اختبار الاتصال",
+    "setup.pizzasys.portal.title": "سجّل الدخول كمسؤول في البوابة",
+    "settings.auth.nav": "بوابة المصادقة",
+    "settings.auth.nav_local": "طريقة تسجيل الدخول",
+    "settings.auth.title": "المصادقة",
+    "settings.auth.managed.title": "يُدار بواسطة هذا التطبيق",
+    "settings.auth.health.title": "حالة البوابة",
+    "settings.auth.health.refresh": "تحديث"
 }
