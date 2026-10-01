@@ -104,7 +104,7 @@ Resource shapes (`Message`, `ConversationPublic`, `ConversationStaff`) are defin
 | `DELETE /public/sessions` | — | `204` (revokes the token). |
 | `GET /public/conversation` | — | `200 { data: ConversationPublic \| null }` (the current session's conversation only — visitors never list history). |
 | `POST /public/conversations` | `{ category: slug, name?, email?, phone?, message?, consent?: bool }` (pre-chat rules from widget config are enforced server-side) | `201 { data: ConversationPublic }` queued · `409 no_agents` (offer the offline form) · `409 conversation_exists` · `422`. |
-| `POST /public/conversations/{ulid}/offline` | `{ name, email, message, category? }` | `201 { data: ConversationPublic }` with `type: 'offline'`. |
+| `POST /public/offline-tickets` | `{ name, email, message, category?, missed_conversation?: ulid }` (the ulid of the visitor's own `missed` live chat, if any; it is recorded in the new row's `created` event) | `201 { data: ConversationPublic }` with `type: 'offline'`, `status: 'queued'`. Offline tickets are separate rows (decision P4-D2); there is no `{ulid}` form because the `409 no_agents` path creates no conversation. Rate limited; needs a visitor token like every public write. |
 | `GET /public/conversations/{ulid}/messages` | `?after_seq=&limit=` | `{ data: Message[], meta: { next_cursor } }` ordered by `seq`. |
 | `POST /public/conversations/{ulid}/messages` | `{ client_msg_id, body?, attachments?: ulid[] }` (needs body or attachment) | `201 { data: Message }` (replay of the same `client_msg_id` → `200` original). |
 | `POST /public/conversations/{ulid}/attachments` | multipart `file` (jpeg/png/webp/gif, ≤ 5 MB default, ≤ 4096 px; mime sniffed with `finfo`, EXIF stripped by re-encode, SVG rejected) | `201 { data: { ulid, mime, size, width, height, url, thumbUrl } }`; referenced from the next message. |
@@ -121,12 +121,14 @@ A visitor token is bound to **one** visitor session and at most one open convers
 
 | Method + path | Notes |
 |---|---|
-| `GET /conversations` | filters `status, category, widget, agent, type, q (FULLTEXT), from, to`, cursor paging. Agents are scoped server-side to conversations assigned to them (admins see all). WhatsApp chats are **not** conversations and never appear here. |
+| `GET /conversations` | filters `status, category, widget, agent, type, q (FULLTEXT), from, to`, cursor paging. Agents are scoped server-side by `Conversation::visibleTo` (assigned to them, open offers while queued, queued offline tickets in a category they serve; admins see all). WhatsApp chats are **not** conversations and never appear here. |
 | `GET /conversations/queue` | queued chats currently offered to the caller (agent) or all (admin). |
 | `GET /conversations/{ulid}` · `GET …/messages?after_seq=` | policy: admin, or assigned agent, or offered-while-queued. |
 | `POST /conversations/{ulid}/claim` | atomic accept → `200 ConversationStaff` or `409 already_claimed`. Also requires category eligibility and `active_chats < max_concurrent_chats`. |
 | `POST …/messages` · `POST …/attachments` · `POST …/receipts` · `POST …/typing` | same shapes as public, authored as the agent. |
 | `POST …/end` | agent/admin ends the chat (`ratingRequested: true`). |
+| `POST …/close` | agent/admin closes an **offline ticket** (answered) or an admin closes any open chat: result `closed`, reason `system`; no rating prompt. Offline tickets: `queued -> active (claim) -> closed`. |
+| `POST …/reply-email` | not an endpoint: staff reply to an offline ticket with the normal `POST …/messages`; for `type=offline` the stored message is also e-mailed (queued mailable) to the visitor's address. |
 | `POST …/transfer` | `{ agent_id } \| { category }` → re-queued with assignee cleared, history kept in `conversation_events`. |
 | `GET /conversations/export` | admin only; streamed CSV/JSON, queued for large ranges. |
 | `GET /me/presence` · `PUT /me/presence {status}` · `POST /me/presence/heartbeat` | status `online\|away\|offline`; heartbeat every 30 s. |

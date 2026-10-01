@@ -19,6 +19,7 @@
 | [chat-ui-p4.md](chat-ui-p4.md) | P4 (4C, 4D) | written (ahead of P4) |
 | [realtime-events.md](realtime-events.md) | P4, P5, P6 | written (ahead of P4) |
 | [chat-data-p4.md](chat-data-p4.md) | P4 (4A, 4B, 4C, 4D) | **implemented by the P4 spine**: tables, enums, state machine, policy, visitor tokens, Data classes, domain events, shared TypeScript helpers |
+| [chat-tracks-p4.md](chat-tracks-p4.md) | P4 (4A, 4B, 4C, 4D) | written (after the spine, before the fan-out): track boundaries, interfaces between tracks, decisions |
 
 ## Rules
 

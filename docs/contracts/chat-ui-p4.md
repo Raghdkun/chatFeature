@@ -16,7 +16,7 @@ State machine (single source of truth in a reducer; every transition emits a `st
 | `queued` | "Connecting you to an agent…", elapsed timer, cancel button; opens the websocket now | `active` (`chat.claimed`), `offline` (queue timeout / `missed`), `closed` (cancel) |
 | `active` | live chat: message list, composer, attachments, typing, delivered/seen ticks, agent header, end-chat | `ended` |
 | `ended` | closed by either side → rating screen (1–5 stars + optional comment, skippable) | `closed` |
-| `offline` | offline form (name, email, message, category) → ticket created confirmation | `closed` |
+| `offline` | offline form (name, email, message, category) → `POST /public/offline-tickets` → ticket created confirmation | `closed` |
 | `closed` | thank-you + "Start a new chat" (clears the session; a new chat = new ticket) | `idle` |
 
 Rules: visitors see **only the current session** (no history list); a refresh while `queued`/`active` resumes via `GET /public/conversation` + `GET …/messages?after_seq=0`.
