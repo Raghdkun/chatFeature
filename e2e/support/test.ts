@@ -26,6 +26,11 @@ type Fixtures = {
     instance: Instance;
     /** The management API with the session of `page` (cookies are shared with the browser context). */
     api: Api;
+    /**
+     * The management API as the saved administrator, in a context of its own: for specs whose `page` plays an anonymous
+     * visitor on a customer's site (no cookies of the dashboard in that browser).
+     */
+    adminApi: Api;
 };
 
 export const test = base.extend<Options & Fixtures>({
@@ -44,6 +49,16 @@ export const test = base.extend<Options & Fixtures>({
 
     api: async ({ page, instance }, use) => {
         await use(new Api(page.request, instance.url));
+    },
+
+    adminApi: async ({ playwright, instance }, use) => {
+        const context = await playwright.request.newContext({
+            baseURL: instance.url,
+            storageState: authStatePath(instance, 'admin'),
+        });
+
+        await use(new Api(context, instance.url));
+        await context.dispose();
     },
 
     baseURL: async ({ scenario }, use, testInfo) => {

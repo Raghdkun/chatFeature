@@ -122,3 +122,37 @@ export function chatFeature<T = unknown>(
         [command, args] as const,
     );
 }
+
+/**
+ * Waits until the widget's own entrance animations and transitions (launcher pop-in, flip, panel slide: 150-600 ms) are over,
+ * so geometry and colours are measured at rest. Bounding boxes include transforms, so a mid-animation box is off by pixels.
+ */
+export async function settleWidget(page: Page): Promise<void> {
+    await page.locator('pne-chat-widget').evaluate(async (host) => {
+        const root = host.shadowRoot;
+
+        for (let pass = 0; pass < 6; pass += 1) {
+            await new Promise<void>((resolve) =>
+                requestAnimationFrame(() =>
+                    requestAnimationFrame(() => resolve()),
+                ),
+            );
+
+            const running = (root?.getAnimations() ?? []).filter(
+                (animation) =>
+                    animation.effect?.getComputedTiming().iterations !==
+                    Infinity,
+            );
+
+            if (running.length === 0) {
+                return;
+            }
+
+            await Promise.all(
+                running.map((animation) =>
+                    animation.finished.catch(() => undefined),
+                ),
+            );
+        }
+    });
+}
