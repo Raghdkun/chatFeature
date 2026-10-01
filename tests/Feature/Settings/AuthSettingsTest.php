@@ -178,19 +178,21 @@ class AuthSettingsTest extends TestCase
     {
         $this->signIn();
         $stored = AuthEnvironment::query()->where('key', 'production')->sole()->service_token_encrypted;
+        $verifies = $this->portal->calls('token-verify');
 
-        $this->put(route('settings.auth.environments.update', 'production'), $this->environmentPayload(['label' => 'Live', 'service_name' => 'renamed-chat']))->assertRedirect();
+        $this->put(route('settings.auth.environments.update', 'production'), $this->environmentPayload(['label' => 'Live']))->assertRedirect();
 
         $environment = AuthEnvironment::query()->where('key', 'production')->sole();
         $this->assertSame('Live', $environment->label);
-        $this->assertSame('renamed-chat', $environment->service_name);
         $this->assertSame($stored, $environment->service_token_encrypted);
         $this->assertSame(PizzasysMock::SERVICE_TOKEN, $environment->service_token);
+        $this->assertSame($verifies, $this->portal->calls('token-verify'), 'a label change does not call the portal');
     }
 
     public function test_a_new_token_replaces_the_old_one_and_is_stored_encrypted(): void
     {
         $this->signIn();
+        $this->portal->acceptServiceToken('brand-new-service-token');
 
         $this->put(route('settings.auth.environments.update', 'production'), $this->environmentPayload(['service_token' => 'brand-new-service-token']))->assertRedirect();
 
@@ -273,15 +275,18 @@ class AuthSettingsTest extends TestCase
         $this->signIn();
         $url = route('settings.auth.environments.update', 'production');
 
+        $testing = route('settings.auth.environments.update', 'testing');
         // The addresses below are not the mock's: they must behave like unreachable hosts, never reach a real server
-        // (a developer's local pizzasys on :8200 would otherwise answer and change the outcome).
+        // (a developer's local pizzasys on :8200 would otherwise answer and change the outcome). The testing
+        // environment is not the active one, so saving it does not try the portal.
         Http::fake(['*' => fn () => throw new ConnectionException('Stray request blocked in tests.')]);
 
         foreach (['http://localhost:8200', 'http://127.0.0.1:8200', 'http://portal.test', 'https://auth.example.com/'] as $address) {
-            $this->putJson($url, $this->environmentPayload(['base_url' => $address]))->assertRedirect();
+            $this->putJson($testing, $this->environmentPayload(['base_url' => $address, 'service_token' => 'testing-token']))->assertRedirect();
         }
 
-        $this->assertSame('https://auth.example.com', AuthEnvironment::query()->where('key', 'production')->sole()->base_url, 'a trailing slash is dropped');
+        $this->assertSame('https://auth.example.com', AuthEnvironment::query()->where('key', 'testing')->sole()->base_url, 'a trailing slash is dropped');
+        $this->assertSame(PizzasysMock::BASE_URL, AuthEnvironment::query()->where('key', 'production')->sole()->base_url);
     }
 
     public function test_changing_the_active_environment_restarts_nats_and_drops_the_verify_caches(): void
@@ -327,16 +332,20 @@ class AuthSettingsTest extends TestCase
     public function test_updates_are_audited_without_secrets(): void
     {
         $this->signIn();
+        $this->portal->acceptServiceToken('audit-me-not-token');
 
         $this->put(route('settings.auth.environments.update', 'production'), $this->environmentPayload([
-            'service_name' => 'renamed-chat',
+            'service_name' => PizzasysMock::SERVICE_NAME,
+            'label' => 'Audited',
             'service_token' => 'audit-me-not-token',
             'nats_url' => 'nats://nats.example.test:4222',
             'nats_token' => 'audit-me-not-nats',
         ]))->assertRedirect();
 
         $row = AuditLog::query()->where('action', 'auth.environment_updated')->sole();
-        $this->assertSame(['old' => PizzasysMock::SERVICE_NAME, 'new' => 'renamed-chat'], $row->changes['service_name']);
+        $this->assertSame(['old' => 'Production', 'new' => 'Audited'], $row->changes['label']);
+        $this->assertTrue($row->changes['service_credential_changed']);
+        $this->assertSame('dashboard', $row->changes['via']);
         $dump = (string) json_encode($row->changes);
         $this->assertStringNotContainsString('audit-me-not', $dump);
         $this->assertStringNotContainsString(PizzasysMock::SERVICE_TOKEN, $dump);

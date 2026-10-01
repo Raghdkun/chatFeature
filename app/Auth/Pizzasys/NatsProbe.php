@@ -9,7 +9,7 @@ use SensitiveParameter;
  * (with the token) plus `PING` and expect `PONG`. It proves reachability and that the token is accepted without
  * pulling in the consumer's NATS client. The token is never echoed into a message.
  */
-final class NatsProbe
+class NatsProbe
 {
     public const TIMEOUT_SECONDS = 3;
 

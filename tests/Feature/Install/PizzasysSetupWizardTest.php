@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Install;
 
+use App\Auth\Roles\RoleMapping;
+use App\Domain\Install\Actions\StoreInstallAnswers;
 use App\Models\AuditLog;
 use App\Models\AuthEnvironment;
 use App\Models\User;
@@ -180,13 +182,90 @@ class PizzasysSetupWizardTest extends InstallTestCase
         $this->choosePizzasys();
         $this->postPizzasys(['environments' => ['production' => ['nats_url' => 'nats://nats.example.test:4222', 'nats_token' => 'nats-wizard-token']]]);
 
-        $this->post(route('setup.pizzasys'), $this->pizzasysPayload(['environments' => ['production' => ['service_token' => null, 'nats_url' => 'nats://nats.example.test:4222', 'nats_token' => null, 'service_name' => 'renamed']]]))
+        $this->post(route('setup.pizzasys'), $this->pizzasysPayload(['environments' => ['production' => ['service_token' => null, 'nats_url' => 'nats://nats.example.test:4222', 'nats_token' => null, 'api_prefix' => '/api/v1']]]))
             ->assertRedirect(route('setup.index'));
 
         $stored = $this->install->read()['auth_environments']['environments']['production'];
-        $this->assertSame('renamed', $stored['service_name']);
         $this->assertSame(PizzasysMock::SERVICE_TOKEN, Crypt::decryptString($stored['service_token']));
         $this->assertSame('nats-wizard-token', Crypt::decryptString($stored['nats_token']));
+    }
+
+    // ---- a stored token never follows a new destination ---------------------------------------------------------
+
+    public function test_a_new_portal_address_needs_the_service_token_again(): void
+    {
+        $this->choosePizzasys();
+        $this->postPizzasys(['environments' => ['production' => ['nats_url' => 'nats://nats.example.test:4222', 'nats_token' => 'nats-wizard-token']]]);
+        $before = $this->install->read()['auth_environments']['environments']['production'];
+
+        $this->post(route('setup.pizzasys'), $this->pizzasysPayload(['environments' => ['production' => ['base_url' => 'https://evil.example.test', 'service_token' => null, 'nats_url' => 'nats://nats.example.test:4222']]]))
+            ->assertSessionHasErrors(['environments.production.service_token' => 'Re-enter the service token to change the portal address.']);
+
+        $this->assertSame($before, $this->install->read()['auth_environments']['environments']['production'], 'nothing changed');
+        Http::assertNotSent(fn ($request): bool => str_contains($request->url(), 'evil.example.test'));
+    }
+
+    public function test_a_new_service_name_or_switching_verification_off_needs_the_service_token_again(): void
+    {
+        $this->choosePizzasys();
+        $this->postPizzasys();
+
+        $this->post(route('setup.pizzasys'), $this->pizzasysPayload(['environments' => ['production' => ['service_name' => 'renamed', 'service_token' => null]]]))
+            ->assertSessionHasErrors(['environments.production.service_token' => 'Re-enter the service token to change the service name.']);
+        $this->post(route('setup.pizzasys'), $this->pizzasysPayload(['environments' => ['production' => ['verify_tls' => false, 'service_token' => null]]]))
+            ->assertSessionHasErrors(['environments.production.service_token' => 'Re-enter the service token to turn off certificate verification.']);
+    }
+
+    public function test_a_new_nats_address_needs_the_nats_token_again(): void
+    {
+        $this->choosePizzasys();
+        $this->postPizzasys(['environments' => ['production' => ['nats_url' => 'nats://nats.example.test:4222', 'nats_token' => 'nats-wizard-token']]]);
+
+        $this->post(route('setup.pizzasys'), $this->pizzasysPayload(['environments' => ['production' => ['service_token' => null, 'nats_url' => 'nats://nats-two.example.test:4222', 'nats_token' => null]]]))
+            ->assertSessionHasErrors(['environments.production.nats_token' => 'Re-enter the NATS token to change the NATS address.']);
+
+        // typed again, or explicitly dropped, is fine
+        $this->post(route('setup.pizzasys'), $this->pizzasysPayload(['environments' => ['production' => ['service_token' => null, 'nats_url' => 'nats://nats-two.example.test:4222', 'nats_token' => 'second-nats-token']]]))
+            ->assertRedirect(route('setup.index'));
+        $this->post(route('setup.pizzasys'), $this->pizzasysPayload(['environments' => ['production' => ['service_token' => null, 'nats_url' => 'nats://nats-three.example.test:4222', 'nats_token' => null, 'clear_nats_token' => true]]]))
+            ->assertRedirect(route('setup.index'));
+
+        $stored = $this->install->read()['auth_environments']['environments']['production'];
+        $this->assertSame('nats://nats-three.example.test:4222', $stored['nats_url']);
+        $this->assertNull($stored['nats_token']);
+        $this->assertSame(PizzasysMock::SERVICE_TOKEN, Crypt::decryptString($stored['service_token']));
+    }
+
+    public function test_a_new_destination_with_its_token_typed_again_is_stored_with_the_new_token_only(): void
+    {
+        $this->choosePizzasys();
+        $this->postPizzasys();
+
+        $this->post(route('setup.pizzasys'), $this->pizzasysPayload(['environments' => ['production' => ['base_url' => 'https://auth-two.example.test', 'service_token' => 'second-service-token']]]))
+            ->assertRedirect(route('setup.index'));
+
+        $stored = $this->install->read()['auth_environments']['environments']['production'];
+        $this->assertSame('https://auth-two.example.test', $stored['base_url']);
+        $this->assertSame('second-service-token', Crypt::decryptString($stored['service_token']));
+    }
+
+    public function test_even_a_caller_that_skips_the_validation_cannot_carry_a_token_to_a_new_destination(): void
+    {
+        $this->choosePizzasys();
+        $this->postPizzasys(['environments' => ['production' => ['nats_url' => 'nats://nats.example.test:4222', 'nats_token' => 'nats-wizard-token']]]);
+
+        app(StoreInstallAnswers::class)->pizzasys(
+            ['production' => [
+                'base_url' => 'https://evil.example.test', 'service_name' => PizzasysMock::SERVICE_NAME, 'service_token' => null,
+                'nats_url' => 'nats://evil.example.test:4222', 'nats_token' => null, 'verify_tls' => true,
+            ]],
+            'production',
+            new RoleMapping,
+        );
+
+        $stored = $this->install->read()['auth_environments']['environments']['production'];
+        $this->assertNull($stored['service_token']);
+        $this->assertNull($stored['nats_token']);
     }
 
     public function test_an_empty_token_field_means_keep_and_a_cleared_nats_url_drops_the_nats_token(): void

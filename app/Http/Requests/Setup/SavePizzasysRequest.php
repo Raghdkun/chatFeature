@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Setup;
 
 use App\Auth\Enums\AuthMode;
+use App\Auth\Pizzasys\SecretReentry;
 use App\Data\Auth\EnvironmentKey;
 use App\Domain\Install\InstallState;
 use App\Domain\Install\Support\PizzasysAnswers;
@@ -81,13 +82,55 @@ class SavePizzasysRequest extends FormRequest
             if ($this->input('active_env') === 'testing' && ! $this->hasTesting()) {
                 $validator->errors()->add('active_env', __('Configure the testing environment before making it the active one.'));
             }
+
+            $this->requireSecretsForNewDestinations($validator);
         }];
+    }
+
+    /**
+     * A saved token is never reused for a new destination: a changed portal address, service name or NATS address (or
+     * certificate verification switched off) has to come with the token again.
+     */
+    private function requireSecretsForNewDestinations(Validator $validator): void
+    {
+        $answers = PizzasysAnswers::from(app(InstallState::class)->read()['auth_environments']);
+
+        foreach ($this->environmentAnswers() as $key => $submitted) {
+            $stored = $answers->environment($key);
+
+            if ($stored === null) {
+                continue;
+            }
+
+            $missing = SecretReentry::missing(
+                [
+                    'base_url' => $stored['base_url'],
+                    'service_name' => $stored['service_name'],
+                    'nats_url' => $stored['nats_url'],
+                    'verify_tls' => $stored['verify_tls'],
+                    'has_service_token' => $stored['service_token'] !== null,
+                    'has_nats_token' => $stored['nats_token'] !== null,
+                ],
+                [
+                    'base_url' => $submitted['base_url'],
+                    'service_name' => $submitted['service_name'],
+                    'nats_url' => $submitted['nats_url'],
+                    'verify_tls' => $submitted['verify_tls'],
+                    'service_token_given' => $submitted['service_token'] !== null,
+                    'nats_token_given' => $submitted['nats_token'] !== null || $submitted['nats_token_clear'],
+                ],
+            );
+
+            foreach ($missing as $field => $message) {
+                $validator->errors()->add("environments.{$key}.{$field}", $message);
+            }
+        }
     }
 
     /**
      * What to store: normalised environments keyed by environment key (testing absent when not configured).
      *
-     * @return array<string, array{base_url: string, api_prefix: string, service_name: string, service_token: string|null, nats_url: string|null, nats_token: string|null, verify_tls: bool}>
+     * @return array<string, array{base_url: string, api_prefix: string, service_name: string, service_token: string|null, nats_url: string|null, nats_token: string|null, nats_token_clear: bool, verify_tls: bool}>
      */
     public function environmentAnswers(): array
     {
@@ -103,6 +146,8 @@ class SavePizzasysRequest extends FormRequest
                 'service_token' => isset($input['service_token']) && is_string($input['service_token']) && $input['service_token'] !== '' ? $input['service_token'] : null,
                 'nats_url' => isset($input['nats_url']) && is_string($input['nats_url']) && $input['nats_url'] !== '' ? $input['nats_url'] : null,
                 'nats_token' => isset($input['nats_token']) && is_string($input['nats_token']) && $input['nats_token'] !== '' ? $input['nats_token'] : null,
+                // Optional: drop the stored NATS token without entering a new one.
+                'nats_token_clear' => filter_var($input['clear_nats_token'] ?? false, FILTER_VALIDATE_BOOLEAN),
                 'verify_tls' => ! array_key_exists('verify_tls', $input) || filter_var($input['verify_tls'], FILTER_VALIDATE_BOOLEAN),
             ];
         }
@@ -141,6 +186,7 @@ class SavePizzasysRequest extends FormRequest
             "environments.{$key}.service_token" => $stored !== null && $stored['service_token'] !== null ? ['nullable', ...$token] : ['required', ...$token],
             "environments.{$key}.nats_url" => ['nullable', 'string', new NatsUrl],
             "environments.{$key}.nats_token" => ['nullable', ...$token],
+            "environments.{$key}.clear_nats_token" => ['sometimes', 'boolean'],
             "environments.{$key}.verify_tls" => ['sometimes', 'boolean'],
         ];
     }
