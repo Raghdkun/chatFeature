@@ -19,6 +19,7 @@ const php = import.meta.glob<string>(
         '/app/Http/Requests/Widgets/*.php',
         '/app/Http/Requests/Catalog/StoreCategoryRequest.php',
         '/app/Http/Requests/Agents/*.php',
+        '/app/Http/Requests/Setup/StoreBasicsRequest.php',
         '/app/Http/Requests/Auth/UpdateAuthEnvironmentRequest.php',
         '/app/Http/Requests/Auth/UpdateAuthRolesRequest.php',
         '/app/Http/Requests/Setup/SavePizzasysRequest.php',
@@ -200,6 +201,17 @@ describe('categories', () => {
         );
         expect(source('CategorySlugger.php')).toContain(
             `'/${SLUG_PATTERN.source}/D'`,
+        );
+    });
+});
+
+describe('setup basics', () => {
+    it('matches the application name and URL', () => {
+        expect(LIMITS.appNameLength).toBe(
+            max('StoreBasicsRequest.php', 'app_name'),
+        );
+        expect(LIMITS.appUrlLength).toBe(
+            max('StoreBasicsRequest.php', 'app_url'),
         );
     });
 });

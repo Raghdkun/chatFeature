@@ -53,6 +53,10 @@ export const LIMITS = {
     categoryIconLength: 64,
     maxCategoryTranslations: 20,
 
+    /* Setup basics: app/Http/Requests/Setup/StoreBasicsRequest.php */
+    appNameLength: 100,
+    appUrlLength: 255,
+
     /* Staff: app/Http/Requests/Agents/{Store,Update}AgentRequest.php */
     maxConcurrentChats: { min: 1, max: 50 } as Range,
     staffNameLength: 255,

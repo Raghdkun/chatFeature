@@ -2040,6 +2040,47 @@ describe('going live and offline', () => {
     });
 });
 
+describe('time zone select', () => {
+    it('shows a saved legacy name (Asia/Calcutta) as its canonical name, once, and saves the canonical one', async () => {
+        const api = fakeApi({
+            'GET /widget/v1/loader.js': { status: 404 },
+            'PATCH /api/v1/widgets/w1': { json: { data: makeWidget() } },
+            'PUT /api/v1/widgets/w1/draft': { json: { data: {} } },
+        });
+        const view = await render(
+            <WidgetBuilder
+                {...makeBuilderData({
+                    widget: makeWidget({ timezone: 'Asia/Calcutta' }),
+                })}
+            />,
+        );
+
+        await flush();
+
+        const select = byLabelText(
+            view.container,
+            'Time zone',
+        ) as unknown as HTMLSelectElement;
+        const values = Array.from(select.options).map((o) => o.value);
+
+        expect(select.value).toBe('Asia/Kolkata');
+        expect(values.filter((value) => value === 'Asia/Kolkata')).toHaveLength(
+            1,
+        );
+        expect(values).not.toContain('Asia/Calcutta');
+        // Showing the canonical name is not an edit.
+        expect(view.byTestId('builder-badge-dirty')).toBeNull();
+
+        await choose(select, 'Europe/Kyiv');
+        await click(view.byTestId('builder-save'));
+        await flush();
+
+        expect(api.bodyOf('PATCH', '/api/v1/widgets/w1')).toEqual({
+            timezone: 'Europe/Kyiv',
+        });
+    });
+});
+
 describe('what applies immediately', () => {
     it('labels the live sections and leaves the draft design alone', async () => {
         const { view } = await setup();
