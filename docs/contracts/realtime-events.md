@@ -14,9 +14,9 @@ returns (`#[TypeScript]`), so web, loader and the future mobile app share one co
 |---|---|---|
 | `private-staff.{userId}` | one staff member | `auth` (web session or Sanctum) and `user.id === userId`. |
 | `presence-staff` | roster of signed-in staff | active staff only; member info `{id, name, avatarUrl, status}`. |
-| `private-conversation.{ulid}` | the visitor of that conversation + its assigned agent; admins may monitor | callback with guards `web, sanctum, visitor`. Staff: `is_admin` **or** assigned agent **or** currently in the offered set of a still-`queued` chat. Visitor: bearer token whose session is bound to this conversation. Visitor auth endpoint: `POST /api/v1/public/broadcasting/auth` (Bearer `vt_…`). |
+| `private-conversation.{ulid}` | the visitor of that conversation + its assigned agent; admins may monitor | callback with guards `web, sanctum` for staff; **visitors do not use this callback**: they authorise only through `POST /api/v1/public/broadcasting/auth` (bearer token bound to the conversation). Staff: `is_admin` **or** assigned agent **or** currently in the offered set of a still-`queued` chat. Visitor: bearer token whose session is bound to this conversation. Visitor auth endpoint: `POST /api/v1/public/broadcasting/auth` (Bearer `vt_…`). |
 | `private-admin` | admins only | `is_admin`. |
-| `private-whatsapp-admin` | admins only (P6) | `is_admin`. Agents can **never** subscribe. |
+| `private-whatsapp-admin` | admins only (P6) | **Not registered until P6** (nobody can join it). Agents can **never** subscribe. |
 
 Why per-agent offer channels (not per-category channels): the eligible set is computed at request time (presence, category, capacity), so there are no stale subscriptions after an agent edits categories.
 
@@ -27,7 +27,7 @@ Why per-agent offer channels (not per-category channels): the eligible set is co
 | `chat.offered` | `staff.{id}` (each eligible agent) | `{v, conversation: ulid, category: {slug,label}\|null, visitor: {name\|null, verified: bool}, preview: string\|null, widget: {ulid,name}, wave: int, expiresAt: ISO}` | queued |
 | `chat.taken` | `staff.{id}` (other offered agents) | `{v, conversation, by: {id, name}}` | queued |
 | `chat.assigned` | `staff.{id}` | `{v, conversation}` (transfer / admin assignment) | queued |
-| `conversation.updated` | `staff.{id}`, `admin` | `{v, conversation: ConversationStaff}` (list refresh; status/assignee/unseen changes) | queued |
+| `conversation.updated` | `staff.{id}` (eligible/assigned agents, **also the former agent after a transfer/assignment and agents serving the category when an offline ticket is created**), `admin` | `{v, conversation: ConversationStaff}` (list refresh; status/assignee/unseen changes) | queued |
 | `unread.updated` | `staff.{id}` | `{v, conversation, unseen: int}` | queued |
 | `queue.updated` | `staff.{id}`, `admin` | `{v, queued: int}` | queued |
 | `session.revoked` | `staff.{id}` | `{v, reason: 'role_removed'\|'deactivated'\|'auth_revoked'}` | now |
@@ -36,6 +36,7 @@ Why per-agent offer channels (not per-category channels): the eligible set is co
 | `message.created` | `conversation.{ulid}` | `{v, message: Message}` | **now** (`ShouldBroadcastNow`, latency) |
 | `message.seen` | `conversation.{ulid}` | `{v, upToSeq: int, by: 'visitor'\|'agent', at}` | queued |
 | `client-typing` (whisper) | `conversation.{ulid}` | `{actor: 'visitor'\|'agent', typing: bool}` — debounce 3 s, auto-expire 5 s | client event |
+| `typing` | `conversation.{ulid}` | `{v, actor: 'visitor'\|'agent', typing: bool}` — server event of the REST typing fallback (`POST …/typing`); a server cannot publish `client-*` events. Clients bind both and feed one typing helper | now |
 | `conversation.ended` | `conversation.{ulid}` | `{v, endedBy: 'visitor'\|'agent'\|'admin'\|'system', ratingRequested: bool}` | queued |
 | `conversation.closed` | `conversation.{ulid}` | `{v, reason: 'rated'\|'skipped'\|'idle'\|'timeout'\|'system'\|'cancelled'}` | queued |
 | `conversation.transferred` | `conversation.{ulid}` | `{v}` (visitor sees "connecting you to another agent…") | queued |

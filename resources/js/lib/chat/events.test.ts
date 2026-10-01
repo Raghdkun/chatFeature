@@ -28,6 +28,7 @@ describe('chat events', () => {
                 'presence.changed',
                 'queue.updated',
                 'session.revoked',
+                'typing',
                 'unread.updated',
             ].sort(),
         );
@@ -52,6 +53,7 @@ describe('chat events', () => {
             'offline-ticket.created': 'offline-ticket.created',
             'conversation.rated': 'conversation.rated',
             'client-typing': 'client-typing',
+            typing: 'typing',
         };
 
         expect(Object.keys(names)).toHaveLength(Object.keys(CHAT_EVENT).length);
@@ -60,6 +62,7 @@ describe('chat events', () => {
     it('listens with a leading dot (custom broadcastAs names)', () => {
         expect(echoEvent(CHAT_EVENT.messageCreated)).toBe('.message.created');
         expect(echoEvent(CHAT_EVENT.typing)).toBe('.client-typing');
+        expect(echoEvent(CHAT_EVENT.typingFallback)).toBe('.typing');
     });
 
     it('builds channel names without the private-/presence- prefix', () => {

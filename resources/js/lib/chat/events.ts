@@ -24,6 +24,8 @@ export const CHAT_EVENT = {
     conversationRated: 'conversation.rated',
     /** Client whisper (no server round trip): payload is a `TypingWhisper`. */
     typing: 'client-typing',
+    /** Server event for the REST typing fallback (a server cannot publish `client-*` events): payload `{ v, actor, typing }`. */
+    typingFallback: 'typing',
 } as const;
 
 export type ChatEventName = (typeof CHAT_EVENT)[keyof typeof CHAT_EVENT];
@@ -47,6 +49,7 @@ export type ChatEventPayloads = {
     'offline-ticket.created': App.Data.Chat.Events.OfflineTicketCreatedPayload;
     'conversation.rated': App.Data.Chat.Events.ConversationRatedPayload;
     'client-typing': TypingWhisper;
+    typing: { v: 1; actor: TypingWhisper['actor']; typing: boolean };
 };
 
 /** The only payload version the clients understand. */

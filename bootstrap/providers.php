@@ -11,6 +11,7 @@ use App\Providers\InstallAwareConfigProvider;
 use App\Providers\InstallServiceProvider;
 use App\Providers\NotificationsServiceProvider;
 use App\Providers\PresenceServiceProvider;
+use App\Providers\RealtimeServiceProvider;
 use App\Providers\SettingsServiceProvider;
 use App\Providers\TypeScriptTransformerServiceProvider;
 use App\Providers\VisitorsServiceProvider;
@@ -30,6 +31,7 @@ return [
     InstallServiceProvider::class,
     NotificationsServiceProvider::class,
     PresenceServiceProvider::class,
+    RealtimeServiceProvider::class,
     SettingsServiceProvider::class,
     TypeScriptTransformerServiceProvider::class,
     VisitorsServiceProvider::class,

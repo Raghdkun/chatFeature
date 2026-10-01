@@ -15,7 +15,8 @@
         "e2e": "playwright test",
         "e2e:headed": "playwright test --headed",
         "e2e:screenshots": "E2E_SCREENSHOTS=1 playwright test e2e/screenshots",
-        "size": "size-limit"
+        "size": "size-limit",
+        "realtime:smoke": "node e2e/support/realtime-smoke.mjs"
     },
     "dependencies": {
         "@inertiajs/react": "^3.0.0",
