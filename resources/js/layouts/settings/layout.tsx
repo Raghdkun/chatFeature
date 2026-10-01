@@ -1,5 +1,6 @@
 import { Link, usePage } from '@inertiajs/react';
 import type { PropsWithChildren } from 'react';
+import { useSupportCategoriesNavItem } from '@/components/categories/support-nav-item';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -34,23 +35,27 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
     const { isCurrentOrParentUrl } = useCurrentUrl();
     const { auth } = usePage().props;
     const { t } = useTrans();
+    const supportCategories = useSupportCategoriesNavItem();
 
     // Admin-only (the route is guarded server side too). Mode 2 calls it the Auth Portal; in mode 1
     // the page only explains that sign-in is managed by this app.
-    const items: NavItem[] = auth.user?.is_admin
-        ? [
-              ...sidebarNavItems,
-              {
-                  title: t(
-                      auth.mode === 'pizzasys'
-                          ? 'settings.auth.nav'
-                          : 'settings.auth.nav_local',
-                  ),
-                  href: authSettingsRoutes.index,
-                  icon: null,
-              },
-          ]
-        : sidebarNavItems;
+    const authItem: NavItem | null = auth.user?.is_admin
+        ? {
+              title: t(
+                  auth.mode === 'pizzasys'
+                      ? 'settings.auth.nav'
+                      : 'settings.auth.nav_local',
+              ),
+              href: authSettingsRoutes.index,
+              icon: null,
+          }
+        : null;
+
+    const items: NavItem[] = [
+        ...sidebarNavItems,
+        ...(supportCategories ? [supportCategories] : []),
+        ...(authItem ? [authItem] : []),
+    ];
 
     return (
         <div className="px-4 py-6">
