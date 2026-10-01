@@ -21,6 +21,7 @@ enum RealtimeEvent: string
     case MessageSeen = 'message.seen';
     case ConversationEnded = 'conversation.ended';
     case ConversationClosed = 'conversation.closed';
+    case ConversationMissed = 'conversation.missed';
     case ConversationTransferred = 'conversation.transferred';
     case OfflineTicketCreated = 'offline-ticket.created';
     case ConversationRated = 'conversation.rated';

@@ -103,6 +103,7 @@ Plain `final` classes, `Dispatchable` + `SerializesModels`, `ShouldDispatchAfter
 | `MessageCreated` | `message` | message actions | `message.created` (NOW), unseen counters, push |
 | `MessagesSeen` | `conversation, int upToSeq, SenderType by` | receipts action | `message.seen` |
 | `ConversationEnded` | `conversation, ConversationEndedBy endedBy` | end action | `conversation.ended`, `conversation.updated` |
+| `ConversationMissed` | `conversation` | queue-expiry action | `conversation.missed` on the conversation channel |
 | `ConversationClosed` | `conversation, ConversationCloseReason reason` | rating action, sweeps | `conversation.closed`, `conversation.updated` |
 | `ConversationTransferred` | `conversation, ?User fromAgent, ?User toAgent, ?Category toCategory` | transfer action | `conversation.transferred` |
 | `OfflineTicketCreated` | `conversation` | offline-form action | `offline-ticket.created` (admin), list refresh |

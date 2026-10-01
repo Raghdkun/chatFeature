@@ -39,6 +39,14 @@
 | `cannot_deactivate_self` | 409 | An admin deactivating their own account |
 | `not_an_agent` | 409 | Assigning categories to an account that does not take chats (`is_agent` false) |
 | `auth_mode_unavailable` | 500 | Installed instance without a valid `auth.mode` setting (fails closed, reported) |
+| `feature_disabled` | 403 | A widget switch the request needs is off (`attachments`, `endChatByVisitor`, `offlineForm`) |
+| `no_agents` | 409 | Start chat: nobody is eligible/online for the category; offer the offline form |
+| `conversation_exists` | 409 | The visitor session already has an open live chat |
+| `already_claimed` | 409 | Claim lost the race; `details.by` is the winner's name (plain string) |
+| `conversation_not_queued` | 409 | Claim of a chat that is no longer queued (403 for staff who were never offered it) |
+| `at_capacity` | 409 | Claim by an agent at `max_concurrent_chats` (live chats only; offline tickets take no slot) |
+| `conversation_not_active` / `conversation_not_ended` / `conversation_not_open` | 409 | The action does not fit the conversation's current status (message to a closed chat, rating before the end, ...) |
+| `already_rated` | 409 | The conversation already has its (single) rating |
 | `rate_limited` | 429 | Limiter hit; `Retry-After` set |
 | `server_error` | 500 | Unhandled exception in production |
 
@@ -102,9 +110,9 @@ Session creation is scoped to a widget (`POST /public/widgets/{key}/sessions`) a
 
 | Method + path | Request | Response |
 |---|---|---|
-| `POST /public/widgets/{key}/sessions` | `{ identity_token?, visitor?: {name?,email?,phone?,meta?}, page: {url,title,referrer}, locale }` | `201 { data: { visitorToken, expiresAt, conversation: ConversationPublic \| null, ws: { key, host, port, scheme } } }`. The plaintext token is returned **once**; only its sha256 is stored. A returning token resumes only a still-open conversation. |
+| `POST /public/widgets/{key}/sessions` | `{ identity_token?, visitor?: {name?,email?,phone?,meta?}, page: {url,title,referrer}, locale }` | `201 { data: { visitorToken, expiresAt, conversation: ConversationPublic \| null, ws: { key, host, port, scheme } \| null } }` (`ws` is `null` when Reverb is not configured: stay on REST polling). The plaintext token is returned **once**; only its sha256 is stored. A returning token resumes only a still-open conversation. |
 | `DELETE /public/sessions` | — | `204` (revokes the token). |
-| `GET /public/conversation` | — | `200 { data: ConversationPublic \| null }` (the current session's conversation only — visitors never list history). |
+| `GET /public/conversation` | — | `200 { data: ConversationPublic \| null }` (the session's latest live conversation **in any status**, including `missed` and `closed`, so the panel can learn the outcome without a realtime event; never a list, never offline tickets: visitors never see history). |
 | `POST /public/conversations` | `{ category: slug, name?, email?, phone?, message?, consent?: bool }` (pre-chat rules from widget config are enforced server-side) | `201 { data: ConversationPublic }` queued · `409 no_agents` (offer the offline form) · `409 conversation_exists` · `422`. |
 | `POST /public/offline-tickets` | `{ name, email, message, category?, missed_conversation?: ulid }` (the ulid of the visitor's own `missed` live chat, if any; it is recorded in the new row's `created` event) | `201 { data: ConversationPublic }` with `type: 'offline'`, `status: 'queued'`. Offline tickets are separate rows (decision P4-D2); there is no `{ulid}` form because the `409 no_agents` path creates no conversation. Rate limited; needs a visitor token like every public write. |
 | `GET /public/conversations/{ulid}/messages` | `?after_seq=&limit=` | `{ data: Message[], meta: { next_cursor } }` ordered by `seq`. |
@@ -114,6 +122,8 @@ Session creation is scoped to a widget (`POST /public/widgets/{key}/sessions`) a
 | `POST /public/conversations/{ulid}/typing` | `{ typing: bool }` | `204` (fallback when whispers are unavailable). |
 | `POST /public/conversations/{ulid}/end` | — | `200 { data: ConversationPublic }` (`ended`, `ratingRequested: true`). |
 | `POST /public/conversations/{ulid}/rating` | `{ score: 1..5, comment? (≤ 2000) }` | `201`; conversation becomes `closed`. One rating per conversation. |
+| `POST /public/conversations/{ulid}/rating/skip` | — | `200 { data: ConversationPublic }` (`closed`, reason `skipped`; P4-D8). |
+| `POST /public/conversations/{ulid}/cancel` | — | `200 { data: ConversationPublic }` (a visitor leaves a `queued` chat: `closed`, reason `cancelled`). |
 | `POST /public/broadcasting/auth` | Pusher form `socket_id`, `channel_name` | Pusher auth JSON (visitor channels only). |
 | `GET /public/attachments/{ulid}` | signed URL | `302` to a short-lived storage URL. |
 

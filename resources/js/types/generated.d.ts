@@ -272,6 +272,9 @@ v: number,
 endedBy: App.Domain.Chat.Enums.ConversationEndedBy,
 ratingRequested: boolean,
 };
+export type ConversationMissedPayload = {
+v: number,
+};
 export type ConversationRatedPayload = {
 v: number,
 conversation: string,
@@ -471,6 +474,9 @@ export type OfferResponse = 'accepted' | 'taken' | 'expired' | 'dismissed';
 export type PresenceStatus = 'online' | 'away' | 'offline';
 export type SenderType = 'visitor' | 'agent' | 'system';
 export type SessionRevokeReason = 'role_removed' | 'deactivated' | 'auth_revoked';
+}
+namespace Realtime {
+export type RealtimeEvent = 'chat.offered' | 'chat.taken' | 'chat.assigned' | 'chat.claimed' | 'conversation.updated' | 'unread.updated' | 'queue.updated' | 'session.revoked' | 'presence.changed' | 'message.created' | 'message.seen' | 'conversation.ended' | 'conversation.closed' | 'conversation.missed' | 'conversation.transferred' | 'offline-ticket.created' | 'conversation.rated' | 'typing';
 }
 }
 namespace Settings {

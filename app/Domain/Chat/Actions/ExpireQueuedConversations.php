@@ -6,6 +6,7 @@ use App\Domain\Chat\Enums\ActorType;
 use App\Domain\Chat\Enums\ConversationStatus;
 use App\Domain\Chat\Enums\ConversationType;
 use App\Domain\Chat\Enums\OfferResponse;
+use App\Domain\Chat\Events\ConversationMissed;
 use App\Domain\Chat\Events\ConversationUpdated;
 use App\Domain\Chat\Events\QueueChanged;
 use App\Domain\Chat\Services\ConversationTimeline;
@@ -82,6 +83,7 @@ final class ExpireQueuedConversations
         if ($expired) {
             $conversation = Conversation::query()->with(['widget', 'visitor', 'category', 'assignedAgent'])->findOrFail($conversationId);
 
+            ConversationMissed::dispatch($conversation);
             ConversationUpdated::dispatch($conversation);
             QueueChanged::dispatch($conversation);
         }

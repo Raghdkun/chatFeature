@@ -15,6 +15,7 @@ use App\Domain\Chat\Events\ConversationAssigned;
 use App\Domain\Chat\Events\ConversationClaimed;
 use App\Domain\Chat\Events\ConversationClosed;
 use App\Domain\Chat\Events\ConversationEnded;
+use App\Domain\Chat\Events\ConversationMissed;
 use App\Domain\Chat\Events\ConversationQueued;
 use App\Domain\Chat\Events\ConversationRated;
 use App\Domain\Chat\Events\ConversationTransferred;
@@ -413,6 +414,16 @@ class ChatEventBroadcastsTest extends TestCase
         $this->assertChannels('conversation.updated', ['private-admin', $this->staff($this->alice)]);
     }
 
+    public function test_a_missed_chat_tells_the_waiting_visitor_on_the_conversation_channel(): void
+    {
+        $conversation = Conversation::factory()->create(['category_id' => $this->billing->id]);
+
+        ConversationMissed::dispatch($conversation);
+
+        $this->assertChannels('conversation.missed', [$this->conversationChannel($conversation)]);
+        $this->assertSame(['v' => 1], $this->wire->sole('conversation.missed')['payload']);
+    }
+
     public function test_a_transfer_tells_the_visitor_and_refreshes_the_list_of_the_agent_the_chat_left(): void
     {
         $conversation = Conversation::factory()->create(['category_id' => $this->billing->id]);
@@ -443,7 +454,8 @@ class ChatEventBroadcastsTest extends TestCase
 
         MessageCreated::dispatch($message);
         ConversationClaimed::dispatch($conversation, $this->alice);
-        StaffSessionRevoked::dispatch($this->alice->id, SessionRevokeReason::Deactivated);
+        // A user without chats: a revoked agent's open chats would be requeued (4A's listener) and queue more broadcasts.
+        StaffSessionRevoked::dispatch(999_999, SessionRevokeReason::Deactivated);
         TypingBroadcast::dispatch($conversation->ulid, SenderType::Visitor, true);
 
         foreach (['message.created', 'chat.claimed', 'session.revoked', 'typing'] as $event) {
@@ -545,6 +557,7 @@ class ChatEventBroadcastsTest extends TestCase
         MessagesSeen::dispatch($conversation, 1, SenderType::Agent);
         ConversationEnded::dispatch($conversation, ConversationEndedBy::Agent);
         ConversationClosed::dispatch($conversation, ConversationCloseReason::Rated);
+        ConversationMissed::dispatch($conversation);
         ConversationTransferred::dispatch($conversation, $this->alice, $this->bob, null);
         OfflineTicketCreated::dispatch($conversation);
         ConversationRated::dispatch($conversation, $rating);
@@ -585,7 +598,7 @@ class ChatEventBroadcastsTest extends TestCase
     public function test_the_event_names_are_the_dotted_names_of_the_contract(): void
     {
         $this->assertSame(
-            ['chat.offered', 'chat.taken', 'chat.assigned', 'chat.claimed', 'conversation.updated', 'unread.updated', 'queue.updated', 'session.revoked', 'presence.changed', 'message.created', 'message.seen', 'conversation.ended', 'conversation.closed', 'conversation.transferred', 'offline-ticket.created', 'conversation.rated', 'typing'],
+            ['chat.offered', 'chat.taken', 'chat.assigned', 'chat.claimed', 'conversation.updated', 'unread.updated', 'queue.updated', 'session.revoked', 'presence.changed', 'message.created', 'message.seen', 'conversation.ended', 'conversation.closed', 'conversation.missed', 'conversation.transferred', 'offline-ticket.created', 'conversation.rated', 'typing'],
             array_map(fn (RealtimeEvent $event): string => $event->value, RealtimeEvent::cases()),
         );
     }

@@ -39,6 +39,7 @@ Why per-agent offer channels (not per-category channels): the eligible set is co
 | `typing` | `conversation.{ulid}` | `{v, actor: 'visitor'\|'agent', typing: bool}` — server event of the REST typing fallback (`POST …/typing`); a server cannot publish `client-*` events. Clients bind both and feed one typing helper | now |
 | `conversation.ended` | `conversation.{ulid}` | `{v, endedBy: 'visitor'\|'agent'\|'admin'\|'system', ratingRequested: bool}` | queued |
 | `conversation.closed` | `conversation.{ulid}` | `{v, reason: 'rated'\|'skipped'\|'idle'\|'timeout'\|'system'\|'cancelled'}` | queued |
+| `conversation.missed` | `conversation.{ulid}` | `{v}` — a queued chat nobody accepted in time became `missed`: show the offline form | queued |
 | `conversation.transferred` | `conversation.{ulid}` | `{v}` (visitor sees "connecting you to another agent…") | queued |
 | `offline-ticket.created` | `admin` | `{v, conversation: ConversationStaff}` | queued |
 | `conversation.rated` | `admin` | `{v, conversation, score: 1..5}` | queued |

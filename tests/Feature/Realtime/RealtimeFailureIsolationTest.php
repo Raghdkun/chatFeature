@@ -73,7 +73,8 @@ class RealtimeFailureIsolationTest extends TestCase
         Exceptions::fake();
         $this->wire->failWith(new BroadcastException('down'));
 
-        StaffSessionRevoked::dispatch(1, SessionRevokeReason::Deactivated);
+        // A user without chats: a revoked agent's open chats would be requeued (4A's listener), each with its own broadcasts.
+        StaffSessionRevoked::dispatch(999_999, SessionRevokeReason::Deactivated);
         TypingBroadcast::dispatch($this->conversation->ulid, SenderType::Visitor, true);
         MessagesSeen::dispatch($this->conversation, 1, SenderType::Visitor);
 

@@ -8,6 +8,7 @@ use App\Data\Chat\Events\ChatClaimedPayload;
 use App\Data\Chat\Events\ChatTakenPayload;
 use App\Data\Chat\Events\ConversationClosedPayload;
 use App\Data\Chat\Events\ConversationEndedPayload;
+use App\Data\Chat\Events\ConversationMissedPayload;
 use App\Data\Chat\Events\ConversationRatedPayload;
 use App\Data\Chat\Events\ConversationTransferredPayload;
 use App\Data\Chat\Events\MessageCreatedPayload;
@@ -23,6 +24,7 @@ use App\Domain\Chat\Events\ConversationAssigned;
 use App\Domain\Chat\Events\ConversationClaimed;
 use App\Domain\Chat\Events\ConversationClosed;
 use App\Domain\Chat\Events\ConversationEnded;
+use App\Domain\Chat\Events\ConversationMissed;
 use App\Domain\Chat\Events\ConversationQueued;
 use App\Domain\Chat\Events\ConversationRated;
 use App\Domain\Chat\Events\ConversationTransferred;
@@ -79,6 +81,7 @@ final class ChatEventSubscriber
             MessagesSeen::class => 'messagesSeen',
             ConversationEnded::class => 'conversationEnded',
             ConversationClosed::class => 'conversationClosed',
+            ConversationMissed::class => 'conversationMissed',
             ConversationTransferred::class => 'conversationTransferred',
             OfflineTicketCreated::class => 'offlineTicketCreated',
             ConversationRated::class => 'conversationRated',
@@ -194,6 +197,14 @@ final class ChatEventSubscriber
 
             event(new PayloadBroadcast(RealtimeEvent::ConversationClosed, [RealtimeChannels::conversation($ulid)], (new ConversationClosedPayload($event->reason))->toArray()));
             event(new ConversationUpdatedBroadcast($ulid));
+        });
+    }
+
+    /** Nobody accepted in time: the waiting visitor is told on the conversation channel (the list refresh comes with `ConversationUpdated`). */
+    public function conversationMissed(ConversationMissed $event): void
+    {
+        $this->guard(function () use ($event): void {
+            event(new PayloadBroadcast(RealtimeEvent::ConversationMissed, [RealtimeChannels::conversation($event->conversation->ulid)], (new ConversationMissedPayload)->toArray()));
         });
     }
 

@@ -19,6 +19,7 @@ export const CHAT_EVENT = {
     messageSeen: 'message.seen',
     conversationEnded: 'conversation.ended',
     conversationClosed: 'conversation.closed',
+    conversationMissed: 'conversation.missed',
     conversationTransferred: 'conversation.transferred',
     offlineTicketCreated: 'offline-ticket.created',
     conversationRated: 'conversation.rated',
@@ -45,6 +46,7 @@ export type ChatEventPayloads = {
     'message.seen': App.Data.Chat.Events.MessageSeenPayload;
     'conversation.ended': App.Data.Chat.Events.ConversationEndedPayload;
     'conversation.closed': App.Data.Chat.Events.ConversationClosedPayload;
+    'conversation.missed': App.Data.Chat.Events.ConversationMissedPayload;
     'conversation.transferred': App.Data.Chat.Events.ConversationTransferredPayload;
     'offline-ticket.created': App.Data.Chat.Events.OfflineTicketCreatedPayload;
     'conversation.rated': App.Data.Chat.Events.ConversationRatedPayload;

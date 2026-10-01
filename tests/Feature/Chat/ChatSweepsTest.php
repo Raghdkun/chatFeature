@@ -7,6 +7,7 @@ use App\Domain\Chat\Enums\ConversationCloseReason;
 use App\Domain\Chat\Enums\ConversationStatus;
 use App\Domain\Chat\Enums\OfferResponse;
 use App\Domain\Chat\Events\ConversationClosed;
+use App\Domain\Chat\Events\ConversationMissed;
 use App\Domain\Chat\Events\ConversationUpdated;
 use App\Domain\Chat\Events\QueueChanged;
 use App\Domain\Chat\Jobs\ExpireQueuedConversation;
@@ -59,7 +60,7 @@ class ChatSweepsTest extends TestCase
 
     public function test_a_chat_nobody_accepted_in_time_becomes_missed(): void
     {
-        Event::fake([ConversationUpdated::class, QueueChanged::class]);
+        Event::fake([ConversationMissed::class, ConversationUpdated::class, QueueChanged::class]);
         $due = $this->queued(['queue_expires_at' => now()->subSecond()]);
         $notDue = $this->queued(['queue_expires_at' => now()->addMinute()]);
         $claimed = Conversation::factory()->active($this->agent)->create(['widget_id' => $this->widget->id, 'queue_expires_at' => now()->subMinute()]);
@@ -78,6 +79,7 @@ class ChatSweepsTest extends TestCase
         $this->assertSame(OfferResponse::Expired, $offer->response);
         $this->assertNull(ConversationOffer::query()->where('conversation_id', $notDue->id)->value('response'));
         $this->assertSame('missed', $due->events()->sole()->type);
+        Event::assertDispatched(ConversationMissed::class, fn (ConversationMissed $event): bool => $event->conversation->is($due));
         Event::assertDispatched(ConversationUpdated::class, fn (ConversationUpdated $event): bool => $event->conversation->is($due));
         Event::assertDispatched(QueueChanged::class, fn (QueueChanged $event): bool => $event->conversation?->is($due) === true);
 
