@@ -31,12 +31,13 @@ use Illuminate\Support\Carbon;
  * @property string|null $referrer
  * @property string|null $user_agent
  * @property string|null $locale
+ * @property string|null $network_hash
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Visitor $visitor
  * @property-read Widget $widget
  */
-#[Fillable(['visitor_id', 'widget_id', 'token_hash', 'expires_at', 'revoked_at', 'last_used_at', 'page_url', 'page_title', 'referrer', 'user_agent', 'locale'])]
+#[Fillable(['visitor_id', 'widget_id', 'token_hash', 'expires_at', 'revoked_at', 'last_used_at', 'page_url', 'page_title', 'referrer', 'user_agent', 'locale', 'network_hash'])]
 #[Hidden(['token_hash'])]
 class VisitorSession extends Model
 {

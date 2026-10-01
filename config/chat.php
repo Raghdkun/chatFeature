@@ -58,6 +58,12 @@ return [
          * - public_message_session: POST messages per visitor session. public_chat_session: every other visitor call (reads, receipts, typing ...).
          * - public_chat_ip: every visitor call per client network (a shared office NAT needs room).
          * - public_upload_session: image uploads per visitor session. public_offline_ip / public_offline_session: offline tickets.
+         * - public_visitor_ip: EVERY visitor call per client network, counted BEFORE the token is looked up (`public-network`): random
+         *   bearer tokens each cost an indexed read, so they must be throttled before the lookup.
+         * - start_per_widget_network / start_per_widget: starting a live chat (`POST /public/conversations`, `public-message`) per
+         *   widget + client network and per widget overall. offline_per_widget_network / offline_per_widget: the same for offline tickets
+         *   (`public-offline`). The Origin check is forgeable by a non-browser client, so these budgets are the anti-automation
+         *   floor (a captcha / proof-of-work hook is planned for P7). A shared office NAT that needs more raises the first one.
          * - staff_api_user: management chat calls per staff member.
          */
         'public_session_ip' => 60,
@@ -68,8 +74,25 @@ return [
         'public_upload_session' => 10,
         'public_offline_ip' => 10,
         'public_offline_session' => 3,
+        'public_visitor_ip' => 600,
+        'start_per_widget_network' => 3,
+        'start_per_widget' => 120,
+        'offline_per_widget_network' => 3,
+        'offline_per_widget' => 120,
         'staff_api_user' => 600,
     ],
+
+    /*
+     * Chat start guards (not per-minute limiters; see also rate_limits.start_*).
+     * - cancel_cooldown_seconds: after a visitor cancels a queued chat they cannot start another for this long (429 + Retry-After):
+     *   start / cancel loops each fan an offer out to every agent.
+     * - max_queued_per_network: live chats waiting for an agent at once from one client network on one widget (429 above it).
+     */
+    'cancel_cooldown_seconds' => 10,
+    'max_queued_per_network' => 3,
+
+    /* Image bytes one conversation may hold in total (visitor and agent uploads together); the next upload is a 422 `attachment_quota_exceeded`. */
+    'attachment_max_total_bytes' => (int) env('CHAT_ATTACHMENT_MAX_TOTAL_BYTES', 30 * 1024 * 1024),
 
     /* Disk that holds chat attachments (re-encoded images, random paths). Private: files are only served through signed URLs. */
     'attachments_disk' => env('CHAT_ATTACHMENTS_DISK', 'local'),

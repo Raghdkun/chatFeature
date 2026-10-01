@@ -9,6 +9,7 @@ use App\Domain\Chat\Enums\MessageType;
 use App\Domain\Chat\Enums\SenderType;
 use App\Domain\Chat\Events\ConversationQueued;
 use App\Domain\Chat\Events\QueueChanged;
+use App\Domain\Chat\Services\ChatStartGuard;
 use App\Domain\Chat\Services\ConversationCreator;
 use App\Domain\Chat\Services\ConversationMessenger;
 use App\Domain\Chat\Services\ConversationTimeline;
@@ -34,7 +35,8 @@ use Illuminate\Validation\ValidationException;
  * taken at all: the category must be active and enabled on the widget, the widget must be open and some agent must be
  * available for it (`409 no_agents` = offer the offline form), and the session may have only one open live chat (P4-D3: the
  * session row is locked and the check repeats inside the transaction, `409 conversation_exists`). The chat is queued and wave
- * 1 of the routing runs in the same transaction.
+ * 1 of the routing runs in the same transaction. Anti-automation (`ChatStartGuard`): a cooldown after a cancelled chat and a cap on
+ * chats queued from one network answer `429 rate_limited`.
  */
 final class StartConversation
 {
@@ -46,6 +48,7 @@ final class StartConversation
         private readonly ConversationCreator $creator,
         private readonly ConversationMessenger $messenger,
         private readonly ConversationTimeline $timeline,
+        private readonly ChatStartGuard $guard,
     ) {}
 
     /**
@@ -59,6 +62,8 @@ final class StartConversation
         if ($this->hasOpenLiveChat($session)) {
             throw $this->exists();
         }
+
+        $this->guard->assertNotCoolingDown($session->visitor_id);
 
         $plan = RoutingPlan::forWidget($widget);
 
@@ -76,6 +81,8 @@ final class StartConversation
             if ($this->hasOpenLiveChat($session)) {
                 throw $this->exists();
             }
+
+            $this->guard->assertNetworkHasRoom($locked);
 
             $visitor = $this->updateVisitor($session->visitor_id, $widget, $input);
             $now = now();

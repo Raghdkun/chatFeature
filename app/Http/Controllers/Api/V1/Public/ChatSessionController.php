@@ -26,7 +26,7 @@ class ChatSessionController extends ChatVisitorController
 {
     public function store(StartSessionRequest $request, StartSession $action, ReverbEndpoint $realtime): JsonResponse
     {
-        $started = $action->handle($this->widget($request), $request->validated(), $request->bearerToken(), $request->userAgent());
+        $started = $action->handle($this->widget($request), $request->validated(), $request->bearerToken(), $request->userAgent(), $request->ip());
 
         return $this->data([
             'visitorToken' => $started->token->plaintext,

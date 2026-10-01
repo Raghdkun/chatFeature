@@ -24,6 +24,15 @@ abstract class TestCase extends BaseTestCase
         Http::preventStrayRequests();
         $this->app->instance(HostResolver::class, new FakeHostResolver);
         $this->app->instance(NatsProbe::class, new FakeNatsProbe);
+
+        // Chat tests start many chats / offline tickets from one address in seconds; the anti-automation budgets of those two calls
+        // (tests/Feature/Chat/Api/ChatAbuseLimitsApiTest.php) set their own values.
+        config([
+            'chat.rate_limits.start_per_widget_network' => 10000,
+            'chat.rate_limits.start_per_widget' => 10000,
+            'chat.rate_limits.offline_per_widget_network' => 10000,
+            'chat.rate_limits.offline_per_widget' => 10000,
+        ]);
     }
 
     protected function skipUnlessFortifyHas(string $feature, ?string $message = null): void

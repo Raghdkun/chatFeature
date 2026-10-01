@@ -9,6 +9,7 @@ use App\Domain\Chat\Enums\ConversationType;
 use App\Domain\Chat\Enums\OfferResponse;
 use App\Domain\Chat\Events\ConversationClosed;
 use App\Domain\Chat\Events\QueueChanged;
+use App\Domain\Chat\Services\ChatStartGuard;
 use App\Domain\Chat\Services\ConversationTimeline;
 use App\Http\Exceptions\ApiProblemException;
 use App\Models\Conversation;
@@ -18,11 +19,15 @@ use Illuminate\Support\Facades\DB;
 /**
  * The visitor gives up while still queued (`POST /public/conversations/{ulid}/cancel`): `queued -> closed` with reason
  * `cancelled`. Guarded on `status = 'queued'`: a chat an agent accepted a moment earlier is not cancelled (`409 conversation_not_queued`;
- * the visitor ends it instead). The agents' pending offers end with it.
+ * the visitor ends it instead). The agents' pending offers end with it, and the visitor waits `chat.cancel_cooldown_seconds` before
+ * starting another chat (`ChatStartGuard`).
  */
 final class CancelQueuedConversation
 {
-    public function __construct(private readonly ConversationTimeline $timeline) {}
+    public function __construct(
+        private readonly ConversationTimeline $timeline,
+        private readonly ChatStartGuard $guard,
+    ) {}
 
     public function handle(Conversation $conversation): Conversation
     {
@@ -50,6 +55,8 @@ final class CancelQueuedConversation
 
             $this->timeline->record($conversation, ConversationTimeline::CANCELLED, ActorType::Visitor, $conversation->visitor_id);
         });
+
+        $this->guard->startCooldown($conversation->visitor_id);
 
         $fresh = Conversation::query()->with(['category', 'assignedAgent', 'visitor', 'visitorSession', 'widget'])->findOrFail($conversation->id);
 

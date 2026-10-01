@@ -8,6 +8,7 @@ use App\Domain\Visitors\StartedSession;
 use App\Domain\Visitors\VisitorTokenService;
 use App\Domain\Widgets\Identity\IdentityTokenVerifier;
 use App\Domain\Widgets\Identity\VerifiedIdentity;
+use App\Domain\Widgets\Support\ClientNetwork;
 use App\Models\Conversation;
 use App\Models\Visitor;
 use App\Models\VisitorSession;
@@ -49,12 +50,12 @@ final class StartSession
     /**
      * @param  array<string, mixed>  $input  `identity_token`, `visitor{name,email,phone,meta}`, `page{url,title,referrer}`, `locale`
      */
-    public function handle(Widget $widget, array $input, ?string $bearerToken, ?string $userAgent): StartedSession
+    public function handle(Widget $widget, array $input, ?string $bearerToken, ?string $userAgent, ?string $ip = null): StartedSession
     {
         $identity = $this->identity($widget, $input['identity_token'] ?? null);
         $previous = $this->previousSession($widget, $bearerToken);
 
-        $started = DB::transaction(function () use ($widget, $input, $identity, $previous, $userAgent): StartedSession {
+        $started = DB::transaction(function () use ($widget, $input, $identity, $previous, $userAgent, $ip): StartedSession {
             $visitor = $this->visitor($widget, $identity, $previous, (array) ($input['visitor'] ?? []));
             $page = (array) ($input['page'] ?? []);
 
@@ -64,6 +65,7 @@ final class StartSession
                 'referrer' => $this->string($page['referrer'] ?? null),
                 'user_agent' => $userAgent,
                 'locale' => $this->string($input['locale'] ?? null),
+                'network_hash' => $ip === null ? null : ClientNetwork::fingerprint($ip),
             ]);
 
             if ($previous !== null) {

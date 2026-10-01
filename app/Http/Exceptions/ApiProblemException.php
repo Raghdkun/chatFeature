@@ -47,6 +47,14 @@ final class ApiProblemException extends HttpException
         return new self(403, $code, $message);
     }
 
+    /** `429 rate_limited` with `Retry-After` (the same envelope the limiters answer with), for limits a rate limiter cannot express. */
+    public static function rateLimited(string $message, int $retryAfterSeconds): self
+    {
+        $seconds = max(1, $retryAfterSeconds);
+
+        return new self(429, 'rate_limited', $message, ['retry_after' => $seconds], ['Retry-After' => (string) $seconds]);
+    }
+
     public function errorCode(): string
     {
         return $this->errorCode;

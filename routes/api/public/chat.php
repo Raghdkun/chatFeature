@@ -41,7 +41,7 @@ Route::get('attachments/{attachment}', [ChatAttachmentController::class, 'show']
     ->middleware(['signed', ChatThrottle::class.':public-message'])
     ->name('public.attachments.show');
 
-Route::middleware(['visitor', EnsureVisitorWidgetActive::class])->group(function () {
+Route::middleware([ChatThrottle::class.':public-network', 'visitor', EnsureVisitorWidgetActive::class])->group(function () {
     Route::delete('sessions', [ChatSessionController::class, 'destroy'])->name('api.public.sessions.destroy');
 
     Route::post('offline-tickets', [ChatOfflineTicketController::class, 'store'])
