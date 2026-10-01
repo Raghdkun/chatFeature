@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1, viewport-fit=cover"
+        />
+        <title>Chat panel (mock)</title>
+        <!--
+            Stand-in for the P4 React panel at /embed/{key}. It speaks the real postMessage protocol
+            (docs/contracts/postmessage-protocol.md) so the loader handshake, session persistence, unread
+            badge, resize and viewport forwarding can be exercised without the backend. Served by
+            resources/widget/dev/serve.mjs as /embed/<key>.
+        -->
+        <style>
+            :root {
+                color-scheme: light dark;
+                font-family:
+                    system-ui,
+                    -apple-system,
+                    'Segoe UI',
+                    sans-serif;
+            }
+            * {
+                box-sizing: border-box;
+            }
+            html,
+            body {
+                height: 100%;
+                margin: 0;
+            }
+            body {
+                display: flex;
+                flex-direction: column;
+                background: Canvas;
+                color: CanvasText;
+                padding-bottom: var(--kb, 0px);
+            }
+            header {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 12px 14px;
+                background: #0f766e;
+                color: #fff;
+            }
+            header h1 {
+                flex: 1;
+                margin: 0;
+                font-size: 16px;
+            }
+            button {
+                font: inherit;
+                cursor: pointer;
+            }
+            .x {
+                border: 0;
+                background: transparent;
+                color: inherit;
+                font-size: 20px;
+                line-height: 1;
+                padding: 4px 8px;
+                border-radius: 6px;
+            }
+            main {
+                flex: 1;
+                overflow: auto;
+                padding: 12px;
+                font-size: 13px;
+            }
+            .row {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+                margin-bottom: 10px;
+            }
+            .row button {
+                padding: 5px 9px;
+                border-radius: 8px;
+                border: 1px solid #8884;
+                background: #8881;
+            }
+            pre {
+                margin: 0 0 8px;
+                padding: 8px;
+                border-radius: 8px;
+                background: #8882;
+                white-space: pre-wrap;
+                word-break: break-word;
+                font-size: 12px;
+            }
+            form {
+                display: flex;
+                gap: 8px;
+                padding: 10px;
+                border-top: 1px solid #8884;
+            }
+            input {
+                flex: 1;
+                font: inherit;
+                padding: 8px 10px;
+                border-radius: 8px;
+                border: 1px solid #8886;
+                background: Field;
+                color: FieldText;
+            }
+            form button {
+                padding: 8px 14px;
+                border-radius: 8px;
+                border: 0;
+                background: #0f766e;
+                color: #fff;
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <h1 id="title">Support</h1>
+            <button
+                class="x"
+                id="close"
+                type="button"
+                aria-label="Close chat"
+                title="Sends a close message to the loader"
+            >
+                &times;
+            </button>
+        </header>
+        <main>
+            <div class="row" id="sim">
+                <button data-act="unread">Agent replies (+1 unread)</button>
+                <button data-act="queued">State: queued</button>
+                <button data-act="active">State: active</button>
+                <button data-act="ended">State: ended</button>
+                <button data-act="session">Session: set</button>
+                <button data-act="nosession">Session: clear</button>
+                <button data-act="full">Request fullscreen</button>
+                <button data-act="panel">Request panel</button>
+                <button data-act="event">Event: chat-started</button>
+                <button data-act="error">Error</button>
+                <button data-act="forge">Forge greeting-shown</button>
+            </div>
+            <pre id="status">waiting for init...</pre>
+            <div id="log"></div>
+        </main>
+        <form id="composer">
+            <input
+                id="msg"
+                autocomplete="off"
+                placeholder="Type your message…"
+                aria-label="Message"
+            />
+            <button type="submit">Send</button>
+        </form>
+
+        <script>
+            let hostOrigin = null;
+            let unread = 0;
+            const $ = (id) => document.getElementById(id);
+            const log = (title, data) => {
+                const pre = document.createElement('pre');
+                pre.textContent =
+                    title +
+                    (data === undefined
+                        ? ''
+                        : '\n' + JSON.stringify(data, null, 1));
+                $('log').prepend(pre);
+            };
+            // Before init the host origin is unknown, so only the non-sensitive `ready` goes to '*'.
+            const send = (type, payload = {}, id) =>
+                window.parent.postMessage(
+                    {
+                        ns: 'chatfeature',
+                        v: 1,
+                        type,
+                        payload,
+                        ...(id ? { id } : {}),
+                    },
+                    hostOrigin ?? '*',
+                );
+
+            window.addEventListener('message', (e) => {
+                if (e.source !== window.parent) return;
+                const m = e.data;
+                if (
+                    !m ||
+                    typeof m !== 'object' ||
+                    m.ns !== 'chatfeature' ||
+                    m.v !== 1
+                )
+                    return;
+
+                if (m.type === 'init') {
+                    if (hostOrigin !== null && e.origin !== hostOrigin) return;
+                    const first = hostOrigin === null;
+                    hostOrigin = e.origin;
+                    send('init:result', {}, m.id);
+                    if (!first) return;
+                    const p = m.payload;
+                    const texts = p.boot?.config?.texts ?? {};
+                    $('title').textContent =
+                        (texts.en ?? Object.values(texts)[0] ?? {}).title ??
+                        'Support';
+                    $('status').textContent =
+                        'init from ' +
+                        hostOrigin +
+                        '\nwidget ' +
+                        p.boot?.key +
+                        ' v' +
+                        p.boot?.configVersion +
+                        '\nsession ' +
+                        (p.visitorSession ? 'restored' : 'none') +
+                        '\nviewport ' +
+                        JSON.stringify(p.viewport);
+                    log('init', {
+                        page: p.page,
+                        overrides: p.overrides,
+                        visitor: p.visitor,
+                        identityToken: p.identityToken,
+                        visitorSession: p.visitorSession,
+                    });
+                    send('state', {
+                        status: p.visitorSession ? 'active' : 'idle',
+                        open: false,
+                        unread: 0,
+                    });
+                    return;
+                }
+
+                if (hostOrigin === null || e.origin !== hostOrigin) return;
+                if (m.type === 'viewport') {
+                    document.body.style.setProperty(
+                        '--kb',
+                        (m.payload.keyboardInset || 0) + 'px',
+                    );
+                }
+                log('host -> ' + m.type, m.payload);
+            });
+
+            $('close').addEventListener('click', () => send('close'));
+            $('composer').addEventListener('submit', (e) => {
+                e.preventDefault();
+                log('visitor says', { text: $('msg').value });
+                send('event', {
+                    name: 'message-sent',
+                    data: { length: $('msg').value.length },
+                });
+                $('msg').value = '';
+            });
+            $('sim').addEventListener('click', (e) => {
+                const act = e.target.dataset?.act;
+                if (!act) return;
+                if (act === 'unread') {
+                    unread += 1;
+                    send('unread', {
+                        count: unread,
+                        preview: 'Sure, one moment please.',
+                        agent: { name: 'Sara' },
+                    });
+                } else if (['queued', 'active', 'ended'].includes(act)) {
+                    send('state', {
+                        status: act,
+                        open: true,
+                        unread,
+                        agent: act === 'active' ? { name: 'Sara' } : undefined,
+                    });
+                } else if (act === 'session') {
+                    send('session', {
+                        token: 'vt_demo_' + Math.random().toString(36).slice(2),
+                        expiresAt: new Date(
+                            Date.now() + 2 * 3600e3,
+                        ).toISOString(),
+                    });
+                } else if (act === 'nosession') {
+                    send('session', null);
+                } else if (act === 'full' || act === 'panel') {
+                    send('resize', {
+                        mode: act === 'full' ? 'fullscreen' : 'panel',
+                    });
+                } else if (act === 'event') {
+                    send('event', {
+                        name: 'chat-started',
+                        data: { category: 'billing' },
+                    });
+                } else if (act === 'error') {
+                    send('error', {
+                        code: 'send_failed',
+                        message: 'Could not send',
+                    });
+                } else if (act === 'forge') {
+                    // The loader must ignore this: greeting-* events are loader-owned.
+                    send('event', {
+                        name: 'greeting-shown',
+                        data: { forged: true },
+                    });
+                }
+            });
+            // A real panel clears unread when it is shown.
+            addEventListener('message', (e) => {
+                if (e.source === parent && e.data?.type === 'open') {
+                    unread = 0;
+                    send('unread', { count: 0 });
+                }
+            });
+
+            send('ready', { protocol: 1 });
+        </script>
+    </body>
+</html>

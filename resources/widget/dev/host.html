@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1, viewport-fit=cover"
+        />
+        <title>Acme Store (host page)</title>
+        <!--
+            "Customer site" for manually testing the PNE Chat loader against the mock panel.
+            How to open it (no backend needed):
+
+              npm run build:widget
+              node resources/widget/dev/serve.mjs          # starts the fake app on :8211 and this page on :8212
+              open http://localhost:8212/                  # cross-origin to the app, like a real embed
+
+            Demo knobs go on this page's URL and are forwarded to the fake /w/wk_demo.js, e.g.
+              ?delay=1&interval=1&autohide=8    fast greetings        ?style=pill&position=left
+              ?mode=dark  ?rtl=1  ?dismiss=never  ?theme=%23c026d3  ?sound=0  ?titleBadge=1  ?greetings=0
+              ?generic=1   generic loader.js + data-widget-key (config fetched over CORS instead of inlined)
+            Or go full-fledged: ?label=Talk%20to%20us&locale=ar&open=true (data-* attributes).
+            Everything below intentionally has hostile host CSS to prove the shadow DOM isolation.
+        -->
+        <style>
+            /* Hostile global CSS: none of this may leak into the widget (and the widget must not leak out). */
+            * {
+                font-family: 'Comic Sans MS', cursive !important;
+                letter-spacing: 3px !important;
+            }
+            button,
+            div,
+            span,
+            img,
+            iframe {
+                border-radius: 0 !important;
+                text-transform: uppercase !important;
+            }
+            iframe {
+                border: 6px solid red !important;
+                width: 10px !important;
+            }
+            body > * {
+                position: static !important;
+            }
+            body {
+                margin: 0;
+                color: #222;
+                background: linear-gradient(#f7f7fb, #e9ecf5);
+                line-height: 1.5;
+            }
+            header,
+            section,
+            footer {
+                max-width: 760px;
+                margin: 0 auto;
+                padding: 24px 20px;
+            }
+            h1 {
+                margin: 0 0 8px;
+            }
+            .panel {
+                background: #fff;
+                border: 1px solid #ddd;
+                padding: 12px;
+                margin: 12px 0;
+            }
+            .panel button {
+                margin: 3px;
+                padding: 6px 10px;
+                cursor: pointer;
+            }
+            #log {
+                height: 160px;
+                overflow: auto;
+                background: #111;
+                color: #9fe;
+                padding: 8px;
+                font:
+                    12px/1.4 ui-monospace,
+                    monospace !important;
+                white-space: pre-wrap;
+            }
+            .filler {
+                height: 1200px;
+                background: repeating-linear-gradient(
+                    #fff,
+                    #fff 40px,
+                    #f0f0f6 40px,
+                    #f0f0f6 80px
+                );
+            }
+        </style>
+
+        <!-- Stub so calls made before the loader finishes are queued and replayed (ChatFeature.q). -->
+        <script>
+            window.ChatFeature =
+                window.ChatFeature ||
+                function () {
+                    (window.ChatFeature.q = window.ChatFeature.q || []).push(
+                        arguments,
+                    );
+                };
+            const logEl = () => document.getElementById('log');
+            const log = (text) => {
+                const el = logEl();
+                if (el) {
+                    el.textContent =
+                        new Date().toLocaleTimeString() +
+                        '  ' +
+                        text +
+                        '\n' +
+                        el.textContent;
+                }
+            };
+            for (const name of [
+                'ready',
+                'open',
+                'close',
+                'chat-started',
+                'chat-ended',
+                'agent-joined',
+                'message-sent',
+                'message-received',
+                'unread-changed',
+                'greeting-shown',
+                'greeting-dismissed',
+                'rating-submitted',
+                'error',
+            ]) {
+                ChatFeature('on', name, (data) =>
+                    log(name + ' ' + JSON.stringify(data)),
+                );
+            }
+        </script>
+    </head>
+    <body>
+        <header>
+            <h1>Acme Store</h1>
+            <p>
+                Manual test page for the PNE Chat loader. The bubble is the real
+                loader (Shadow DOM); the chat panel is
+                <code>panel-mock.html</code>.
+            </p>
+        </header>
+
+        <section>
+            <div class="panel">
+                <strong>JS API</strong><br />
+                <button onclick="ChatFeature('open')">open</button>
+                <button onclick="ChatFeature('close')">close</button>
+                <button onclick="ChatFeature('toggle')">toggle</button>
+                <button onclick="ChatFeature('show')">show</button>
+                <button onclick="ChatFeature('hide')">hide</button>
+                <button
+                    onclick="
+                        ChatFeature('update', {
+                            theme: {
+                                primary:
+                                    '#' +
+                                    Math.floor(Math.random() * 0xffffff)
+                                        .toString(16)
+                                        .padStart(6, '0'),
+                            },
+                        })
+                    "
+                >
+                    update: random colour
+                </button>
+                <button
+                    onclick="
+                        ChatFeature('update', { theme: { position: 'left' } })
+                    "
+                >
+                    update: left
+                </button>
+                <button
+                    onclick="
+                        ChatFeature('update', { launcher: { style: 'pill' } })
+                    "
+                >
+                    update: pill
+                </button>
+                <button onclick="ChatFeature('update', { locale: 'ar' })">
+                    update: Arabic (RTL)
+                </button>
+                <button
+                    onclick="
+                        ChatFeature('setVisitor', {
+                            name: 'Ann Lee',
+                            email: 'ann@example.com',
+                        })
+                    "
+                >
+                    setVisitor
+                </button>
+                <button
+                    onclick="
+                        ChatFeature('startChat', {
+                            category: 'billing',
+                            message: 'Where is my invoice?',
+                        })
+                    "
+                >
+                    startChat
+                </button>
+                <button onclick="ChatFeature('setCategory', 'sales')">
+                    setCategory sales
+                </button>
+                <button
+                    onclick="
+                        log(
+                            'getState ' +
+                                JSON.stringify(ChatFeature('getState')),
+                        )
+                    "
+                >
+                    getState
+                </button>
+                <button onclick="ChatFeature('shutdown')">shutdown</button>
+                <button onclick="ChatFeature('init', { widgetKey: 'wk_demo' })">
+                    init after shutdown
+                </button>
+            </div>
+            <div id="log" aria-live="off"></div>
+        </section>
+
+        <section class="filler" aria-label="Scroll filler">
+            <p>
+                Scroll me: on a phone-sized window the open chat is full screen
+                and this page must not scroll behind it.
+            </p>
+        </section>
+        <footer>&copy; Acme</footer>
+
+        <script>
+            // Load the loader the way a customer would; forward the demo knobs from this page's URL.
+            const q = new URLSearchParams(location.search);
+            const data = {
+                label: 'launcher-label',
+                locale: 'locale',
+                open: 'open-on-load',
+            };
+            const s = document.createElement('script');
+            s.async = true;
+            if (q.get('generic') === '1') {
+                // generic loader: key via data attribute, config fetched from the API (CORS)
+                s.src = '__APP__/widget/v1/loader.js';
+                s.setAttribute('data-widget-key', 'wk_demo');
+            } else {
+                s.src = '__APP__/w/wk_demo.js?' + q.toString();
+            }
+
+            for (const [param, attr] of Object.entries(data)) {
+                if (q.has(param)) s.setAttribute('data-' + attr, q.get(param));
+            }
+            if (q.get('rtl') === '1') s.setAttribute('data-locale', 'ar');
+            document.head.appendChild(s);
+        </script>
+    </body>
+</html>
