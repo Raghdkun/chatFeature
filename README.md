@@ -1,10 +1,10 @@
 # PNE Chat
 
-> Status: Phases 0-3 are done (install gate, setup wizard, both auth modes, categories, agents, widgets with loader and builder). The chat itself (conversations, routing, realtime, the embed panel) starts in P4: until then the widget's chat iframe is a stub. The roadmap below is the source of truth.
+> Status: Phases 0-4 are done (install gate, setup wizard, both auth modes, categories, agents, widgets with loader and builder, and the live chat: routing with first-accept, realtime over Reverb, the agent inbox and the visitor panel). Presence/notifications (P5), WhatsApp (P6), analytics/hardening (P7) and deployment/QA/deck (P8) are next. The roadmap below is the source of truth.
 
 PNE Chat is a self-hosted, tawk.to-style live-chat platform. A website visitor clicks an embeddable bubble, picks a support topic, an agent accepts, and a live chat starts. WhatsApp (through the self-hosted [OpenWA](https://www.open-wa.org) gateway) is an optional second channel. Admins run everything from a shadcn dashboard; agents only see the chats assigned to them. "PNE Chat" is a working name and can be renamed in Settings.
 
-## Features (built through P3, the rest planned; see the roadmap)
+## Features (built through P4, the rest planned; see the roadmap)
 
 - **Embeddable widget**: tiny Shadow-DOM launcher + iframe chat panel, script/iframe/hosted-page embeds, JS API, signed visitor identity, domain whitelist.
 - **Creative greeting**: weighted-random greeting pool, 3D-flip launcher to the agent face, popup, auto-hide, reduced-motion safe.
@@ -71,15 +71,19 @@ Goal: starter kit and tooling. Exit: stock kit boots; SQLite (tests) and MySQL b
 - [x] Review and hardening round: strict origin/CORS/CSP rules, boot-trust checks in the loader, per-origin limits, identity `jti`
 - [x] P3 e2e: builder, live preview, the real loader on a cross-origin host page, origin/CORS/CSP, rate limits, concurrency, escaping, axe/375px/RTL
 - Exit (unit/feature level): origin/CORS/CSP/JWT/rate-limit tests, loader and builder Vitest suites. The exit item "bubble + flip + popup + JS API on a real cross-origin host page" is covered by the P3 e2e.
-- Known gaps: the embed panel is a stub until P4 (the loader handshake therefore times out against the real `/embed/{key}` today; it is tested against a mock panel); `availability.online` is false until P5 presence exists; the built-in public-suffix list used to reject `*.co.uk`-style wildcards is partial; the loader is at 15.65 KB of its 16 KB budget; `init.boot.categories` loses description/icon/colour in the loader.
+- Known gaps: `availability.online` was false until P4 (presence-based now); the built-in public-suffix list used to reject `*.co.uk`-style wildcards is partial; the loader is at 15.65 KB of its 16 KB budget; `init.boot.categories` loses description/icon/colour in the loader.
 - Gate at `v0.3.0` (P1-P3 together): `composer ci:check` green with PHPUnit **1667** (7 skip without a harness or a NATS server) and Vitest **1193** (the loader's tests under `resources/widget/test` are part of that run); Playwright **483** specs (480 pass, 3 skipped, 0 failed; mode 1, mode 2 against the local pizzasys clone, and P3).
 
-### P4 Chat core
-- [ ] 4A domain + APIs: state machine, routing, claim, messages, attachments pipeline, idle/expiry jobs, offline tickets
-- [ ] 4B realtime: Reverb, channel auth, visitor guard, events, echo/sync helpers
-- [ ] 4C dashboard: queue/offers, claim UX, conversation list/detail, composer, typing/receipts, end/transfer, admin history
-- [ ] 4D embed panel: pre-chat, category picker, waiting, chat, offline form, rating, attachments, bridge
-- Exit: two-browser Playwright lifecycle; MySQL concurrent-accept race test; idle auto-close; queue timeout to offline ticket; upload abuse tests; reconnect sync; IDOR matrices.
+### P4 Chat core (done, `v0.4.0`)
+- [x] Spine: schema, enums, models, state machine, policy, visitor tokens, Data classes, domain events, shared TypeScript helpers
+- [x] 4A domain + APIs: routing with waves and first-accept claim, messages, attachments pipeline, idle/expiry/rating sweeps, offline tickets, transfer, export, minimal presence
+- [x] 4B realtime: Reverb, channel auth, visitor broadcasting auth, events, failure isolation, runtime address for the dashboard
+- [x] 4C dashboard: inbox with queue/offers, conversation view, composer, typing/receipts, end/transfer, history, offline tickets
+- [x] 4D embed panel: pre-chat, topics, queue, chat, rating, offline form, attachments, protocol with the loader
+- [x] Independent reviews (backend correctness, security, frontend, front/back audit) and their fix rounds; real-stack e2e (visitor flows, staff and permission matrices, a11y/responsive/RTL/keyboard/perf, polling-only mode) and the deck screenshots
+- Exit met: two-browser (here: five-actor) Playwright lifecycle against a real Reverb; MySQL concurrent-accept race test; idle auto-close; queue timeout to offline ticket; upload abuse tests; reconnect sync; IDOR/channel matrices.
+- Gate at `v0.4.0`: `composer ci:check` green with PHPUnit **<<PHPUNIT>>** (14 skip without a harness, NATS or MySQL) and Vitest **<<VITEST>>**; Playwright **<<PW>>**.
+- Known gaps: see the changelog (animated GIFs refused, stale sockets after revocation until reconnect, English-only inbox strings and system lines, no captcha hook, loader at 15.8 of 16 KB).
 
 ### P5 Presence + notifications (parallel with P6)
 - [ ] 5A presence service, heartbeat, sweep, availability + UI
