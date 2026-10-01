@@ -122,7 +122,11 @@ export type NoticeCode =
     | 'network'
     | 'rate_limited'
     | 'unavailable'
-    | 'session_expired';
+    | 'session_expired'
+    /** A signed identity the server refused (`422 details.identity_token`): retrying the same token cannot work. */
+    | 'identity'
+    /** The widget switched the feature off (`403 feature_disabled`). */
+    | 'feature_disabled';
 
 export type Notice = { code: NoticeCode; seconds?: number };
 

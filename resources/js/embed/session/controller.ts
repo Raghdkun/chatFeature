@@ -50,6 +50,7 @@ import {
     isVisitorApiError,
     type CreateConversationRequest,
     type CreateSessionRequest,
+    type SessionResponse,
     type VisitorApi,
     type VisitorFields,
     type WsConfig,
@@ -198,11 +199,18 @@ export class ChatController {
     private api: VisitorApi | null = null;
     private token: string | null = null;
     private ws: WsConfig | null = null;
+    /** The server answered the question "where is Reverb?" (a `ws` block or an explicit `null`); a failed answer is retried. */
+    private wsKnown = false;
     private sessionPromise: Promise<void> | null = null;
+    private rotation: Promise<void> | null = null;
+    private rotatedAt = 0;
 
     private realtime: ConversationRealtime | null = null;
     private realtimeFor: string | null = null;
-    private connecting = false;
+    /** Bumped whenever the connection is closed or replaced, so an open that finishes late knows it is stale. */
+    private realtimeGeneration = 0;
+    private realtimeRetries = 0;
+    private realtimeRetryTimer: ReturnType<typeof setTimeout> | undefined;
     private watchdog: ReturnType<typeof setInterval> | undefined;
     private syncing: Promise<void> | null = null;
     private syncAgain = false;
@@ -478,6 +486,20 @@ export class ChatController {
                 if (
                     conversation !== null &&
                     (conversation.status === 'queued' ||
+                        conversation.status === 'active')
+                ) {
+                    // A chat that is still live needs the websocket, and the server hands that out only with a (rotated) session:
+                    // do it now, before anything else is fetched, so no request is in flight with the token that is about to die.
+                    await this.rotateSession();
+
+                    if (this.token === null) {
+                        conversation = null;
+                    }
+                }
+
+                if (
+                    conversation !== null &&
+                    (conversation.status === 'queued' ||
                         conversation.status === 'active' ||
                         conversation.status === 'ended')
                 ) {
@@ -746,14 +768,8 @@ export class ChatController {
         this.sessionPromise ??= (async () => {
             try {
                 const api = this.requireApi();
-                const session = await api.createSession(this.sessionBody());
 
-                this.token = session.visitorToken;
-                this.ws = session.ws;
-                this.persist({
-                    token: session.visitorToken,
-                    expiresAt: session.expiresAt,
-                });
+                this.adopt(await api.createSession(this.sessionBody()));
             } finally {
                 this.sessionPromise = null;
             }
@@ -762,29 +778,82 @@ export class ChatController {
         return this.sessionPromise;
     }
 
-    /** Where Reverb lives for visitors. A restored token never saw the session response, so ask again with the token. */
+    /** Takes over a session the server just issued: the token (persisted for the next page), where Reverb lives. */
+    private adopt(session: SessionResponse): void {
+        this.token = session.visitorToken;
+        this.ws = session.ws;
+        this.wsKnown = true;
+        this.persist({
+            token: session.visitorToken,
+            expiresAt: session.expiresAt,
+        });
+    }
+
+    /**
+     * A returning token sent to `POST .../sessions` is ROTATED by the server: the response carries a new token, the old one is
+     * revoked and a still-open chat moves over to the new session. So the new token is adopted (and persisted for the next
+     * page) and nothing else may use the old one afterwards. A failure that is not "the session is gone" (identity refused,
+     * rate limit, network) keeps the token we hold: the chat carries on over REST and the websocket is tried again later.
+     */
+    private rotateSession(): Promise<void> {
+        this.rotation ??= (async () => {
+            try {
+                const held = this.token;
+
+                if (held === null) {
+                    return;
+                }
+
+                const session = await this.requireApi().createSession(
+                    this.sessionBody(),
+                    held,
+                );
+
+                this.adopt(session);
+                this.rotatedAt = this.now();
+
+                const current = this.state.conversation;
+
+                if (
+                    current !== null &&
+                    session.conversation?.ulid !== current.ulid
+                ) {
+                    void this.syncConversation();
+                }
+            } catch (error) {
+                if (isVisitorApiError(error)) {
+                    if (error.isSessionGone) {
+                        this.handleSessionGone(false);
+                    } else if (
+                        error.status >= 400 &&
+                        error.status < 500 &&
+                        error.status !== 408 &&
+                        error.status !== 429
+                    ) {
+                        // A refusal (a signed identity that does not verify, a widget that is gone) will be the same next time:
+                        // no websocket, no retries, the chat runs on REST.
+                        this.ws = null;
+                        this.wsKnown = true;
+                    }
+                }
+            } finally {
+                this.rotation = null;
+            }
+        })();
+
+        return this.rotation;
+    }
+
+    /**
+     * Where Reverb lives for visitors (`null`: not configured, REST polling only). A restored token never saw a session response,
+     * so the answer comes from rotating it; `wsKnown` stays false while that failed for a reason worth retrying.
+     */
     private async ensureWs(): Promise<WsConfig | null> {
-        if (this.ws !== null) {
-            return this.ws;
-        }
-
-        if (this.token === null) {
-            await this.ensureSession();
-
-            return this.ws;
-        }
-
-        try {
-            const session = await this.requireApi().createSession(
-                this.sessionBody(),
-                this.token,
-            );
-
-            // Keep the token we hold: it is the one the conversation belongs to.
-            this.ws = session.ws;
-        } catch (error) {
-            if (isVisitorApiError(error) && error.isSessionGone) {
-                this.handleSessionGone();
+        if (!this.wsKnown) {
+            if (this.token === null) {
+                await this.ensureSession().catch(() => undefined);
+            } else {
+                await this.rotateSession();
             }
         }
 
@@ -811,14 +880,31 @@ export class ChatController {
         this.closeRealtime();
         this.token = null;
         this.ws = null;
+        this.wsKnown = false;
         this.sessionPromise = null;
+        this.rotation = null;
 
         if (tellHost) {
             this.persist(null);
         }
     }
 
-    private handleSessionGone(): void {
+    /**
+     * The server refused the token. `staleRequest`: a REST call that may have left with the token a rotation has just replaced is
+     * refused as revoked, which is not the end of the session (the socket's own refusal always is).
+     */
+    private handleSessionGone(staleRequest = true): void {
+        if (
+            staleRequest &&
+            this.token !== null &&
+            this.now() - this.rotatedAt < 5_000
+        ) {
+            this.rotatedAt = 0;
+            void this.syncConversation();
+
+            return;
+        }
+
         this.clearSession();
         this.dispatch({ type: 'SESSION_LOST' });
     }
@@ -1018,51 +1104,89 @@ export class ChatController {
     private async connectRealtime(
         conversation: ConversationPublic,
     ): Promise<void> {
-        if (this.connecting || this.realtimeFor === conversation.ulid) {
+        if (this.realtimeFor === conversation.ulid) {
             return;
         }
 
-        this.connecting = true;
+        // Another conversation's connection (a new chat started while the old one was still opening) is replaced, never kept.
+        this.realtime?.close();
+        this.realtime = null;
         this.realtimeFor = conversation.ulid;
 
-        try {
-            const ws = await this.ensureWs();
-            const token = this.token;
-            const usable = ws !== null && token !== null;
-            const realtime = await (
-                this.deps.openRealtime ?? openConversationRealtime
-            )({
-                factory: usable
-                    ? this.deps.socketFactory
-                    : () => Promise.reject(new Error('no realtime config')),
-                input: {
-                    ws: ws ?? { key: '', host: '', port: 0, scheme: 'https' },
-                    token: token ?? '',
-                    conversation: conversation.ulid,
-                    authEndpoint: `${this.config?.apiBase ?? ''}/broadcasting/auth`,
-                },
-                handlers: this.realtimeHandlers(),
-                pollMs: this.deps.pollMs,
-                document: this.deps.document,
-            });
+        const generation = ++this.realtimeGeneration;
+        const ws = await this.ensureWs();
 
-            if (
-                this.disposed ||
-                !isLiveChat(this.state) ||
-                this.realtimeFor !== conversation.ulid
-            ) {
-                realtime.close();
+        if (this.realtimeGeneration !== generation) {
+            return;
+        }
 
-                return;
-            }
+        const token = this.token;
+        const input =
+            ws !== null && token !== null
+                ? {
+                      ws,
+                      token,
+                      conversation: conversation.ulid,
+                      authEndpoint: `${this.config?.apiBase ?? ''}/broadcasting/auth`,
+                  }
+                : null;
+        const realtime = await (
+            this.deps.openRealtime ?? openConversationRealtime
+        )({
+            factory: this.deps.socketFactory,
+            input,
+            handlers: this.realtimeHandlers(),
+            pollMs: this.deps.pollMs,
+            document: this.deps.document,
+        });
 
-            this.realtime = realtime;
-        } finally {
-            this.connecting = false;
+        if (
+            this.disposed ||
+            this.realtimeGeneration !== generation ||
+            !isLiveChat(this.state)
+        ) {
+            realtime.close();
+
+            return;
+        }
+
+        this.realtime = realtime;
+
+        if (!this.wsKnown) {
+            this.retryRealtimeLater(conversation);
         }
     }
 
+    /** Where Reverb lives could not be learnt (network, rate limit): REST polling covers the gap, the socket is tried again. */
+    private retryRealtimeLater(conversation: ConversationPublic): void {
+        if (this.realtimeRetries >= 3) {
+            return;
+        }
+
+        const generation = this.realtimeGeneration;
+
+        clearTimeout(this.realtimeRetryTimer);
+        this.realtimeRetryTimer = setTimeout(
+            () => {
+                if (
+                    this.disposed ||
+                    this.realtimeGeneration !== generation ||
+                    !isLiveChat(this.state)
+                ) {
+                    return;
+                }
+
+                this.realtimeRetries += 1;
+                this.closeRealtime();
+                void this.connectRealtime(conversation);
+            },
+            (this.deps.pollMs ?? WATCHDOG_MS) * 2 ** this.realtimeRetries,
+        );
+    }
+
     private closeRealtime(): void {
+        this.realtimeGeneration += 1;
+        clearTimeout(this.realtimeRetryTimer);
         this.realtime?.close();
         this.realtime = null;
         this.realtimeFor = null;
@@ -1090,12 +1214,15 @@ export class ChatController {
             onEnded: ({ ratingRequested }) =>
                 this.dispatch({ type: 'ENDED', ratingRequested }),
             onClosed: ({ reason }) => this.dispatch({ type: 'CLOSED', reason }),
+            onMissed: () => this.dispatch({ type: 'MISSED' }),
             onTransferred: () =>
                 this.dispatch({ type: 'TRANSFERRED', now: this.now() }),
             onTyping: (whisper) => this.onRemoteTyping(whisper),
-            onStatus: (status) => this.dispatchConnection(status),
+            // `polling` is not a fault (no Reverb, or the channel auth said 503): nothing to tell the visitor.
+            onStatus: (status) =>
+                this.dispatchConnection(status === 'polling' ? 'idle' : status),
             sync: () => void this.syncConversation(),
-            onAuthFailure: () => this.handleSessionGone(),
+            onAuthFailure: () => this.handleSessionGone(false),
         };
     }
 
@@ -1190,6 +1317,10 @@ export class ChatController {
         let cursor = afterSeq;
 
         for (let page = 0; page < 20; page++) {
+            if (this.disposed) {
+                break;
+            }
+
             const result = await api.listMessages(conversation, {
                 afterSeq: cursor,
                 limit: 100,
@@ -1279,6 +1410,10 @@ export class ChatController {
     }
 
     private async syncOnce(): Promise<void> {
+        if (this.disposed) {
+            return;
+        }
+
         const phase = this.state.phase;
         const conversation = this.state.conversation;
 
@@ -1292,6 +1427,10 @@ export class ChatController {
 
         try {
             const latest = await this.api.getConversation();
+
+            if (this.disposed) {
+                return;
+            }
 
             this.applyServerConversation(latest);
 
@@ -1606,16 +1745,8 @@ export class ChatController {
         }
 
         try {
-            const result = await this.api.endConversation(conversation.ulid);
-
-            if (result.status === 'ended') {
-                this.dispatch({
-                    type: 'ENDED',
-                    ratingRequested: result.ratingRequested,
-                });
-            } else {
-                this.dispatch({ type: 'CANCEL_OK' });
-            }
+            await this.api.cancelConversation(conversation.ulid);
+            this.dispatch({ type: 'CANCEL_OK' });
         } catch (error) {
             if (isVisitorApiError(error) && error.isSessionGone) {
                 this.handleSessionGone();
@@ -1623,7 +1754,7 @@ export class ChatController {
                 return;
             }
 
-            // The queue may have just been claimed, missed or closed: let the server's answer decide.
+            // `409 conversation_not_queued`: an agent was first (or the queue was missed): the server's answer decides.
             await this.syncConversation();
 
             if (this.state.phase === 'queued') {
@@ -1710,8 +1841,23 @@ export class ChatController {
         }
     }
 
+    /** Declines the rating: the panel moves on at once, the server is told best effort (it closes the chat after the window anyway). */
     skipRating(): void {
+        const conversation = this.state.conversation;
+
+        if (
+            this.state.phase !== 'ended' ||
+            conversation === null ||
+            this.api === null
+        ) {
+            return;
+        }
+
         this.dispatch({ type: 'RATING_SKIPPED' });
+        void this.api.skipRating(conversation.ulid).catch((error: unknown) => {
+            // `409 conversation_not_ended` (already closed) and everything else leave nothing to fix; a revoked session is cleaned up.
+            this.onBackgroundError(error);
+        });
     }
 
     /* ----------------------------------------------------------- offline */

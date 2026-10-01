@@ -15,6 +15,10 @@ export function noticeText(notice: Notice, t: Translate): string {
             return t('embed.chat.error.unavailable');
         case 'session_expired':
             return t('embed.chat.closed.expired');
+        case 'identity':
+            return t('embed.chat.error.identity');
+        case 'feature_disabled':
+            return t('embed.chat.error.feature_disabled');
         default:
             return t('embed.chat.error.generic');
     }

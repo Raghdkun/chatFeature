@@ -103,6 +103,9 @@ export const EN = {
     'embed.chat.error.rate_limited':
         'Too many attempts. Try again in :seconds seconds.',
     'embed.chat.error.unavailable': 'Chat is not available right now.',
+    'embed.chat.error.identity':
+        "We couldn't verify your sign-in. Reload the page and try again.",
+    'embed.chat.error.feature_disabled': "That isn't available in this chat.",
     'embed.chat.whatsapp.title': 'Continue on WhatsApp',
 } as const;
 

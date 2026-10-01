@@ -10,7 +10,13 @@ export function toNotice(error: unknown): Notice {
         return { code: 'generic' };
     }
 
+    if (error.isIdentityRejected) {
+        return { code: 'identity' };
+    }
+
     switch (error.code) {
+        case 'feature_disabled':
+            return { code: 'feature_disabled' };
         case 'rate_limited':
             return { code: 'rate_limited', seconds: error.retryAfter ?? 5 };
         case 'network':
@@ -46,7 +52,8 @@ export function toCreateFailure(error: unknown): CreateFailure {
             return { kind: 'no_agents' };
         }
 
-        if (error.status === 422) {
+        // A signed identity the server refused is not a form field: say so, and do not offer a retry loop.
+        if (error.status === 422 && !error.isIdentityRejected) {
             const errors = fieldErrorsOf(error);
 
             if (Object.keys(errors).length > 0) {

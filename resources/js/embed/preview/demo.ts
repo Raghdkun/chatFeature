@@ -189,10 +189,10 @@ export function createDemoBackend(options: { delay?: number } = {}) {
             );
 
             later(500, () =>
-                emit('client-typing', { actor: 'agent', typing: true }),
+                emit('.client-typing', { actor: 'agent', typing: true }),
             );
             later(1700, () => {
-                emit('client-typing', { actor: 'agent', typing: false });
+                emit('.client-typing', { actor: 'agent', typing: false });
                 emit('.message.created', {
                     v: 1,
                     message: push(
@@ -219,8 +219,24 @@ export function createDemoBackend(options: { delay?: number } = {}) {
 
             return conversation;
         },
+        async cancelConversation() {
+            conversation = {
+                ...(conversation as ConversationPublic),
+                status: 'closed',
+            };
+
+            return conversation;
+        },
         async rateConversation() {
             return undefined;
+        },
+        async skipRating() {
+            conversation = {
+                ...(conversation as ConversationPublic),
+                status: 'closed',
+            };
+
+            return conversation;
         },
         async uploadAttachment(_conversation, file): Promise<AttachmentData> {
             const url = URL.createObjectURL(file);
@@ -244,6 +260,15 @@ export function createDemoBackend(options: { delay?: number } = {}) {
                     ...(listeners.get(event) ?? []),
                     handler,
                 ]);
+
+                return () => {
+                    listeners.set(
+                        event,
+                        (listeners.get(event) ?? []).filter(
+                            (known) => known !== handler,
+                        ),
+                    );
+                };
             },
             whisper() {
                 // the demo agent does not care
@@ -256,9 +281,12 @@ export function createDemoBackend(options: { delay?: number } = {}) {
             status: () => 'connected',
             onSubscribed(handler) {
                 handler();
+
+                return () => undefined;
             },
             onSubscriptionError() {
                 // never refuses
+                return () => undefined;
             },
             close() {
                 listeners.clear();

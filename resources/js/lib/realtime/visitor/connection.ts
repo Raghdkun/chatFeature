@@ -6,8 +6,11 @@
  * - **Catch-up**: `handlers.sync(reason)` is called whenever local state may be behind the server: the socket connected, it
  *   reconnected, the tab became visible again, or (while the socket is down) every `pollMs` (default 10 s, the REST-polling
  *   fallback). The owner answers with `GET /public/conversation` + `GET .../messages?after_seq=`; this module never fetches.
- * - **Status** is reported as `connecting | online | reconnecting` so the UI can show a calm "Reconnecting…" line.
+ * - **Status** is reported as `connecting | online | reconnecting | polling` so the UI can show a calm "Reconnecting…" line;
+ *   `polling` is not a fault: there is no usable socket (the server sent no `ws` block, the channel auth answered `503
+ *   realtime_unavailable`, or the socket could not be created five times) and REST polling is the only channel.
  * - A socket that cannot even be created (chunk blocked, Reverb unreachable) leaves the polling fallback running and retries.
+ * - Every binding made on the socket is undone by `close()` (and the socket is closed): nothing is left listening.
  */
 import { CHAT_EVENT, echoEvent, PAYLOAD_VERSION } from '@/lib/chat/events';
 import type {
@@ -26,7 +29,11 @@ import type {
 } from '@/lib/realtime/visitor/types';
 
 export type SyncReason = 'connect' | 'reconnect' | 'visible' | 'poll';
-export type RealtimeStatus = 'connecting' | 'online' | 'reconnecting';
+export type RealtimeStatus =
+    | 'connecting'
+    | 'online'
+    | 'reconnecting'
+    | 'polling';
 
 export type RealtimeHandlers = {
     onMessage: (message: MessageData) => void;
@@ -37,6 +44,8 @@ export type RealtimeHandlers = {
         ratingRequested: boolean;
     }) => void;
     onClosed: (payload: { reason: ConversationCloseReason }) => void;
+    /** A queued chat nobody accepted in time (`conversation.missed`): the offline form takes over. */
+    onMissed: () => void;
     onTransferred: () => void;
     onTyping: (whisper: TypingWhisper) => void;
     onStatus: (status: RealtimeStatus) => void;
@@ -55,7 +64,8 @@ export type ConversationRealtime = {
 
 export type RealtimeOptions = {
     factory: SocketFactory;
-    input: SocketInput;
+    /** `null` when the server sent no `ws` block (Reverb not configured): there is no socket, REST polling only. */
+    input: SocketInput | null;
     handlers: RealtimeHandlers;
     /** Polling interval while the socket is down (default 10 000 ms). */
     pollMs?: number;
@@ -82,8 +92,14 @@ function asMessage(payload: unknown): MessageData | null {
         : null;
 }
 
-/** The server's REST-typing fallback is broadcast as `typing` (docs/contracts/realtime-events.md, 4B); the whisper is `client-typing`. */
-const TYPING_FALLBACK = 'typing';
+/*
+ * Two server events that postdate the spine's `CHAT_EVENT` on this branch (docs/contracts/realtime-events.md): the REST typing
+ * fallback is broadcast as `typing` (a server cannot publish `client-*`), and a queued chat that expired is `conversation.missed`.
+ * Echo wants a leading dot for a custom `broadcastAs` name.
+ */
+const TYPING_FALLBACK = '.typing';
+const CONVERSATION_MISSED = '.conversation.missed';
+const MAX_OPEN_ATTEMPTS = 5;
 
 const SENDERS: readonly string[] = ['visitor', 'agent', 'system'];
 const ENDERS: readonly string[] = ['visitor', 'agent', 'admin', 'system'];
@@ -102,16 +118,29 @@ export async function openConversationRealtime(
     const { handlers } = options;
     const doc = options.document ?? document;
     const win = options.window ?? window;
+    const input = options.input;
     let socket: ConversationSocket | null = null;
+    let unbinders: (() => void)[] = [];
     let closed = false;
     let everUp = false;
     let up = false;
     let connected = false;
     let subscribed = false;
     let degraded = false;
+    /** The channel auth answered `503 realtime_unavailable`: quiet polling until a later subscription goes through. */
+    let unavailable = false;
+    /** No socket will ever exist (no `ws` block, or it could not be created five times). */
+    let pollingOnly = input === null;
     let reported: RealtimeStatus | null = null;
     let attempts = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const setStatus = (status: RealtimeStatus): void => {
+        if (!closed && status !== reported) {
+            reported = status;
+            handlers.onStatus(status);
+        }
+    };
 
     /**
      * "Up" means the websocket is connected AND the channel subscription went through: a socket whose subscription was refused
@@ -124,18 +153,17 @@ export async function openConversationRealtime(
 
         const was = up;
 
-        up = connected && subscribed && !degraded;
+        up = connected && subscribed && !degraded && !pollingOnly;
 
-        const status: RealtimeStatus = up
-            ? 'online'
-            : everUp || degraded || (!connected && reported === 'reconnecting')
-              ? 'reconnecting'
-              : 'connecting';
-
-        if (status !== reported) {
-            reported = status;
-            handlers.onStatus(status);
-        }
+        setStatus(
+            pollingOnly || unavailable
+                ? 'polling'
+                : up
+                  ? 'online'
+                  : everUp || (!connected && reported === 'reconnecting')
+                    ? 'reconnecting'
+                    : 'connecting',
+        );
 
         if (up && !was) {
             handlers.sync(everUp ? 'reconnect' : 'connect');
@@ -149,23 +177,41 @@ export async function openConversationRealtime(
         if (!connected) {
             subscribed = false;
             degraded = false;
+            unavailable = false;
         }
 
         refresh();
     };
 
+    /** REST polling is all there is from here on (not a fault, so no "Reconnecting…" line). */
+    const fallBackToPolling = (): void => {
+        pollingOnly = true;
+        refresh();
+    };
+
+    const unbindAll = (): void => {
+        const undo = unbinders;
+
+        unbinders = [];
+
+        for (const off of undo) {
+            try {
+                off();
+            } catch {
+                // the socket is already gone
+            }
+        }
+    };
+
     function bind(next: ConversationSocket): void {
         const on = (
-            event: (typeof CHAT_EVENT)[keyof typeof CHAT_EVENT],
+            event: string,
             handle: (payload: unknown) => void,
         ): void => {
-            next.listen(
-                event === CHAT_EVENT.typing ? event : echoEvent(event),
-                handle,
-            );
+            unbinders.push(next.listen(event, handle));
         };
 
-        on(CHAT_EVENT.messageCreated, (payload) => {
+        on(echoEvent(CHAT_EVENT.messageCreated), (payload) => {
             const message = asMessage(payload);
 
             if (message !== null) {
@@ -173,7 +219,7 @@ export async function openConversationRealtime(
             }
         });
 
-        on(CHAT_EVENT.messageSeen, (payload) => {
+        on(echoEvent(CHAT_EVENT.messageSeen), (payload) => {
             if (
                 isVersioned(payload) &&
                 typeof payload.upToSeq === 'number' &&
@@ -189,7 +235,7 @@ export async function openConversationRealtime(
             }
         });
 
-        on(CHAT_EVENT.claimed, (payload) => {
+        on(echoEvent(CHAT_EVENT.claimed), (payload) => {
             if (
                 isVersioned(payload) &&
                 isRecord(payload.agent) &&
@@ -211,7 +257,7 @@ export async function openConversationRealtime(
             }
         });
 
-        on(CHAT_EVENT.conversationEnded, (payload) => {
+        on(echoEvent(CHAT_EVENT.conversationEnded), (payload) => {
             if (
                 isVersioned(payload) &&
                 typeof payload.endedBy === 'string' &&
@@ -224,7 +270,7 @@ export async function openConversationRealtime(
             }
         });
 
-        on(CHAT_EVENT.conversationClosed, (payload) => {
+        on(echoEvent(CHAT_EVENT.conversationClosed), (payload) => {
             if (
                 isVersioned(payload) &&
                 typeof payload.reason === 'string' &&
@@ -236,12 +282,19 @@ export async function openConversationRealtime(
             }
         });
 
-        on(CHAT_EVENT.conversationTransferred, (payload) => {
+        on(CONVERSATION_MISSED, (payload) => {
+            if (isVersioned(payload)) {
+                handlers.onMissed();
+            }
+        });
+
+        on(echoEvent(CHAT_EVENT.conversationTransferred), (payload) => {
             if (isVersioned(payload)) {
                 handlers.onTransferred();
             }
         });
 
+        // The whisper (`client-typing`, from the agent's browser) and the server's REST fallback (`typing`) feed one helper.
         const typing = (payload: unknown): void => {
             if (
                 isRecord(payload) &&
@@ -252,36 +305,43 @@ export async function openConversationRealtime(
             }
         };
 
-        on(CHAT_EVENT.typing, typing);
-        next.listen(`.${TYPING_FALLBACK}`, typing);
+        on(echoEvent(CHAT_EVENT.typing), typing);
+        on(TYPING_FALLBACK, typing);
 
-        next.onSubscribed(() => {
-            subscribed = true;
-            degraded = false;
-            refresh();
-        });
-        next.onSubscriptionError((status) => {
-            if (status === 401 || status === 403) {
-                handlers.onAuthFailure();
+        unbinders.push(
+            next.onSubscribed(() => {
+                subscribed = true;
+                degraded = false;
+                unavailable = false;
+                refresh();
+            }),
+            next.onSubscriptionError((status) => {
+                if (status === 401 || status === 403) {
+                    handlers.onAuthFailure();
 
-                return;
-            }
+                    return;
+                }
 
-            degraded = true;
-            subscribed = false;
-            refresh();
-        });
-        next.onStatus(report);
+                subscribed = false;
+
+                // `503 realtime_unavailable` (Reverb is not usable on the server) is not a fault the visitor can do anything about:
+                // nothing arrives on this socket, so poll quietly. Any other refusal is shown as a reconnecting socket.
+                unavailable = status === 503;
+                degraded = !unavailable;
+                refresh();
+            }),
+            next.onStatus(report),
+        );
         report(next.status());
     }
 
     async function open(): Promise<void> {
-        if (closed) {
+        if (closed || input === null) {
             return;
         }
 
         try {
-            const next = await options.factory(options.input);
+            const next = await options.factory(input);
 
             if (closed) {
                 next.close();
@@ -292,14 +352,14 @@ export async function openConversationRealtime(
             socket = next;
             bind(next);
         } catch {
-            reported = 'reconnecting';
-            handlers.onStatus('reconnecting');
-
-            if (attempts++ < 5) {
+            if (attempts++ < MAX_OPEN_ATTEMPTS) {
+                setStatus('reconnecting');
                 retryTimer = setTimeout(
                     () => void open(),
                     options.retryMs ?? 15_000,
                 );
+            } else {
+                fallBackToPolling();
             }
         }
     }
@@ -321,9 +381,12 @@ export async function openConversationRealtime(
     doc.addEventListener('visibilitychange', onVisible);
     win.addEventListener('online', onOnline);
 
-    reported = 'connecting';
-    handlers.onStatus('connecting');
-    await open();
+    if (pollingOnly) {
+        setStatus('polling');
+    } else {
+        setStatus('connecting');
+        await open();
+    }
 
     return {
         whisperTyping(typing) {
@@ -347,6 +410,7 @@ export async function openConversationRealtime(
             clearTimeout(retryTimer);
             doc.removeEventListener('visibilitychange', onVisible);
             win.removeEventListener('online', onOnline);
+            unbindAll();
             socket?.close();
             socket = null;
         },

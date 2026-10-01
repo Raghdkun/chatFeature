@@ -93,6 +93,10 @@ export type VisitorErrorCode =
     | 'no_agents'
     | 'conversation_exists'
     | 'conversation_not_active'
+    | 'conversation_not_ended'
+    | 'conversation_not_queued'
+    | 'already_rated'
+    | 'feature_disabled'
     | 'session_revoked'
     | 'unauthenticated'
     | 'widget_not_found'
@@ -134,6 +138,11 @@ export class VisitorApiError extends Error {
             this.code === 'session_revoked' ||
             (this.status === 401 && this.code === 'unauthenticated')
         );
+    }
+
+    /** A signed identity the server could not verify (`422`, `details.identity_token`): retrying the same token cannot work. */
+    get isIdentityRejected(): boolean {
+        return this.status === 422 && 'identity_token' in this.details;
     }
 
     /** Could not reach the server at all (offline, DNS, CORS, a dropped connection). */
@@ -515,8 +524,9 @@ export function createVisitorApi(options: VisitorApiOptions) {
         /* ---------------------------------------------------- session */
 
         /**
-         * Creates a visitor session for this widget. With `resumeToken` the stored token is sent as the bearer so the server can
-         * resume it (same token back, plus the open conversation and the `ws` block).
+         * Creates a visitor session for this widget. With `resumeToken` the stored token is sent as the bearer and the server
+         * ROTATES it: the response carries a NEW token (the old one is revoked), the still-open conversation (moved to the new
+         * session) and the `ws` block. The caller must adopt and store the token that comes back.
          */
         async createSession(
             request_: CreateSessionRequest,
@@ -650,6 +660,18 @@ export function createVisitorApi(options: VisitorApiOptions) {
             return conversationOf(body, status);
         },
 
+        /** Leaves a `queued` chat (`closed`, reason `cancelled`). `409 conversation_not_queued` when an agent was first. */
+        async cancelConversation(
+            conversation: string,
+        ): Promise<ConversationPublic> {
+            const { body, status } = await request(
+                `/conversations/${encodeURIComponent(conversation)}/cancel`,
+                { method: 'POST' },
+            );
+
+            return conversationOf(body, status);
+        },
+
         async rateConversation(
             conversation: string,
             request_: RatingRequest,
@@ -658,6 +680,16 @@ export function createVisitorApi(options: VisitorApiOptions) {
                 `/conversations/${encodeURIComponent(conversation)}/rating`,
                 { method: 'POST', json: request_ },
             );
+        },
+
+        /** Declines the rating prompt (`closed`, reason `skipped`). `409 conversation_not_ended` once the chat is closed already. */
+        async skipRating(conversation: string): Promise<ConversationPublic> {
+            const { body, status } = await request(
+                `/conversations/${encodeURIComponent(conversation)}/rating/skip`,
+                { method: 'POST' },
+            );
+
+            return conversationOf(body, status);
         },
 
         /**

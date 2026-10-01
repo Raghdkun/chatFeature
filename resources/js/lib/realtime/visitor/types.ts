@@ -13,19 +13,23 @@ export type SocketStatus =
     | 'failed';
 
 export interface ConversationSocket {
-    /** Subscribes to an event of the conversation channel; the payload is whatever the server sent (validated by the caller). */
-    listen(event: string, handler: (payload: unknown) => void): void;
+    /**
+     * Subscribes to an event of the conversation channel as Echo takes the name (a leading dot keeps a custom `broadcastAs` name,
+     * a whisper is `.client-typing`); the payload is whatever the server sent (validated by the caller). Returns the unbinder.
+     */
+    listen(event: string, handler: (payload: unknown) => void): () => void;
     /** Sends a client event (`client-typing`) to the other members of the channel. */
     whisper(event: string, payload: Record<string, unknown>): void;
     onStatus(handler: (status: SocketStatus) => void): () => void;
     status(): SocketStatus;
-    /** The channel subscription succeeded (on the first connect and again after every reconnect). */
-    onSubscribed(handler: () => void): void;
+    /** The channel subscription succeeded (on the first connect and again after every reconnect). Returns the unbinder. */
+    onSubscribed(handler: () => void): () => void;
     /**
      * The channel subscription failed: the broadcasting auth endpoint answered `status` (`401` / `403` mean the session is gone,
-     * `503 realtime_unavailable` or anything else means this socket will not deliver events).
+     * `503 realtime_unavailable` or anything else means this socket will not deliver events). Returns the unbinder.
      */
-    onSubscriptionError(handler: (status: number) => void): void;
+    onSubscriptionError(handler: (status: number) => void): () => void;
+    /** Unbinds every listener, leaves the channel and disconnects. */
     close(): void;
 }
 

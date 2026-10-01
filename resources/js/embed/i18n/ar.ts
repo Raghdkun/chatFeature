@@ -93,5 +93,8 @@ export const AR: Messages = {
     'embed.chat.error.rate_limited':
         'محاولات كثيرة. حاول مرة أخرى بعد :seconds ثانية.',
     'embed.chat.error.unavailable': 'المحادثة غير متاحة الآن.',
+    'embed.chat.error.identity':
+        'تعذّر التحقق من تسجيل دخولك. أعد تحميل الصفحة وحاول مرة أخرى.',
+    'embed.chat.error.feature_disabled': 'هذا الخيار غير متاح في هذه المحادثة.',
     'embed.chat.whatsapp.title': 'المتابعة عبر واتساب',
 };
