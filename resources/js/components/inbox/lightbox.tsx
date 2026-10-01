@@ -37,7 +37,7 @@ export function Lightbox({
             <DialogContent
                 data-testid="lightbox"
                 {...returnFocus}
-                className="w-fit max-w-[min(95vw,64rem)] gap-3 p-3 sm:max-w-[min(95vw,64rem)]"
+                className="w-fit max-w-[min(95vw,64rem)] gap-3 p-3 pt-11 sm:max-w-[min(95vw,64rem)]"
             >
                 <DialogTitle className="sr-only">
                     {t('inbox.lightbox.title')}
@@ -58,7 +58,7 @@ export function Lightbox({
                         href={href}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center justify-center gap-1.5 text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                        className="inline-flex min-h-6 items-center justify-center gap-1.5 py-0.5 text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
                     >
                         <ExternalLink className="size-3.5" aria-hidden />
                         {t('inbox.lightbox.open')}
