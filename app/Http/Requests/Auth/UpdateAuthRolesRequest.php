@@ -3,8 +3,11 @@
 namespace App\Http\Requests\Auth;
 
 use App\Auth\Pizzasys\AuthEnvironmentRepository;
+use App\Auth\Pizzasys\ExternalSessionStore;
 use App\Auth\Roles\PizzasysRoleResolver;
 use App\Auth\Roles\RoleMapping;
+use App\Auth\Support\SessionContext;
+use App\Models\AuthEnvironment;
 use App\Models\User;
 use App\Models\UserExternalIdentity;
 use Closure;
@@ -51,15 +54,33 @@ class UpdateAuthRolesRequest extends FormRequest
                 return;
             }
 
-            $identity = UserExternalIdentity::query()
-                ->where('user_id', $user->getKey())
-                ->where('auth_environment_id', $environment->getKey())
-                ->first();
+            $identity = $this->signedInIdentity($user, $environment);
 
             if ($identity !== null && ! app(PizzasysRoleResolver::class)->decideFor($identity, $this->mapping())->isAdmin) {
                 $validator->errors()->add('admin_permission', __('These names would remove your own administrator access. Keep a role or permission your own portal account has.'));
             }
         }];
+    }
+
+    /**
+     * The identity this very session was verified with (never "whichever identity the user has"); the live identity of
+     * the active environment when the request carries no portal session.
+     */
+    private function signedInIdentity(User $user, AuthEnvironment $environment): ?UserExternalIdentity
+    {
+        $identity = app(ExternalSessionStore::class)->find(SessionContext::fromRequest($this), $user)?->identity;
+
+        if ($identity !== null && ! $identity->isDeactivated() && $identity->auth_environment_id === $environment->getKey()) {
+            return $identity;
+        }
+
+        return UserExternalIdentity::query()
+            ->where('user_id', $user->getKey())
+            ->where('auth_environment_id', $environment->getKey())
+            ->whereNull('deactivated_at')
+            ->orderByDesc('last_verified_at')
+            ->orderByDesc('id')
+            ->first();
     }
 
     public function mapping(): RoleMapping

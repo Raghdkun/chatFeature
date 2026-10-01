@@ -16,6 +16,9 @@ final readonly class ShadowSyncResult
 
     public const NOT_CREATED = 'not_created';
 
+    /** A new portal account shares its email with a local user that already has a live identity in this environment. */
+    public const IDENTITY_CONFLICT = 'identity_conflict';
+
     private function __construct(
         public ?User $user,
         public ?UserExternalIdentity $identity,

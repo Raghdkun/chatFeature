@@ -165,4 +165,41 @@ class PizzasysRoleResolverTest extends TestCase
 
         $this->assertFalse($user->refresh()->is_admin);
     }
+
+    public function test_sync_from_identity_applies_exactly_the_identity_it_is_given(): void
+    {
+        $environment = AuthEnvironment::factory()->production()->create();
+        settings()->set('auth.mode', 'pizzasys');
+        $user = User::factory()->withoutChatAccess()->create(['auth_source' => 'pizzasys']);
+        // A deactivated admin identity of the same user sits next to the live agent identity.
+        UserExternalIdentity::factory()->granting(['super-admin'], [])->deactivated()->create(['user_id' => $user->id, 'auth_environment_id' => $environment->id, 'external_id' => '1']);
+        $agent = UserExternalIdentity::factory()->granting([], ['chat.agent'])->create(['user_id' => $user->id, 'auth_environment_id' => $environment->id, 'external_id' => '2']);
+
+        $this->resolver()->syncFromIdentity($user, $agent);
+
+        $user->refresh();
+        $this->assertFalse($user->is_admin, 'roles of another identity of the same user never leak in');
+        $this->assertTrue($user->is_agent);
+    }
+
+    public function test_sync_from_identity_ignores_identities_that_are_not_valid_for_this_user_and_environment(): void
+    {
+        $production = AuthEnvironment::factory()->production()->create();
+        $testing = AuthEnvironment::factory()->testing()->create();
+        settings()->set('auth.mode', 'pizzasys');
+        $user = User::factory()->withoutChatAccess()->create(['auth_source' => 'pizzasys']);
+        $other = User::factory()->create(['auth_source' => 'pizzasys']);
+
+        $inactiveEnvironment = UserExternalIdentity::factory()->granting(['super-admin'], [])->create(['user_id' => $user->id, 'auth_environment_id' => $testing->id]);
+        $deactivated = UserExternalIdentity::factory()->granting(['super-admin'], [])->deactivated()->create(['user_id' => $user->id, 'auth_environment_id' => $production->id]);
+        $foreign = UserExternalIdentity::factory()->granting(['super-admin'], [])->create(['user_id' => $other->id, 'auth_environment_id' => $production->id]);
+
+        foreach ([$inactiveEnvironment, $deactivated, $foreign] as $identity) {
+            $this->resolver()->syncFromIdentity($user, $identity);
+        }
+
+        $user->refresh();
+        $this->assertFalse($user->is_admin);
+        $this->assertFalse($user->is_agent);
+    }
 }

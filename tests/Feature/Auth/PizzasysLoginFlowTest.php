@@ -5,6 +5,7 @@ namespace Tests\Feature\Auth;
 use App\Auth\Contracts\AuthDriver;
 use App\Models\ExternalSession;
 use App\Models\User;
+use App\Models\UserExternalIdentity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
@@ -288,5 +289,59 @@ class PizzasysLoginFlowTest extends TestCase
         $local = User::factory()->agent()->create(['auth_source' => 'local']);
 
         $this->actingAs($local)->get(route('dashboard'))->assertRedirect(route('login'));
+    }
+
+    public function test_a_second_portal_account_with_an_admins_email_cannot_sign_in_as_that_admin(): void
+    {
+        $this->signIn('admin@test.local', 'admin-pass')->assertRedirect(route('dashboard', absolute: false));
+        $this->post(route('logout'));
+        $admin = User::query()->where('email', 'admin@test.local')->sole();
+        $this->assertTrue($admin->is_admin);
+        $firstSub = $this->portal->idFor('admin@test.local');
+        $logoutsBefore = $this->portal->calls('logout');
+
+        // The portal account is re-created (new id, no admin role) and the newcomer logs in with the same email.
+        $this->portal->user('admin@test.local', 'newcomer-pass', 'agent', 'Newcomer');
+        $this->assertNotSame($firstSub, $this->portal->idFor('admin@test.local'));
+
+        $this->signIn('admin@test.local', 'newcomer-pass')->assertSessionHasErrors('email');
+
+        $this->assertGuest();
+        $this->assertSame(1, User::query()->count());
+        $this->assertSame([$firstSub], $admin->externalIdentities()->pluck('external_id')->all(), 'the newcomer was not linked');
+        $this->assertSame('Test Admin', $admin->refresh()->name, 'nothing about the account followed the newcomer');
+        $this->assertTrue($admin->is_admin);
+        $this->assertSame(0, ExternalSession::query()->whereNull('revoked_at')->count());
+        $this->assertSame($logoutsBefore + 1, $this->portal->calls('logout'), 'the newcomer\'s fresh upstream token was closed again');
+    }
+
+    public function test_the_same_refusal_applies_to_the_mobile_login(): void
+    {
+        app(AuthDriver::class)->attemptForApi(['email' => 'admin@test.local', 'password' => 'admin-pass'], 'phone');
+        $this->portal->user('admin@test.local', 'newcomer-pass', 'agent', 'Newcomer');
+
+        $result = app(AuthDriver::class)->attemptForApi(['email' => 'admin@test.local', 'password' => 'newcomer-pass'], 'laptop');
+
+        $this->assertFalse($result->isOk());
+        $this->assertNull($result->token);
+        $this->assertSame(1, PersonalAccessToken::query()->count(), 'only the first login got a token');
+        $this->assertSame(1, UserExternalIdentity::query()->count());
+    }
+
+    public function test_a_returning_account_whose_old_identity_was_deactivated_signs_in_with_its_own_roles_only(): void
+    {
+        $this->signIn('admin@test.local', 'admin-pass');
+        $this->post(route('logout'));
+        $admin = User::query()->where('email', 'admin@test.local')->sole();
+        $admin->externalIdentities()->update(['active' => false, 'deactivated_at' => now()]);
+        $this->portal->user('admin@test.local', 'newcomer-pass', 'agent', 'Newcomer');
+
+        $this->signIn('admin@test.local', 'newcomer-pass')->assertRedirect(route('dashboard', absolute: false));
+
+        $admin->refresh();
+        $this->assertFalse($admin->is_admin, 'the old identity\'s admin roles do not leak into the new account');
+        $this->assertTrue($admin->is_agent);
+        $this->assertSame(2, $admin->externalIdentities()->count());
+        $this->assertSame(1, $admin->externalIdentities()->whereNull('deactivated_at')->count());
     }
 }

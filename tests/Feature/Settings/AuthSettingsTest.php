@@ -434,6 +434,22 @@ class AuthSettingsTest extends TestCase
         $this->assertSame(['super-admin'], settings('auth.pizzasys.super_roles'));
     }
 
+    public function test_the_lock_out_check_uses_the_identity_of_the_signed_in_session_not_a_stale_one(): void
+    {
+        // A deactivated identity of the same person (created first, so an unordered lookup would find it) used to be an admin.
+        $person = User::factory()->create(['email' => 'chatadmin@test.local', 'auth_source' => 'pizzasys', 'password' => null]);
+        UserExternalIdentity::factory()->granting(['super-admin'], [])->deactivated()->create([
+            'user_id' => $person->id,
+            'auth_environment_id' => AuthEnvironment::query()->where('key', 'production')->value('id'),
+            'external_id' => '5',
+        ]);
+        $this->signIn('chatadmin@test.local');
+
+        $this->putJson(route('settings.auth.roles.update'), ['admin_permission' => 'typo.admin', 'agent_permission' => 'chat.agent', 'super_roles' => ['super-admin']])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('admin_permission');
+    }
+
     public function test_a_chat_admin_may_drop_the_super_roles_as_long_as_the_permission_still_makes_them_admin(): void
     {
         $this->signIn('chatadmin@test.local');

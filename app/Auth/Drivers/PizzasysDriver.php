@@ -281,7 +281,7 @@ final class PizzasysDriver implements AuthDriver
         }
 
         $user = $synced->user;
-        $this->roles->sync($user);
+        $this->roles->syncFromIdentity($user, $synced->identity);
         $user->refresh();
 
         if (! $user->hasChatAccess()) {
@@ -302,6 +302,8 @@ final class PizzasysDriver implements AuthDriver
             ShadowSyncResult::IDENTITY_DEACTIVATED, ShadowSyncResult::ACCOUNT_DEACTIVATED => AuthResult::invalid(__('This account has been deactivated. Contact an administrator.')),
             ShadowSyncResult::EMAIL_CONFLICT => AuthResult::invalid(__('This email address already belongs to a local account. Contact an administrator.')),
             ShadowSyncResult::NOT_CREATED => AuthResult::noChatAccess(null, __('This account has no access to the chat dashboard. Ask an administrator to grant it.')),
+            // Deliberately the plain "wrong credentials" answer: it must not tell a stranger that the email exists here.
+            ShadowSyncResult::IDENTITY_CONFLICT => AuthResult::invalid(),
             default => AuthResult::invalid(),
         };
     }
@@ -349,7 +351,7 @@ final class PizzasysDriver implements AuthDriver
                 'stale_at' => null,
             ])->save();
 
-            $this->roles->sync($user);
+            $this->roles->syncFromIdentity($user, $identity);
             $user->refresh();
 
             if (! $user->hasChatAccess()) {
