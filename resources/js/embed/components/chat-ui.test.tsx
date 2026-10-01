@@ -305,10 +305,13 @@ describe('message list', () => {
             value: 300,
             configurable: true,
         });
-        list.scrollTop = 0;
-        await act(async () => {
-            list.dispatchEvent(new Event('scroll', { bubbles: true }));
-        });
+        // at the end of the list first, then the visitor scrolls up to the top
+        for (const top of [700, 0]) {
+            list.scrollTop = top;
+            await act(async () => {
+                list.dispatchEvent(new Event('scroll', { bubbles: true }));
+            });
+        }
 
         backend.agentSays('Down below');
         await run(() =>
@@ -324,6 +327,60 @@ describe('message list', () => {
 
         await click(pill);
         expect(byTestId(c, 'new-messages-pill')).toBeNull();
+    });
+
+    it('keeps following the end through a burst: the smooth scroll that is still on its way down does not let go of the list', async () => {
+        const { backend, h, c } = await activeChat();
+        const list = byTestId(c, 'message-list') as HTMLElement;
+        const size = (height: number): void => {
+            Object.defineProperty(list, 'scrollHeight', {
+                value: height,
+                configurable: true,
+            });
+        };
+        const scrollTo = async (top: number): Promise<void> => {
+            list.scrollTop = top;
+            await act(async () => {
+                list.dispatchEvent(new Event('scroll', { bubbles: true }));
+            });
+        };
+        const arrive = (body: string) => {
+            backend.agentSays(body);
+
+            return run(() =>
+                h.socket()?.emit('message.created', {
+                    v: 1,
+                    message: backend.state.messages.at(-1),
+                }),
+            );
+        };
+
+        Object.defineProperty(list, 'clientHeight', {
+            value: 300,
+            configurable: true,
+        });
+        size(1000);
+        await scrollTo(700);
+
+        // A message makes the list 200px taller; the smooth scroll to its end has only got to 750 when the next message arrives
+        // (150px from the end: farther than "at the bottom", but moving down, which is not the visitor scrolling away).
+        size(1200);
+        await scrollTo(750);
+        size(1400);
+        await arrive('Second of the burst');
+
+        expect(list.scrollTop).toBe(1400);
+        expect(byTestId(c, 'new-messages-pill')).toBeNull();
+
+        // Scrolling UP is still the visitor's decision: the next message waits behind the pill.
+        await scrollTo(100);
+        size(1600);
+        await arrive('Third, while reading older messages');
+
+        expect(list.scrollTop).toBe(100);
+        expect(byTestId(c, 'new-messages-pill')?.textContent).toContain(
+            'New messages',
+        );
     });
 });
 
