@@ -159,7 +159,9 @@ function upsertSorted(
 ): ConversationStaff[] {
     const rest = list.filter((item) => item.ulid !== conversation.ulid);
 
-    return [...rest, conversation].sort(byActivity);
+    // Times have second precision and the sort is stable: the conversation that just changed goes first, so among chats with the
+    // same activity second the one that moved last is on top.
+    return [conversation, ...rest].sort(byActivity);
 }
 
 function without<T extends { ulid: string }>(list: T[], ulid: string): T[] {

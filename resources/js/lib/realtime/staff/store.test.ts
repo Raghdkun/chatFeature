@@ -122,6 +122,28 @@ describe('hydrate', () => {
         ).toHaveLength(1);
     });
 
+    it('a chat that just changed sorts above the others with the same activity second', () => {
+        const older = makeActiveConversationStaff({
+            lastMessageAt: fakeTime(20),
+        });
+        const newer = makeActiveConversationStaff({
+            lastMessageAt: fakeTime(20),
+        });
+        const viewer = { id: 7, isAdmin: true };
+        const state = run(
+            EMPTY_INBOX,
+            { type: 'conversationUpdated', conversation: older, viewer },
+            { type: 'conversationUpdated', conversation: newer, viewer },
+            {
+                type: 'conversationUpdated',
+                conversation: { ...older, lastSeq: older.lastSeq + 1 },
+                viewer,
+            },
+        );
+
+        expect(state.mine.map((c) => c.ulid)).toEqual([older.ulid, newer.ulid]);
+    });
+
     it('a tickets-only snapshot does not claim the queue is known', () => {
         const state = run(EMPTY_INBOX, {
             type: 'hydrate',
