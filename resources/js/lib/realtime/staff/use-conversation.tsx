@@ -50,11 +50,8 @@ import { useChannelEvent } from '@/lib/realtime/staff/use-staff-realtime';
 export const RECEIPT_DELAY_MS = 400;
 const PAGE_LIMIT = 100;
 
-/**
- * The server's fallback for the typing whisper (it cannot publish `client-*` events): `{ v, actor, typing }` on the conversation
- * channel. Both feed the same typing helper. The shared `CHAT_EVENT` will carry this name; until then it lives here.
- */
-const TYPING_FALLBACK_EVENT = '.typing';
+/** The server's fallback for the typing whisper (it cannot publish `client-*` events): `{ v, actor, typing }`. Both feed the same typing helper. */
+const TYPING_FALLBACK_EVENT = echoEvent(CHAT_EVENT.typingFallback);
 const MAX_PAGES = 20;
 
 export type ConversationViewer = {

@@ -92,13 +92,8 @@ function asMessage(payload: unknown): MessageData | null {
         : null;
 }
 
-/*
- * Two server events that postdate the spine's `CHAT_EVENT` on this branch (docs/contracts/realtime-events.md): the REST typing
- * fallback is broadcast as `typing` (a server cannot publish `client-*`), and a queued chat that expired is `conversation.missed`.
- * Echo wants a leading dot for a custom `broadcastAs` name.
- */
-const TYPING_FALLBACK = '.typing';
-const CONVERSATION_MISSED = '.conversation.missed';
+const TYPING_FALLBACK = echoEvent(CHAT_EVENT.typingFallback);
+const CONVERSATION_MISSED = echoEvent(CHAT_EVENT.conversationMissed);
 const MAX_OPEN_ATTEMPTS = 5;
 
 const SENDERS: readonly string[] = ['visitor', 'agent', 'system'];
