@@ -37,6 +37,11 @@ final class ApiProblemException extends HttpException
         return new self(404, $code, $message);
     }
 
+    public static function unauthorized(string $code, string $message): self
+    {
+        return new self(401, $code, $message);
+    }
+
     public static function forbidden(string $code, string $message): self
     {
         return new self(403, $code, $message);

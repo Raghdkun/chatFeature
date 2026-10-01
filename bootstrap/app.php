@@ -1,6 +1,7 @@
 <?php
 
 use App\Exceptions\ApiErrorRenderer;
+use App\Http\Middleware\AuthenticateVisitor;
 use App\Http\Middleware\EnforceAuthFeatures;
 use App\Http\Middleware\EnsureAdmin;
 use App\Http\Middleware\EnsureChatAccess;
@@ -56,6 +57,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'session.valid' => EnsureSessionIsValid::class,
             // Admin-only routes (after auth, session.valid and chat.access).
             'admin' => EnsureAdmin::class,
+            // Public chat API: bearer visitor token (`vt_...`) -> request attributes `visitor_session` / `visitor`.
+            'visitor' => AuthenticateVisitor::class,
         ]);
 
         // Bearer-only group for the public widget API and webhooks (deliberately NOT stateful).
