@@ -3,6 +3,13 @@
 namespace App\Domain\Install\Actions;
 
 use App\Auth\Enums\AuthMode;
+use App\Data\Auth\EnvironmentKey;
+use App\Data\Auth\PizzasysEnvironmentData;
+use App\Data\Auth\PizzasysEnvironmentsData;
+use App\Data\Auth\PizzasysPortalAdminData;
+use App\Data\Auth\PizzasysRolesData;
+use App\Data\Auth\PizzasysSetupData;
+use App\Data\Auth\PizzasysTestedData;
 use App\Data\Setup\SetupAdminData;
 use App\Data\Setup\SetupCheckData;
 use App\Data\Setup\SetupData;
@@ -18,6 +25,7 @@ use App\Domain\Install\InstallRunner;
 use App\Domain\Install\InstallState;
 use App\Domain\Install\SetupTokenManager;
 use App\Domain\Install\Support\EnvironmentChecker;
+use App\Domain\Install\Support\PizzasysAnswers;
 use Illuminate\Http\Request;
 use Spatie\LaravelData\Optional;
 
@@ -27,8 +35,17 @@ use Spatie\LaravelData\Optional;
  */
 final class BuildSetupData
 {
-    /** Wizard screens in order; `admin` is skipped for modes that do not create a local admin. */
-    private const ORDER = [SetupStepKey::Welcome, SetupStepKey::Mode, SetupStepKey::Admin, SetupStepKey::Basics, SetupStepKey::Run, SetupStepKey::Done];
+    /** Wizard screens in order; `admin` is for mode fortify only, `pizzasys` and `portal-admin` for mode pizzasys only. */
+    private const ORDER = [
+        SetupStepKey::Welcome,
+        SetupStepKey::Mode,
+        SetupStepKey::Admin,
+        SetupStepKey::Pizzasys,
+        SetupStepKey::PortalAdmin,
+        SetupStepKey::Basics,
+        SetupStepKey::Run,
+        SetupStepKey::Done,
+    ];
 
     public function __construct(
         private readonly InstallState $state,
@@ -50,7 +67,9 @@ final class BuildSetupData
         $environmentOk = EnvironmentChecker::passes($checks);
         $mode = AuthMode::tryFrom((string) $data['mode']);
 
-        $current = $this->currentStep($needsToken, $verified, $environmentOk, $mode, $data['admin'] !== null, $data['basics'] !== null, $data['run']);
+        $pizzasys = PizzasysAnswers::from($data['auth_environments']);
+
+        $current = $this->currentStep($needsToken, $verified, $environmentOk, $mode, $data['admin'] !== null, $pizzasys, $data['basics'] !== null, $data['run']);
         $requested = $requestedStep !== null ? SetupStepKey::tryFrom($requestedStep) : null;
 
         if ($requested !== null && $this->index($requested) < $this->index($current)) {
@@ -80,18 +99,21 @@ final class BuildSetupData
             defaults: $this->defaults($request, $data['basics']),
             admin: $data['admin'] !== null ? new SetupAdminData($data['admin']['name'], $data['admin']['email']) : null,
             run: $this->run($mode, $data['run']),
+            pizzasys: $mode === AuthMode::Pizzasys ? $this->pizzasys($pizzasys) : null,
         );
     }
 
     /**
      * @param  array<string, array{status: string, message: string|null}>  $run
      */
-    private function currentStep(bool $needsToken, bool $verified, bool $environmentOk, ?AuthMode $mode, bool $hasAdmin, bool $hasBasics, array $run): SetupStepKey
+    private function currentStep(bool $needsToken, bool $verified, bool $environmentOk, ?AuthMode $mode, bool $hasAdmin, PizzasysAnswers $pizzasys, bool $hasBasics, array $run): SetupStepKey
     {
         return match (true) {
             ($needsToken && ! $verified) || ! $environmentOk => SetupStepKey::Welcome,
             $mode === null => SetupStepKey::Mode,
             $mode === AuthMode::Fortify && ! $hasAdmin => SetupStepKey::Admin,
+            $mode === AuthMode::Pizzasys && ! $pizzasys->isConfigured() => SetupStepKey::Pizzasys,
+            $mode === AuthMode::Pizzasys && $pizzasys->portalAdmin() === null => SetupStepKey::PortalAdmin,
             ! $hasBasics => SetupStepKey::Basics,
             $this->allRunStepsDone($mode, $run) => SetupStepKey::Done,
             default => SetupStepKey::Run,
@@ -121,6 +143,8 @@ final class BuildSetupData
             'welcome' => __('Welcome'),
             'mode' => __('Sign-in mode'),
             'admin' => __('Administrator'),
+            'pizzasys' => __('Auth portal'),
+            'portal-admin' => __('Portal administrator'),
             'basics' => __('Basics'),
             'run' => __('Install'),
             'done' => __('Done'),
@@ -130,6 +154,10 @@ final class BuildSetupData
 
         foreach (self::ORDER as $key) {
             if ($key === SetupStepKey::Admin && $mode !== null && $mode !== AuthMode::Fortify) {
+                continue;
+            }
+
+            if (in_array($key, [SetupStepKey::Pizzasys, SetupStepKey::PortalAdmin], true) && $mode !== AuthMode::Pizzasys) {
                 continue;
             }
 
@@ -197,6 +225,44 @@ final class BuildSetupData
         }
 
         return $rows;
+    }
+
+    private function pizzasys(PizzasysAnswers $answers): PizzasysSetupData
+    {
+        $environment = function (string $key) use ($answers): PizzasysEnvironmentData {
+            $answer = $answers->environment($key);
+            $enum = EnvironmentKey::from($key);
+
+            if ($answer === null) {
+                return PizzasysEnvironmentData::unconfigured($enum);
+            }
+
+            return new PizzasysEnvironmentData(
+                key: $enum,
+                label: $answer['label'],
+                configured: true,
+                base_url: $answer['base_url'],
+                service_name: $answer['service_name'],
+                has_service_token: $answer['service_token'] !== null,
+                nats_url: $answer['nats_url'],
+                has_nats_token: $answer['nats_token'] !== null,
+                verify_tls: $answer['verify_tls'],
+                last_check_at: null,
+                last_check_status: null,
+                last_check_message: null,
+            );
+        };
+
+        $roles = $answers->roles();
+        $admin = $answers->portalAdmin();
+
+        return new PizzasysSetupData(
+            environments: new PizzasysEnvironmentsData($environment('production'), $environment('testing')),
+            active_env: EnvironmentKey::from($answers->activeKey()),
+            roles: new PizzasysRolesData($roles->adminPermission, $roles->agentPermission, $roles->superRoles),
+            tested: new PizzasysTestedData($answers->tested('production'), $answers->tested('testing')),
+            portal_admin: $admin !== null ? new PizzasysPortalAdminData($admin['name'], $admin['email']) : null,
+        );
     }
 
     private function index(SetupStepKey $key): int

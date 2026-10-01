@@ -1,0 +1,24 @@
+{
+    "_note": "Captured from local throwaway pizzasys harness (127.0.0.1:8200). Tokens redacted.",
+    "request": {
+        "method": "POST",
+        "path": "/api/v1/auth/login",
+        "authorization": null,
+        "body": {
+            "email": "agent@test.local",
+            "password": "<test-password>"
+        }
+    },
+    "response": {
+        "status": 401,
+        "headers": {
+            "content-type": "application/json",
+            "x-correlation-id": "36f204c0-9e43-4f26-9a92-6221c37d9888"
+        },
+        "body": {
+            "success": false,
+            "message": "Invalid credentials"
+        }
+    },
+    "latency_ms": 229
+}

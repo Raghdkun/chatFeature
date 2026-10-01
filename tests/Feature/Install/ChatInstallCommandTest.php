@@ -63,16 +63,16 @@ class ChatInstallCommandTest extends InstallTestCase
         $this->artisan('chat:install', ['--mode' => 'fortify'])->assertExitCode(0);
     }
 
-    public function test_pizzasys_mode_is_not_available_yet(): void
+    public function test_pizzasys_mode_needs_the_portal_answers(): void
     {
         $this->cliAnswers();
+        config(['install.cli.auth' => []]);
 
         $this->artisan('chat:install', ['--mode' => 'pizzasys'])
-            ->expectsOutputToContain('available in P2')
+            ->expectsOutputToContain('INSTALL_AUTH_')
             ->assertExitCode(1);
 
         $this->assertFalse($this->install->isInstalled());
-        $this->assertNull($this->install->mode());
     }
 
     public function test_an_unknown_mode_is_rejected(): void

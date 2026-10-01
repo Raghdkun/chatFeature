@@ -2,7 +2,9 @@
 
 namespace App\Domain\Install\Actions;
 
+use App\Auth\Roles\RoleMapping;
 use App\Domain\Install\InstallState;
+use App\Domain\Install\Support\PizzasysAnswers;
 use Illuminate\Support\Facades\Hash;
 
 /**
@@ -33,6 +35,96 @@ final class StoreInstallAnswers
 
         $this->state->mutate(function (array $state) use ($name, $email, $hash): array {
             $state['admin'] = ['name' => $name, 'email' => mb_strtolower($email), 'password_hash' => $hash];
+
+            return $this->forgetRuns($state, ['create-admin', 'write-lock']);
+        });
+    }
+
+    /**
+     * Mode 2: the portal environments, the active one and the role mapping. A token left out (null) keeps the one
+     * already stored for that environment; new tokens are encrypted with the application key before they are written.
+     * Any change drops the connection-test results and the verified portal administrator, which were proven against
+     * the old answers.
+     *
+     * @param  array<string, array{base_url: string, api_prefix?: string, service_name: string, service_token: string|null, nats_url: string|null, nats_token: string|null, nats_token_clear?: bool, verify_tls: bool, label?: string}|null>  $environments  Keyed production|testing; a null or missing testing entry removes it.
+     */
+    public function pizzasys(array $environments, string $activeEnv, RoleMapping $roles): void
+    {
+        $this->state->mutate(function (array $state) use ($environments, $activeEnv, $roles): array {
+            $previous = PizzasysAnswers::from($state['auth_environments']);
+            $stored = [];
+
+            foreach (['production', 'testing'] as $key) {
+                $input = $environments[$key] ?? null;
+
+                if ($input === null) {
+                    continue;
+                }
+
+                $before = $previous->environment($key);
+
+                $stored[$key] = [
+                    'base_url' => rtrim($input['base_url'], '/'),
+                    'api_prefix' => $input['api_prefix'] ?? '/api/v1',
+                    'service_name' => $input['service_name'],
+                    'service_token' => $input['service_token'] !== null && $input['service_token'] !== ''
+                        ? PizzasysAnswers::encrypt($input['service_token'])
+                        : ($before['service_token'] ?? null),
+                    'nats_url' => $input['nats_url'] !== null && $input['nats_url'] !== '' ? $input['nats_url'] : null,
+                    // No NATS URL, no NATS token; otherwise an empty token keeps the stored one.
+                    'nats_token' => $input['nats_url'] === null || $input['nats_url'] === '' || ($input['nats_token_clear'] ?? false) === true
+                        ? null
+                        : ($input['nats_token'] !== null && $input['nats_token'] !== '' ? PizzasysAnswers::encrypt($input['nats_token']) : ($before['nats_token'] ?? null)),
+                    'verify_tls' => $input['verify_tls'],
+                    'label' => $input['label'] ?? ucfirst($key),
+                    'tested' => false,
+                ];
+            }
+
+            $state['auth_environments'] = [
+                'environments' => $stored,
+                'active_env' => $activeEnv,
+                'roles' => [
+                    'admin_permission' => $roles->adminPermission,
+                    'agent_permission' => $roles->agentPermission,
+                    'super_roles' => $roles->superRoles,
+                ],
+                'portal_admin' => null,
+            ];
+
+            return $this->forgetRuns($state, ['seed-defaults', 'create-admin', 'write-lock']);
+        });
+    }
+
+    /** Remember whether the last connection test of an environment passed. */
+    public function markTested(string $environment, bool $ok): void
+    {
+        $this->state->mutate(function (array $state) use ($environment, $ok): array {
+            if (isset($state['auth_environments']['environments'][$environment])) {
+                $state['auth_environments']['environments'][$environment]['tested'] = $ok;
+            }
+
+            return $state;
+        });
+    }
+
+    /**
+     * The portal administrator whose login was verified in this wizard run (identity and roles, never a token or password).
+     *
+     * @param  list<string>  $roles
+     * @param  list<string>  $permissions
+     */
+    public function portalAdmin(string $environment, string $sub, string $name, string $email, array $roles, array $permissions): void
+    {
+        $this->state->mutate(function (array $state) use ($environment, $sub, $name, $email, $roles, $permissions): array {
+            $state['auth_environments']['portal_admin'] = [
+                'sub' => $sub,
+                'name' => $name,
+                'email' => mb_strtolower($email),
+                'roles' => $roles,
+                'permissions' => $permissions,
+                'environment' => $environment,
+            ];
 
             return $this->forgetRuns($state, ['create-admin', 'write-lock']);
         });

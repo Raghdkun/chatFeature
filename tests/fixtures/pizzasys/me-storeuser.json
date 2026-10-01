@@ -1,0 +1,117 @@
+{
+    "_note": "Captured from local throwaway pizzasys harness (127.0.0.1:8200). Tokens redacted.",
+    "request": {
+        "method": "GET",
+        "path": "/api/v1/auth/me",
+        "authorization": "Bearer <token>",
+        "body": null
+    },
+    "response": {
+        "status": 200,
+        "headers": {
+            "content-type": "application/json",
+            "x-correlation-id": "46925fee-3db0-4f50-8d62-312bf5af378f"
+        },
+        "body": {
+            "success": true,
+            "data": {
+                "user": {
+                    "id": 7,
+                    "name": "Test Store User",
+                    "email": "storeuser@test.local",
+                    "email_verified_at": "2026-10-01T02:37:03.000000Z",
+                    "created_at": "2026-10-01T02:37:03.000000Z",
+                    "updated_at": "2026-10-01T02:37:03.000000Z",
+                    "global_roles": [],
+                    "global_permissions": [],
+                    "all_permissions": [
+                        {
+                            "id": 10,
+                            "name": "chat.agent",
+                            "guard_name": "web"
+                        }
+                    ],
+                    "stores": [
+                        {
+                            "store": {
+                                "id": "S001",
+                                "name": "Store One",
+                                "metadata": {
+                                    "city": "Testville"
+                                },
+                                "is_active": true
+                            },
+                            "direct_roles": [
+                                {
+                                    "id": 2,
+                                    "name": "chat-agent-role",
+                                    "guard_name": "web",
+                                    "permissions": [
+                                        {
+                                            "id": 10,
+                                            "name": "chat.agent",
+                                            "guard_name": "web"
+                                        }
+                                    ]
+                                }
+                            ],
+                            "effective_roles": [
+                                {
+                                    "id": 2,
+                                    "name": "chat-agent-role",
+                                    "guard_name": "web",
+                                    "is_inherited": false,
+                                    "permissions": [
+                                        {
+                                            "id": 10,
+                                            "name": "chat.agent",
+                                            "guard_name": "web"
+                                        }
+                                    ]
+                                }
+                            ],
+                            "effective_permissions": [
+                                {
+                                    "id": 10,
+                                    "name": "chat.agent",
+                                    "guard_name": "web"
+                                }
+                            ],
+                            "hierarchy_info": [
+                                {
+                                    "role": {
+                                        "id": 2,
+                                        "name": "chat-agent-role"
+                                    },
+                                    "manages_roles": [],
+                                    "managed_by_roles": [],
+                                    "can_manage_users": false,
+                                    "hierarchy_level": 0
+                                }
+                            ],
+                            "manageable_users": [],
+                            "assignment_metadata": [
+                                {
+                                    "role_id": 2,
+                                    "role_name": "chat-agent-role",
+                                    "metadata": {
+                                        "note": "harness"
+                                    },
+                                    "assigned_at": "2026-10-01T02:37:03.000000Z",
+                                    "is_active": true
+                                }
+                            ]
+                        }
+                    ],
+                    "summary": {
+                        "total_stores": 1,
+                        "total_roles": 1,
+                        "total_permissions": 1,
+                        "manageable_users_count": 0
+                    }
+                }
+            }
+        }
+    },
+    "latency_ms": 13
+}

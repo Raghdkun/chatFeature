@@ -10,7 +10,7 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Fortify registers every auth route its features allow; the active AuthDriver decides which of
  * them may actually be used (e.g. registration only when `auth.allow_registration` is on, password
- * reset / 2FA / passkeys not at all in pizzasys mode). Disabled features answer 404.
+ * reset / 2FA / passkeys / profile edits not at all in pizzasys mode). Disabled features answer 404.
  */
 final class EnforceAuthFeatures
 {
@@ -27,6 +27,8 @@ final class EnforceAuthFeatures
             'two-factor.secret-key', 'two-factor.recovery-codes', 'two-factor.regenerate-recovery-codes',
             'passkey.store', 'passkey.registration-options', 'passkey.destroy',
         ],
+        // Name, email and password belong to the auth portal in mode 2.
+        'profileEditable' => ['profile.update', 'profile.destroy', 'user-password.update', 'security.edit'],
     ];
 
     /**
@@ -57,6 +59,7 @@ final class EnforceAuthFeatures
             'canRegister' => $capabilities->canRegister,
             'canResetPassword' => $capabilities->canResetPassword,
             'canManage2fa' => $capabilities->canManage2fa,
+            'profileEditable' => $capabilities->profileEditable,
             default => true,
         };
     }

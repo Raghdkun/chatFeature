@@ -61,7 +61,14 @@ class FortifyServiceProvider extends ServiceProvider
             $result = $request->attributes->get('auth.attempt');
 
             if (! $result instanceof AuthResult) {
-                $result = app(AuthDriver::class)->attempt($request);
+                $driver = app(AuthDriver::class);
+
+                // A portal session is bound to ONE browser session, so a "remember me" cookie could never resume it.
+                if ($driver->key() === 'pizzasys') {
+                    $request->merge(['remember' => false]);
+                }
+
+                $result = $driver->attempt($request);
                 $request->attributes->set('auth.attempt', $result);
             }
 
@@ -69,9 +76,9 @@ class FortifyServiceProvider extends ServiceProvider
                 return $result->user;
             }
 
-            // The login page shows its dedicated "No chat access" notice when it gets this reason.
-            if ($result->outcome === AuthOutcome::NoChatAccess) {
-                $request->session()->flash('reason', AuthOutcome::NoChatAccess->value);
+            // The login page shows its dedicated notices ("No chat access", "Auth Portal unreachable") for these reasons.
+            if (in_array($result->outcome, [AuthOutcome::NoChatAccess, AuthOutcome::Unavailable], true)) {
+                $request->session()->flash('reason', $result->outcome->value);
             }
 
             // Plain wrong credentials (Invalid, no message) fall through to Fortify's generic error

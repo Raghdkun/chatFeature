@@ -4,6 +4,7 @@ namespace Tests\Feature\Auth;
 
 use App\Auth\AuthModeManager;
 use App\Auth\Drivers\FortifyDriver;
+use App\Auth\Drivers\PizzasysDriver;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -40,12 +41,20 @@ class AuthModeManagerTest extends TestCase
         $this->assertSame([], $queries);
     }
 
-    public function test_the_pizzasys_driver_does_not_exist_yet(): void
+    public function test_the_pizzasys_mode_resolves_the_pizzasys_driver(): void
     {
         settings()->set('auth.mode', 'pizzasys');
 
+        $driver = app(AuthModeManager::class)->activeDriver();
+
+        $this->assertInstanceOf(PizzasysDriver::class, $driver);
+        $this->assertSame('pizzasys', $driver->key());
+    }
+
+    public function test_an_unknown_mode_has_no_driver(): void
+    {
         $this->expectException(InvalidArgumentException::class);
 
-        app(AuthModeManager::class)->activeDriver();
+        app(AuthModeManager::class)->driver('ldap');
     }
 }

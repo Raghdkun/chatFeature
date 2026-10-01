@@ -5,12 +5,14 @@ namespace App\Domain\Install\Steps;
 use App\Domain\Install\Contracts\InstallStep;
 use App\Domain\Install\InstallContext;
 use App\Domain\Install\StepResult;
+use App\Domain\Install\Support\PizzasysAnswers;
 
 /**
- * Step 2 (mode `pizzasys`): domains, service client, live `token-verify` probe, verified portal-admin login.
+ * Step 2 (mode `pizzasys`): the portal environments, the role mapping and the verified portal administrator.
  *
- * P2 placeholder: registered so the step order is fixed, but it always fails with a clear message.
- * P2 replaces this class in place (same key, same position in config/install.php).
+ * The wizard collects these through `POST /setup/pizzasys`, `/setup/pizzasys/test` and `/setup/portal-admin` (the
+ * live `token-verify` probe and the portal-admin login happen there, tokens encrypted in the install state); this step
+ * checks that the answers are complete and readable before anything is written to the database.
  */
 final class ConfigurePizzasysStep implements InstallStep
 {
@@ -34,6 +36,26 @@ final class ConfigurePizzasysStep implements InstallStep
 
     public function run(InstallContext $context): StepResult
     {
-        return StepResult::failed('pizzasys authentication is available in P2 and is not part of this release.');
+        $answers = PizzasysAnswers::from($context->authEnvironments);
+
+        if (! $answers->isConfigured()) {
+            return StepResult::needsInput(['pizzasys']);
+        }
+
+        foreach (array_keys($answers->environments()) as $key) {
+            if ($answers->endpoint($key) === null) {
+                return StepResult::failed("The stored service token of the {$key} environment cannot be read. Enter it again.");
+            }
+        }
+
+        if ($answers->portalAdmin() === null) {
+            return StepResult::needsInput(['portal-admin']);
+        }
+
+        if ($answers->portalAdmin()['environment'] !== $answers->activeKey()) {
+            return StepResult::needsInput(['portal-admin'], 'The portal administrator was verified against another environment. Sign in again.');
+        }
+
+        return StepResult::ok();
     }
 }

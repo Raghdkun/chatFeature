@@ -1,0 +1,61 @@
+{
+    "_note": "Captured from local throwaway pizzasys harness (127.0.0.1:8200). Tokens redacted.",
+    "request": {
+        "method": "POST",
+        "path": "/api/v1/auth/token-verify",
+        "authorization": "Bearer <service-token>",
+        "body": {
+            "service": "pne-chat",
+            "token": "<token>",
+            "method": "POST",
+            "path": "/api/chat/send",
+            "route_name": null
+        }
+    },
+    "response": {
+        "status": 200,
+        "headers": {
+            "content-type": "application/json",
+            "x-correlation-id": "ca2ac861-0d47-437c-aeff-fce5b48b9d1d"
+        },
+        "body": {
+            "active": true,
+            "scope": "*",
+            "token_type": "access_token",
+            "exp": null,
+            "iat": 1790822351,
+            "sub": "2",
+            "aud": "pne-chat",
+            "iss": "http://127.0.0.1:8200",
+            "jti": "14",
+            "user": {
+                "id": 2,
+                "name": "Test Admin",
+                "email": "admin@test.local"
+            },
+            "roles": ["super-admin"],
+            "permissions": [
+                "manage users",
+                "manage roles",
+                "manage permissions",
+                "manage service clients",
+                "manage auth rules",
+                "manage stores",
+                "manage user role assignments",
+                "manage role hierarchy"
+            ],
+            "ext": {
+                "authorized": true,
+                "required_permissions": [],
+                "granted_by": "super-role",
+                "context": {
+                    "service": "pne-chat",
+                    "method": "POST",
+                    "path": "/api/chat/send",
+                    "route_name": null
+                }
+            }
+        }
+    },
+    "latency_ms": 10
+}

@@ -9,6 +9,8 @@ use App\Domain\Install\InstallLock;
 use App\Domain\Install\InstallRunner;
 use App\Domain\Install\StepResult;
 use App\Domain\Install\Steps\ConfigurePizzasysStep;
+use App\Domain\Install\Steps\CreateAdminStep;
+use App\Domain\Install\Steps\CreatePortalAdminStep;
 use Illuminate\Support\Facades\Artisan;
 use Inertia\Testing\AssertableInertia as Assert;
 use Mockery;
@@ -144,7 +146,7 @@ class InstallRunnerTest extends InstallTestCase
             ->assertJsonPath('message', 'The step failed unexpectedly: database exploded');
     }
 
-    public function test_the_pizzasys_step_exists_but_is_a_clear_not_yet_available_placeholder(): void
+    public function test_the_pizzasys_step_asks_for_the_missing_wizard_answers(): void
     {
         $step = app(ConfigurePizzasysStep::class);
 
@@ -153,14 +155,19 @@ class InstallRunnerTest extends InstallTestCase
 
         $result = $step->run(InstallContext::fromState($this->install));
         $this->assertFalse($result->isOk());
-        $this->assertStringContainsString('P2', (string) $result->message);
+        $this->assertSame(['pizzasys'], $result->fields);
 
         $keys = array_map(fn (InstallStep $step): string => $step->key(), app(InstallRunner::class)->steps());
-        $this->assertSame(['check-environment', 'choose-mode', 'configure-pizzasys', 'app-basics', 'run-migrations', 'seed-defaults', 'create-admin', 'write-lock'], $keys);
+        $this->assertSame(['check-environment', 'choose-mode', 'configure-pizzasys', 'app-basics', 'run-migrations', 'seed-defaults', 'create-admin', 'create-admin', 'write-lock'], $keys);
 
-        // fortify never sees the pizzasys step
+        // fortify never sees the pizzasys step, and each mode gets its own create-admin
         $fortify = array_map(fn (InstallStep $step): string => $step->key(), app(InstallRunner::class)->steps('fortify'));
         $this->assertNotContains('configure-pizzasys', $fortify);
+        $this->assertSame(['create-admin'], array_values(array_filter($fortify, fn (string $key): bool => $key === 'create-admin')));
+
+        $this->assertInstanceOf(CreateAdminStep::class, app(InstallRunner::class)->find('create-admin', 'fortify'));
+        $this->assertInstanceOf(CreatePortalAdminStep::class, app(InstallRunner::class)->find('create-admin', 'pizzasys'));
+        $this->assertSame(['run-migrations', 'seed-defaults', 'create-admin', 'write-lock'], app(InstallRunner::class)->runKeys('pizzasys'));
     }
 
     public function test_step_results_carry_their_status(): void

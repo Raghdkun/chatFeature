@@ -5,6 +5,7 @@ use App\Domain\Install\Steps\CheckEnvironmentStep;
 use App\Domain\Install\Steps\ChooseModeStep;
 use App\Domain\Install\Steps\ConfigurePizzasysStep;
 use App\Domain\Install\Steps\CreateAdminStep;
+use App\Domain\Install\Steps\CreatePortalAdminStep;
 use App\Domain\Install\Steps\RunMigrationsStep;
 use App\Domain\Install\Steps\SeedDefaultsStep;
 use App\Domain\Install\Steps\WriteLockStep;
@@ -37,8 +38,8 @@ return [
      */
     'setup_token' => env('SETUP_TOKEN'),
 
-    /* Flipped on by P2 once the pizzasys wizard steps exist. */
-    'pizzasys_available' => false,
+    /* Mode 2 (pizzasys) can be chosen in the wizard. */
+    'pizzasys_available' => true,
 
     /*
      * Drivers forced while the app is not installed (no database / Redis / websocket server may
@@ -51,7 +52,7 @@ return [
         'broadcasting.default' => 'null',
     ],
 
-    /* Registered steps, in execution order. P2 replaces ConfigurePizzasysStep in place. */
+    /* Registered steps, in execution order. `create-admin` exists once per mode (same key, different modes). */
     'steps' => [
         CheckEnvironmentStep::class,
         ChooseModeStep::class,
@@ -60,6 +61,7 @@ return [
         RunMigrationsStep::class,
         SeedDefaultsStep::class,
         CreateAdminStep::class,
+        CreatePortalAdminStep::class,
         WriteLockStep::class,
     ],
 
@@ -82,5 +84,21 @@ return [
         'locale' => env('INSTALL_LOCALE'),
         'timezone' => env('INSTALL_TIMEZONE'),
         'idle_timeout_minutes' => env('INSTALL_IDLE_TIMEOUT_MINUTES'),
+
+        /* Mode 2 (`chat:install --mode=pizzasys`): the portal, its roles and the portal administrator to verify. */
+        'auth' => [
+            'base_url' => env('INSTALL_AUTH_BASE_URL'),
+            'api_prefix' => env('INSTALL_AUTH_API_PREFIX'),
+            'service_name' => env('INSTALL_AUTH_SERVICE_NAME'),
+            'service_token' => env('INSTALL_AUTH_SERVICE_TOKEN'),
+            'nats_url' => env('INSTALL_AUTH_NATS_URL'),
+            'nats_token' => env('INSTALL_AUTH_NATS_TOKEN'),
+            'verify_tls' => env('INSTALL_AUTH_VERIFY_TLS'),
+            'admin_permission' => env('INSTALL_AUTH_ADMIN_PERMISSION'),
+            'agent_permission' => env('INSTALL_AUTH_AGENT_PERMISSION'),
+            'super_roles' => env('INSTALL_AUTH_SUPER_ROLES'),
+            'admin_email' => env('INSTALL_AUTH_ADMIN_EMAIL'),
+            'admin_password' => env('INSTALL_AUTH_ADMIN_PASSWORD'),
+        ],
     ],
 ];
