@@ -21,6 +21,7 @@ use App\Domain\Chat\Events\ConversationRated;
 use App\Domain\Chat\Events\ConversationTransferred;
 use App\Domain\Chat\Events\ConversationUpdated;
 use App\Domain\Chat\Events\MessageCreated;
+use App\Domain\Chat\Events\MessagesDelivered;
 use App\Domain\Chat\Events\MessagesSeen;
 use App\Domain\Chat\Events\OfflineTicketCreated;
 use App\Domain\Chat\Events\PresenceChanged;
@@ -365,6 +366,24 @@ class ChatEventBroadcastsTest extends TestCase
         $this->assertSame(['type' => 'visitor', 'name' => $conversation->visitor->name, 'avatarUrl' => null], $this->wire->sole('message.created')['payload']['message']['sender']);
     }
 
+    public function test_message_delivered_names_whose_client_received_up_to_where(): void
+    {
+        MessagesDelivered::dispatch($this->conversation, 5, SenderType::Visitor);
+
+        $this->assertChannels('message.delivered', [$this->conversationChannel()]);
+        $payload = $this->wire->sole('message.delivered')['payload'];
+        $this->assertSame(['v', 'upToSeq', 'by', 'at'], array_keys($payload));
+        $this->assertSame([1, 5, 'visitor'], [$payload['v'], $payload['upToSeq'], $payload['by']]);
+        $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/', $payload['at']);
+    }
+
+    public function test_message_delivered_by_the_system_is_not_a_receipt(): void
+    {
+        MessagesDelivered::dispatch($this->conversation, 5, SenderType::System);
+
+        $this->assertSame([], $this->wire->published);
+    }
+
     public function test_message_seen_names_who_read_up_to_where(): void
     {
         MessagesSeen::dispatch($this->conversation, 7, SenderType::Agent);
@@ -475,6 +494,7 @@ class ChatEventBroadcastsTest extends TestCase
         Queue::fake();
 
         ChatTaken::dispatch($this->conversation, $this->alice, [$this->bob->id]);
+        MessagesDelivered::dispatch($this->conversation, 3, SenderType::Visitor);
         MessagesSeen::dispatch($this->conversation, 3, SenderType::Visitor);
         ConversationEnded::dispatch($this->conversation, ConversationEndedBy::System);
         ConversationClosed::dispatch($this->conversation, ConversationCloseReason::Skipped);
@@ -486,7 +506,7 @@ class ChatEventBroadcastsTest extends TestCase
 
         $this->assertSame([], $this->wire->published, 'nothing was published inside the dispatching process');
         $queuedEvents = array_map(fn (array $entry): string => $entry['job']->event->broadcastAs(), Queue::pushedJobs()[BroadcastEvent::class]);
-        foreach (['chat.taken', 'message.seen', 'conversation.ended', 'conversation.closed', 'conversation.transferred', 'conversation.rated', 'presence.changed', 'unread.updated', 'offline-ticket.created', 'conversation.updated'] as $event) {
+        foreach (['chat.taken', 'message.delivered', 'message.seen', 'conversation.ended', 'conversation.closed', 'conversation.transferred', 'conversation.rated', 'presence.changed', 'unread.updated', 'offline-ticket.created', 'conversation.updated'] as $event) {
             $this->assertContains($event, $queuedEvents);
         }
     }
@@ -556,6 +576,7 @@ class ChatEventBroadcastsTest extends TestCase
         ConversationAssigned::dispatch($conversation, $this->alice, $this->admin, $this->bob);
         ConversationUpdated::dispatch($conversation);
         MessageCreated::dispatch($message);
+        MessagesDelivered::dispatch($conversation, 1, SenderType::Agent);
         MessagesSeen::dispatch($conversation, 1, SenderType::Agent);
         ConversationEnded::dispatch($conversation, ConversationEndedBy::Agent);
         ConversationClosed::dispatch($conversation, ConversationCloseReason::Rated);
@@ -582,6 +603,7 @@ class ChatEventBroadcastsTest extends TestCase
 
         ConversationUpdated::dispatch($conversation);
         MessageCreated::dispatch($message);
+        MessagesDelivered::dispatch($conversation, 1, SenderType::Agent);
         MessagesSeen::dispatch($conversation, 1, SenderType::Agent);
         ConversationEnded::dispatch($conversation, ConversationEndedBy::Agent);
         UnseenCountChanged::dispatch($conversation);
@@ -600,7 +622,7 @@ class ChatEventBroadcastsTest extends TestCase
     public function test_the_event_names_are_the_dotted_names_of_the_contract(): void
     {
         $this->assertSame(
-            ['chat.offered', 'chat.taken', 'chat.assigned', 'chat.claimed', 'conversation.updated', 'unread.updated', 'queue.updated', 'session.revoked', 'presence.changed', 'message.created', 'message.seen', 'conversation.ended', 'conversation.closed', 'conversation.missed', 'conversation.transferred', 'offline-ticket.created', 'conversation.rated', 'typing'],
+            ['chat.offered', 'chat.taken', 'chat.assigned', 'chat.claimed', 'conversation.updated', 'unread.updated', 'queue.updated', 'session.revoked', 'presence.changed', 'message.created', 'message.delivered', 'message.seen', 'conversation.ended', 'conversation.closed', 'conversation.missed', 'conversation.transferred', 'offline-ticket.created', 'conversation.rated', 'typing'],
             array_map(fn (RealtimeEvent $event): string => $event->value, RealtimeEvent::cases()),
         );
     }

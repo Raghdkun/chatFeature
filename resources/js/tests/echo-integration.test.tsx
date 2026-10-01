@@ -379,6 +379,7 @@ describe('the conversation channel', () => {
         return {
             calls,
             messageCreated: record('messageCreated'),
+            delivered: record('delivered'),
             seen: record('seen'),
             ended: record('ended'),
             closed: record('closed'),
@@ -388,7 +389,7 @@ describe('the conversation channel', () => {
         };
     }
 
-    it('hears messages, receipts, end / close and both typing signals', async () => {
+    it('hears messages, delivery and read receipts, end / close and both typing signals', async () => {
         const b = bridge();
 
         await render(
@@ -405,11 +406,19 @@ describe('the conversation channel', () => {
             channel.receive('message.created', { v: 1, message }),
         );
         await act(async () =>
-            channel.receive('message.seen', {
+            channel.receive('message.delivered', {
                 v: 1,
                 upToSeq: 1,
                 by: 'visitor',
                 at: fakeTime(2),
+            }),
+        );
+        await act(async () =>
+            channel.receive('message.seen', {
+                v: 1,
+                upToSeq: 1,
+                by: 'visitor',
+                at: fakeTime(3),
             }),
         );
         await act(async () =>
@@ -437,8 +446,11 @@ describe('the conversation channel', () => {
         );
 
         expect(b.calls.messageCreated).toEqual([message]);
-        expect(b.calls.seen).toEqual([
+        expect(b.calls.delivered).toEqual([
             { upToSeq: 1, by: 'visitor', at: fakeTime(2) },
+        ]);
+        expect(b.calls.seen).toEqual([
+            { upToSeq: 1, by: 'visitor', at: fakeTime(3) },
         ]);
         expect(b.calls.ended).toEqual([{ ratingRequested: true }]);
         expect(b.calls.closed).toHaveLength(1);

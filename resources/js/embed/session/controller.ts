@@ -1443,6 +1443,13 @@ export class ChatController {
     private realtimeHandlers(): RealtimeHandlers {
         return {
             onMessage: (message) => this.receive(message),
+            onDelivered: (receipt) =>
+                this.dispatch({
+                    type: 'DELIVERED',
+                    upToSeq: receipt.upToSeq,
+                    by: receipt.by,
+                    at: receipt.at,
+                }),
             onSeen: (receipt) =>
                 this.dispatch({
                     type: 'SEEN',

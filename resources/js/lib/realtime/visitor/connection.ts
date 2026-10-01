@@ -37,6 +37,11 @@ export type RealtimeStatus =
 
 export type RealtimeHandlers = {
     onMessage: (message: MessageData) => void;
+    onDelivered: (receipt: {
+        upToSeq: number;
+        by: SenderType;
+        at: string;
+    }) => void;
     onSeen: (receipt: { upToSeq: number; by: SenderType; at: string }) => void;
     onClaimed: (payload: { agent: AgentRef; claimedAt: string }) => void;
     onEnded: (payload: {
@@ -214,21 +219,38 @@ export async function openConversationRealtime(
             }
         });
 
-        on(echoEvent(CHAT_EVENT.messageSeen), (payload) => {
-            if (
-                isVersioned(payload) &&
-                typeof payload.upToSeq === 'number' &&
-                typeof payload.by === 'string' &&
-                SENDERS.includes(payload.by) &&
-                typeof payload.at === 'string'
-            ) {
-                handlers.onSeen({
-                    upToSeq: payload.upToSeq,
-                    by: payload.by as SenderType,
-                    at: payload.at,
-                });
-            }
-        });
+        const onReceipt =
+            (
+                handle: (receipt: {
+                    upToSeq: number;
+                    by: SenderType;
+                    at: string;
+                }) => void,
+            ) =>
+            (payload: unknown): void => {
+                if (
+                    isVersioned(payload) &&
+                    typeof payload.upToSeq === 'number' &&
+                    typeof payload.by === 'string' &&
+                    SENDERS.includes(payload.by) &&
+                    typeof payload.at === 'string'
+                ) {
+                    handle({
+                        upToSeq: payload.upToSeq,
+                        by: payload.by as SenderType,
+                        at: payload.at,
+                    });
+                }
+            };
+
+        on(
+            echoEvent(CHAT_EVENT.messageDelivered),
+            onReceipt((receipt) => handlers.onDelivered(receipt)),
+        );
+        on(
+            echoEvent(CHAT_EVENT.messageSeen),
+            onReceipt((receipt) => handlers.onSeen(receipt)),
+        );
 
         on(echoEvent(CHAT_EVENT.claimed), (payload) => {
             if (

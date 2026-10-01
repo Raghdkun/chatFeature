@@ -28,8 +28,9 @@ void createInertiaApp({
     },
     strictMode: true,
     withApp(app, { page }) {
-        // The Reverb address comes from the server's own settings (the shared `realtime` prop) so a changed host needs no rebuild;
-        // the build-time `VITE_REVERB_*` values are the fallback.
+        // The Reverb address comes from the server's own settings (the shared `realtime` prop) so a changed host needs no rebuild, and
+        // the server's `null` ("realtime is off") wins over the build: the build-time `VITE_REVERB_*` values only serve a server that
+        // does not send the prop at all.
         configureEcho(staffEchoOptions(page.props.realtime));
 
         return (

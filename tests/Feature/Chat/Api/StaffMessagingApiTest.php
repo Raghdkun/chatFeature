@@ -4,6 +4,7 @@ namespace Tests\Feature\Chat\Api;
 
 use App\Domain\Chat\Enums\SenderType;
 use App\Domain\Chat\Events\MessageCreated;
+use App\Domain\Chat\Events\MessagesDelivered;
 use App\Domain\Chat\Events\MessagesSeen;
 use App\Domain\Chat\Events\UnseenCountChanged;
 use App\Domain\Chat\Realtime\Broadcasts\TypingBroadcast;
@@ -154,6 +155,19 @@ class StaffMessagingApiTest extends TestCase
         $upload($this->admin)->assertCreated();
     }
 
+    public function test_the_agents_attachments_keep_the_order_they_were_added_in(): void
+    {
+        $upload = fn (): string => $this->actingAs($this->agent, 'sanctum')->post("/api/v1/conversations/{$this->chat->ulid}/attachments", ['file' => $this->pngUpload()], ['Accept' => 'application/json'])->assertCreated()->json('data.ulid');
+        [$first, $second, $third] = [$upload(), $upload(), $upload()];
+
+        $sent = $this->write($this->agent, ['attachments' => [$second, $third, $first]])->assertCreated();
+
+        $this->assertSame([$second, $third, $first], $sent->json('data.attachments.*.ulid'));
+
+        $listed = $this->actingAs($this->agent, 'sanctum')->getJson("/api/v1/conversations/{$this->chat->ulid}/messages")->assertOk();
+        $this->assertSame([$second, $third, $first], $listed->json('data.0.attachments.*.ulid'));
+    }
+
     public function test_staff_see_a_conversations_messages_with_the_sender_ids(): void
     {
         Message::factory()->for($this->chat)->create(['body' => 'visitor says hi']);
@@ -178,7 +192,7 @@ class StaffMessagingApiTest extends TestCase
 
     public function test_the_agents_receipts_mark_the_visitors_messages_and_clear_the_unread_counter(): void
     {
-        Event::fake([MessagesSeen::class, UnseenCountChanged::class]);
+        Event::fake([MessagesDelivered::class, MessagesSeen::class, UnseenCountChanged::class]);
         $a = Message::factory()->for($this->chat)->create();
         $b = Message::factory()->for($this->chat)->create();
         $reply = Message::factory()->for($this->chat)->fromAgent($this->agent)->create();
@@ -191,6 +205,7 @@ class StaffMessagingApiTest extends TestCase
         $this->assertNull($b->fresh()->seen_at);
         $this->assertSame(1, $this->chat->fresh()->unseen_by_agent);
         Event::assertDispatched(MessagesSeen::class, fn (MessagesSeen $event): bool => $event->upToSeq === 1 && $event->by === SenderType::Agent);
+        Event::assertNotDispatched(MessagesDelivered::class);
         Event::assertDispatched(UnseenCountChanged::class);
 
         $receipts($this->agent, ['seen_upto' => 3])->assertNoContent();
@@ -203,6 +218,29 @@ class StaffMessagingApiTest extends TestCase
         $receipts($this->colleague, ['seen_upto' => 3])->assertForbidden();
         $receipts($this->admin, ['seen_upto' => 3])->assertForbidden();
         $receipts($this->agent, [])->assertStatus(422);
+    }
+
+    public function test_the_agents_delivery_receipt_is_announced_to_the_conversation_without_marking_anything_read(): void
+    {
+        Event::fake([MessagesDelivered::class, MessagesSeen::class, UnseenCountChanged::class]);
+        $a = Message::factory()->for($this->chat)->create();
+        $this->chat->forceFill(['unseen_by_agent' => 1])->save();
+        $url = "/api/v1/conversations/{$this->chat->ulid}/receipts";
+
+        $this->actingAs($this->agent, 'sanctum')->postJson($url, ['delivered_upto' => 1])->assertNoContent();
+
+        $this->assertNotNull($a->fresh()->delivered_at);
+        $this->assertNull($a->fresh()->seen_at);
+        $this->assertSame(1, $this->chat->fresh()->unseen_by_agent);
+        Event::assertDispatched(MessagesDelivered::class, fn (MessagesDelivered $event): bool => $event->upToSeq === 1 && $event->by === SenderType::Agent);
+        Event::assertNotDispatched(MessagesSeen::class);
+
+        $this->actingAs($this->agent, 'sanctum')->postJson($url, ['delivered_upto' => 1])->assertNoContent();
+        Event::assertDispatchedTimes(MessagesDelivered::class, 1);
+
+        // Neither a colleague nor an admin who is just looking may report receipts for this chat.
+        $this->actingAs($this->colleague, 'sanctum')->postJson($url, ['delivered_upto' => 1])->assertForbidden();
+        $this->actingAs($this->admin, 'sanctum')->postJson($url, ['delivered_upto' => 1])->assertForbidden();
     }
 
     public function test_the_agent_can_report_typing_in_their_active_chat_only(): void

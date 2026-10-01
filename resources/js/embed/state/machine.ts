@@ -15,6 +15,7 @@
  * Unread is not stored: it is the number of agent messages the visitor has not seen, while the panel is closed (`selectUnread`).
  */
 import {
+    applyDelivered,
     applySeen,
     highestSeq,
     mergeMessages,
@@ -237,6 +238,7 @@ export type Action =
       }
     | { type: 'MESSAGE_RETRY'; clientMsgId: string }
     | { type: 'MESSAGE_REMOVED'; clientMsgId: string }
+    | { type: 'DELIVERED'; upToSeq: number; by: SenderType; at: string }
     | { type: 'SEEN'; upToSeq: number; by: SenderType; at: string }
     | { type: 'TYPING'; typing: boolean }
     | { type: 'CONNECTION'; status: ConnectionStatus }
@@ -896,6 +898,16 @@ export function reduce(state: MachineState, action: Action): MachineState {
             return messages.length === state.messages.length
                 ? state
                 : { ...state, messages };
+        }
+
+        case 'DELIVERED': {
+            const messages = applyDelivered(state.messages, {
+                upToSeq: action.upToSeq,
+                by: action.by,
+                at: action.at,
+            });
+
+            return messages === state.messages ? state : { ...state, messages };
         }
 
         case 'SEEN': {

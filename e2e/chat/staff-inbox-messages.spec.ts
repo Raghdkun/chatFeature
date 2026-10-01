@@ -158,10 +158,9 @@ test('delivered, then seen: a visitor with the panel closed has received the mes
     await expect(sent).toHaveAttribute('data-status', 'seen');
 });
 
-// BUG E2-1 (open): a delivery receipt is stored (`delivered_at`) but never broadcast: `RecordReceipts` dispatches `MessagesSeen` only for
-// newly SEEN messages and no `message.delivered` event exists, so an open conversation shows "sent" until the message is read (or the
-// page is reloaded). docs/contracts/chat-ui-p4.md promises "sending -> sent -> delivered -> seen".
-test.fixme('the agent sees "delivered" live, without a reload, when the visitor panel is closed (BUG E2-1: delivery receipts are not broadcast)', async ({
+// Delivery receipts are broadcast (`message.delivered`): an open conversation ticks sent -> delivered live, without a reload, while the
+// visitor's panel is closed (the panel confirms delivery but nobody has read the message, so it never reaches "seen").
+test('the agent sees "delivered" live, without a reload, when the visitor panel is closed', async ({
     actors,
     adminApi,
     instance,
@@ -174,9 +173,17 @@ test.fixme('the agent sees "delivered" live, without a reload, when the visitor 
         'false',
     );
     await agent.inbox.send('Are you still there?');
-    await expect(
-        bubble(agent, 'Are you still there?', 'agent'),
-    ).toHaveAttribute('data-status', 'delivered');
+
+    const sent = bubble(agent, 'Are you still there?', 'agent');
+
+    await expect(sent).toHaveAttribute('data-status', 'delivered');
+    await expect(sent.getByTestId(/^message-status-/)).toContainText(
+        'Delivered',
+    );
+
+    // Opening the panel marks it read, live: delivered -> seen.
+    await panel.launcher.click();
+    await expect(sent).toHaveAttribute('data-status', 'seen');
 });
 
 test('typing is shown in both directions and goes away by itself', async ({

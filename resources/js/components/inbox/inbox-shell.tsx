@@ -152,6 +152,12 @@ export function InboxShell({
                     selectedUlid ? 'flex' : 'hidden md:flex',
                 )}
             >
+                {selectedUlid && (
+                    <ConnectionBanner
+                        status={live.connection}
+                        variant="conversation"
+                    />
+                )}
                 {children ?? (
                     <Empty
                         data-testid="inbox-empty-conversation"

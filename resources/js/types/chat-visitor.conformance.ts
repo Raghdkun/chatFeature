@@ -112,6 +112,14 @@ export const realtimePayloadsConform: {
         Parameters<Handlers['onMessage']>[0],
         App.Data.Chat.Events.MessageCreatedPayload['message']
     >;
+    deliveredBy: Same<
+        Parameters<Handlers['onDelivered']>[0]['by'],
+        App.Data.Chat.Events.MessageDeliveredPayload['by']
+    >;
+    deliveredUpTo: Same<
+        Parameters<Handlers['onDelivered']>[0]['upToSeq'],
+        App.Data.Chat.Events.MessageDeliveredPayload['upToSeq']
+    >;
     seenBy: Same<
         Parameters<Handlers['onSeen']>[0]['by'],
         App.Data.Chat.Events.MessageSeenPayload['by']
@@ -136,6 +144,8 @@ export const realtimePayloadsConform: {
     claimedAgent: true,
     claimedAt: true,
     message: true,
+    deliveredBy: true,
+    deliveredUpTo: true,
     seenBy: true,
     seenUpTo: true,
     endedBy: true,

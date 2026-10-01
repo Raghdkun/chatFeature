@@ -115,13 +115,18 @@ test('the visitor sends a JPEG, a PNG and a WebP in one message: previews while 
     );
 
     expect(stored!.body).toBe('Three photos of the damaged box');
-    // (The order of the pictures inside one message is the order the uploads finished in, not the order they were picked in:
-    // reported as a product observation, so the types are compared as a set here.)
-    expect(stored!.attachments.map((item) => item.mime).sort()).toEqual([
+    // The pictures keep the order the visitor picked them in (JPEG, PNG, WebP), not the order the uploads happened to finish in ...
+    expect(stored!.attachments.map((item) => item.mime)).toEqual([
         'image/jpeg',
         'image/png',
         'image/webp',
     ]);
+    // ... in the dashboard too.
+    expect(
+        await attachments.evaluateAll((nodes) =>
+            nodes.map((node) => node.getAttribute('data-testid')),
+        ),
+    ).toEqual(stored!.attachments.map((item) => `attachment-${item.ulid}`));
 
     for (const attachment of stored!.attachments) {
         expect(Object.keys(attachment).sort()).toEqual([
@@ -139,7 +144,7 @@ test('the visitor sends a JPEG, a PNG and a WebP in one message: previews while 
 
     // The signed URL works without any login and is served as an inert image; a tampered signature is refused.
     const anonymous = await request.newContext();
-    // The JPEG (800 px wide), wherever the server listed it.
+    // The JPEG (800 px wide) is the first picture.
     const jpegIndex = stored!.attachments.findIndex(
         (item) => item.mime === 'image/jpeg',
     );

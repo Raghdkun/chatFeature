@@ -13,6 +13,7 @@ use App\Data\Chat\Events\ConversationRatedPayload;
 use App\Data\Chat\Events\ConversationTransferredPayload;
 use App\Data\Chat\Events\ConversationUpdatedPayload;
 use App\Data\Chat\Events\MessageCreatedPayload;
+use App\Data\Chat\Events\MessageDeliveredPayload;
 use App\Data\Chat\Events\MessageSeenPayload;
 use App\Data\Chat\Events\OfflineTicketCreatedPayload;
 use App\Data\Chat\Events\PresenceChangedPayload;
@@ -77,6 +78,7 @@ class ChatEventPayloadsTest extends TestCase
             new SessionRevokedPayload(SessionRevokeReason::Deactivated),
             new PresenceChangedPayload(1, PresenceStatus::Away),
             new ChatClaimedPayload(new AgentRefData('A', null), '2026-11-20T10:00:00.000Z'),
+            new MessageDeliveredPayload(4, SenderType::Visitor, '2026-11-20T10:00:00.000Z'),
             new MessageSeenPayload(4, SenderType::Visitor, '2026-11-20T10:00:00.000Z'),
             new ConversationEndedPayload(ConversationEndedBy::Visitor, true),
             new ConversationClosedPayload(ConversationCloseReason::Idle),
@@ -141,6 +143,10 @@ class ChatEventPayloadsTest extends TestCase
         $this->assertSame(
             ['v' => 1, 'upToSeq' => 9, 'by' => 'agent', 'at' => '2026-11-20T10:00:00.000Z'],
             $this->payload(new MessageSeenPayload(9, SenderType::Agent, '2026-11-20T10:00:00.000Z')),
+        );
+        $this->assertSame(
+            ['v' => 1, 'upToSeq' => 9, 'by' => 'visitor', 'at' => '2026-11-20T10:00:00.000Z'],
+            $this->payload(new MessageDeliveredPayload(9, SenderType::Visitor, '2026-11-20T10:00:00.000Z')),
         );
         $this->assertSame(['v' => 1, 'endedBy' => 'admin', 'ratingRequested' => true], $this->payload(new ConversationEndedPayload(ConversationEndedBy::Admin, true)));
         $this->assertSame(['v' => 1, 'reason' => 'timeout'], $this->payload(new ConversationClosedPayload(ConversationCloseReason::Timeout)));

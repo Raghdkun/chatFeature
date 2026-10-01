@@ -16,6 +16,7 @@ export const CHAT_EVENT = {
     sessionRevoked: 'session.revoked',
     presenceChanged: 'presence.changed',
     messageCreated: 'message.created',
+    messageDelivered: 'message.delivered',
     messageSeen: 'message.seen',
     conversationEnded: 'conversation.ended',
     conversationClosed: 'conversation.closed',
@@ -43,6 +44,7 @@ export type ChatEventPayloads = {
     'session.revoked': App.Data.Chat.Events.SessionRevokedPayload;
     'presence.changed': App.Data.Chat.Events.PresenceChangedPayload;
     'message.created': App.Data.Chat.Events.MessageCreatedPayload;
+    'message.delivered': App.Data.Chat.Events.MessageDeliveredPayload;
     'message.seen': App.Data.Chat.Events.MessageSeenPayload;
     'conversation.ended': App.Data.Chat.Events.ConversationEndedPayload;
     'conversation.closed': App.Data.Chat.Events.ConversationClosedPayload;

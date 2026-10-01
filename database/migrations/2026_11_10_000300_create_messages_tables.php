@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Schema;
  * `(conversation_id, seq)` is the ordering contract (clients merge by it) and `(conversation_id, client_msg_id)` makes
  * sends idempotent; both are plain UNIQUE indexes, and a NULL `client_msg_id` (agent / system messages) never collides.
  * The FULLTEXT index on `body` (staff search) exists on MySQL / MariaDB only; SQLite (the test database) skips it.
+ * `attachments.position` is the place of an image inside its message (the order the sender picked, not the order the uploads finished).
  */
 return new class extends Migration
 {
@@ -56,6 +57,7 @@ return new class extends Migration
             $table->unsignedSmallInteger('height')->nullable();
             $table->char('sha256', 64);
             $table->string('original_name', 120)->nullable();
+            $table->unsignedSmallInteger('position')->default(0);
             $table->timestamp('created_at')->useCurrent();
 
             $table->index('message_id');

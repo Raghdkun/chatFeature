@@ -70,7 +70,8 @@ Names are dot names (`broadcastAs()`); Echo needs a leading dot (`echoEvent()` i
 | `ConversationAssigned` | `chat.assigned`: `staff.{agent}`; `conversation.updated`: admin, new and previous agent |
 | `ConversationUpdated` | `conversation.updated`: admin, assigned agent, agents with an open offer (queued), category servers (queued offline ticket) |
 | `MessageCreated` | **`message.created`** on `conversation.{ulid}` (visitor safe `MessageData`: no staff id, signed attachment URLs) |
-| `MessagesSeen` | `message.seen` on `conversation.{ulid}` (`by` visitor / agent; a `system` receipt is ignored) |
+| `MessagesDelivered` | `message.delivered` on `conversation.{ulid}` (`{upToSeq, by, at}`, `by` visitor / agent: that client received the other side's messages up to `upToSeq` without reading them; a `system` receipt is ignored; queued) |
+| `MessagesSeen` | `message.seen` on `conversation.{ulid}` (`by` visitor / agent; a `system` receipt is ignored). A read implies delivery: `RecordReceipts` announces a message that was delivered and read in the same call as `message.seen` alone |
 | `ConversationEnded` | `conversation.ended` (`ratingRequested`); `conversation.updated` |
 | `ConversationClosed` | `conversation.closed`; `conversation.updated` |
 | `ConversationTransferred` | `conversation.transferred` on `conversation.{ulid}`; `conversation.updated` also to the agent the chat left |

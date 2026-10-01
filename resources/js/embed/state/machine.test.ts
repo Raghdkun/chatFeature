@@ -794,6 +794,56 @@ describe('messages in the reducer', () => {
         });
     });
 
+    it("applies the agent's delivery receipt: delivered, never over a seen message, and the same state when nothing changes", () => {
+        const sent = run(active(), {
+            type: 'MESSAGES',
+            messages: [
+                makeMessage({ conversation: 'conv-1', seq: 1 }),
+                makeMessage({ conversation: 'conv-1', seq: 2 }),
+            ],
+        });
+        const delivered = reduce(sent, {
+            type: 'DELIVERED',
+            upToSeq: 2,
+            by: 'agent',
+            at: fakeTime(8),
+        });
+
+        expect(delivered.messages.map((message) => message.status)).toEqual([
+            'delivered',
+            'delivered',
+        ]);
+        expect(delivered.messages[0].deliveredAt).toBe(fakeTime(8));
+        expect(delivered.messages[0].seenAt).toBeNull();
+        expect(
+            reduce(delivered, {
+                type: 'DELIVERED',
+                upToSeq: 2,
+                by: 'agent',
+                at: fakeTime(9),
+            }),
+        ).toBe(delivered);
+
+        const read = reduce(delivered, {
+            type: 'SEEN',
+            upToSeq: 1,
+            by: 'agent',
+            at: fakeTime(10),
+        });
+        const late = reduce(read, {
+            type: 'DELIVERED',
+            upToSeq: 2,
+            by: 'agent',
+            at: fakeTime(11),
+        });
+
+        expect(late).toBe(read);
+        expect(late.messages.map((message) => message.status)).toEqual([
+            'seen',
+            'delivered',
+        ]);
+    });
+
     it('tracks typing and connection only when they change', () => {
         const state = active();
 

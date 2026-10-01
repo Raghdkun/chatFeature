@@ -31,11 +31,12 @@ use Illuminate\Support\Carbon;
  * @property int|null $height
  * @property string $sha256
  * @property string|null $original_name
+ * @property int $position
  * @property Carbon|null $created_at
  * @property-read Conversation $conversation
  * @property-read Message|null $message
  */
-#[Fillable(['conversation_id', 'message_id', 'uploader_type', 'uploader_user_id', 'disk', 'path', 'thumb_path', 'mime', 'size', 'width', 'height', 'sha256', 'original_name'])]
+#[Fillable(['conversation_id', 'message_id', 'uploader_type', 'uploader_user_id', 'disk', 'path', 'thumb_path', 'mime', 'size', 'width', 'height', 'sha256', 'original_name', 'position'])]
 class Attachment extends Model
 {
     /** @use HasFactory<AttachmentFactory> */
@@ -71,6 +72,7 @@ class Attachment extends Model
             'size' => 'integer',
             'width' => 'integer',
             'height' => 'integer',
+            'position' => 'integer',
         ];
     }
 

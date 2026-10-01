@@ -666,6 +666,46 @@ describe('realtime', () => {
         });
     });
 
+    it('ticks my messages as delivered live, then seen, as the visitor receives and reads them', async () => {
+        const { view } = await mount();
+        const status = () =>
+            view
+                .byTestId(`message-${fakeUlid(6002)}`)
+                ?.getAttribute('data-status');
+
+        expect(status()).toBe('sent');
+        await act(async () =>
+            fakeEcho.emitServer(channel, 'message.delivered', {
+                v: 1,
+                upToSeq: 3,
+                by: 'visitor',
+                at: fakeTime(400),
+            }),
+        );
+        expect(status()).toBe('delivered');
+
+        await act(async () =>
+            fakeEcho.emitServer(channel, 'message.seen', {
+                v: 1,
+                upToSeq: 3,
+                by: 'visitor',
+                at: fakeTime(500),
+            }),
+        );
+        expect(status()).toBe('seen');
+
+        // A delivery receipt that arrives after the read one (two queued broadcasts may swap) does not undo it.
+        await act(async () =>
+            fakeEcho.emitServer(channel, 'message.delivered', {
+                v: 1,
+                upToSeq: 3,
+                by: 'visitor',
+                at: fakeTime(600),
+            }),
+        );
+        expect(status()).toBe('seen');
+    });
+
     it('ticks my messages as seen when the visitor reads them', async () => {
         const { view } = await mount();
 
@@ -818,6 +858,29 @@ describe('realtime', () => {
             vi.advanceTimersByTime(15_000);
         });
         await waitFor(() => expect(polls()).toBe(before + 1));
+    });
+});
+
+describe('the connection notice inside a conversation', () => {
+    it('shows that live updates are off (and how often the page checks) inside the open conversation, which phones never see the list column for', async () => {
+        const { view } = await mount(props(), { sockets: false });
+
+        const banner = view.byTestId('connection-banner-conversation');
+
+        expect(banner?.textContent).toContain('Live updates are off');
+        expect(banner?.textContent).toContain('15 seconds');
+        // it lives in the conversation column, outside the list column (the section that phones hide behind an open chat)
+        expect(banner?.closest('section')).toBeNull();
+        expect(
+            view.byTestId('connection-banner')?.closest('section'),
+        ).not.toBeNull();
+    });
+
+    it('is silent while the websocket is up', async () => {
+        const { view } = await mount();
+
+        expect(view.byTestId('connection-banner-conversation')).toBeNull();
+        expect(view.byTestId('connection-banner')).toBeNull();
     });
 });
 
@@ -1325,6 +1388,49 @@ describe('attachments', () => {
             )[0].body,
         ).toMatchObject({ attachments: ['att-1'] });
         expect(view.byTestId('composer-attachments')).toBeNull();
+    });
+
+    it('sends the images in the order they were added, whichever upload finishes first', async () => {
+        const { view } = await mount();
+
+        await choose(
+            view,
+            new File(['1'], 'first.png', { type: 'image/png' }),
+            new File(['2'], 'second.png', { type: 'image/png' }),
+            new File(['3'], 'third.png', { type: 'image/png' }),
+        );
+
+        expect(FakeXhr.instances).toHaveLength(3);
+
+        // the uploads finish in the reverse order
+        for (const [index, ulid] of [
+            [2, 'att-3'],
+            [0, 'att-1'],
+            [1, 'att-2'],
+        ] as const) {
+            await act(async () =>
+                FakeXhr.instances[index].reply(201, {
+                    data: { ...stored, ulid },
+                }),
+            );
+        }
+
+        await click(view.byTestId('composer-send'));
+        await waitFor(() =>
+            expect(
+                backend.current.calls(
+                    'POST',
+                    `/api/v1/conversations/${CONVERSATION}/messages`,
+                ),
+            ).toHaveLength(1),
+        );
+
+        expect(
+            backend.current.calls(
+                'POST',
+                `/api/v1/conversations/${CONVERSATION}/messages`,
+            )[0].body,
+        ).toMatchObject({ attachments: ['att-1', 'att-2', 'att-3'] });
     });
 
     it('refuses a file that is not an allowed image before uploading it', async () => {

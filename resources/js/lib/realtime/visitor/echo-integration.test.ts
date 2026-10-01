@@ -132,6 +132,8 @@ class FakePusher {
 vi.mock('pusher-js', () => ({ default: FakePusher }));
 
 const { createEchoSocket } = await import('@/lib/realtime/visitor/echo-socket');
+const { openConversationRealtime } =
+    await import('@/lib/realtime/visitor/connection');
 
 const INPUT = {
     ws: {
@@ -186,6 +188,47 @@ describe('the visitor socket on the real Echo', () => {
         // a handler registered without the dot hears the namespaced wire name instead (the trap `echoEvent()` avoids)
         channel.receive('App\\Events\\message\\created', { v: 2 });
         expect(bare).toEqual([{ v: 2 }]);
+    });
+
+    it('the connection hears the receipts under their broadcastAs() names: message.delivered and message.seen reach their handlers', async () => {
+        const delivered: unknown[] = [];
+        const seen: unknown[] = [];
+        const realtime = await openConversationRealtime({
+            factory: createEchoSocket,
+            input: INPUT,
+            handlers: {
+                onMessage: () => undefined,
+                onDelivered: (receipt) => delivered.push(receipt),
+                onSeen: (receipt) => seen.push(receipt),
+                onClaimed: () => undefined,
+                onEnded: () => undefined,
+                onClosed: () => undefined,
+                onMissed: () => undefined,
+                onTransferred: () => undefined,
+                onTyping: () => undefined,
+                onStatus: () => undefined,
+                sync: () => undefined,
+                onAuthFailure: () => undefined,
+            },
+            pollMs: 60_000,
+            retryMs: 60_000,
+        });
+        const channel = pushers[0].channel(CHANNEL);
+        const at = '2026-11-20T10:00:00.000Z';
+
+        // what Reverb sends: the bare `broadcastAs()` name, not the `App\Events\...` one
+        channel.receive('message.delivered', {
+            v: 1,
+            upToSeq: 2,
+            by: 'agent',
+            at,
+        });
+        channel.receive('message.seen', { v: 1, upToSeq: 2, by: 'agent', at });
+
+        expect(delivered).toEqual([{ upToSeq: 2, by: 'agent', at }]);
+        expect(seen).toEqual([{ upToSeq: 2, by: 'agent', at }]);
+
+        realtime.close();
     });
 
     it('whispers out as client-<name> on the channel, and hears the peer whisper under the same wire name', async () => {

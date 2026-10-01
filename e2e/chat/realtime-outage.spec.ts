@@ -66,8 +66,8 @@ test('the dashboard loses its socket mid-chat: it says so, polls for the missed 
     await agent.inbox.expectMessage('Before the outage.');
     expect(gate.attempts).toBeGreaterThan(0);
 
-    // The socket is cut and cannot come back. The banner lives in the list column: on a phone that is the screen behind the open
-    // conversation (BUG E2-3 below), so step back to read it and go into the chat again.
+    // The socket is cut and cannot come back. This banner lives in the list column: on a phone that is the screen behind the open
+    // conversation (which has its own compact notice, tested below), so step back to read it and go into the chat again.
     await gate.block();
 
     if (isPhone(agent.page)) {
@@ -150,19 +150,14 @@ test('the dashboard loses its socket mid-chat: it says so, polls for the missed 
     await other.dispose();
 });
 
-// BUG E2-3 (open): the "live updates are off / checks every 15 seconds" notice is part of the list column. On a phone the list and an
-// open conversation are separate screens, so an agent inside a chat gets no sign that the page is no longer live (messages arrive up to
-// 15 s late). On a desktop the list is next to the chat and the notice is in view.
-test('the notice that live updates are off stays in view while a conversation is open (BUG E2-3 on phones)', async ({
+// The "live updates are off / checks every 15 seconds" notice is part of the list column. On a phone the list and an open conversation
+// are separate screens, so the conversation carries a compact copy of the notice (`connection-banner-conversation`, phones only):
+// an agent inside a chat sees at once that messages may now arrive up to 15 s late. On a desktop the list is next to the chat.
+test('the notice that live updates are off stays in view while a conversation is open', async ({
     actors,
     adminApi,
     instance,
-}, testInfo) => {
-    test.fixme(
-        testInfo.project.name === 'mobile',
-        'BUG E2-3: on a phone the connection banner is only in the list column, not inside an open conversation',
-    );
-
+}) => {
     let gate!: SocketGate;
     const { agent } = await startChat(
         { actors, adminApi, instance },
@@ -175,8 +170,24 @@ test('the notice that live updates are off stays in view while a conversation is
     );
 
     await expect(agent.inbox.conversation).toBeVisible();
+    await expect(agent.inbox.tid('connection-banner-conversation')).toHaveCount(
+        0,
+    );
     await gate.block();
-    await expect(agent.inbox.tid('connection-banner')).toBeVisible();
+
+    if (isPhone(agent.page)) {
+        const inChat = agent.inbox.tid('connection-banner-conversation');
+
+        await expect(inChat).toBeVisible();
+        await expect(inChat).toContainText('every 15 seconds');
+        await expect(agent.inbox.conversation).toBeVisible();
+    } else {
+        // Beside the list: the list's own banner is in view and the compact copy is not repeated.
+        await expect(agent.inbox.tid('connection-banner')).toBeVisible();
+        await expect(
+            agent.inbox.tid('connection-banner-conversation'),
+        ).toBeHidden();
+    }
 });
 
 test('the visitor\'s panel loses its socket mid-chat: "Reconnecting…", the agent\'s messages arrive by polling, and the panel recovers', async ({

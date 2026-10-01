@@ -19,6 +19,7 @@ use App\Domain\Chat\Events\ConversationRated;
 use App\Domain\Chat\Events\ConversationTransferred;
 use App\Domain\Chat\Events\ConversationUpdated;
 use App\Domain\Chat\Events\MessageCreated;
+use App\Domain\Chat\Events\MessagesDelivered;
 use App\Domain\Chat\Events\MessagesSeen;
 use App\Domain\Chat\Events\OfflineTicketCreated;
 use App\Domain\Chat\Events\PresenceChanged;
@@ -65,6 +66,7 @@ class ChatEventsTest extends TestCase
             new ConversationAssigned($conversation, $agent, $other, $other),
             new ConversationUpdated($conversation),
             new MessageCreated($message),
+            new MessagesDelivered($conversation, 4, SenderType::Visitor),
             new MessagesSeen($conversation, 4, SenderType::Visitor),
             new ConversationEnded($conversation, ConversationEndedBy::Agent),
             new ConversationClosed($conversation, ConversationCloseReason::Rated),
@@ -93,7 +95,7 @@ class ChatEventsTest extends TestCase
         $files = array_map(static fn (string $path): string => basename($path, '.php'), glob(app_path('Domain/Chat/Events/*.php')) ?: []);
 
         $this->assertEqualsCanonicalizing($files, array_values(array_unique($classes)));
-        $this->assertCount(18, $files);
+        $this->assertCount(19, $files);
     }
 
     public function test_events_are_dispatchable_statically(): void

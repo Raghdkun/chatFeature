@@ -4,6 +4,7 @@
  * (`@/lib/chat/messages`), so the broadcast, the REST response of a send and a catch-up fetch converge on the same list in any order.
  */
 import {
+    applyDelivered,
     applySeen,
     createPendingMessage,
     mergeMessages,
@@ -34,6 +35,7 @@ export type ConversationViewAction =
     | { type: 'retrying'; clientMsgId: string }
     /** Remove a message that never reached the server (the agent gave up on a failed send). */
     | { type: 'discard'; clientMsgId: string }
+    | { type: 'delivered'; upToSeq: number; by: SenderType; at: string }
     | { type: 'seen'; upToSeq: number; by: SenderType; at: string }
     | { type: 'conversation'; conversation: ConversationStaff }
     | { type: 'ended'; ratingRequested: boolean; at: string }
@@ -131,6 +133,16 @@ export function conversationReducer(
                 ? state
                 : settle(state, messages);
         }
+
+        case 'delivered':
+            return settle(
+                state,
+                applyDelivered(state.messages, {
+                    upToSeq: action.upToSeq,
+                    by: action.by,
+                    at: action.at,
+                }),
+            );
 
         case 'seen':
             return settle(

@@ -18,6 +18,7 @@ use App\Domain\Chat\Events\ConversationRated;
 use App\Domain\Chat\Events\ConversationTransferred;
 use App\Domain\Chat\Events\ConversationUpdated;
 use App\Domain\Chat\Events\MessageCreated;
+use App\Domain\Chat\Events\MessagesDelivered;
 use App\Domain\Chat\Events\MessagesSeen;
 use App\Domain\Chat\Events\OfflineTicketCreated;
 use App\Domain\Chat\Events\PresenceChanged;
@@ -88,6 +89,8 @@ class RealtimePrivacyTest extends TestCase
         foreach ([$fromVisitor, $fromAgent, $withImage, $system] as $message) {
             MessageCreated::dispatch($message);
         }
+        MessagesDelivered::dispatch($conversation, 4, SenderType::Visitor);
+        MessagesDelivered::dispatch($conversation, 4, SenderType::Agent);
         MessagesSeen::dispatch($conversation, 4, SenderType::Visitor);
         MessagesSeen::dispatch($conversation, 4, SenderType::Agent);
         UnseenCountChanged::dispatch($conversation);
@@ -156,7 +159,7 @@ class RealtimePrivacyTest extends TestCase
         sort($events);
 
         $this->assertSame(
-            ['chat.claimed', 'conversation.closed', 'conversation.ended', 'conversation.transferred', 'message.created', 'message.seen', 'typing'],
+            ['chat.claimed', 'conversation.closed', 'conversation.ended', 'conversation.transferred', 'message.created', 'message.delivered', 'message.seen', 'typing'],
             $events,
         );
 
