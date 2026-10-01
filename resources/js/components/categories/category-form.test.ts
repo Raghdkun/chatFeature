@@ -22,7 +22,9 @@ describe('slugify', () => {
         expect(slugify('  Billing & Invoices!  ')).toBe('billing-invoices');
         expect(slugify('Café Crème')).toBe('cafe-creme');
         expect(slugify('---')).toBe('');
-        expect(slugify('a'.repeat(120))).toHaveLength(80);
+        expect(slugify('a'.repeat(120))).toHaveLength(64);
+        // A cut never leaves a trailing dash (the server pattern rejects it).
+        expect(slugify(`${'a'.repeat(63)}-bcd`)).toBe('a'.repeat(63));
     });
 });
 
@@ -101,7 +103,7 @@ describe('validateCategoryForm', () => {
                 slug: 'Bad Slug',
                 slugTouched: true,
                 color: 'teal',
-                description: 'x'.repeat(501),
+                description: 'x'.repeat(1001),
                 names: [row, duplicate, duplicate2, noName],
             },
             t,

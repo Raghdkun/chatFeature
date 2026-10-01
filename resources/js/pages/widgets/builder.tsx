@@ -109,6 +109,8 @@ export default function WidgetBuilder(data: WidgetBuilderData) {
                                 categories={data.all_categories}
                                 snippets={data.snippets}
                                 hasUnpublished={builder.hasUnpublished}
+                                busy={builder.status !== 'idle'}
+                                onSetEnabled={builder.setEnabled}
                                 onRotateSecret={builder.rotateSecret}
                                 previewingGreeting={focus.id}
                                 onPreviewGreeting={(clientId) => {

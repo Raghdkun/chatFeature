@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useTrans } from '@/hooks/use-trans';
+import { LIMITS } from '@/lib/limits';
 import { cn } from '@/lib/utils';
 import { DEFAULT_SERVICE_NAME, type EnvFormValues } from '@/lib/pizzasys-form';
 
@@ -81,7 +82,7 @@ export function PizzasysEnvironmentFields({
                     <Input
                         {...props('label', 'label', true)}
                         value={values.label}
-                        maxLength={60}
+                        maxLength={LIMITS.portalLabelLength}
                         onChange={(event) =>
                             onChange({ label: event.target.value })
                         }
@@ -125,7 +126,7 @@ export function PizzasysEnvironmentFields({
                         autoCapitalize="none"
                         autoComplete="off"
                         spellCheck={false}
-                        maxLength={64}
+                        maxLength={LIMITS.serviceNameLength}
                         placeholder={DEFAULT_SERVICE_NAME}
                         value={values.service_name}
                         onChange={(event) =>
@@ -164,6 +165,7 @@ export function PizzasysEnvironmentFields({
                         autoComplete="off"
                         spellCheck={false}
                         placeholder={hasToken ? '••••••••' : undefined}
+                        maxLength={LIMITS.secretLength}
                         value={values.service_token}
                         onChange={(event) =>
                             onChange({ service_token: event.target.value })
@@ -229,6 +231,7 @@ export function PizzasysEnvironmentFields({
                             autoComplete="off"
                             spellCheck={false}
                             disabled={disabled || values.clear_nats_token}
+                            maxLength={LIMITS.secretLength}
                             value={values.nats_token}
                             onChange={(event) =>
                                 onChange({ nats_token: event.target.value })

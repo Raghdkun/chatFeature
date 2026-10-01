@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useInitials } from '@/hooks/use-initials';
 import { useTrans } from '@/hooks/use-trans';
-import { LIMITS } from '@/lib/widget-config';
+import { LIMITS } from '@/lib/limits';
 import { cn } from '@/lib/utils';
 import type { AgentListItemData, CategoryData } from '@/types/widgets';
 

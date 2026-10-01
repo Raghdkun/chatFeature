@@ -211,13 +211,37 @@ describe('role validation', () => {
         ).toEqual({ agent_permission: 'same_permission' });
     });
 
-    it('allows no super roles but caps name length', () => {
+    it('allows no super roles but caps name length (64, like the server) and count (20)', () => {
         expect(validateRoles({ ...DEFAULT_ROLES, super_roles: [] })).toEqual(
             {},
         );
         expect(
-            validateRoles({ ...DEFAULT_ROLES, super_roles: ['x'.repeat(101)] }),
+            validateRoles({ ...DEFAULT_ROLES, super_roles: ['x'.repeat(64)] }),
+        ).toEqual({});
+        expect(
+            validateRoles({ ...DEFAULT_ROLES, super_roles: ['x'.repeat(65)] }),
         ).toEqual({ super_roles: 'role_name' });
+        expect(
+            validateRoles({
+                ...DEFAULT_ROLES,
+                super_roles: Array.from({ length: 21 }, (_, i) => `r${i}`),
+            }),
+        ).toEqual({ super_roles: 'role_count' });
+    });
+
+    it('caps permission names at 128 characters like the server', () => {
+        expect(
+            validateRoles({
+                ...DEFAULT_ROLES,
+                admin_permission: 'a'.repeat(128),
+            }),
+        ).toEqual({});
+        expect(
+            validateRoles({
+                ...DEFAULT_ROLES,
+                admin_permission: 'a'.repeat(129),
+            }),
+        ).toEqual({ admin_permission: 'permission' });
     });
 });
 

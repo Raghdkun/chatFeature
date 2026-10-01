@@ -38,15 +38,19 @@ vi.mock('@inertiajs/react', async () =>
 
 type Routes = Parameters<typeof fakeApi>[0];
 
+const LOADER_PATH = '/widget/v1/loader.js';
+
 const DATA = () => makeBuilderData();
 
 async function setup(
     data: WidgetBuilderData = DATA(),
     routes: Routes = {},
-    { loader = 404 }: { loader?: number } = {},
+    {
+        loader = { status: 404 },
+    }: { loader?: { status: number; text?: string } } = {},
 ) {
     const api = fakeApi({
-        'HEAD /widget/v1/loader.js': { status: loader },
+        'GET /widget/v1/loader.js': loader,
         ...routes,
     });
     const view = await render(<WidgetBuilder {...data} />);
@@ -121,7 +125,7 @@ describe('header and state badges', () => {
         ).toBe(false);
     });
 
-    it('turns dirty as soon as something is edited and shows the disabled state of the widget', async () => {
+    it('turns dirty as soon as something is edited', async () => {
         const { view } = await setup();
 
         await fill(byLabelText(view.container, 'Widget name'), 'Docs site');
@@ -134,16 +138,11 @@ describe('header and state badges', () => {
             (view.byTestId('builder-save') as HTMLButtonElement).disabled,
         ).toBe(false);
 
-        await click(byLabelText(view.container, 'Widget enabled'));
-
-        expect(view.byTestId('builder-badge-disabled')).not.toBeNull();
-
-        // Reverting both edits makes it clean again.
+        // Reverting the edit makes it clean again.
         await fill(
             byLabelText(view.container, 'Widget name'),
             'Marketing site',
         );
-        await click(byLabelText(view.container, 'Widget enabled'));
 
         expect(view.byTestId('builder-badge-published')).not.toBeNull();
         expect(
@@ -204,7 +203,7 @@ describe('general tab', () => {
 
     it('edits queue timeout, availability mode, time zone and the non-browser switch', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PATCH /api/v1/widgets/w1': { json: { data: makeWidget() } },
             'PUT /api/v1/widgets/w1/draft': { json: { data: {} } },
         });
@@ -245,7 +244,7 @@ describe('general tab', () => {
 describe('save draft', () => {
     it('saves every dirty slice with its own request and body, in a fixed order', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PATCH /api/v1/widgets/w1': {
                 json: { data: makeWidget({ name: 'Docs' }) },
             },
@@ -290,7 +289,7 @@ describe('save draft', () => {
         expect(api.unhandled).toEqual([]);
         expect(
             api.calls
-                .filter((c) => c.method !== 'HEAD')
+                .filter((c) => c.path !== LOADER_PATH)
                 .map((c) => `${c.method} ${c.path}`),
         ).toEqual([
             'PATCH /api/v1/widgets/w1',
@@ -340,8 +339,9 @@ describe('save draft', () => {
             (view.byTestId('builder-save') as HTMLButtonElement).disabled,
         ).toBe(true);
         expect(view.byTestId('builder-badge-unpublished')).not.toBeNull();
-        expect(view.byTestId('builder-status-message')?.textContent).toContain(
-            'Draft saved',
+        // Settings, greetings, domains and categories are live; only the design is a draft.
+        expect(view.byTestId('builder-status-message')?.textContent).toBe(
+            'Saved. Visitors already see your changes to settings, greeting messages, domains, and categories; the design changes stay a draft until you publish.',
         );
         expect(
             (view.byTestId('builder-publish') as HTMLButtonElement).disabled,
@@ -350,7 +350,7 @@ describe('save draft', () => {
 
     it('sends nothing for slices that did not change', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PUT /api/v1/widgets/w1/draft': { json: { data: {} } },
         });
         const view = await render(<WidgetBuilder {...DATA()} />);
@@ -363,7 +363,7 @@ describe('save draft', () => {
 
         expect(
             api.calls
-                .filter((c) => c.method !== 'HEAD')
+                .filter((c) => c.path !== LOADER_PATH)
                 .map((c) => `${c.method} ${c.path}`),
         ).toEqual(['PUT /api/v1/widgets/w1/draft']);
     });
@@ -372,7 +372,7 @@ describe('save draft', () => {
         document.cookie = 'XSRF-TOKEN=abc%3D; path=/';
 
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PATCH /api/v1/widgets/w1': { json: { data: makeWidget() } },
         });
         const view = await render(<WidgetBuilder {...DATA()} />);
@@ -395,7 +395,7 @@ describe('save draft', () => {
 
     it('takes the server-normalised domains and greeting ids as the new baseline', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PUT /api/v1/widgets/w1/greetings': {
                 json: {
                     data: [
@@ -440,7 +440,7 @@ describe('save draft', () => {
 describe('validation', () => {
     it('maps a server 422 onto the field, marks the tab and jumps to it', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PATCH /api/v1/widgets/w1': {
                 json: { data: makeWidget({ name: 'Docs' }) },
             },
@@ -493,7 +493,7 @@ describe('validation', () => {
 
     it('maps greeting and domain errors by position', async () => {
         fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PUT /api/v1/widgets/w1/greetings': {
                 status: 422,
                 json: {
@@ -546,7 +546,7 @@ describe('validation', () => {
     });
 
     it('stops before the network when the draft has obvious mistakes', async () => {
-        const api = fakeApi({ 'HEAD /widget/v1/loader.js': { status: 404 } });
+        const api = fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
         const view = await render(<WidgetBuilder {...DATA()} />);
 
         await flush();
@@ -557,7 +557,7 @@ describe('validation', () => {
         await click(view.byTestId('builder-save'));
         await flush();
 
-        expect(api.calls.filter((c) => c.method !== 'HEAD')).toHaveLength(0);
+        expect(api.calls.filter((c) => c.path !== LOADER_PATH)).toHaveLength(0);
         expect(view.byTestId('builder-status-message')?.textContent).toContain(
             'Fix the highlighted fields',
         );
@@ -569,7 +569,7 @@ describe('validation', () => {
 
     it('reports a failed save with the transport reason', async () => {
         fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PATCH /api/v1/widgets/w1': {
                 status: 500,
                 json: { error: { code: 'server_error', message: 'x' } },
@@ -595,7 +595,7 @@ describe('validation', () => {
 describe('publish', () => {
     it('saves pending changes first, then publishes and shows the new version', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PUT /api/v1/widgets/w1/draft': { json: { data: {} } },
             'POST /api/v1/widgets/w1/publish': {
                 json: {
@@ -617,14 +617,14 @@ describe('publish', () => {
         expect(body.byTestId('builder-publish-dialog')?.textContent).toContain(
             'Your unsaved changes are saved first',
         );
-        expect(api.calls.filter((c) => c.method !== 'HEAD')).toHaveLength(0);
+        expect(api.calls.filter((c) => c.path !== LOADER_PATH)).toHaveLength(0);
 
         await click(body.byTestId('builder-publish-confirm'));
         await flush();
 
         expect(
             api.calls
-                .filter((c) => c.method !== 'HEAD')
+                .filter((c) => c.path !== LOADER_PATH)
                 .map((c) => `${c.method} ${c.path}`),
         ).toEqual([
             'PUT /api/v1/widgets/w1/draft',
@@ -643,7 +643,7 @@ describe('publish', () => {
 
     it('does not publish when saving the draft fails', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PUT /api/v1/widgets/w1/draft': {
                 status: 422,
                 json: {
@@ -674,7 +674,7 @@ describe('publish', () => {
         draft.theme.radius = 4;
 
         fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'POST /api/v1/widgets/w1/publish': {
                 status: 500,
                 json: { error: { code: 'server_error', message: 'x' } },
@@ -751,7 +751,7 @@ describe('unsaved changes guard', () => {
 
     it('asks the browser before closing the tab and stops guarding after saving', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PATCH /api/v1/widgets/w1': { json: { data: makeWidget() } },
         });
         const view = await render(<WidgetBuilder {...DATA()} />);
@@ -894,7 +894,7 @@ describe('branding tab', () => {
 
     it('edits radius, font, panel size and stacking order into the draft', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PUT /api/v1/widgets/w1/draft': { json: { data: {} } },
         });
         const view = await render(<WidgetBuilder {...DATA()} />);
@@ -927,7 +927,7 @@ describe('branding tab', () => {
     });
 
     it('rejects a font stylesheet from an unknown host before saving', async () => {
-        const api = fakeApi({ 'HEAD /widget/v1/loader.js': { status: 404 } });
+        const api = fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
         const view = await render(<WidgetBuilder {...DATA()} />);
 
         await flush();
@@ -939,7 +939,7 @@ describe('branding tab', () => {
         await click(view.byTestId('builder-save'));
         await flush();
 
-        expect(api.calls.filter((c) => c.method !== 'HEAD')).toHaveLength(0);
+        expect(api.calls.filter((c) => c.path !== LOADER_PATH)).toHaveLength(0);
         expect(view.byTestId('builder-panel-branding')?.textContent).toContain(
             'fonts.googleapis.com',
         );
@@ -957,7 +957,7 @@ describe('texts tab', () => {
             view
                 .byTestId('builder-panel-texts')
                 ?.querySelectorAll('[data-testid^="builder-text-"]'),
-        ).toHaveLength(17);
+        ).toHaveLength(20);
         expect(
             (view.byTestId('builder-text-title') as HTMLInputElement).value,
         ).toBe('Support');
@@ -969,7 +969,7 @@ describe('texts tab', () => {
 
     it('adds a language, translates a text and falls back for the rest', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PUT /api/v1/widgets/w1/draft': { json: { data: {} } },
         });
         const view = await render(<WidgetBuilder {...DATA()} />);
@@ -983,7 +983,7 @@ describe('texts tab', () => {
         await click(view.byTestId('builder-texts-add'));
 
         expect(view.byTestId('builder-texts-ar')?.textContent).toContain(
-            '0 of 17 texts translated',
+            '0 of 20 texts translated',
         );
         // Empty fields show the default-language text as placeholder (the fallback).
         expect(
@@ -997,7 +997,7 @@ describe('texts tab', () => {
         );
 
         expect(view.byTestId('builder-texts-ar')?.textContent).toContain(
-            '1 of 17 texts translated',
+            '1 of 20 texts translated',
         );
         expect(
             (
@@ -1069,7 +1069,7 @@ describe('texts tab', () => {
 describe('features and pre-chat tab', () => {
     it('toggles features and warns when WhatsApp is on without a connected session', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PUT /api/v1/widgets/w1/draft': { json: { data: {} } },
         });
         const view = await render(<WidgetBuilder {...DATA()} />);
@@ -1111,7 +1111,7 @@ describe('features and pre-chat tab', () => {
 
     it('edits which pre-chat fields are shown and required, and the consent text', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PUT /api/v1/widgets/w1/draft': { json: { data: {} } },
         });
         const view = await render(<WidgetBuilder {...DATA()} />);
@@ -1173,7 +1173,7 @@ describe('features and pre-chat tab', () => {
 describe('greetings tab', () => {
     it('lists the pool in order and edits behavior settings', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PUT /api/v1/widgets/w1/draft': { json: { data: {} } },
         });
         const view = await render(<WidgetBuilder {...DATA()} />);
@@ -1217,7 +1217,7 @@ describe('greetings tab', () => {
 
     it('adds, edits, reorders and removes greeting messages', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PUT /api/v1/widgets/w1/greetings': { json: { data: {} } },
         });
         const view = await render(<WidgetBuilder {...DATA()} />);
@@ -1334,7 +1334,7 @@ describe('greetings tab', () => {
 describe('hours tab', () => {
     it('shows the weekly schedule, adds ranges and holidays', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PUT /api/v1/widgets/w1/draft': { json: { data: {} } },
         });
         const view = await render(<WidgetBuilder {...DATA()} />);
@@ -1540,7 +1540,7 @@ describe('categories tab', () => {
 
     it('adds, reorders and removes categories', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PUT /api/v1/widgets/w1/categories': { json: { data: {} } },
         });
         const view = await render(<WidgetBuilder {...DATA()} />);
@@ -1609,7 +1609,7 @@ describe('categories tab', () => {
 
     it('maps a server error on the category list', async () => {
         fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'PUT /api/v1/widgets/w1/categories': {
                 status: 422,
                 json: {
@@ -1705,7 +1705,7 @@ describe('embed tab', () => {
 
     it('rotates the secret after confirmation and shows it exactly once', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'POST /api/v1/widgets/w1/rotate-secret': {
                 json: { data: { identity_secret: SECRET } },
             },
@@ -1763,7 +1763,7 @@ describe('embed tab', () => {
 
     it('generates the first secret without a confirmation step', async () => {
         const api = fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'POST /api/v1/widgets/w1/rotate-secret': {
                 json: { data: { identity_secret: SECRET } },
             },
@@ -1795,7 +1795,7 @@ describe('embed tab', () => {
 
     it('reports a failed rotation without showing a secret', async () => {
         fakeApi({
-            'HEAD /widget/v1/loader.js': { status: 404 },
+            'GET /widget/v1/loader.js': { status: 404 },
             'POST /api/v1/widgets/w1/rotate-secret': {
                 status: 500,
                 json: { error: { code: 'server_error', message: 'x' } },
@@ -1894,5 +1894,567 @@ describe('tab list', () => {
                 .value,
         ).toBe('Kept');
         expect(CATEGORIES).toHaveLength(3);
+    });
+});
+
+const unprocessable = (details: Record<string, string[]>) => ({
+    status: 422,
+    json: {
+        error: { code: 'validation_failed', message: 'Invalid', details },
+    },
+});
+
+describe('going live and offline', () => {
+    it('is a deliberate action with a confirmation, sent on its own and never as part of Save', async () => {
+        const api = fakeApi({
+            'GET /widget/v1/loader.js': { status: 404 },
+            'PATCH /api/v1/widgets/w1': (call) => ({
+                json: {
+                    data: makeWidget({
+                        ...(call.body as object),
+                        updated_at: '2026-10-01T09:00:00.000Z',
+                    }),
+                },
+            }),
+        });
+        const view = await render(<WidgetBuilder {...DATA()} />);
+
+        await flush();
+
+        expect(view.byTestId('builder-enabled-status')?.textContent).toBe(
+            'Live on your sites',
+        );
+        // There is no switch riding along with Save any more.
+        expect(byLabelText(view.container, 'Widget enabled')).toBeNull();
+
+        await click(view.byTestId('builder-enabled-toggle'));
+
+        expect(body.byTestId('builder-enabled-dialog')?.textContent).toContain(
+            'Take this widget offline?',
+        );
+        // Nothing is sent until it is confirmed.
+        expect(api.to('PATCH', '/api/v1/widgets/w1')).toHaveLength(0);
+        expect(view.byTestId('builder-badge-disabled')).toBeNull();
+
+        await click(body.byTestId('builder-enabled-confirm'));
+        await flush();
+
+        expect(api.bodyOf('PATCH', '/api/v1/widgets/w1')).toEqual({
+            is_enabled: false,
+        });
+        expect(view.byTestId('builder-badge-disabled')).not.toBeNull();
+        expect(view.byTestId('builder-enabled-status')?.textContent).toContain(
+            'Offline',
+        );
+        expect(view.byTestId('builder-status-message')?.textContent).toBe(
+            'The widget is offline.',
+        );
+        // It is not a pending change: Save stays disabled.
+        expect(
+            (view.byTestId('builder-save') as HTMLButtonElement).disabled,
+        ).toBe(true);
+        expect(view.byTestId('builder-badge-dirty')).toBeNull();
+    });
+
+    it('does not carry is_enabled in the settings PATCH of a later save, and keeps pending edits dirty meanwhile', async () => {
+        const api = fakeApi({
+            'GET /widget/v1/loader.js': { status: 404 },
+            'PATCH /api/v1/widgets/w1': (call) => ({
+                json: { data: makeWidget(call.body as object) },
+            }),
+        });
+        const view = await render(<WidgetBuilder {...DATA()} />);
+
+        await flush();
+        await fill(byLabelText(view.container, 'Widget name'), 'Docs');
+        await click(view.byTestId('builder-enabled-toggle'));
+        await click(body.byTestId('builder-enabled-confirm'));
+        await flush();
+
+        // The pending rename was not sent with the switch.
+        expect(api.to('PATCH', '/api/v1/widgets/w1')).toHaveLength(1);
+        expect(view.byTestId('builder-badge-dirty')).not.toBeNull();
+
+        await click(view.byTestId('builder-save'));
+        await flush();
+
+        expect(api.to('PATCH', '/api/v1/widgets/w1')).toHaveLength(2);
+        expect(api.to('PATCH', '/api/v1/widgets/w1')[1].body).toEqual({
+            name: 'Docs',
+        });
+    });
+
+    it('offers to take an offline widget live again', async () => {
+        const api = fakeApi({
+            'GET /widget/v1/loader.js': { status: 404 },
+            'PATCH /api/v1/widgets/w1': { json: { data: makeWidget() } },
+        });
+        const view = await render(
+            <WidgetBuilder
+                {...makeBuilderData({
+                    widget: makeWidget({ is_enabled: false }),
+                })}
+            />,
+        );
+
+        await flush();
+
+        expect(view.byTestId('builder-badge-disabled')).not.toBeNull();
+        expect(view.byTestId('builder-enabled-toggle')?.textContent).toContain(
+            'Take widget live',
+        );
+
+        await click(view.byTestId('builder-enabled-toggle'));
+        await click(body.byTestId('builder-enabled-confirm'));
+        await flush();
+
+        expect(api.bodyOf('PATCH', '/api/v1/widgets/w1')).toEqual({
+            is_enabled: true,
+        });
+        expect(view.byTestId('builder-badge-disabled')).toBeNull();
+    });
+
+    it('keeps the dialog open with the reason when the server refuses, and the widget as it was', async () => {
+        fakeApi({
+            'GET /widget/v1/loader.js': { status: 404 },
+            'PATCH /api/v1/widgets/w1': {
+                status: 403,
+                json: {
+                    error: { code: 'forbidden', message: 'Admins only.' },
+                },
+            },
+        });
+        const view = await render(<WidgetBuilder {...DATA()} />);
+
+        await flush();
+        await click(view.byTestId('builder-enabled-toggle'));
+        await click(body.byTestId('builder-enabled-confirm'));
+        await flush();
+
+        expect(body.byTestId('builder-enabled-error')).not.toBeNull();
+        expect(body.byTestId('builder-enabled-dialog')).not.toBeNull();
+        expect(view.byTestId('builder-badge-disabled')).toBeNull();
+        expect(view.byTestId('builder-enabled-status')?.textContent).toBe(
+            'Live on your sites',
+        );
+    });
+});
+
+describe('what applies immediately', () => {
+    it('labels the live sections and leaves the draft design alone', async () => {
+        const { view } = await setup();
+        const live = (tab: string) =>
+            view.container.querySelectorAll(
+                `[data-testid="builder-panel-${tab}"] [data-live="true"]`,
+            ).length;
+
+        // General: identity, language and time, timing, availability.
+        expect(live('general')).toBe(4);
+        expect(view.byTestId('builder-live-badge')?.textContent).toBe(
+            'Applies immediately',
+        );
+
+        await openTab(view, 'branding');
+        expect(live('branding')).toBe(0);
+
+        await openTab(view, 'greetings');
+        // Only the message pool is live; the popup behavior is part of the draft.
+        expect(live('greetings')).toBe(1);
+        expect(
+            view.byTestId('builder-greetings-pool')?.getAttribute('data-live'),
+        ).toBe('true');
+
+        await openTab(view, 'hours');
+        // Availability (mode + time zone) is live; weekly hours and holidays are draft.
+        expect(live('hours')).toBe(1);
+
+        await openTab(view, 'domains');
+        expect(live('domains')).toBe(1);
+
+        await openTab(view, 'categories');
+        expect(live('categories')).toBeGreaterThanOrEqual(1);
+    });
+
+    it('says a design-only save is a draft', async () => {
+        fakeApi({
+            'GET /widget/v1/loader.js': { status: 404 },
+            'PUT /api/v1/widgets/w1/draft': { json: { data: {} } },
+        });
+
+        const view = await render(<WidgetBuilder {...DATA()} />);
+
+        await flush();
+        await openTab(view, 'branding');
+        await fill(byLabelText(view.container, 'Primary color'), '#111111');
+        await click(view.byTestId('builder-save'));
+        await flush();
+
+        expect(view.byTestId('builder-status-message')?.textContent).toBe(
+            'Draft saved. Visitors still see the published version until you publish.',
+        );
+    });
+
+    it('says a settings-only save already reached visitors', async () => {
+        fakeApi({
+            'GET /widget/v1/loader.js': { status: 404 },
+            'PATCH /api/v1/widgets/w1': { json: { data: makeWidget() } },
+        });
+
+        const view = await render(<WidgetBuilder {...DATA()} />);
+
+        await flush();
+        await fill(byLabelText(view.container, 'Widget name'), 'Docs');
+        await click(view.byTestId('builder-save'));
+        await flush();
+
+        expect(view.byTestId('builder-status-message')?.textContent).toBe(
+            'Saved. Visitors already see your changes to settings.',
+        );
+    });
+
+    it('keeps "Match the visitor\'s language" with the draft texts, not with the live settings', async () => {
+        const { view } = await setup();
+
+        expect(view.byTestId('builder-locale-detect')).toBeNull();
+
+        await openTab(view, 'texts');
+
+        expect(view.byTestId('builder-locale-detect')).not.toBeNull();
+    });
+});
+
+describe('published snapshot', () => {
+    it('does not turn a saved settings change into "unpublished changes"', async () => {
+        const api = fakeApi({
+            'GET /widget/v1/loader.js': { status: 404 },
+            'PATCH /api/v1/widgets/w1': (call) => ({
+                json: { data: makeWidget(call.body as object) },
+            }),
+            'PUT /api/v1/widgets/w1/draft': { json: { data: {} } },
+        });
+        const view = await render(<WidgetBuilder {...DATA()} />);
+
+        await flush();
+        await choose(
+            byLabelText(
+                view.container,
+                'Time zone',
+            ) as unknown as HTMLSelectElement,
+            'Europe/Berlin',
+        );
+        await click(radio(view.container, 'Always online'));
+        await click(view.byTestId('builder-save'));
+        await flush();
+
+        expect(api.bodyOf('PATCH', '/api/v1/widgets/w1')).toEqual({
+            timezone: 'Europe/Berlin',
+            offline_mode: 'always_online',
+        });
+        // The server overlaid both copies: nothing is left to publish.
+        expect(view.byTestId('builder-badge-published')).not.toBeNull();
+        expect(view.byTestId('builder-badge-unpublished')).toBeNull();
+        expect(
+            (view.byTestId('builder-publish') as HTMLButtonElement).disabled,
+        ).toBe(true);
+    });
+});
+
+describe('hours tab errors', () => {
+    const hoursSetup = async (routes: Routes = {}) => {
+        const api = fakeApi({
+            'GET /widget/v1/loader.js': { status: 404 },
+            ...routes,
+        });
+        const view = await render(<WidgetBuilder {...DATA()} />);
+
+        await flush();
+        await openTab(view, 'hours');
+
+        return { api, view };
+    };
+
+    it('"Add hours" on a day that already has hours proposes a different range, not a copy', async () => {
+        const { view } = await hoursSetup();
+
+        await click(byTestId(view.container, 'builder-hours-add-1'));
+
+        // Monday already had 09:00-17:00 (range 0); the new one is range 5.
+        const start = byTestId<HTMLInputElement>(
+            view.container,
+            'builder-hours-start-5',
+        );
+        const end = byTestId<HTMLInputElement>(
+            view.container,
+            'builder-hours-end-5',
+        );
+
+        expect([start?.value, end?.value]).toEqual(['18:00', '22:00']);
+    });
+
+    it('disables "Add hours" for a day that has no room left', async () => {
+        const { view } = await hoursSetup();
+
+        await click(byTestId(view.container, 'builder-hours-clear'));
+        await click(byTestId(view.container, 'builder-hours-add-1'));
+        await fill(byTestId(view.container, 'builder-hours-start-0'), '00:00');
+        await fill(byTestId(view.container, 'builder-hours-end-0'), '23:59');
+
+        expect(
+            (
+                byTestId(
+                    view.container,
+                    'builder-hours-add-1',
+                ) as HTMLButtonElement
+            ).disabled,
+        ).toBe(true);
+    });
+
+    it('stops an overlap before saving, with the reason on the offending range and a dot on the tab', async () => {
+        const { api, view } = await hoursSetup();
+
+        await click(byTestId(view.container, 'builder-hours-add-1'));
+        await fill(byTestId(view.container, 'builder-hours-start-5'), '16:00');
+        await click(view.byTestId('builder-save'));
+        await flush();
+
+        expect(api.calls.filter((c) => c.path !== LOADER_PATH)).toHaveLength(0);
+        expect(view.byTestId('builder-hours-range-5-errors')?.textContent).toBe(
+            'These hours overlap another range on the same day.',
+        );
+        expect(view.byTestId('builder-tab-hours-error')).not.toBeNull();
+        expect(
+            byTestId(view.container, 'builder-hours-start-5')?.getAttribute(
+                'aria-invalid',
+            ),
+        ).toBe('true');
+
+        // Fixing the range clears it.
+        await fill(byTestId(view.container, 'builder-hours-start-5'), '18:00');
+
+        expect(view.byTestId('builder-hours-range-5-errors')).toBeNull();
+        expect(view.byTestId('builder-tab-hours-error')).toBeNull();
+    });
+
+    it('stops a duplicate holiday date before saving', async () => {
+        const { view } = await hoursSetup();
+
+        for (const index of [0, 1]) {
+            await click(byTestId(view.container, 'builder-holiday-add'));
+            await fill(
+                byTestId(view.container, `builder-holiday-date-${index}`),
+                '2026-12-25',
+            );
+        }
+
+        await click(view.byTestId('builder-save'));
+        await flush();
+
+        expect(view.byTestId('builder-holiday-1-errors')?.textContent).toBe(
+            'This date is already listed.',
+        );
+        expect(view.byTestId('builder-holiday-0-errors')).toBeNull();
+    });
+
+    it("shows the server's overlap and duplicate-date errors (config.hours.schedule.N.start, config.hours.holidays.N.date) on the right row", async () => {
+        const { view } = await hoursSetup({
+            'PUT /api/v1/widgets/w1/draft': unprocessable({
+                'config.hours.schedule.3.start': [
+                    'Ranges on the same day must not overlap.',
+                ],
+                'config.hours.holidays.1.date': [
+                    'The date has a duplicate value.',
+                ],
+            }),
+        });
+
+        // A change that is valid for the client, so the request really goes out.
+        await click(byTestId(view.container, 'builder-hours-add-6'));
+        await click(byTestId(view.container, 'builder-holiday-add'));
+        await click(byTestId(view.container, 'builder-holiday-add'));
+        await fill(
+            byTestId(view.container, 'builder-holiday-date-0'),
+            '2026-12-24',
+        );
+        await fill(
+            byTestId(view.container, 'builder-holiday-date-1'),
+            '2026-12-25',
+        );
+        await click(view.byTestId('builder-save'));
+        await flush();
+
+        expect(view.byTestId('builder-hours-range-3-errors')?.textContent).toBe(
+            'Ranges on the same day must not overlap.',
+        );
+        expect(view.byTestId('builder-holiday-1-errors')?.textContent).toBe(
+            'The date has a duplicate value.',
+        );
+        expect(view.byTestId('builder-holiday-0-errors')).toBeNull();
+        expect(view.byTestId('builder-tab-hours-error')).not.toBeNull();
+        expect(
+            byTestId(view.container, 'builder-holiday-date-1')?.getAttribute(
+                'aria-invalid',
+            ),
+        ).toBe('true');
+    });
+
+    it('shows a time zone problem reported for the config copy next to the time zone select', async () => {
+        const { view } = await hoursSetup({
+            'PATCH /api/v1/widgets/w1': { json: { data: makeWidget() } },
+            'PUT /api/v1/widgets/w1/draft': unprocessable({
+                'config.hours.timezone': ['Not a valid time zone.'],
+            }),
+        });
+
+        await choose(
+            byLabelText(
+                view.container,
+                'Time zone',
+            ) as unknown as HTMLSelectElement,
+            'Europe/Berlin',
+        );
+        await click(view.byTestId('builder-save'));
+        await flush();
+
+        expect(view.byTestId('builder-panel-hours')?.textContent).toContain(
+            'Not a valid time zone.',
+        );
+    });
+});
+
+describe('holiday without a name', () => {
+    it('saves and publishes when the server sent a null label (it stores a blank name as null)', async () => {
+        const draft = defaultWidgetConfig();
+
+        draft.hours.holidays = [{ date: '2026-12-25', label: null }] as never;
+
+        const api = fakeApi({
+            'GET /widget/v1/loader.js': { status: 404 },
+            'PUT /api/v1/widgets/w1/draft': { json: { data: {} } },
+            'POST /api/v1/widgets/w1/publish': {
+                json: { data: makeWidget({ config_version: 4 }) },
+            },
+        });
+        const view = await render(
+            <WidgetBuilder
+                {...makeBuilderData({ draft_config: draft, config: draft })}
+            />,
+        );
+
+        await flush();
+        await openTab(view, 'hours');
+
+        expect(
+            (
+                byTestId(
+                    view.container,
+                    'builder-holiday-label-0',
+                ) as HTMLInputElement
+            ).value,
+        ).toBe('');
+
+        await fill(
+            byTestId(view.container, 'builder-holiday-date-0'),
+            '2026-12-31',
+        );
+        await click(view.byTestId('builder-save'));
+        await flush();
+
+        expect(draftOf(api).hours.holidays).toEqual([
+            { date: '2026-12-31', label: '' },
+        ]);
+        expect(view.byTestId('builder-status-message')?.textContent).toContain(
+            'Draft saved',
+        );
+
+        await click(view.byTestId('builder-publish'));
+        await click(body.byTestId('builder-publish-confirm'));
+        await flush();
+
+        expect(api.to('POST', '/api/v1/widgets/w1/publish')).toHaveLength(1);
+    });
+});
+
+describe('unexpected failures', () => {
+    it('shows a message and keeps Save usable when something outside the request throws', async () => {
+        // A draft the validator cannot digest (the server never sends this, but a dead button must not follow).
+        const draft = defaultWidgetConfig();
+
+        draft.hours.schedule = null as never;
+
+        const api = fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
+        const view = await render(
+            <WidgetBuilder {...makeBuilderData({ draft_config: draft })} />,
+        );
+
+        await flush();
+        await fill(byLabelText(view.container, 'Widget name'), 'Docs');
+        await click(view.byTestId('builder-save'));
+        await flush();
+
+        expect(view.byTestId('builder-status-message')?.textContent).toBe(
+            'Something went wrong. Reload the page and try again.',
+        );
+        expect(
+            (view.byTestId('builder-save') as HTMLButtonElement).disabled,
+        ).toBe(false);
+        expect(api.calls.filter((c) => c.path !== LOADER_PATH)).toHaveLength(0);
+
+        // Publish reports it the same way instead of rejecting.
+        await click(view.byTestId('builder-publish'));
+        await click(body.byTestId('builder-publish-confirm'));
+        await flush();
+
+        expect(view.byTestId('builder-status-message')?.textContent).toBe(
+            'Something went wrong. Reload the page and try again.',
+        );
+        expect(
+            (view.byTestId('builder-publish') as HTMLButtonElement).disabled,
+        ).toBe(false);
+    });
+});
+
+describe('server error placement', () => {
+    it('shows category errors reported per entry (category_ulids.N)', async () => {
+        const view = await render(<WidgetBuilder {...DATA()} />);
+
+        fakeApi({
+            'GET /widget/v1/loader.js': { status: 404 },
+            'PUT /api/v1/widgets/w1/categories': unprocessable({
+                'category_ulids.0': ['The selected category is invalid.'],
+            }),
+        });
+        await flush();
+        await openTab(view, 'categories');
+        await click(byTestId(view.container, 'builder-category-add-cat2'));
+        await click(view.byTestId('builder-save'));
+        await flush();
+
+        expect(view.byTestId('builder-categories-errors')?.textContent).toBe(
+            'The selected category is invalid.',
+        );
+    });
+
+    it('shows pre-chat field errors the server reports (a required field must be enabled)', async () => {
+        fakeApi({
+            'GET /widget/v1/loader.js': { status: 404 },
+            'PUT /api/v1/widgets/w1/draft': unprocessable({
+                'config.preChat.fields.name.enabled': [
+                    'A required field must be enabled.',
+                ],
+            }),
+        });
+
+        const view = await render(<WidgetBuilder {...DATA()} />);
+
+        await flush();
+        await openTab(view, 'branding');
+        await fill(byLabelText(view.container, 'Primary color'), '#222222');
+        await click(view.byTestId('builder-save'));
+        await flush();
+
+        // The save jumps to the tab that has the error and the message is on it.
+        expect(view.byTestId('builder-prechat-errors')?.textContent).toBe(
+            'A required field must be enabled.',
+        );
     });
 });

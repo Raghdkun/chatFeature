@@ -4,6 +4,7 @@
  * without rendering anything.
  */
 import type { ApiFieldErrors } from '@/lib/api-client';
+import { LIMITS, SLUG_PATTERN } from '@/lib/limits';
 import { isHexColor, isLocaleCode } from '@/lib/widget-config';
 import type { CategoryData, CategoryInput } from '@/types/widgets';
 
@@ -20,9 +21,9 @@ export type CategoryFormValues = {
     names: LocaleRow[];
 };
 
-export const NAME_MAX = 120;
-export const SLUG_MAX = 80;
-export const DESCRIPTION_MAX = 500;
+export const NAME_MAX = LIMITS.categoryNameLength;
+export const SLUG_MAX = LIMITS.categorySlugLength;
+export const DESCRIPTION_MAX = LIMITS.categoryDescriptionLength;
 
 export function slugify(value: string): string {
     return value
@@ -31,7 +32,8 @@ export function slugify(value: string): string {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '')
-        .slice(0, SLUG_MAX);
+        .slice(0, SLUG_MAX)
+        .replace(/-+$/, '');
 }
 
 let rowCounter = 0;
@@ -86,8 +88,12 @@ export function validateCategoryForm(
     }
 
     if (values.slugTouched && values.slug.trim() !== '') {
-        if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(values.slug.trim())) {
+        if (!SLUG_PATTERN.test(values.slug.trim())) {
             errors.slug = t('categories.validation.slug_format');
+        } else if (values.slug.trim().length > SLUG_MAX) {
+            errors.slug = t('categories.validation.too_long', {
+                max: SLUG_MAX,
+            });
         }
     }
 
@@ -118,6 +124,10 @@ export function validateCategoryForm(
             errors[`names.${row.id}`] = t(
                 'categories.validation.name_required',
             );
+        } else if (row.name.length > NAME_MAX) {
+            errors[`names.${row.id}`] = t('categories.validation.too_long', {
+                max: NAME_MAX,
+            });
         }
 
         seen.add(row.locale.trim());

@@ -16,6 +16,7 @@ import {
 import { LocaleSelect } from '@/components/widgets/builder/selects';
 import type { TabProps } from '@/components/widgets/builder/tab-props';
 import {
+    ErrorLines,
     NumberField,
     SectionCard,
     SegmentedChoice,
@@ -27,7 +28,8 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useInitials } from '@/hooks/use-initials';
 import { useTrans } from '@/hooks/use-trans';
-import { isSecureUrl, LIMITS } from '@/lib/widget-config';
+import { LIMITS } from '@/lib/limits';
+import { isSecureUrl } from '@/lib/widget-config';
 import { cn } from '@/lib/utils';
 import type { DismissPolicy, GreetingsSettings } from '@/types/widgets';
 
@@ -159,6 +161,7 @@ export function GreetingsTab({
             </SectionCard>
 
             <SectionCard
+                live
                 title={t('builder.greetings.pool_title')}
                 description={t('builder.greetings.pool_description')}
                 actions={
@@ -179,6 +182,10 @@ export function GreetingsTab({
                 }
                 testId="builder-greetings-pool"
             >
+                <ErrorLines
+                    messages={state.errors['greetings'] ?? []}
+                    data-testid="builder-greetings-pool-errors"
+                />
                 {pool.length === 0 ? (
                     <p
                         className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground"
@@ -363,7 +370,7 @@ function GreetingCard({
                     onValueChange={(value) =>
                         patch({ agent_name: value === '' ? null : value })
                     }
-                    maxLength={60}
+                    maxLength={LIMITS.greetingAgentNameLength}
                     error={err('agent_name')}
                 />
                 <div className="grid content-start gap-2">

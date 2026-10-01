@@ -10,8 +10,10 @@ import {
     categoryToForm,
     emptyCategoryForm,
     mapCategoryErrors,
+    DESCRIPTION_MAX,
     newLocaleRow,
     NAME_MAX,
+    SLUG_MAX,
     slugify,
     validateCategoryForm,
     type CategoryFormErrors,
@@ -40,6 +42,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useTrans } from '@/hooks/use-trans';
 import { api, describeApiError, isApiError } from '@/lib/api-client';
+import { LIMITS, LOCALE_CODE_LENGTH } from '@/lib/limits';
 import { widgetsRoutes } from '@/lib/widgets-routes';
 import { LOCALE_SUGGESTIONS } from '@/lib/widget-config';
 import { cn } from '@/lib/utils';
@@ -203,6 +206,7 @@ function CategoryForm({
                         setErrors((current) => omit(current, 'slug'));
                     }}
                     placeholder={slugPlaceholder}
+                    maxLength={SLUG_MAX}
                     hint={t('categories.dialog.slug_hint')}
                     error={errors.slug}
                     dir="ltr"
@@ -223,6 +227,7 @@ function CategoryForm({
                             set({ description: event.target.value })
                         }
                         rows={2}
+                        maxLength={DESCRIPTION_MAX}
                         aria-invalid={errors.description ? true : undefined}
                         aria-describedby={describedBy(`${uid}-description`, {
                             hint: true,
@@ -324,6 +329,7 @@ function CategoryForm({
                                             })
                                         }
                                         placeholder="ar"
+                                        maxLength={LOCALE_CODE_LENGTH}
                                         dir="ltr"
                                         spellCheck={false}
                                         className="max-w-24 font-mono text-sm"
@@ -344,6 +350,7 @@ function CategoryForm({
                                         placeholder={t(
                                             'categories.dialog.locale_name_placeholder',
                                         )}
+                                        maxLength={NAME_MAX}
                                         dir="auto"
                                     />
                                     <Button
@@ -379,6 +386,10 @@ function CategoryForm({
                             variant="outline"
                             size="sm"
                             data-testid="category-add-translation"
+                            disabled={
+                                values.names.length >=
+                                LIMITS.maxCategoryTranslations
+                            }
                             onClick={() =>
                                 set({
                                     names: [...values.names, newLocaleRow()],

@@ -198,7 +198,10 @@ export type TextKey =
     | 'ratingPlaceholder'
     | 'thanks'
     | 'startNewChat'
-    | 'poweredBy';
+    | 'poweredBy'
+    | 'closeChat'
+    | 'unread'
+    | 'dismiss';
 export type TextsConfig = Partial<Record<TextKey, string>>;
 
 export type FeaturesConfig = {
@@ -233,7 +236,11 @@ export type GreetingsSettings = {
 
 /** `day`: 0 = Sunday .. 6 = Saturday. */
 export type HoursRange = { day: number; start: string; end: string };
-export type Holiday = { date: string; label: string };
+/**
+ * `label` is optional on the wire (the server stores a blank name as `null`); the builder
+ * normalises it to a string on hydrate and every reader still tolerates `null`.
+ */
+export type Holiday = { date: string; label: string | null };
 
 export type HoursConfig = {
     mode: OfflineMode;

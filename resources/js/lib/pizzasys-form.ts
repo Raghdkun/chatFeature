@@ -6,6 +6,7 @@
  * rules (the server stays authoritative): https URLs (http only for localhost, 127.0.0.1 and
  * *.test), service name `[A-Za-z0-9._-]{1,64}`, secrets write-only and omitted when unchanged.
  */
+import { LIMITS } from '@/lib/limits';
 import type {
     PizzasysEnvironmentData,
     PizzasysEnvKey,
@@ -27,8 +28,8 @@ export const DEFAULT_ROLES: PizzasysRoles = {
     super_roles: ['super-admin'],
 };
 
-const MAX_NAME_LENGTH = 100;
-const SERVICE_NAME_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
+/** Mirrors `app/Http/Requests/Auth/UpdateAuthEnvironmentRequest.php`: `[A-Za-z0-9._-]{1,64}`. */
+const SERVICE_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
 
 /* -------------------------------------------------------------------------- */
 /* Form values                                                                */
@@ -129,6 +130,7 @@ export type ValidationCode =
     | 'permission'
     | 'same_permission'
     | 'role_name'
+    | 'role_count'
     | 'active_unconfigured';
 
 export const VALIDATION_CODES: readonly ValidationCode[] = [
@@ -141,6 +143,7 @@ export const VALIDATION_CODES: readonly ValidationCode[] = [
     'permission',
     'same_permission',
     'role_name',
+    'role_count',
     'active_unconfigured',
 ];
 
@@ -202,7 +205,10 @@ export function validateEnvironment(
 
     if (serviceName === '') {
         issues.service_name = 'required';
-    } else if (!SERVICE_NAME_PATTERN.test(serviceName)) {
+    } else if (
+        serviceName.length > LIMITS.serviceNameLength ||
+        !SERVICE_NAME_PATTERN.test(serviceName)
+    ) {
         issues.service_name = 'service_name';
     }
 
@@ -224,20 +230,24 @@ export function validateRoles(roles: PizzasysRoles): FieldIssues {
 
     if (admin === '') {
         issues.admin_permission = 'required';
-    } else if (admin.length > MAX_NAME_LENGTH) {
+    } else if (admin.length > LIMITS.permissionLength) {
         issues.admin_permission = 'permission';
     }
 
     if (agent === '') {
         issues.agent_permission = 'required';
-    } else if (agent.length > MAX_NAME_LENGTH) {
+    } else if (agent.length > LIMITS.permissionLength) {
         issues.agent_permission = 'permission';
     } else if (admin !== '' && admin === agent) {
         // Admin wins over agent, so one shared name would make every agent an admin.
         issues.agent_permission = 'same_permission';
     }
 
-    if (roles.super_roles.some((role) => role.length > MAX_NAME_LENGTH)) {
+    if (roles.super_roles.length > LIMITS.maxSuperRoles) {
+        issues.super_roles = 'role_count';
+    } else if (
+        roles.super_roles.some((role) => role.length > LIMITS.superRoleLength)
+    ) {
         issues.super_roles = 'role_name';
     }
 
