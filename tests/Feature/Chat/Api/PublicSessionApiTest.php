@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Models\Visitor;
 use App\Models\VisitorSession;
 use App\Models\Widget;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
@@ -149,6 +150,31 @@ class PublicSessionApiTest extends TestCase
         $this->assertSame('Ann B.', $visitor->name);
         $this->assertSame(['tier' => 'gold'], $visitor->meta);
         $this->assertSame(2, VisitorSession::query()->where('visitor_id', $visitor->id)->count());
+    }
+
+    public function test_a_deadlock_while_storing_a_new_verified_visitor_is_retried_instead_of_failing_the_visitor(): void
+    {
+        $widget = Widget::factory()->enabled()->withDomains(['customer.test'])->withIdentitySecret('s3cret-s3cret')->create(['offline_mode' => 'always_online']);
+        $token = $this->mintIdentityToken(['iss' => $widget->public_key, 'sub' => 'user-99', 'name' => 'Dana', 'exp' => time() + 120], 's3cret-s3cret');
+        $deadlocks = 0;
+
+        // Two first sessions of different identities lock neighbouring gaps of the unique (widget, external id) index and one of them is
+        // chosen as the victim (MySQL 1213): the first insert is aborted this way once.
+        Visitor::creating(function () use (&$deadlocks): void {
+            if ($deadlocks++ === 0) {
+                $failure = new \PDOException('Deadlock found when trying to get lock; try restarting transaction');
+                $failure->errorInfo = ['40001', 1213, 'Deadlock found when trying to get lock'];
+
+                throw new QueryException('mysql', 'insert into `visitors`', [], $failure);
+            }
+        });
+
+        $this->open(['identity_token' => $token], widget: $widget)->assertCreated();
+
+        $this->assertSame(2, $deadlocks);
+        $visitor = Visitor::query()->where('widget_id', $widget->id)->sole();
+        $this->assertSame('user-99', $visitor->external_id);
+        $this->assertSame(1, VisitorSession::query()->where('visitor_id', $visitor->id)->count());
     }
 
     public function test_an_identity_that_does_not_verify_is_refused_not_downgraded(): void

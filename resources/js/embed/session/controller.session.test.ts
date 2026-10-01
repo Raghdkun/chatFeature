@@ -179,6 +179,102 @@ describe('two tabs sharing one stored session', () => {
     });
 });
 
+describe('a tab whose session lost the chat to the other tab (the token rotated away lives on for a minute)', () => {
+    /** Tab A resumed the active chat; then another tab rotated and the chat now belongs to `other`, which the host stored. */
+    async function movedChat() {
+        const backend = useBackend();
+        const first = backend.issueToken();
+
+        backend.seedConversation(first.token, 'active');
+
+        const host = sharedHostStore(first);
+        const tab = createHarness({
+            backend,
+            pollMs: 100_000,
+            deps: host.deps,
+        });
+
+        await tab.init(makeInit({ visitorSession: first }));
+        await until(() => tab.sockets.length === 1);
+
+        const other = backend.issueToken();
+
+        backend.state.owner = other.token;
+        host.store.current = other;
+
+        return { backend, host, tab, other };
+    }
+
+    it('a sync that finds the session without a conversation adopts the newer session and stays in the chat (it is not closed)', async () => {
+        const { backend, host, tab, other } = await movedChat();
+        const before = tab.state().messages.length;
+
+        document.dispatchEvent(new Event('visibilitychange'));
+        await until(() => host.store.drops === 1);
+        await until(
+            () =>
+                backend.callsTo('GET', '/conversation').at(-1)?.auth ===
+                `Bearer ${other.token}`,
+        );
+
+        expect(tab.state().phase).toBe('active');
+        expect(tab.state().messages.length).toBeGreaterThanOrEqual(before);
+        // the socket re-authorises with the adopted session
+        await until(() => tab.sockets.length === 2);
+        expect(tab.sockets.at(-1)?.input.token).toBe(other.token);
+    });
+
+    it('a message the old token cannot send (404) stays with its Retry, and the retry goes out with the adopted session', async () => {
+        const { backend, tab, other } = await movedChat();
+
+        tab.controller.send({ body: 'From the stale tab' });
+        await until(() =>
+            tab.state().messages.some((message) => message.status === 'failed'),
+        );
+        await until(
+            () =>
+                backend.callsTo('GET', '/conversation').at(-1)?.auth ===
+                `Bearer ${other.token}`,
+        );
+
+        const failed = tab
+            .state()
+            .messages.find((message) => message.status === 'failed');
+
+        expect(tab.state().phase).toBe('active');
+        expect(failed?.clientMsgId).toBeTruthy();
+
+        tab.controller.retry(failed?.clientMsgId ?? '');
+        await until(() =>
+            backend.state.messages.some(
+                (message) => message.body === 'From the stale tab',
+            ),
+        );
+        expect(
+            tab
+                .state()
+                .messages.filter(
+                    (message) => message.body === 'From the stale tab',
+                ),
+        ).toHaveLength(1);
+        expect(
+            tab
+                .state()
+                .messages.every((message) => message.status !== 'failed'),
+        ).toBe(true);
+    });
+
+    it('with no newer session stored the chat is over for this tab: the expired screen, nothing is invented', async () => {
+        const { host, tab } = await movedChat();
+
+        host.store.current = null;
+        document.dispatchEvent(new Event('visibilitychange'));
+        await until(() => tab.state().phase === 'closed');
+
+        expect(tab.state().closedReason).toBe('expired');
+    });
+});
+
 describe('session creation tolerates what the visitor cannot fix', () => {
     const FORM = {
         name: 'Vera',

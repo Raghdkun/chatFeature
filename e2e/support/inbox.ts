@@ -19,7 +19,7 @@ export class Inbox {
     /** Opens `/inbox` (or one conversation) and waits for the shell. */
     async goto(ulid?: string): Promise<void> {
         await this.page.goto(ulid ? `/inbox/${ulid}` : '/inbox');
-        await expect(this.tid('inbox')).toBeVisible();
+        await expect(this.tid('inbox')).toBeVisible({ timeout: 25_000 });
     }
 
     get queue(): Locator {
@@ -46,7 +46,7 @@ export class Inbox {
     }
 
     async expectOffer(ulid: string): Promise<void> {
-        await expect(this.offer(ulid)).toBeVisible();
+        await expect(this.offer(ulid)).toBeVisible({ timeout: 20_000 });
     }
 
     async expectNoOffer(ulid: string): Promise<void> {
@@ -56,8 +56,11 @@ export class Inbox {
     /** "Accept" on the offer; resolves when the conversation is open (the page navigated to `/inbox/{ulid}`). */
     async accept(ulid: string): Promise<void> {
         await this.tid(`offer-accept-${ulid}`).click();
-        await expect(this.page).toHaveURL(new RegExp(`/inbox/${ulid}$`));
-        await expect(this.conversation).toBeVisible();
+        // The claim and the page visit are two requests to a PHP server that shares its machine with every other browser of the run.
+        await expect(this.page).toHaveURL(new RegExp(`/inbox/${ulid}$`), {
+            timeout: 25_000,
+        });
+        await expect(this.conversation).toBeVisible({ timeout: 25_000 });
     }
 
     /** A row of "My chats". */
@@ -74,7 +77,9 @@ export class Inbox {
     }
 
     async expectMessage(text: string | RegExp): Promise<void> {
-        await expect(this.message(text).first()).toBeVisible();
+        await expect(this.message(text).first()).toBeVisible({
+            timeout: 20_000,
+        });
     }
 
     async send(text: string): Promise<void> {

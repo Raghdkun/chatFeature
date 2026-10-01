@@ -232,7 +232,7 @@ describe('echo socket', () => {
         expect(created[0].statusHandlers).toEqual([]);
     });
 
-    it('close unbinds everything that is left, leaves the channel and disconnects (once)', async () => {
+    it('close unbinds everything that is left and disconnects (once), without leaving the channel first (that frame is sent on the closing socket)', async () => {
         const socket = await createEchoSocket(INPUT);
         const calls: string[] = [];
 
@@ -245,7 +245,7 @@ describe('echo socket', () => {
         socket.close();
         socket.close();
 
-        expect(created[0].left).toEqual(['conversation.01CONV']);
+        expect(created[0].left).toEqual([]);
         expect(created[0].disconnected).toBe(true);
         expect([...created[0].listeners.values()].flat()).toEqual([]);
         expect(created[0].statusHandlers).toEqual([]);

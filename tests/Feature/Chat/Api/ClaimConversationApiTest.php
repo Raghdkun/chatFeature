@@ -2,12 +2,14 @@
 
 namespace Tests\Feature\Chat\Api;
 
+use App\Domain\Chat\Actions\ClaimConversation;
 use App\Domain\Chat\Enums\ConversationStatus;
 use App\Domain\Chat\Enums\OfferResponse;
 use App\Domain\Chat\Events\ChatTaken;
 use App\Domain\Chat\Events\ConversationClaimed;
 use App\Domain\Chat\Events\MessageCreated;
 use App\Domain\Chat\Events\QueueChanged;
+use App\Http\Exceptions\ApiProblemException;
 use App\Models\Category;
 use App\Models\Conversation;
 use App\Models\ConversationOffer;
@@ -15,6 +17,7 @@ use App\Models\Message;
 use App\Models\User;
 use App\Models\Widget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Testing\TestResponse;
 use Tests\Support\ChatFixtures;
@@ -98,6 +101,35 @@ class ClaimConversationApiTest extends TestCase
 
         $this->assertSame($this->winner->id, $this->chat->fresh()->assigned_agent_id);
         $this->assertSame(1, $this->chat->fresh()->claim_version);
+    }
+
+    public function test_the_loser_of_a_simultaneous_accept_is_told_409_not_403_when_the_winner_commits_between_the_checks(): void
+    {
+        $winner = $this->winner;
+        $chat = $this->chat;
+        $fired = false;
+
+        // The winner's accept lands right after the loser's action has read the chat (still queued) and before it looks at the offers
+        // again: the winner has closed them as taken by then, so the offer check alone would say "not offered to you".
+        DB::listen(function ($query) use (&$fired, $winner, $chat): void {
+            if ($fired || ! str_starts_with(strtolower($query->sql), 'select') || ! str_contains($query->sql, 'conversations')) {
+                return;
+            }
+
+            $fired = true;
+            Conversation::query()->whereKey($chat->id)->update(['status' => ConversationStatus::Active->value, 'assigned_agent_id' => $winner->id]);
+            ConversationOffer::query()->where('conversation_id', $chat->id)->update(['responded_at' => now(), 'response' => OfferResponse::Taken->value]);
+        });
+
+        try {
+            app(ClaimConversation::class)->handle($chat, $this->loser);
+            $this->fail('The loser must not get the chat.');
+        } catch (ApiProblemException $problem) {
+            $this->assertSame(409, $problem->getStatusCode());
+            $this->assertSame('already_claimed', $problem->errorCode());
+        }
+
+        $this->assertTrue($fired);
     }
 
     public function test_accepting_your_own_chat_again_is_idempotent(): void

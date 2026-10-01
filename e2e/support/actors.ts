@@ -60,13 +60,21 @@ function contextOptions(testInfo: TestInfo, device: DeviceOptions['device']) {
     };
 }
 
-/** Signs a staff user in through the dashboard's login endpoint (Fortify, JSON) and returns the cookie-holding context's API. */
+/**
+ * Signs a staff user in through the dashboard's login endpoint (Fortify, JSON) and returns the cookie-holding context's API.
+ * `address` is the client address the server should see (`X-Forwarded-For`, believed by the scenarios that trust the proxy): the
+ * login limiter also counts per address (30 a minute), which one machine running many specs at once would use up.
+ */
 export async function signInApi(
     context: BrowserContext,
     instance: Instance,
     user: Pick<TestUser, 'email' | 'password'>,
+    address?: string,
 ): Promise<Api> {
-    await context.request.get(`${instance.url}/login`);
+    const forwarded =
+        address === undefined ? {} : { 'X-Forwarded-For': address };
+
+    await context.request.get(`${instance.url}/login`, { headers: forwarded });
 
     const state = await context.storageState();
     const xsrf = state.cookies.find((cookie) => cookie.name === 'XSRF-TOKEN');
@@ -74,6 +82,7 @@ export async function signInApi(
         headers: {
             Accept: 'application/json',
             'X-XSRF-TOKEN': decodeURIComponent(xsrf?.value ?? ''),
+            ...forwarded,
         },
         data: { email: user.email, password: user.password },
         failOnStatusCode: false,
@@ -124,7 +133,7 @@ export class StaffActor extends Actor {
     private beat: ReturnType<typeof setInterval> | null = null;
 
     constructor(
-        name: StaffName,
+        name: string,
         readonly user: TestUser,
         context: BrowserContext,
         page: Page,
@@ -215,10 +224,38 @@ export class Actors {
             storageState: authStatePath(this.instance, role),
         });
 
+        return this.finishStaff(who, user, context, options);
+    }
+
+    /**
+     * A staff member a spec created (`createTeam()` in chat-flows.ts) and who has no saved login: a fresh browser context signed in
+     * through the login endpoint (the form is throttled to 5 attempts a minute per account: one sign-in per account and test).
+     */
+    async staffLogin(
+        user: TestUser,
+        options: StaffOptions = {},
+    ): Promise<StaffActor> {
+        const context = await this.browser.newContext({
+            ...contextOptions(this.testInfo, options.device),
+            baseURL: this.instance.url,
+            storageState: { cookies: [], origins: [] },
+        });
+
+        await signInApi(context, this.instance, user, clientAddress());
+
+        return this.finishStaff(user.name, user, context, options);
+    }
+
+    private async finishStaff(
+        name: string,
+        user: TestUser,
+        context: BrowserContext,
+        options: StaffOptions,
+    ): Promise<StaffActor> {
         const page = await context.newPage();
-        const watch = watchContext(context, who, options.allow);
+        const watch = watchContext(context, name, options.allow);
         const actor = new StaffActor(
-            who,
+            name,
             user,
             context,
             page,

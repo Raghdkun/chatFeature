@@ -2,7 +2,7 @@
  * The visitor's socket against the REAL `laravel-echo` (only the Pusher client underneath is a fake): what `echo-socket.ts` assumes
  * about the library is checked against the library itself, like `tests/echo-integration.test.tsx` does for the staff bindings:
  * custom event names need the leading dot, a whisper leaves as `client-<name>` and arrives under that name, every binding is undone
- * on close, and the channel is left.
+ * on close, and closing never writes to a socket that is already closing (the browser logs an error for it on the customer's page).
  */
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
@@ -53,6 +53,14 @@ class FakePusher {
     channels = { channels: {} as Record<string, FakeChannel> };
     unsubscribed: string[] = [];
     disconnected = false;
+    /**
+     * The browser WebSocket under the client: `disconnect()` closes it at once (CLOSING; the close handshake ends later) and
+     * pusher-js writes every frame one tick later (`Util.defer` in `transport_connection.ts`), so a frame queued before
+     * `disconnect()` still lands on the CLOSING socket, where a real browser logs "WebSocket is already in CLOSING or CLOSED state".
+     */
+    socketState: 'open' | 'closing' = 'open';
+    sent: string[] = [];
+    sentOnClosingSocket: string[] = [];
     private connectionHandlers = new Map<string, Set<() => void>>();
     connection = {
         state: 'connecting',
@@ -82,10 +90,23 @@ class FakePusher {
     unsubscribe(name: string) {
         this.unsubscribed.push(name);
         delete this.channels.channels[name];
+        this.write(`pusher:unsubscribe ${name}`);
     }
 
     disconnect() {
         this.disconnected = true;
+        this.socketState = 'closing';
+    }
+
+    private write(frame: string) {
+        setTimeout(
+            () =>
+                (this.socketState === 'open'
+                    ? this.sent
+                    : this.sentOnClosingSocket
+                ).push(frame),
+            0,
+        );
     }
 
     setState(state: string) {
@@ -208,7 +229,7 @@ describe('the visitor socket on the real Echo', () => {
         expect(seen.every((status) => typeof status === 'string')).toBe(true);
     });
 
-    it('close() unbinds every handler it handed out, leaves the channel and disconnects, once', async () => {
+    it('close() unbinds every handler it handed out and disconnects, once', async () => {
         const socket = await createEchoSocket(INPUT);
         const seen: string[] = [];
 
@@ -228,7 +249,7 @@ describe('the visitor socket on the real Echo', () => {
         socket.close();
 
         // every app handler is gone; what remains are Echo's own two `pusher:subscription_*` bindings (it can add them, never remove
-        // them), which die with the channel when the Pusher client unsubscribes
+        // them), which are fanned out to sets that were emptied and die with the Echo instance
         expect(channel.handlers.get('message.created')?.size ?? 0).toBe(0);
         expect(channel.handlers.get('client-typing')?.size ?? 0).toBe(0);
         expect(
@@ -239,13 +260,28 @@ describe('the visitor socket on the real Echo', () => {
                 )
                 .map(([name]) => name),
         ).toEqual([]);
-        expect(pusher.unsubscribed).toEqual([CHANNEL]);
         expect(pusher.disconnected).toBe(true);
 
         channel.receive('message.created', {});
         channel.receive('client-typing', {});
         pusher.setState('disconnected');
         expect(seen).toEqual([]);
+    });
+
+    it('closing writes nothing to the socket it is closing: no pusher:unsubscribe after the disconnect (regression: Chrome logged "WebSocket is already in CLOSING or CLOSED state" on the customer\'s page once per chat)', async () => {
+        const socket = await createEchoSocket(INPUT);
+        const pusher = pushers[0];
+
+        socket.listen('.message.created', () => undefined);
+        socket.close();
+        socket.close();
+
+        // pusher-js writes a frame one tick after it was handed over: let every deferred write run
+        await new Promise((resolve) => setTimeout(resolve, 5));
+
+        expect(pusher.disconnected).toBe(true);
+        expect(pusher.sentOnClosingSocket).toEqual([]);
+        expect(pusher.sent).toEqual([]);
     });
 
     it('an unbinder removes only its own handler', async () => {

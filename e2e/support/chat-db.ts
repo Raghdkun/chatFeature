@@ -8,6 +8,7 @@
  * `assertSafe` guarantees it is an e2e database. Each call boots the app (about a second): use it for state the APIs do not show
  * (close reason, ended-by, ratings, events, offers), not in loops.
  */
+import { readFile } from 'node:fs/promises';
 import { artisan, tinker } from './artisan';
 import type { Instance } from './scenarios';
 
@@ -109,7 +110,7 @@ echo "\\nE2E_JSON=".json_encode([
     'conversation' => $conversation,
     'rating' => \\DB::table('ratings')->where('conversation_id', $conversation->id)->first(['score', 'comment']),
     'events' => \\DB::table('conversation_events')->where('conversation_id', $conversation->id)->orderBy('id')->get(['type', 'actor_type', 'actor_id', 'payload'])
-        ->map(fn ($event) => (array) $event + ['payload' => json_decode((string) $event->payload, true)])->all(),
+        ->map(fn ($event) => array_merge((array) $event, ['payload' => json_decode((string) $event->payload, true)]))->all(),
     'offers' => \\DB::table('conversation_agent_alerts')->where('conversation_id', $conversation->id)->orderBy('id')
         ->get(['user_id', 'wave', 'offered_at', 'expires_at', 'responded_at', 'response'])->all(),
 ])."\\n";
@@ -134,4 +135,33 @@ export async function readConversationRow(
     }
 
     return JSON.parse(line.slice('E2E_JSON='.length)) as ConversationRow;
+}
+
+/**
+ * What the `log` mailer wrote for this instance (`MAIL_MAILER=log`, the queue is `sync`, so a queued mail is "sent" inside the request
+ * that caused it): the application log with the raw messages. `''` before anything was logged. Specs look for the subject, the
+ * recipient and the body of the mail they provoked.
+ */
+export async function readMailLog(instance: Instance): Promise<string> {
+    return readFile(`${instance.dir}/logs/laravel.log`, 'utf8').catch(() => '');
+}
+
+const AGE_SESSION = `
+$hash = hash('sha256', (string) getenv('E2E_TOKEN'));
+$session = \\DB::table('visitor_sessions')->where('token_hash', $hash)->first();
+if (! $session) { throw new RuntimeException('No visitor session for that token'); }
+$changes = getenv('E2E_MODE') === 'revoke' ? ['revoked_at' => now()] : ['expires_at' => now()->subSecond()];
+\\DB::table('visitor_sessions')->where('id', $session->id)->update($changes);
+`;
+
+/**
+ * Ends a visitor session behind the product's back: `expire` puts its expiry in the past (what the 60 s overlap after a token rotation
+ * or the session lifetime do), `revoke` marks it revoked (a sign-out elsewhere). The token is then `401 session_revoked`.
+ */
+export async function endVisitorSession(
+    instance: Instance,
+    token: string,
+    mode: 'expire' | 'revoke' = 'expire',
+): Promise<void> {
+    await tinker(instance, AGE_SESSION, { E2E_TOKEN: token, E2E_MODE: mode });
 }

@@ -255,6 +255,8 @@ export class ChatController {
     private sessionPromise: Promise<void> | null = null;
     private rotation: Promise<void> | null = null;
     private rotatedAt = 0;
+    /** The visitor's own `POST .../cancel` is on its way: a sync that already sees the chat closed must not call it a missed queue. */
+    private cancelling = false;
     /** A refused token is being dropped (the host is asked whether another tab holds a newer one). */
     private dropping = false;
 
@@ -1068,6 +1070,15 @@ export class ChatController {
         return false;
     }
 
+    /** The host can tell which stored session is current (a launcher page; not a preview, not a panel without a session). */
+    private canAskHostForSession(): boolean {
+        return (
+            this.token !== null &&
+            this.deps.dropSession !== undefined &&
+            this.deps.preview !== true
+        );
+    }
+
     /** The conversation carries on with the adopted session: the socket re-authorises with it and the state is read again. */
     private resumeAfterAdopt(): void {
         const conversation = this.state.conversation;
@@ -1707,6 +1718,7 @@ export class ChatController {
         }
 
         try {
+            const sentWith = this.token;
             const latest = await this.api.getConversation();
 
             if (this.disposed) {
@@ -1715,6 +1727,18 @@ export class ChatController {
 
             // An answer that was in flight while the chat moved on (a `chat.claimed` landed) describes the past: never apply it.
             if (this.state.phase === phase) {
+                if (latest === null && this.canAskHostForSession()) {
+                    // A closed or missed chat is still answered, so "no conversation" means this session no longer owns the chat: another
+                    // tab of the visitor resumed it and rotated the token (the old one lives on for a minute). Not the end of the chat:
+                    // ask the host which session is current and carry on with it (the same protocol as a refused token). An answer to a
+                    // request that left with a token that has been replaced since describes the past, like any other.
+                    if (this.token === sentWith) {
+                        this.handleSessionGone();
+                    }
+
+                    return;
+                }
+
                 this.applyServerConversation(latest);
             }
 
@@ -1760,7 +1784,10 @@ export class ChatController {
                 break;
             case 'closed':
                 if (phase === 'queued') {
-                    this.dispatch({ type: 'MISSED' });
+                    // Closed while queued: the visitor's own cancel (its answer is about to land) or an administrator dismissing it.
+                    if (!this.cancelling) {
+                        this.dispatch({ type: 'MISSED' });
+                    }
                 } else {
                     this.dispatch({ type: 'CLOSED', reason: 'system' });
                 }
@@ -1896,6 +1923,10 @@ export class ChatController {
                 } else if (error.code === 'conversation_not_active') {
                     // The chat ended or was closed while the visitor was typing: find out which.
                     void this.syncConversation();
+                } else if (error.status === 404 && error.code === 'not_found') {
+                    // Not this session's chat any more: another tab resumed it and rotated the token. The message stays with its
+                    // Retry; the retry goes out with the session the host holds now.
+                    this.handleSessionGone();
                 }
             }
         }
@@ -2042,10 +2073,15 @@ export class ChatController {
             return;
         }
 
+        this.cancelling = true;
+
         try {
             await this.api.cancelConversation(conversation.ulid);
+            this.cancelling = false;
             this.dispatch({ type: 'CANCEL_OK' });
         } catch (error) {
+            this.cancelling = false;
+
             if (isVisitorApiError(error) && error.isSessionGone) {
                 this.handleSessionGone();
 

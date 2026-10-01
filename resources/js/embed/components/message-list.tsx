@@ -28,6 +28,8 @@ export function MessageList({ onOpenImage }: Props) {
     const reduced = useReducedMotion();
     const scroller = useRef<HTMLDivElement>(null);
     const stick = useRef(true);
+    /** Where the list was scrolled to last: only the visitor scrolling UP lets go of the end (our own smooth scroll only moves down). */
+    const lastTop = useRef(0);
     const first = useRef(true);
     const [atBottom, setAtBottom] = useState(true);
     const [seenCount, setSeenCount] = useState(0);
@@ -90,12 +92,19 @@ export function MessageList({ onOpenImage }: Props) {
         const near =
             element.scrollHeight - element.scrollTop - element.clientHeight <
             NEAR_BOTTOM_PX;
+        const movedUp = element.scrollTop < lastTop.current;
 
-        stick.current = near;
-        setAtBottom(near);
+        lastTop.current = element.scrollTop;
 
         if (near) {
+            stick.current = true;
+            setAtBottom(true);
             setSeenCount(total);
+        } else if (movedUp || !stick.current) {
+            // The visitor scrolled away from the end. A smooth scroll that is still on its way down (messages arrived faster than the
+            // animation) also passes through positions far from the end: that must not unpin the list, or the next message is not followed.
+            stick.current = false;
+            setAtBottom(false);
         }
     };
 

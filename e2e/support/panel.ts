@@ -12,6 +12,7 @@ import {
     type FrameLocator,
     type Locator,
     type Page,
+    type Response,
 } from '@playwright/test';
 import { hostPage, settleWidget, type HostOptions } from './host';
 import type { Instance } from './scenarios';
@@ -56,6 +57,8 @@ export class Panel {
     constructor(
         readonly page: Page,
         readonly instance: Instance,
+        /** The widget key this page runs (default: the seeded widget): where the loader keeps the visitor's token. */
+        readonly key: string = readSeed(instance).widget.key,
     ) {
         this.launcher = page.locator('pne-chat-widget button.launcher');
         this.frame = page.frameLocator('pne-chat-widget .panel iframe');
@@ -79,15 +82,25 @@ export class Panel {
         return this.tid('composer-input');
     }
 
-    /** Opens the panel (launcher click) and waits until it is up. A panel that is already open is left alone. */
+    /** The panel's container on the customer-site page (the iframe's frame): hidden while the launcher is the only thing on screen. */
+    get container(): Locator {
+        return this.page.locator('pne-chat-widget .panel');
+    }
+
+    /**
+     * Opens the panel (launcher click) and waits until it is up. A panel that is already open is left alone. "Open" is decided on the
+     * customer-site page (the container of the iframe): an element inside a hidden iframe still counts as visible to Playwright, so
+     * `root.isVisible()` cannot tell a panel that was created at boot for a stored session from one the visitor can see.
+     */
     async open(): Promise<void> {
         await expect(this.launcher).toBeVisible();
         await settleWidget(this.page);
 
-        if (!(await this.root.isVisible())) {
+        if (!(await this.container.isVisible())) {
             await this.launcher.click();
         }
 
+        await expect(this.container).toBeVisible();
         await expect(this.root).toBeVisible();
         await expect(this.stateElement).not.toHaveAttribute(
             'data-state',
@@ -104,7 +117,7 @@ export class Panel {
 
     async expectState(
         state: PanelState | PanelState[],
-        timeout = 15_000,
+        timeout = 20_000,
     ): Promise<void> {
         await expect(this.stateElement).toHaveAttribute(
             'data-state',
@@ -119,55 +132,70 @@ export class Panel {
      * answer of `POST /public/conversations`.
      */
     async startChat(options: StartChatOptions): Promise<StartedChat> {
-        const created = this.page.waitForResponse(
-            (response) =>
+        // The answer of `POST /public/conversations`, if the panel sent one: the state only changes after it arrived, and a panel that
+        // goes to `offline` without asking (nobody is there, or the widget is closed) never sends it, so nothing waits for it.
+        let created: Response | null = null;
+        const onResponse = (response: Response): void => {
+            if (
                 new URL(response.url()).pathname ===
                     '/api/v1/public/conversations' &&
-                response.request().method() === 'POST',
-        );
+                response.request().method() === 'POST'
+            ) {
+                created = response;
+            }
+        };
         let last: PanelState | null = null;
 
-        for (let step = 0; step < 8; step += 1) {
-            if (last !== null) {
-                await expect(this.stateElement).not.toHaveAttribute(
-                    'data-state',
-                    last,
-                );
+        this.page.on('response', onResponse);
+
+        try {
+            for (let step = 0; step < 8; step += 1) {
+                if (last !== null) {
+                    await expect(this.stateElement).not.toHaveAttribute(
+                        'data-state',
+                        last,
+                        { timeout: 25_000 },
+                    );
+                }
+
+                await this.expectState([
+                    'idle',
+                    'prechat',
+                    'category',
+                    'queued',
+                    'offline',
+                    'active',
+                ]);
+
+                const state = await this.state();
+
+                if (
+                    state === 'queued' ||
+                    state === 'offline' ||
+                    state === 'active'
+                ) {
+                    break;
+                }
+
+                if (state === 'idle') {
+                    await this.tid('idle-start').click();
+                } else if (state === 'prechat') {
+                    await this.fillPrechat(options);
+                } else if (state === 'category') {
+                    await this.tid(
+                        `category-option-${options.category}`,
+                    ).click();
+                }
+
+                last = state;
             }
 
-            await this.expectState([
-                'idle',
-                'prechat',
-                'category',
-                'queued',
-                'offline',
-                'active',
-            ]);
-
-            const state = await this.state();
-
-            if (
-                state === 'queued' ||
-                state === 'offline' ||
-                state === 'active'
-            ) {
-                break;
-            }
-
-            if (state === 'idle') {
-                await this.tid('idle-start').click();
-            } else if (state === 'prechat') {
-                await this.fillPrechat(options);
-            } else if (state === 'category') {
-                await this.tid(`category-option-${options.category}`).click();
-            }
-
-            last = state;
+            await this.expectState(['queued', 'offline', 'active']);
+        } finally {
+            this.page.off('response', onResponse);
         }
 
-        await this.expectState(['queued', 'offline', 'active']);
-
-        const response = await created.catch(() => null);
+        const response = created as Response | null;
         const data = response
             ? ((await response.json().catch(() => ({}))) as { data?: any }).data
             : undefined;
@@ -224,7 +252,9 @@ export class Panel {
         text: string | RegExp,
         from?: 'visitor' | 'agent' | 'system',
     ): Promise<void> {
-        await expect(this.message(text, from).first()).toBeVisible();
+        await expect(this.message(text, from).first()).toBeVisible({
+            timeout: 20_000,
+        });
     }
 
     /** "End chat" in the header and its confirmation dialog. */
@@ -250,6 +280,59 @@ export class Panel {
         await this.tid('rating-skip').click();
     }
 
+    /**
+     * The offline form (`offline` state): fills what is given (`name` is only typed when it is passed: after a missed chat it is
+     * already there), sends and returns the ticket the server created (`POST /public/offline-tickets`, any status).
+     */
+    async submitOffline(fields: {
+        name?: string;
+        email: string;
+        message: string;
+        category?: string;
+    }): Promise<{
+        status: number;
+        ulid: string | null;
+        ticketNo: string | null;
+        type: string | null;
+        category: string | null;
+    }> {
+        const form = this.tid('offline-form');
+        const answer = this.page.waitForResponse(
+            (response) =>
+                new URL(response.url()).pathname ===
+                    '/api/v1/public/offline-tickets' &&
+                response.request().method() === 'POST',
+        );
+
+        if (fields.name !== undefined) {
+            await form.locator('input[name="name"]').fill(fields.name);
+        }
+
+        await form.locator('input[name="email"]').fill(fields.email);
+
+        if (fields.category !== undefined) {
+            await form
+                .locator('select[name="category"]')
+                .selectOption(fields.category);
+        }
+
+        await form.locator('textarea[name="message"]').fill(fields.message);
+        await form.locator('button[type="submit"]').click();
+
+        const response = await answer;
+        const data = (
+            (await response.json().catch(() => ({}))) as { data?: any }
+        ).data;
+
+        return {
+            status: response.status(),
+            ulid: data?.ulid ?? null,
+            ticketNo: data?.ticketNo ?? null,
+            type: data?.type ?? null,
+            category: data?.category?.slug ?? null,
+        };
+    }
+
     /** "Cancel" while queued. */
     async cancelQueued(): Promise<void> {
         await this.tid('queued-cancel').click();
@@ -264,9 +347,7 @@ export class Panel {
      * The visitor's bearer token the loader keeps in the HOST page's localStorage (`chatfeature:<key>:session`): lets a spec call the
      * public API as the very visitor the browser plays. `null` before the panel created a session.
      */
-    async visitorToken(
-        key = readSeed(this.instance).widget.key,
-    ): Promise<string | null> {
+    async visitorToken(key = this.key): Promise<string | null> {
         return this.page.evaluate((storageKey) => {
             try {
                 const raw = window.localStorage.getItem(storageKey);
@@ -316,7 +397,11 @@ export async function openCustomerSite(
 
     await page.goto(url);
 
-    const panel = new Panel(page, instance);
+    const panel = new Panel(
+        page,
+        instance,
+        key ?? readSeed(instance).widget.key,
+    );
 
     await expect(panel.launcher).toBeVisible();
 

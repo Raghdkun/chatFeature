@@ -466,6 +466,52 @@ describe('queued', () => {
         expect(h.events()).toContain('chat-ended');
     });
 
+    it('a sync that lands while the visitor\'s own cancel is still on its way does not turn it into a missed queue (no offline form after "Cancel")', async () => {
+        const backend = useBackend();
+        const { createVisitorApi } = await import('@/lib/chat-api/visitor');
+        let release: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const h = createHarness({
+            backend,
+            deps: {
+                createApi: (options) => {
+                    const real = createVisitorApi(options);
+
+                    return {
+                        ...real,
+                        // the server has cancelled; the answer reaches the panel late
+                        cancelConversation: async (ulid) => {
+                            const result = await real.cancelConversation(ulid);
+
+                            await gate;
+
+                            return result;
+                        },
+                    };
+                },
+            },
+        });
+
+        await queue(h);
+
+        const cancelling = h.controller.cancelQueued();
+
+        await until(() => backend.callsTo('POST', '/cancel').length === 1);
+        await h.controller.syncConversation();
+
+        expect(h.state().phase).toBe('queued');
+
+        release();
+        await cancelling;
+
+        expect(h.state()).toMatchObject({
+            phase: 'closed',
+            closedReason: 'cancelled',
+        });
+    });
+
     it('cancel that loses the race to an agent (409 conversation_not_queued) shows the chat the server has', async () => {
         const backend = useBackend();
         const h = createHarness({ backend });
