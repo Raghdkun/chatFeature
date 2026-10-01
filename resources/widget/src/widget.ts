@@ -516,19 +516,18 @@ export class Widget {
         }
     }
 
+    /** Stores `{token, expiresAt}`; anything else (including `null`) clears the stored session. */
     private persistSession(p: Dict): void {
         if (
             typeof p.token === 'string' &&
             p.token !== '' &&
-            p.token.length <= 1024
+            p.token.length <= 1024 &&
+            typeof p.expiresAt === 'string' &&
+            !Number.isNaN(Date.parse(p.expiresAt))
         ) {
             this.local.set(
                 this.sessionKey,
-                JSON.stringify({
-                    token: p.token,
-                    expiresAt:
-                        typeof p.expiresAt === 'string' ? p.expiresAt : '',
-                }),
+                JSON.stringify({ token: p.token, expiresAt: p.expiresAt }),
             );
         } else {
             this.local.remove(this.sessionKey);

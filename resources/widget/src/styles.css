@@ -39,7 +39,9 @@ svg {
 
 /* ---------------------------------------------------------------- dock */
 
+/* Physical corner placement: the dock lays out left-to-right whatever the text direction is. */
 .dock {
+    direction: ltr;
     position: fixed;
     inset-block-end: calc(var(--oy) + env(safe-area-inset-bottom, 0px));
     display: flex;
@@ -70,6 +72,10 @@ svg {
     perspective: 700px;
     touch-action: manipulation;
     transition: transform 160ms var(--ease);
+}
+
+[dir='rtl'] :is(.launcher, .greet) {
+    direction: rtl;
 }
 
 .launcher:active {
@@ -126,6 +132,10 @@ svg {
     -webkit-backface-visibility: hidden;
 }
 
+.launcher[data-style='pill'] {
+    max-inline-size: calc(100vw - 2 * var(--ox));
+}
+
 .launcher[data-style='pill'] .face {
     padding-inline: calc(var(--size) * 0.32);
 }
@@ -175,6 +185,8 @@ svg {
 .lbl {
     font: 600 15px/1 var(--font);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .av {
