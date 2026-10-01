@@ -338,4 +338,28 @@ class WidgetDeliveryTest extends TestCase
 
         return [];
     }
+
+    public function test_the_script_is_not_served_to_a_website_that_is_not_on_the_domain_list(): void
+    {
+        $widget = Widget::factory()->enabled()->withDomains(['customer.example'])->create();
+        $url = '/w/'.$widget->public_key.'.js';
+
+        $listed = $this->withHeaders(['Referer' => 'https://customer.example/pricing'])->get($url);
+        $listed->assertOk();
+        $this->assertStringContainsString('__PNE_CHAT_BOOT__', $listed->getContent());
+        $this->assertStringContainsString('Referer', (string) $listed->headers->get('Vary'));
+
+        $blocked = $this->withHeaders(['Referer' => 'https://evil.example/copy-of-our-site'])->get($url);
+        $blocked->assertStatus(403);
+        $this->assertStringNotContainsString('__PNE_CHAT_BOOT__', $blocked->getContent());
+        $this->assertStringNotContainsString($widget->public_key, $blocked->getContent());
+        $this->assertStringContainsString('no-store', (string) $blocked->headers->get('Cache-Control'));
+
+        // Look-alikes and userinfo tricks are not the listed site.
+        $this->withHeaders(['Referer' => 'https://customer.example.evil.net/'])->get($url)->assertStatus(403);
+        $this->withHeaders(['Referer' => 'https://customer.example@evil.example/'])->get($url)->assertOk();
+
+        // No Referer (privacy settings): it cannot be judged, so it is served like before.
+        $this->get($url)->assertOk();
+    }
 }

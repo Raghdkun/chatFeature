@@ -155,9 +155,21 @@ test.describe('origin whitelist', () => {
                 attrs: { greetings: 'off' },
             }),
         );
-        await expect(widget(page).launcher).toBeVisible();
-        await widget(page).launcher.click();
-        await expect(widget(page).iframe).toHaveCount(1);
+        // The script endpoint refuses an unlisted embedding site (Referer): no bubble, no boot config, no greeting.
+        await expect(widget(page).launcher).toHaveCount(0);
+        expect(
+            await page.evaluate(
+                () => '__PNE_CHAT_BOOT__' in (window as object),
+            ),
+        ).toBe(false);
+
+        // A hand-made iframe of the panel page is still refused by the browser (frame-ancestors).
+        await page.evaluate((src) => {
+            const frame = document.createElement('iframe');
+
+            frame.src = src;
+            document.body.appendChild(frame);
+        }, `${instance.url}/embed/${key}`);
         await expect
             .poll(
                 () =>
@@ -178,14 +190,7 @@ test.describe('origin whitelist', () => {
                     (frame) => frame.url() === `${instance.url}/embed/${key}`,
                 ),
         ).toBe(false);
-
-        // Known behaviour, not a guarantee: `/w/<key>.js` carries the boot config, so the bubble itself still shows on an
-        // unlisted site (only the generic loader asks the config endpoint, which refuses).
-        test.info().annotations.push({
-            type: 'known',
-            description:
-                'On an unlisted origin the inlined /w/<key>.js still mounts the bubble (and greeting); the chat iframe and every API call are refused.',
-        });
+    });
     });
 
     test('wildcards: every sub-origin of *.example.localhost is welcome, the bare name is not', async ({
