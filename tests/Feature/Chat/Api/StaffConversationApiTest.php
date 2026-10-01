@@ -3,6 +3,7 @@
 namespace Tests\Feature\Chat\Api;
 
 use App\Domain\Chat\Queries\ConversationListQuery;
+use App\Domain\Chat\Queries\ConversationSearch;
 use App\Models\Category;
 use App\Models\Conversation;
 use App\Models\ConversationOffer;
@@ -259,12 +260,12 @@ class StaffConversationApiTest extends TestCase
 
     public function test_the_boolean_expression_keeps_only_words_the_index_can_hold(): void
     {
-        $this->assertSame('+refund* +invoice*', ConversationListQuery::booleanExpression('refund, invoice!'));
-        $this->assertSame('+hello* +wörld*', ConversationListQuery::booleanExpression('+-hello* ("wörld") ~<>'));
-        $this->assertSame('+abc*', ConversationListQuery::booleanExpression('a b abc'));
-        $this->assertNull(ConversationListQuery::booleanExpression('a bc'));
-        $this->assertNull(ConversationListQuery::booleanExpression('   '));
-        $this->assertCount(8, explode(' ', (string) ConversationListQuery::booleanExpression('one two three four five six seven eight nine ten')));
+        $this->assertSame('+refund* +invoice*', ConversationSearch::booleanExpression('refund, invoice!'));
+        $this->assertSame('+hello* +wörld*', ConversationSearch::booleanExpression('+-hello* ("wörld") ~<>'));
+        $this->assertSame('+abc*', ConversationSearch::booleanExpression('a b abc'));
+        $this->assertNull(ConversationSearch::booleanExpression('a bc'));
+        $this->assertNull(ConversationSearch::booleanExpression('   '));
+        $this->assertCount(8, explode(' ', (string) ConversationSearch::booleanExpression('one two three four five six seven eight nine ten')));
     }
 
     public function test_the_list_pages_with_an_opaque_cursor_newest_first(): void
