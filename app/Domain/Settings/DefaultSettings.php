@@ -25,6 +25,15 @@ final class DefaultSettings
             new SettingDefinition('auth.allow_registration', SettingGroup::Auth, SettingType::Bool, false, ['boolean']),
             new SettingDefinition('chat.default_idle_timeout_minutes', SettingGroup::Chat, SettingType::Int, 120, ['integer', 'min:5', 'max:10080']),
 
+            // Live chat (P4). Bytes / pixels are limits for visitor and agent image uploads; the wave delay is how long online agents
+            // are offered a chat before away agents are (docs/realtime.md).
+            new SettingDefinition('chat.rating_window_minutes', SettingGroup::Chat, SettingType::Int, 10, ['integer', 'min:1', 'max:1440']),
+            new SettingDefinition('chat.attachment_max_bytes', SettingGroup::Chat, SettingType::Int, 5 * 1024 * 1024, ['integer', 'min:10240', 'max:26214400']),
+            new SettingDefinition('chat.attachment_max_dimension', SettingGroup::Chat, SettingType::Int, 4096, ['integer', 'min:256', 'max:8192']),
+            new SettingDefinition('chat.visitor_session_ttl_days', SettingGroup::Chat, SettingType::Int, 30, ['integer', 'min:1', 'max:365']),
+            new SettingDefinition('chat.offer_wave_delay_seconds', SettingGroup::Chat, SettingType::Int, 20, ['integer', 'min:0', 'max:300']),
+            new SettingDefinition('chat.max_message_length', SettingGroup::Chat, SettingType::Int, 4000, ['integer', 'min:100', 'max:20000']),
+
             // Auth mode 2 (pizzasys). The portal's service/NATS secrets are NOT settings: they live encrypted in `auth_environments`.
             new SettingDefinition('auth.pizzasys.active_env', SettingGroup::Auth, SettingType::String, 'production', ['required', 'string', Rule::in(['production', 'testing'])]),
             new SettingDefinition('auth.pizzasys.admin_permission', SettingGroup::Auth, SettingType::String, 'chat.admin', ['required', 'string', 'max:128']),
