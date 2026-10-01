@@ -8,11 +8,13 @@ use App\Domain\Chat\Events\MessageCreated;
 use App\Domain\Chat\Events\MessagesSeen;
 use App\Domain\Chat\Events\UnseenCountChanged;
 use App\Domain\Chat\Realtime\Broadcasts\TypingBroadcast;
+use App\Domain\Chat\Services\MessageText;
 use App\Domain\Visitors\IssuedVisitorToken;
 use App\Models\Attachment;
 use App\Models\Category;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\Setting;
 use App\Models\User;
 use App\Models\Widget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -175,6 +177,21 @@ class PublicMessagesApiTest extends TestCase
         $this->send(['body' => "Hi\x00 <b>there</b>\u{202E}!"])->assertCreated()->assertJsonPath('data.body', 'Hi <b>there</b>!');
         $this->send(['body' => str_repeat('x', 100)])->assertCreated();
         $this->assertSame(2, Message::query()->count());
+    }
+
+    public function test_a_stored_length_above_the_hard_limit_is_clamped(): void
+    {
+        // A value an older version stored (the setting is validated up to 16 000 now): the 4-byte-character worst case must still fit
+        // the TEXT column, so the request limit never exceeds MessageText::HARD_MAX_LENGTH.
+        settings()->set('chat.max_message_length', 5000);
+        Setting::query()->where('key', 'chat.max_message_length')->update(['value' => json_encode(20000)]);
+        settings()->forget();
+        $this->assertSame(20000, settings()->int('chat.max_message_length'));
+        $this->assertSame(MessageText::HARD_MAX_LENGTH, MessageText::maxLength());
+
+        $this->send(['body' => str_repeat('x', MessageText::HARD_MAX_LENGTH + 1)])->assertStatus(422)->assertJsonStructure(['error' => ['details' => ['body']]]);
+        $this->send(['body' => str_repeat('😀', MessageText::HARD_MAX_LENGTH)])->assertCreated();
+        $this->assertSame(MessageText::HARD_MAX_LENGTH, mb_strlen((string) Message::query()->latest('id')->value('body')));
     }
 
     public function test_an_image_message_references_uploaded_attachments_once(): void

@@ -24,7 +24,7 @@ use Throwable;
  * conversation and is referenced by the next message (`SendMessage`); uploads nobody references are pruned after a day.
  *
  * Visitors need the widget's `attachments` feature; at most `MAX_PENDING` uploads may wait unused per conversation, and one
- * conversation may hold `chat.attachment_max_total_bytes` of images in all (`422 attachment_quota_exceeded`, `details.file`).
+ * conversation may hold the `chat.attachment_max_total_bytes` setting of images in all (`422 attachment_quota_exceeded`, `details.file`).
  */
 final class UploadAttachment
 {
@@ -102,7 +102,7 @@ final class UploadAttachment
      */
     private function assertWithinQuota(Conversation $conversation, int $incomingBytes): void
     {
-        $quota = (int) config('chat.attachment_max_total_bytes', 30 * 1024 * 1024);
+        $quota = settings()->int('chat.attachment_max_total_bytes', 30 * 1024 * 1024);
 
         if ($quota < 1) {
             return;

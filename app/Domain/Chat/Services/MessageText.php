@@ -9,6 +9,18 @@ namespace App\Domain\Chat\Services;
  */
 final class MessageText
 {
+    /**
+     * The most characters a message body may ever have, whatever the setting says: `messages.body` is a TEXT column (65,535 bytes)
+     * and one character can take 4 bytes, so anything above this could fail on insert instead of validating.
+     */
+    public const HARD_MAX_LENGTH = 16000;
+
+    /** The effective limit: `chat.max_message_length` (default 4000), kept between 100 and `HARD_MAX_LENGTH`. */
+    public static function maxLength(): int
+    {
+        return min(self::HARD_MAX_LENGTH, max(100, settings()->int('chat.max_message_length', 4000)));
+    }
+
     public static function clean(?string $text): ?string
     {
         if ($text === null) {

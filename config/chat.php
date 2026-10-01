@@ -91,9 +91,6 @@ return [
     'cancel_cooldown_seconds' => 10,
     'max_queued_per_network' => 3,
 
-    /* Image bytes one conversation may hold in total (visitor and agent uploads together); the next upload is a 422 `attachment_quota_exceeded`. */
-    'attachment_max_total_bytes' => (int) env('CHAT_ATTACHMENT_MAX_TOTAL_BYTES', 30 * 1024 * 1024),
-
     /* Disk that holds chat attachments (re-encoded images, random paths). Private: files are only served through signed URLs. */
     'attachments_disk' => env('CHAT_ATTACHMENTS_DISK', 'local'),
 

@@ -11,6 +11,7 @@ use App\Models\Conversation;
 use App\Models\User;
 use App\Models\Widget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Tests\Support\ChatFixtures;
@@ -164,28 +165,50 @@ class ChatAbuseLimitsApiTest extends TestCase
         $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.50'])->withToken($this->visitorSession($this->widget)->plaintext)->getJson('/api/v1/public/conversation')->assertOk();
     }
 
+    /** A noisy (so poorly compressible) PNG of about 7.5 KB. */
+    private function noisyPng(): UploadedFile
+    {
+        $image = imagecreatetruecolor(50, 50);
+
+        for ($x = 0; $x < 50; $x++) {
+            for ($y = 0; $y < 50; $y++) {
+                imagesetpixel($image, $x, $y, random_int(0, 0xFFFFFF));
+            }
+        }
+
+        ob_start();
+        imagepng($image, null, 0);
+
+        return UploadedFile::fake()->createWithContent('noise.png', (string) ob_get_clean());
+    }
+
     public function test_one_conversation_can_only_hold_so_many_attachment_bytes(): void
     {
         Storage::fake('local');
+        settings()->set('chat.attachment_max_total_bytes', 10240);
         $token = $this->visitorSession($this->widget);
         $chat = $this->activeChat($token, $this->billing, User::factory()->agent()->create());
-        $upload = fn () => $this->withToken($token->plaintext)->post("/api/v1/public/conversations/{$chat->ulid}/attachments", ['file' => $this->pngUpload('a.png', 30, 30)], ['Accept' => 'application/json']);
+        $upload = fn () => $this->withToken($token->plaintext)->post("/api/v1/public/conversations/{$chat->ulid}/attachments", ['file' => $this->noisyPng()], ['Accept' => 'application/json']);
 
-        $first = $upload()->assertCreated();
-        $size = (int) $first->json('data.size');
-        config(['chat.attachment_max_total_bytes' => $size * 2 + 1]);
+        $size = (int) $upload()->assertCreated()->json('data.size');
+        $this->assertBetween(5000, 10240, $size);
 
-        $upload()->assertCreated();
         $upload()->assertStatus(422)
             ->assertJsonPath('error.code', 'attachment_quota_exceeded')
             ->assertJsonStructure(['error' => ['details' => ['file']]]);
 
-        $this->assertSame(2, Attachment::query()->where('conversation_id', $chat->id)->count());
-        $this->assertCount(4, Storage::disk('local')->allFiles(), 'the refused upload left nothing on the disk');
+        $this->assertSame(1, Attachment::query()->where('conversation_id', $chat->id)->count());
+        $this->assertCount(2, Storage::disk('local')->allFiles(), 'the refused upload left nothing on the disk');
 
         // Another conversation has its own quota.
         $otherToken = $this->visitorSession($this->widget);
         $otherChat = $this->activeChat($otherToken, $this->billing, User::factory()->agent()->create());
-        $this->withToken($otherToken->plaintext)->post("/api/v1/public/conversations/{$otherChat->ulid}/attachments", ['file' => $this->pngUpload('a.png', 30, 30)], ['Accept' => 'application/json'])->assertCreated();
+        $this->withToken($otherToken->plaintext)->post("/api/v1/public/conversations/{$otherChat->ulid}/attachments", ['file' => $this->noisyPng()], ['Accept' => 'application/json'])->assertCreated();
+    }
+
+    private function assertBetween(int $min, int $max, int $value): void
+    {
+        $this->assertGreaterThanOrEqual($min, $value);
+        $this->assertLessThanOrEqual($max, $value);
     }
 }

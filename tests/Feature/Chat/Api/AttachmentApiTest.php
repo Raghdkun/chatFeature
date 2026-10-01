@@ -130,9 +130,26 @@ class AttachmentApiTest extends TestCase
         $this->get($first['url'].'&thumb=1')->assertForbidden();
         $this->get($first['thumbUrl'])->assertOk();
 
-        // The signature is short-lived.
-        $this->travel(31)->minutes();
+        // The signature is limited in time (4 hours unless the setting says otherwise).
+        $this->travel(239)->minutes();
+        $this->get($first['url'])->assertOk();
+        $this->travel(2)->minutes();
         $this->get($first['url'])->assertForbidden();
+    }
+
+    public function test_urls_in_messages_point_at_the_configured_origin_even_with_a_forged_host_header(): void
+    {
+        $data = $this->upload($this->pngUpload())->assertCreated()->json('data');
+        $chat = $this->chat;
+        settings()->set('app.url', 'https://chat.example.com');
+
+        $response = $this->withServerVariables(['HTTP_HOST' => 'evil.test'])->withToken($this->token->plaintext)
+            ->postJson("/api/v1/public/conversations/{$chat->ulid}/messages", ['body' => 'see', 'attachments' => [$data['ulid']]])
+            ->assertCreated();
+
+        $this->assertStringStartsWith('https://chat.example.com/api/v1/public/attachments/'.$data['ulid'], $response->json('data.attachments.0.url'));
+        $this->assertStringNotContainsString('evil.test', (string) $response->getContent());
+        $this->get($response->json('data.attachments.0.url'))->assertOk();
     }
 
     public function test_a_valid_signature_for_a_missing_file_is_not_found(): void

@@ -25,14 +25,17 @@ final class DefaultSettings
             new SettingDefinition('auth.allow_registration', SettingGroup::Auth, SettingType::Bool, false, ['boolean']),
             new SettingDefinition('chat.default_idle_timeout_minutes', SettingGroup::Chat, SettingType::Int, 120, ['integer', 'min:5', 'max:10080']),
 
-            // Live chat (P4). Bytes / pixels are limits for visitor and agent image uploads; the wave delay is how long online agents
-            // are offered a chat before away agents are (docs/realtime.md).
+            // Live chat (P4). Bytes / pixels are limits for visitor and agent image uploads (the total is per conversation); the wave delay is
+            // how long online agents are offered a chat before away agents are (docs/realtime.md). The message length stops at 16000
+            // characters: `messages.body` is a TEXT column (65,535 bytes) and one character can take 4 bytes.
             new SettingDefinition('chat.rating_window_minutes', SettingGroup::Chat, SettingType::Int, 10, ['integer', 'min:1', 'max:1440']),
             new SettingDefinition('chat.attachment_max_bytes', SettingGroup::Chat, SettingType::Int, 5 * 1024 * 1024, ['integer', 'min:10240', 'max:26214400']),
             new SettingDefinition('chat.attachment_max_dimension', SettingGroup::Chat, SettingType::Int, 4096, ['integer', 'min:256', 'max:8192']),
             new SettingDefinition('chat.visitor_session_ttl_days', SettingGroup::Chat, SettingType::Int, 30, ['integer', 'min:1', 'max:365']),
             new SettingDefinition('chat.offer_wave_delay_seconds', SettingGroup::Chat, SettingType::Int, 20, ['integer', 'min:0', 'max:300']),
-            new SettingDefinition('chat.max_message_length', SettingGroup::Chat, SettingType::Int, 4000, ['integer', 'min:100', 'max:20000']),
+            new SettingDefinition('chat.max_message_length', SettingGroup::Chat, SettingType::Int, 4000, ['integer', 'min:100', 'max:16000']),
+            new SettingDefinition('chat.attachment_max_total_bytes', SettingGroup::Chat, SettingType::Int, 30 * 1024 * 1024, ['integer', 'min:10240', 'max:524288000']),
+            new SettingDefinition('chat.attachment_url_ttl_minutes', SettingGroup::Chat, SettingType::Int, 240, ['integer', 'min:5', 'max:1440']),
 
             // Auth mode 2 (pizzasys). The portal's service/NATS secrets are NOT settings: they live encrypted in `auth_environments`.
             new SettingDefinition('auth.pizzasys.active_env', SettingGroup::Auth, SettingType::String, 'production', ['required', 'string', Rule::in(['production', 'testing'])]),
