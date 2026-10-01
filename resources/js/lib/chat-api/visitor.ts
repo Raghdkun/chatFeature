@@ -28,7 +28,8 @@ export type SessionResponse = {
     visitorToken: string;
     expiresAt: string;
     conversation: ConversationPublic | null;
-    ws: WsConfig;
+    /** `null` when Reverb is not configured on the server: the panel then stays on REST polling. */
+    ws: WsConfig | null;
 };
 
 export type VisitorFields = {
@@ -433,12 +434,21 @@ export function createVisitorApi(options: VisitorApiOptions) {
         return value as unknown as MessageData;
     }
 
+    function asWs(value: unknown): WsConfig | null {
+        return isRecord(value) &&
+            typeof value.key === 'string' &&
+            typeof value.host === 'string' &&
+            typeof value.port === 'number' &&
+            typeof value.scheme === 'string'
+            ? (value as unknown as WsConfig)
+            : null;
+    }
+
     function asSession(value: unknown, status: number): SessionResponse {
         if (
             !isRecord(value) ||
             typeof value.visitorToken !== 'string' ||
-            typeof value.expiresAt !== 'string' ||
-            !isRecord(value.ws)
+            typeof value.expiresAt !== 'string'
         ) {
             throw invalid(status);
         }
@@ -447,7 +457,7 @@ export function createVisitorApi(options: VisitorApiOptions) {
             visitorToken: value.visitorToken,
             expiresAt: value.expiresAt,
             conversation: asConversation(value.conversation),
-            ws: value.ws as unknown as WsConfig,
+            ws: asWs(value.ws),
         };
     }
 

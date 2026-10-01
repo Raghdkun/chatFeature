@@ -38,24 +38,36 @@ function sameRun(a: LocalMessage, b: LocalMessage): boolean {
     );
 }
 
+/** The last message item so far ends its run (a separator, a system line, another sender or the end of the list follows). */
+function closeRun(items: ListItem[]): void {
+    const last = items.at(-1);
+
+    if (last?.kind === 'message') {
+        last.groupEnd = true;
+    }
+}
+
 export function layoutMessages(messages: readonly LocalMessage[]): ListItem[] {
     const items: ListItem[] = [];
     let previous: LocalMessage | null = null;
+    let lastDay: string | null = null;
 
     for (const message of messages) {
-        if (
-            previous === null ||
-            dayKey(previous.createdAt) !== dayKey(message.createdAt)
-        ) {
+        const day = dayKey(message.createdAt);
+
+        if (day !== lastDay) {
+            closeRun(items);
             items.push({
                 kind: 'separator',
-                key: `day-${dayKey(message.createdAt)}-${messageKey(message)}`,
+                key: `day-${day}-${messageKey(message)}`,
                 at: message.createdAt,
             });
+            lastDay = day;
             previous = null;
         }
 
         if (message.type === 'system' || message.sender.type === 'system') {
+            closeRun(items);
             items.push({
                 kind: 'system',
                 key: messageKey(message),
@@ -69,11 +81,7 @@ export function layoutMessages(messages: readonly LocalMessage[]): ListItem[] {
         const groupStart = previous === null || !sameRun(previous, message);
 
         if (groupStart) {
-            const last = items.at(-1);
-
-            if (last?.kind === 'message') {
-                last.groupEnd = true;
-            }
+            closeRun(items);
         }
 
         items.push({
@@ -86,11 +94,7 @@ export function layoutMessages(messages: readonly LocalMessage[]): ListItem[] {
         previous = message;
     }
 
-    const last = items.at(-1);
-
-    if (last?.kind === 'message') {
-        last.groupEnd = true;
-    }
+    closeRun(items);
 
     return items;
 }

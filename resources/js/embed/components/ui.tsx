@@ -81,7 +81,8 @@ export function Field({ label, optionalLabel, error, children }: FieldProps) {
             <label htmlFor={id} className="text-[13px] font-semibold">
                 {label}
                 {optionalLabel ? (
-                    <span className="text-subtle ms-1 font-normal">
+                    <span className="text-subtle font-normal">
+                        {' '}
                         {optionalLabel}
                     </span>
                 ) : null}

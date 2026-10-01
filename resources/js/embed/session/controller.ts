@@ -97,6 +97,8 @@ export type ControllerDeps = {
     /** The builder preview: no visitor API calls, ever (the injected demo API answers instead). */
     preview?: boolean;
     loadBuiltin?: (locale: string) => Promise<Messages>;
+    /** The boot object handed to `handleInit` is itself the fresh public config (a standalone page just fetched it). */
+    bootIsFresh?: boolean;
     /** How long boot waits for the fresh public config before rendering from the host's copy (ms, default 2500). */
     configTimeoutMs?: number;
     /** Watchdog / polling interval in milliseconds (default 10 000). */
@@ -451,7 +453,9 @@ export class ChatController {
 
         await Promise.all([
             this.ensureBuiltin(),
-            preview ? Promise.resolve() : this.loadFresh(),
+            preview || this.deps.bootIsFresh === true
+                ? Promise.resolve()
+                : this.loadFresh(),
         ]);
 
         if (this.disposed) {
@@ -746,7 +750,7 @@ export class ChatController {
 
                 this.token = session.visitorToken;
                 this.ws = session.ws;
-                this.deps.persistSession({
+                this.persist({
                     token: session.visitorToken,
                     expiresAt: session.expiresAt,
                 });
@@ -795,6 +799,13 @@ export class ChatController {
         return this.api;
     }
 
+    /** The loader (or the page's own storage) keeps the token; never in the preview, where the session is a demo. */
+    private persist(session: StoredSession | null): void {
+        if (this.deps.preview !== true) {
+            this.deps.persistSession(session);
+        }
+    }
+
     /** Forgets the token, the socket config and (optionally) tells the host to forget its stored copy. */
     private clearSession(tellHost = true): void {
         this.closeRealtime();
@@ -803,7 +814,7 @@ export class ChatController {
         this.sessionPromise = null;
 
         if (tellHost) {
-            this.deps.persistSession(null);
+            this.persist(null);
         }
     }
 

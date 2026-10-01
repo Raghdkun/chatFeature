@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+    Suspense,
+    useEffect,
+    useRef,
+    useState,
+    type CSSProperties,
+} from 'react';
 import {
     ControllerContext,
     EnvContext,
@@ -10,12 +16,16 @@ import {
 } from '@/embed/components/context';
 import { Footer } from '@/embed/components/footer';
 import { Header } from '@/embed/components/header';
-import { EndChatDialog, Lightbox } from '@/embed/components/overlays';
+import {
+    ChatScreen,
+    EndChatDialog,
+    Lightbox,
+    OfflineScreen,
+    preloadHeavy,
+} from '@/embed/components/lazy';
 import { BootScreen } from '@/embed/components/screens/boot-screen';
 import { CategoryScreen } from '@/embed/components/screens/category-screen';
-import { ChatScreen } from '@/embed/components/screens/chat-screen';
 import { ClosedScreen } from '@/embed/components/screens/closed-screen';
-import { OfflineScreen } from '@/embed/components/screens/offline-screen';
 import { PrechatScreen } from '@/embed/components/screens/prechat-screen';
 import { QueuedScreen } from '@/embed/components/screens/queued-screen';
 import { WelcomeScreen } from '@/embed/components/screens/welcome-screen';
@@ -75,6 +85,13 @@ function Panel() {
 
     useFontLink(config?.theme.fontUrl ?? null);
     useScreenFocus(root, state.phase, state.open);
+
+    useEffect(() => {
+        // The first screen has painted: fetch the conversation / offline / overlay chunks in the background.
+        const timer = setTimeout(() => void preloadHeavy(), 150);
+
+        return () => clearTimeout(timer);
+    }, []);
 
     useEffect(() => {
         if (config === null) {
@@ -137,21 +154,25 @@ function Panel() {
                         data-state={state.phase}
                         className="flex min-h-0 flex-1 flex-col"
                     >
-                        <Screen key={state.phase} phase={state.phase} />
+                        <Suspense fallback={<BootScreen />}>
+                            <Screen key={state.phase} phase={state.phase} />
+                        </Suspense>
                     </main>
                     <Footer />
                 </div>
-                {overlay?.type === 'image' ? (
-                    <Lightbox url={overlay.url} alt={overlay.alt} />
-                ) : null}
-                {overlay?.type === 'end' ? (
-                    <EndChatDialog
-                        onConfirm={() => {
-                            setOverlay(null);
-                            void controller.endChat();
-                        }}
-                    />
-                ) : null}
+                <Suspense fallback={null}>
+                    {overlay?.type === 'image' ? (
+                        <Lightbox url={overlay.url} alt={overlay.alt} />
+                    ) : null}
+                    {overlay?.type === 'end' ? (
+                        <EndChatDialog
+                            onConfirm={() => {
+                                setOverlay(null);
+                                void controller.endChat();
+                            }}
+                        />
+                    ) : null}
+                </Suspense>
             </div>
         </OverlayContext.Provider>
     );

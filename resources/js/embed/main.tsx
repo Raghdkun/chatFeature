@@ -75,6 +75,8 @@ async function start(boot: EmbedBoot, container: HTMLElement): Promise<void> {
         createApi: demo ? () => demo.api : undefined,
         sound: { ping: sound.ping },
         preview: boot.preview,
+        // Standalone: the page fetches the public config itself, so that copy is already the fresh one.
+        bootIsFresh: !withHost,
     };
     const controller = new ChatController(deps);
 

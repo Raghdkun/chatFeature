@@ -286,7 +286,8 @@ function sanitizePreChat(raw: unknown): PanelConfig['preChat'] {
 
         out[name] = {
             enabled,
-            required: enabled && bool(field.required, false),
+            required:
+                enabled && bool(field.required, DEFAULT_PRECHAT[name].required),
         };
     }
 

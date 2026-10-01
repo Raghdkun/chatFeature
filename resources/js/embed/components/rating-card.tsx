@@ -17,12 +17,19 @@ export function RatingCard() {
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
         const forward = rtl ? 'ArrowLeft' : 'ArrowRight';
         const backward = rtl ? 'ArrowRight' : 'ArrowLeft';
-        let next = score;
+        // Arrows move from the star that has focus (not from the chosen score: nothing may be chosen yet) and choose the one they land on.
+        const focused = Number(
+            (event.target as HTMLElement)
+                .closest('[data-star]')
+                ?.getAttribute('data-star'),
+        );
+        const current = focused || score || 1;
+        let next: number;
 
         if (event.key === forward || event.key === 'ArrowUp') {
-            next = Math.min(5, Math.max(1, score + 1));
+            next = Math.min(5, current + 1);
         } else if (event.key === backward || event.key === 'ArrowDown') {
-            next = Math.max(1, score - 1 || 1);
+            next = Math.max(1, current - 1);
         } else {
             return;
         }

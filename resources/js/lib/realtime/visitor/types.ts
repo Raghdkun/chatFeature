@@ -19,8 +19,13 @@ export interface ConversationSocket {
     whisper(event: string, payload: Record<string, unknown>): void;
     onStatus(handler: (status: SocketStatus) => void): () => void;
     status(): SocketStatus;
-    /** Called once when the broadcasting auth endpoint refuses the visitor (`401` / `403`): the session is gone. */
-    onAuthError(handler: (status: number) => void): void;
+    /** The channel subscription succeeded (on the first connect and again after every reconnect). */
+    onSubscribed(handler: () => void): void;
+    /**
+     * The channel subscription failed: the broadcasting auth endpoint answered `status` (`401` / `403` mean the session is gone,
+     * `503 realtime_unavailable` or anything else means this socket will not deliver events).
+     */
+    onSubscriptionError(handler: (status: number) => void): void;
     close(): void;
 }
 

@@ -18,7 +18,11 @@ export function useScreenFocus(
         const frame = requestAnimationFrame(() => {
             const container = root.current;
 
-            if (container === null) {
+            // A dialog (lightbox, end-chat confirmation) that opened meanwhile owns the focus.
+            if (
+                container === null ||
+                container.querySelector('[aria-modal="true"]') !== null
+            ) {
                 return;
             }
 

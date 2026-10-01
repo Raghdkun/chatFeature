@@ -82,6 +82,9 @@ function asMessage(payload: unknown): MessageData | null {
         : null;
 }
 
+/** The server's REST-typing fallback is broadcast as `typing` (docs/contracts/realtime-events.md, 4B); the whisper is `client-typing`. */
+const TYPING_FALLBACK = 'typing';
+
 const SENDERS: readonly string[] = ['visitor', 'agent', 'system'];
 const ENDERS: readonly string[] = ['visitor', 'agent', 'admin', 'system'];
 const REASONS: readonly string[] = [
@@ -93,17 +96,6 @@ const REASONS: readonly string[] = [
     'cancelled',
 ];
 
-function mapStatus(status: SocketStatus, everUp: boolean): RealtimeStatus {
-    switch (status) {
-        case 'connected':
-            return 'online';
-        case 'connecting':
-            return everUp ? 'reconnecting' : 'connecting';
-        default:
-            return 'reconnecting';
-    }
-}
-
 export async function openConversationRealtime(
     options: RealtimeOptions,
 ): Promise<ConversationRealtime> {
@@ -114,22 +106,52 @@ export async function openConversationRealtime(
     let closed = false;
     let everUp = false;
     let up = false;
+    let connected = false;
+    let subscribed = false;
+    let degraded = false;
+    let reported: RealtimeStatus | null = null;
     let attempts = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const report = (status: SocketStatus): void => {
+    /**
+     * "Up" means the websocket is connected AND the channel subscription went through: a socket whose subscription was refused
+     * (`503 realtime_unavailable`) is connected but delivers nothing, so it counts as down and the polling fallback covers it.
+     */
+    const refresh = (): void => {
         if (closed) {
             return;
         }
 
-        const wasUp = up;
-        up = status === 'connected';
-        handlers.onStatus(mapStatus(status, everUp));
+        const was = up;
 
-        if (up && !wasUp) {
+        up = connected && subscribed && !degraded;
+
+        const status: RealtimeStatus = up
+            ? 'online'
+            : everUp || degraded || (!connected && reported === 'reconnecting')
+              ? 'reconnecting'
+              : 'connecting';
+
+        if (status !== reported) {
+            reported = status;
+            handlers.onStatus(status);
+        }
+
+        if (up && !was) {
             handlers.sync(everUp ? 'reconnect' : 'connect');
             everUp = true;
         }
+    };
+
+    const report = (status: SocketStatus): void => {
+        connected = status === 'connected';
+
+        if (!connected) {
+            subscribed = false;
+            degraded = false;
+        }
+
+        refresh();
     };
 
     function bind(next: ConversationSocket): void {
@@ -220,7 +242,7 @@ export async function openConversationRealtime(
             }
         });
 
-        on(CHAT_EVENT.typing, (payload) => {
+        const typing = (payload: unknown): void => {
             if (
                 isRecord(payload) &&
                 payload.actor === 'agent' &&
@@ -228,9 +250,27 @@ export async function openConversationRealtime(
             ) {
                 handlers.onTyping({ actor: 'agent', typing: payload.typing });
             }
-        });
+        };
 
-        next.onAuthError(() => handlers.onAuthFailure());
+        on(CHAT_EVENT.typing, typing);
+        next.listen(`.${TYPING_FALLBACK}`, typing);
+
+        next.onSubscribed(() => {
+            subscribed = true;
+            degraded = false;
+            refresh();
+        });
+        next.onSubscriptionError((status) => {
+            if (status === 401 || status === 403) {
+                handlers.onAuthFailure();
+
+                return;
+            }
+
+            degraded = true;
+            subscribed = false;
+            refresh();
+        });
         next.onStatus(report);
         report(next.status());
     }
@@ -252,6 +292,7 @@ export async function openConversationRealtime(
             socket = next;
             bind(next);
         } catch {
+            reported = 'reconnecting';
             handlers.onStatus('reconnecting');
 
             if (attempts++ < 5) {
@@ -280,6 +321,7 @@ export async function openConversationRealtime(
     doc.addEventListener('visibilitychange', onVisible);
     win.addEventListener('online', onOnline);
 
+    reported = 'connecting';
     handlers.onStatus('connecting');
     await open();
 

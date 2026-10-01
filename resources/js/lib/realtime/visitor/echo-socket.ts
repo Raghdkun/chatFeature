@@ -55,17 +55,17 @@ export const createEchoSocket: SocketFactory = async (input) => {
     });
     const name = channels.conversation(input.conversation);
     const channel = echo.private(name);
-    let authError: ((status: number) => void) | null = null;
+    let failed: ((status: number) => void) | null = null;
+    let subscribed: (() => void) | null = null;
 
+    channel.subscribed(() => subscribed?.());
     channel.error((error: unknown) => {
         const status =
             typeof error === 'object' && error !== null && 'status' in error
                 ? Number((error as { status: unknown }).status)
                 : 0;
 
-        if (status === 401 || status === 403) {
-            authError?.(status);
-        }
+        failed?.(status);
     });
 
     const socket: ConversationSocket = {
@@ -83,8 +83,11 @@ export const createEchoSocket: SocketFactory = async (input) => {
         status() {
             return STATUS[echo.connectionStatus()] ?? 'connecting';
         },
-        onAuthError(handler) {
-            authError = handler;
+        onSubscribed(handler) {
+            subscribed = handler;
+        },
+        onSubscriptionError(handler) {
+            failed = handler;
         },
         close() {
             try {

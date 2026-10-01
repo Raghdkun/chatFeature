@@ -254,7 +254,10 @@ export function createDemoBackend(options: { delay?: number } = {}) {
                 return () => undefined;
             },
             status: () => 'connected',
-            onAuthError() {
+            onSubscribed(handler) {
+                handler();
+            },
+            onSubscriptionError() {
                 // never refuses
             },
             close() {
