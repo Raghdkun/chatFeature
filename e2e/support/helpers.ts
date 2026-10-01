@@ -174,3 +174,56 @@ export async function dismiss(page: Page): Promise<void> {
         page.locator('[data-slot$="-overlay"], [data-slot="popover-content"]'),
     ).toHaveCount(0);
 }
+
+/**
+ * `settle()` for every frame below the main one: the chat panel's iframe (its screens fade in), the builder preview's host page and the
+ * panel inside it, including the shadow root of the widget in each. `settle(page)` looks at the main document only, so a scan of a
+ * page with a widget in it can land in the middle of a fade that runs in a frame.
+ */
+export async function settleFrames(page: Page): Promise<void> {
+    for (const frame of page.frames()) {
+        if (frame === page.mainFrame()) {
+            continue;
+        }
+
+        // A frame that navigates or goes away while we look has nothing left to settle.
+        await frame
+            .evaluate(async () => {
+                await document.fonts.ready;
+
+                const nextFrame = () =>
+                    new Promise<void>((resolve) =>
+                        requestAnimationFrame(() => resolve()),
+                    );
+
+                for (let pass = 0; pass < 5; pass++) {
+                    await nextFrame();
+                    await nextFrame();
+
+                    const running = [
+                        ...document.getAnimations(),
+                        ...[
+                            ...document.querySelectorAll('pne-chat-widget'),
+                        ].flatMap(
+                            (host) => host.shadowRoot?.getAnimations() ?? [],
+                        ),
+                    ].filter(
+                        (animation) =>
+                            animation.effect?.getComputedTiming().iterations !==
+                            Infinity,
+                    );
+
+                    if (running.length === 0) {
+                        return;
+                    }
+
+                    await Promise.all(
+                        running.map((animation) =>
+                            animation.finished.catch(() => undefined),
+                        ),
+                    );
+                }
+            })
+            .catch(() => undefined);
+    }
+}

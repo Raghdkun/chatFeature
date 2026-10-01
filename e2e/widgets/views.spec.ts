@@ -7,6 +7,7 @@ import {
     expectNoSeriousA11yViolations,
     setTheme,
     settle,
+    settleFrames,
     type Theme,
 } from '../support/helpers';
 import { hostPage, settleWidget, widget } from '../support/host';
@@ -37,6 +38,8 @@ async function bothThemes(
 ): Promise<void> {
     for (const theme of THEMES) {
         await setTheme(page, theme);
+        // The builder's preview and the widget in it are frames of their own: their colours follow the scheme too.
+        await settleFrames(page);
         await expectNoSeriousA11yViolations(
             page,
             testInfo,
@@ -45,6 +48,36 @@ async function bothThemes(
     }
 
     await setTheme(page, 'light');
+}
+
+/**
+ * The preview's widget greets two seconds after it booted (a flip-in inside the preview's own documents, where `settle()` does not
+ * look) and withdraws the popup again later: a scan that lands in either fade measures half-transparent text. Let it greet,
+ * dismiss the popup like a visitor would (the popup itself is scanned on the host-page test below) and let everything come to rest.
+ * With `greets: false` (the phone, where the preview was hidden until now) a popup that is still up is dismissed, none is waited for.
+ */
+async function calmPreview(
+    page: Page,
+    { greets }: { greets: boolean },
+): Promise<void> {
+    await expect(page.getByTestId('builder-preview-status')).toHaveAttribute(
+        'data-loader',
+        'ready',
+    );
+    const greeting = page
+        .frameLocator('[data-testid="builder-preview-iframe"]')
+        .locator('pne-chat-widget .greet');
+
+    if (greets) {
+        await expect(greeting).toBeVisible({ timeout: 15_000 });
+    }
+
+    if (await greeting.isVisible()) {
+        await greeting.locator('.g-x').click();
+    }
+
+    await expect(greeting).toHaveCount(0);
+    await settleFrames(page);
 }
 
 async function demoWidgetUlid(api: Api): Promise<string> {
@@ -131,10 +164,16 @@ test.describe('accessibility (axe, WCAG A/AA)', () => {
         page,
         api,
     }, testInfo) => {
+        // About thirty scans (two colour schemes each): 35-45 s on a quiet machine, so the 60 s default has no room for a busy one.
+        test.slow();
         await page.goto(`/widgets/${await demoWidgetUlid(api)}`);
         await expect(page.getByTestId('builder-page')).toBeVisible();
 
         const phone = testInfo.project.name === 'mobile';
+
+        if (!phone) {
+            await calmPreview(page, { greets: true });
+        }
 
         for (const tab of TABS) {
             await openTab(page, tab);
@@ -178,6 +217,11 @@ test.describe('accessibility (axe, WCAG A/AA)', () => {
         }
 
         await expect(page.getByTestId('builder-preview')).toBeVisible();
+
+        if (phone) {
+            await calmPreview(page, { greets: false });
+        }
+
         await expect(
             page.getByTestId('builder-preview-status'),
         ).toHaveAttribute('data-loader', 'ready');
@@ -301,11 +345,14 @@ test.describe('accessibility (axe, WCAG A/AA)', () => {
         )!.public_key;
         const scoped = async (label: string) => {
             await settleWidget(page);
+            await settleFrames(page);
 
             for (const theme of THEMES) {
                 // The host page is not the app: the widget follows the page's colour-scheme preference.
                 await page.emulateMedia({ colorScheme: theme });
                 await settleWidget(page);
+                // ... and so does the chat panel in its iframe, whose screens fade in and recolour there.
+                await settleFrames(page);
 
                 const results = await new AxeBuilder({ page })
                     .include('pne-chat-widget')
@@ -351,6 +398,11 @@ test.describe('accessibility (axe, WCAG A/AA)', () => {
 
         await widget(page).launcher.click();
         await expect(widget(page).panel).toHaveAttribute('data-open', 'true');
+        // The real panel: scan it once it has painted a screen (nobody is online in this scenario, so the offline form).
+        const chat = widget(page).iframe.contentFrame();
+
+        await expect(chat.getByTestId('chat-panel')).toBeVisible();
+        await expect(chat.getByTestId('offline-form')).toBeVisible();
         await scoped('opened');
     });
 });
@@ -619,6 +671,9 @@ test.describe('right-to-left (Arabic UI)', () => {
         page,
         api,
     }, testInfo) => {
+        // Thirty scans (two colour schemes each): 30-35 s on a quiet machine, so the 60 s default has no room for a busy one.
+        test.slow();
+
         for (const path of [
             '/categories',
             '/agents',
