@@ -19,7 +19,12 @@ import WidgetBuilder from '@/pages/widgets/builder';
 import { byLabelText, byTestId, fill, mouseDown, radio } from '@/tests/dom';
 import { setViewportWidth } from '@/tests/dom-polyfills';
 import { fakeApi } from '@/tests/fake-api';
-import { makeBuilderData, makeGreeting } from '@/tests/fixtures';
+import {
+    BUILT_LOADER,
+    makeBuilderData,
+    makeGreeting,
+    STUB_LOADER,
+} from '@/tests/fixtures';
 import { resetInertiaMock } from '@/tests/inertia-mock';
 import { click, flush, render } from '@/tests/render';
 
@@ -28,6 +33,7 @@ vi.mock('@inertiajs/react', async () =>
 );
 
 const ORIGIN = window.location.origin;
+const LOADER_PATH = '/widget/v1/loader.js';
 
 const props = (
     overrides: Partial<BuilderPreviewProps> = {},
@@ -93,7 +99,7 @@ async function hostStatus(
 
 describe('approximation (no loader needed)', () => {
     it('is the default when the loader cannot be reached, and says so', async () => {
-        fakeApi({ 'HEAD /widget/v1/loader.js': { status: 404 } });
+        fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
 
         const view = await render(<BuilderPreview {...props()} />);
 
@@ -111,6 +117,33 @@ describe('approximation (no loader needed)', () => {
         ).toBe('Approximation');
     });
 
+    it('treats HTTP 200 with the "bundle not built" stub like a missing loader', async () => {
+        fakeApi({ 'GET /widget/v1/loader.js': STUB_LOADER });
+
+        const view = await render(<BuilderPreview {...props()} />);
+
+        await flush();
+
+        expect(view.byTestId('builder-preview-unavailable')).not.toBeNull();
+        expect(view.byTestId('preview-static')).not.toBeNull();
+        expect(iframeOf(view.container)).toBeNull();
+    });
+
+    it('treats an HTML error page with status 200 as unavailable too', async () => {
+        fakeApi({
+            'GET /widget/v1/loader.js': {
+                status: 200,
+                text: '<!doctype html><title>Welcome</title>',
+            },
+        });
+
+        const view = await render(<BuilderPreview {...props()} />);
+
+        await flush();
+
+        expect(view.byTestId('preview-static')).not.toBeNull();
+    });
+
     it('treats a network failure like a missing loader', async () => {
         vi.stubGlobal(
             'fetch',
@@ -126,7 +159,7 @@ describe('approximation (no loader needed)', () => {
     });
 
     it('draws launcher and greeting from the draft', async () => {
-        fakeApi({ 'HEAD /widget/v1/loader.js': { status: 404 } });
+        fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
 
         const config = defaultWidgetConfig();
 
@@ -160,7 +193,7 @@ describe('approximation (no loader needed)', () => {
     });
 
     it('puts the greeting beside a round launcher, on the side facing into the page', async () => {
-        fakeApi({ 'HEAD /widget/v1/loader.js': { status: 404 } });
+        fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
 
         const view = await render(<BuilderPreview {...props()} />);
 
@@ -174,7 +207,7 @@ describe('approximation (no loader needed)', () => {
     });
 
     it('hides the greeting when greetings are off or the pool is empty', async () => {
-        fakeApi({ 'HEAD /widget/v1/loader.js': { status: 404 } });
+        fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
 
         const off = defaultWidgetConfig();
 
@@ -196,7 +229,7 @@ describe('approximation (no loader needed)', () => {
     });
 
     it('shows only the active greeting for the language and honors "show agent"', async () => {
-        fakeApi({ 'HEAD /widget/v1/loader.js': { status: 404 } });
+        fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
 
         const config = defaultWidgetConfig();
 
@@ -238,7 +271,7 @@ describe('approximation (no loader needed)', () => {
     });
 
     it('draws the chat panel from the draft texts, categories and features', async () => {
-        fakeApi({ 'HEAD /widget/v1/loader.js': { status: 404 } });
+        fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
 
         const config = defaultWidgetConfig();
 
@@ -263,7 +296,7 @@ describe('approximation (no loader needed)', () => {
     });
 
     it('switches device, direction and scheme', async () => {
-        fakeApi({ 'HEAD /widget/v1/loader.js': { status: 404 } });
+        fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
 
         const view = await render(<BuilderPreview {...props()} />);
 
@@ -292,7 +325,7 @@ describe('approximation (no loader needed)', () => {
     });
 
     it('goes full screen on a phone when the chat panel is open', async () => {
-        fakeApi({ 'HEAD /widget/v1/loader.js': { status: 404 } });
+        fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
 
         const view = await render(<BuilderPreview {...props()} />);
 
@@ -307,7 +340,7 @@ describe('approximation (no loader needed)', () => {
     });
 
     it('follows the configured color scheme as the starting point', async () => {
-        fakeApi({ 'HEAD /widget/v1/loader.js': { status: 404 } });
+        fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
 
         const config = defaultWidgetConfig();
 
@@ -325,7 +358,7 @@ describe('approximation (no loader needed)', () => {
 
 describe('live view (real loader)', () => {
     async function liveView(overrides: Partial<BuilderPreviewProps> = {}) {
-        const api = fakeApi({ 'HEAD /widget/v1/loader.js': { status: 200 } });
+        const api = fakeApi({ 'GET /widget/v1/loader.js': BUILT_LOADER });
         const view = await render(<BuilderPreview {...props(overrides)} />);
 
         await flush();
@@ -336,9 +369,9 @@ describe('live view (real loader)', () => {
     it('becomes the default when the loader answers, and checks for it without cookies', async () => {
         const { api, view } = await liveView();
 
-        expect(api.to('HEAD', '/widget/v1/loader.js')).toHaveLength(1);
+        expect(api.to('GET', LOADER_PATH)).toHaveLength(1);
         expect(api.fetchMock.mock.calls[0][1]).toMatchObject({
-            method: 'HEAD',
+            method: 'GET',
             credentials: 'omit',
         });
         expect(iframeOf(view.container)).not.toBeNull();
@@ -414,7 +447,7 @@ describe('live view (real loader)', () => {
     it('pushes every edit (debounced) without rebuilding the frame', async () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
 
-        fakeApi({ 'HEAD /widget/v1/loader.js': { status: 200 } });
+        fakeApi({ 'GET /widget/v1/loader.js': BUILT_LOADER });
 
         const data = makeBuilderData();
         const view = await render(<WidgetBuilder {...data} />);
@@ -492,7 +525,7 @@ describe('live view (real loader)', () => {
     it('rebuilds the host when the greeting pool changes (boot-time data), after a short pause', async () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
 
-        fakeApi({ 'HEAD /widget/v1/loader.js': { status: 200 } });
+        fakeApi({ 'GET /widget/v1/loader.js': BUILT_LOADER });
 
         const view = await render(<WidgetBuilder {...makeBuilderData()} />);
 
@@ -514,6 +547,115 @@ describe('live view (real loader)', () => {
         expect(iframeOf(view.container)?.getAttribute('srcdoc')).toContain(
             'A completely new greeting',
         );
+    });
+
+    describe('removals', () => {
+        // `ChatFeature('update')` can restyle but never un-set, so an edit that removes something must reboot the host.
+        async function openWith(draft = defaultWidgetConfig()) {
+            vi.useFakeTimers({ shouldAdvanceTime: true });
+
+            fakeApi({ 'GET /widget/v1/loader.js': BUILT_LOADER });
+
+            const view = await render(
+                <WidgetBuilder
+                    {...makeBuilderData({ draft_config: draft, config: draft })}
+                />,
+            );
+
+            await flush();
+
+            return {
+                view,
+                html: () =>
+                    iframeOf(view.container)?.getAttribute('srcdoc') ?? '',
+                settle: () =>
+                    act(async () => {
+                        vi.advanceTimersByTime(1000);
+                    }),
+            };
+        }
+
+        it('reboots when a text override is cleared, but not when it is merely changed', async () => {
+            const draft = defaultWidgetConfig();
+
+            draft.texts.en.title = 'Custom help';
+
+            const { view, html, settle } = await openWith(draft);
+
+            expect(html()).toContain('Custom help');
+
+            await mouseDown(byTestId(view.container, 'builder-tab-texts'));
+            await fill(byTestId(view.container, 'builder-text-title'), 'Other');
+            await settle();
+
+            // A change is pushed live: the host document is untouched.
+            expect(html()).toContain('Custom help');
+            expect(html()).not.toContain('"title":"Other"');
+
+            await fill(byTestId(view.container, 'builder-text-title'), '');
+            await settle();
+
+            // The host was rebuilt from the draft: neither the old nor the intermediate text is left.
+            expect(html()).not.toContain('Custom help');
+            expect(html()).not.toContain('"title":"Other"');
+        });
+
+        it('reboots when an agent photo / icon / font URL is emptied', async () => {
+            const draft = defaultWidgetConfig();
+
+            draft.launcher.avatarUrl = 'https://cdn.example.com/agent.png';
+
+            const { view, html, settle } = await openWith(draft);
+
+            expect(html()).toContain('https://cdn.example.com/agent.png');
+
+            await mouseDown(byTestId(view.container, 'builder-tab-branding'));
+            await fill(
+                byLabelText(view.container, 'Default agent photo URL'),
+                '',
+            );
+            await settle();
+
+            expect(html()).not.toContain('https://cdn.example.com/agent.png');
+        });
+
+        it('reboots when a language is removed', async () => {
+            const draft = defaultWidgetConfig();
+
+            draft.texts.fr = { title: 'Aide en ligne' };
+
+            const { view, html, settle } = await openWith(draft);
+
+            expect(html()).toContain('Aide en ligne');
+
+            await mouseDown(byTestId(view.container, 'builder-tab-texts'));
+            await click(
+                view.container.querySelector<HTMLElement>(
+                    '[data-testid="builder-texts-locales"] input[value="fr"]',
+                ),
+            );
+            await click(byTestId(view.container, 'builder-texts-remove'));
+            await settle();
+
+            expect(html()).not.toContain('Aide en ligne');
+        });
+
+        it('leaves the frame alone while only adding or changing things', async () => {
+            const { view, html, settle } = await openWith();
+            const frame = iframeOf(view.container);
+            const before = html();
+
+            await mouseDown(byTestId(view.container, 'builder-tab-branding'));
+            await fill(byLabelText(view.container, 'Primary color'), '#123456');
+            await fill(
+                byLabelText(view.container, 'Default agent photo URL'),
+                'https://cdn.example.com/new.png',
+            );
+            await settle();
+
+            expect(iframeOf(view.container)).toBe(frame);
+            expect(html()).toBe(before);
+        });
     });
 
     it('reloads the frame on request', async () => {
@@ -613,7 +755,7 @@ describe('live view (real loader)', () => {
     });
 
     it('jumps to the approximation when a greeting is previewed', async () => {
-        fakeApi({ 'HEAD /widget/v1/loader.js': { status: 200 } });
+        fakeApi({ 'GET /widget/v1/loader.js': BUILT_LOADER });
 
         const view = await render(<WidgetBuilder {...makeBuilderData()} />);
 
@@ -633,7 +775,7 @@ describe('live view (real loader)', () => {
 
 describe('device frame', () => {
     it('keeps the natural viewport size and reports the scale it renders at', async () => {
-        fakeApi({ 'HEAD /widget/v1/loader.js': { status: 404 } });
+        fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
 
         const view = await render(<BuilderPreview {...props()} />);
 

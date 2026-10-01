@@ -11,6 +11,8 @@ import { vi } from 'vite-plus/test';
 export type FakeReply = {
     status?: number;
     json?: unknown;
+    /** A plain-text body (scripts, ...): wins over `json`. */
+    text?: string;
     headers?: Record<string, string>;
 };
 
@@ -37,6 +39,16 @@ function toResponse(reply: FakeReply): Response {
 
     if (status === 204) {
         return new Response(null, { status });
+    }
+
+    if (reply.text !== undefined) {
+        return new Response(reply.text, {
+            status,
+            headers: {
+                'Content-Type': 'application/javascript; charset=utf-8',
+                ...reply.headers,
+            },
+        });
     }
 
     return new Response(JSON.stringify(reply.json ?? {}), {

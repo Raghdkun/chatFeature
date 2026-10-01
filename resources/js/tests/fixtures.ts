@@ -9,6 +9,18 @@ import type {
     WidgetListItemData,
 } from '@/types/widgets';
 
+/** What `GET /widget/v1/loader.js` serves once `npm run build:widget` ran: the bundle starts with a marker line. */
+export const BUILT_LOADER = {
+    status: 200,
+    text: '// pne-chat-loader v1\n(function(){window.ChatFeature=function(){};})();',
+};
+
+/** What it serves when the bundle is missing: HTTP 200 with a console-warning stub (LoaderBundle::MISSING_NOTICE). */
+export const STUB_LOADER = {
+    status: 200,
+    text: '/* PNE Chat widget loader bundle not built: run `npm run build:widget`. */\nwindow.console&&console.warn&&console.warn("[PNE Chat] The widget loader bundle is missing. Run `npm run build:widget`.");',
+};
+
 export function makeCategory(
     overrides: Partial<CategoryData> = {},
 ): CategoryData {

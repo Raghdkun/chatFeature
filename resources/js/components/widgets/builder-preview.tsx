@@ -33,11 +33,14 @@ import {
     SwitchRow,
     type ChoiceOption,
 } from '@/components/widgets/form-bits';
+import { probeLoader } from '@/components/widgets/loader-probe';
 import { buildPreviewHostDocument } from '@/components/widgets/preview-host';
 import {
     buildCommandMessage,
     buildDraftMessage,
+    dropsOverrides,
     parseHostStatus,
+    restyleOverrides,
     withPreviewScheme,
     type HostStatus,
     type PreviewScheme,
@@ -119,27 +122,16 @@ export function BuilderPreview({
         setChosenView('static');
     }
 
+    // HTTP 200 is not enough: an unbuilt bundle is served as a console-warning stub. Only the real
+    // loader (first line `// pne-chat-loader`) turns the live view on.
     useEffect(() => {
         const controller = new AbortController();
 
-        fetch(loaderUrl(), {
-            method: 'HEAD',
-            credentials: 'omit',
-            signal: controller.signal,
-        })
-            .then((response) =>
-                setAvailability(response.ok ? 'available' : 'unavailable'),
-            )
-            .catch((error: unknown) => {
-                if (
-                    !(
-                        error instanceof DOMException &&
-                        error.name === 'AbortError'
-                    )
-                ) {
-                    setAvailability('unavailable');
-                }
-            });
+        void probeLoader(loaderUrl(), controller.signal).then((built) => {
+            if (!controller.signal.aborted) {
+                setAvailability(built ? 'available' : 'unavailable');
+            }
+        });
 
         return () => controller.abort();
     }, []);
@@ -543,6 +535,14 @@ function LivePreview({
     const viewport = DEVICES[device];
 
     const signature = bootSignature(config, greetings, categories);
+    // `ChatFeature('update')` accumulates: it can restyle but never un-set. When an edit removes
+    // something (a cleared text, icon or font URL, a deleted language) the host is rebooted from the
+    // draft instead, exactly like a change to the greeting pool.
+    const restyle = restyleOverrides(config);
+    const restyleJson = JSON.stringify(restyle);
+    const appliedRestyle = useRef(restyle);
+    const [removals, setRemovals] = useState(0);
+    const bootKey = `${signature}|${removals}`;
     const makeBoot = () =>
         buildPreviewBoot({
             key: widgetKey,
@@ -556,24 +556,33 @@ function LivePreview({
             preview,
         });
     const [snapshot, setSnapshot] = useState(() => ({
-        signature,
+        key: bootKey,
         boot: makeBoot(),
     }));
 
-    // Greeting pool / categories only reach the loader through its boot config: rebuild the host
-    // document (debounced) when they change. Everything else is pushed live below.
     useEffect(() => {
-        if (signature === snapshot.signature) {
+        if (dropsOverrides(appliedRestyle.current, restyle)) {
+            setRemovals((count) => count + 1);
+        }
+
+        appliedRestyle.current = restyle;
+    }, [restyleJson]);
+
+    // Greeting pool / categories only reach the loader through its boot config, and removals cannot
+    // be pushed at all: rebuild the host document (debounced) when either changes. Everything else is
+    // pushed live below.
+    useEffect(() => {
+        if (bootKey === snapshot.key) {
             return;
         }
 
         const timer = setTimeout(
-            () => setSnapshot({ signature, boot: makeBoot() }),
+            () => setSnapshot({ key: bootKey, boot: makeBoot() }),
             REBOOT_DELAY_MS,
         );
 
         return () => clearTimeout(timer);
-    }, [signature]);
+    }, [bootKey]);
 
     const html = buildPreviewHostDocument({
         boot: snapshot.boot,
