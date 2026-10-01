@@ -10,6 +10,7 @@ use App\Domain\Chat\Realtime\ReverbEndpoint;
 use App\Domain\Visitors\Actions\StartSession;
 use App\Domain\Visitors\VisitorTokenService;
 use App\Domain\Widgets\Support\Timestamps;
+use App\Http\Exceptions\ApiProblemException;
 use App\Http\Requests\Chat\StartSessionRequest;
 use App\Models\Conversation;
 use Illuminate\Http\JsonResponse;
@@ -35,19 +36,34 @@ class ChatSessionController extends ChatVisitorController
         ], 201)->header('Cache-Control', 'no-store');
     }
 
-    /** Revokes the token. A chat still waiting for an agent is cancelled with it (nobody is left to answer the agents). */
+    /**
+     * Ends the visit: every active session of the visitor is revoked (a leftover token must not outlive an explicit sign-out) and a
+     * chat still waiting for an agent is cancelled with it (nobody is left to answer the agents). The revocation always happens: a
+     * chat an agent claimed a moment earlier is simply left running (the cancel's `409` is not this call's failure).
+     */
     public function destroy(Request $request, VisitorTokenService $tokens, CancelQueuedConversation $cancel): Response
     {
         $session = $this->session($request);
 
-        Conversation::query()
-            ->where('visitor_session_id', $session->id)
-            ->where('type', ConversationType::Live->value)
-            ->where('status', ConversationStatus::Queued->value)
-            ->get()
-            ->each(fn (Conversation $conversation) => $cancel->handle($conversation));
-
-        $tokens->revoke($session);
+        try {
+            Conversation::query()
+                ->where('visitor_session_id', $session->id)
+                ->where('type', ConversationType::Live->value)
+                ->where('status', ConversationStatus::Queued->value)
+                ->get()
+                ->each(function (Conversation $conversation) use ($cancel): void {
+                    try {
+                        $cancel->handle($conversation);
+                    } catch (ApiProblemException $problem) {
+                        if ($problem->errorCode() !== 'conversation_not_queued') {
+                            throw $problem;
+                        }
+                    }
+                });
+        } finally {
+            $tokens->revoke($session);
+            $tokens->revokeAllFor($session->visitor);
+        }
 
         return response()->noContent();
     }
