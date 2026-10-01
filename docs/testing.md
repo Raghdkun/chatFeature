@@ -9,7 +9,7 @@
 | PHP style | Pint (`pint --test`) | Code style | available |
 | PHP static analysis | Larastan / PHPStan (`phpstan analyse`) | Types | available |
 | PHP feature/unit | PHPUnit via `artisan test` (SQLite for speed) | Actions, controllers, gates, drivers | available |
-| MySQL-only tests | PHPUnit on MySQL in CI | Concurrent-accept race, unique-NULL trap | planned P4 |
+| MySQL-only tests | PHPUnit on MySQL, opt-in (`CHAT_RACE_TEST=1 DB_CONNECTION=mysql DB_DATABASE=<a dedicated, freshly migrated database> php artisan test tests/Feature/Chat tests/Feature/Visitors`) | Concurrent accept, one agent accepting the same chat in parallel, capacity, message numbers, FULLTEXT search on committed rows (`ConcurrencyMySqlTest`); `visitors.external_id` is case- and accent-sensitive (`VisitorExternalIdMySqlTest`) | available (not in CI yet) |
 | Frontend lint/format | `vp check` (`npm run check`) | TS/React lint + format | available |
 | Types | `tsc --noEmit` (`npm run types:check`) | TypeScript | available |
 | Frontend unit | Vitest (+ MSW until backend merges) | Wizard flow, login/shell, i18n; later: loader precedence, fake-timer greeting scheduler, reduced motion, postMessage origin checks | available (`npm test`) |
