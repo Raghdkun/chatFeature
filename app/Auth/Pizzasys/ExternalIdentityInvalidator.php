@@ -5,6 +5,8 @@ namespace App\Auth\Pizzasys;
 use App\Auth\Pizzasys\Contracts\IdentityInvalidator;
 use App\Auth\Shadow\ShadowUserSync;
 use App\Domain\Audit\AuditLogger;
+use App\Domain\Chat\Enums\SessionRevokeReason;
+use App\Domain\Chat\Events\StaffSessionRevoked;
 use App\Models\ExternalSession;
 use App\Models\UserExternalIdentity;
 use Illuminate\Database\Eloquent\Collection;
@@ -57,6 +59,9 @@ final class ExternalIdentityInvalidator implements IdentityInvalidator
 
             // Sessions of this identity only (their Sanctum tokens go with them); other identities of the user are theirs.
             $this->sessions->revokeForIdentity($identity, 'upstream_deleted');
+
+            // Announced once per identity, not per session: the person may have no open session at all and still have chats.
+            StaffSessionRevoked::dispatch($user->id, SessionRevokeReason::Deactivated);
 
             $this->audit->record('auth.identity_deactivated', $user, [
                 'environment' => $identity->environment->key,
