@@ -781,7 +781,10 @@ type Described = {
  * (what was found: after the first scan, a click below about 760 px of an 839 px screen never arrives). Legacy mode needs no second page;
  * its restriction (cross-origin frames are not entered) is why the visitor panel's iframe is analysed as a document of its own.
  */
-async function runAxe(target: Page | Frame): Promise<{
+async function runAxe(
+    target: Page | Frame,
+    scope: { include?: string; exclude?: string } = {},
+): Promise<{
     wcag: Described[];
     bestPractice: Described[];
     passes: number;
@@ -796,10 +799,19 @@ async function runAxe(target: Page | Frame): Promise<{
             )(script, arg),
         frames: () => ('frames' in target ? target.frames() : [target]),
     } as unknown as Page;
-    const results = await new AxeBuilder({ page })
+    let builder = new AxeBuilder({ page })
         .setLegacyMode(true)
-        .withTags([...WCAG, 'best-practice'])
-        .analyze();
+        .withTags([...WCAG, 'best-practice']);
+
+    if (scope.include) {
+        builder = builder.include(scope.include);
+    }
+
+    if (scope.exclude) {
+        builder = builder.exclude(scope.exclude);
+    }
+
+    const results = await builder.analyze();
     const describe = (
         violation: (typeof results.violations)[number],
     ): Described => ({
@@ -854,7 +866,11 @@ async function reportAxe(
     }
 }
 
-/** axe on a dashboard page in the light and the dark theme (the app follows the colour-scheme preference). */
+/**
+ * axe on a dashboard page in the light and the dark theme (the app follows the colour-scheme preference). Toasts are left out: they fade
+ * in and out (an offer's toast stays 12 s, then leaves) and axe measures the blend with the page behind them while they do; the toast has
+ * a scan of its own at rest (`scanToasts`).
+ */
 export async function scanDashboard(
     page: Page,
     testInfo: TestInfo,
@@ -862,10 +878,35 @@ export async function scanDashboard(
 ): Promise<void> {
     for (const theme of ['light', 'dark'] as const) {
         await setTheme(page, theme);
-        await reportAxe(testInfo, `${label}-${theme}`, await runAxe(page));
+        await reportAxe(
+            testInfo,
+            `${label}-${theme}`,
+            await runAxe(page, { exclude: '[data-sonner-toaster]' }),
+        );
     }
 
     await setTheme(page, 'light');
+}
+
+/** axe on the toasts on screen in the CURRENT theme, once their entrance has finished (opacity 1; they stay several seconds). */
+export async function scanToasts(
+    page: Page,
+    testInfo: TestInfo,
+    label: string,
+): Promise<void> {
+    await expect
+        .poll(() =>
+            page
+                .locator('[data-sonner-toast]')
+                .first()
+                .evaluate((toast) => getComputedStyle(toast).opacity),
+        )
+        .toBe('1');
+    await reportAxe(
+        testInfo,
+        label,
+        await runAxe(page, { include: '[data-sonner-toaster]' }),
+    );
 }
 
 /**

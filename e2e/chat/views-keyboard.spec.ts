@@ -9,6 +9,7 @@ import {
 } from '../support/chat-lab';
 import { setTheme } from '../support/helpers';
 import { widget } from '../support/host';
+import { expectEventually } from '../support/wait';
 import { openCustomerSite, type Panel } from '../support/panel';
 
 /**
@@ -287,17 +288,20 @@ test.describe('agent, keyboard only', () => {
         await inbox.expectMessage('One moment please.');
         await expect(inbox.composerInput).toHaveValue('');
 
-        const stored = must<{ body: string | null }[]>(
-            await agent.api.messages(chat.ulid),
-            'the transcript',
+        // The message is stored once the server has answered (the bubble shows at once, as "sending"): wait for the transcript, not for the DOM.
+        await expectEventually(
+            async () =>
+                must<{ body: string | null }[]>(
+                    await agent.api.messages(chat.ulid),
+                    'the transcript',
+                ),
+            (stored) =>
+                stored.some(
+                    (message) =>
+                        message.body === 'Let me look.\nOne moment please.',
+                ),
+            { message: 'the two-line reply was stored with its line break' },
         );
-
-        expect(
-            stored.some(
-                (message) =>
-                    message.body === 'Let me look.\nOne moment please.',
-            ),
-        ).toBe(true);
 
         // Every surface opens with Enter, closes with Escape and gives focus back to the control that opened it.
         await sendImageAsVisitor(chat, png(), 'The statement');
@@ -528,6 +532,9 @@ test.describe('reduced motion', () => {
 
             await lab.accept(agent, { ulid: started.ulid! });
             await panel.expectState('active');
+            // The conversation screen is a lazily loaded chunk: a message that arrives before it has mounted is part of the transcript
+            // it starts with and is not "new" (no entrance); wait for the list, then say something.
+            await expect(panel.messageList).toBeVisible();
             must(
                 await agent.api.send(started.ulid!, 'Hello Maya'),
                 'agent message',

@@ -548,7 +548,9 @@ for (const size of SIZES) {
                 panel,
                 'pre-chat filled with long values',
             );
-            await form.locator('button[type="submit"]').click();
+            // Submitted from the keyboard (Enter in a field): on the phone profile a mouse click on a button in the lowest part of the
+            // screen sometimes never reaches the page (an emulation quirk, not the panel's), and the layout is what this test is about.
+            await form.locator('input[name="email"]').press('Enter');
 
             await panel.expectState('category', 45_000).catch(async (error) => {
                 // What the visitor was looking at, for a failure that only happens now and then.

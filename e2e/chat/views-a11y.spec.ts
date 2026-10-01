@@ -3,13 +3,14 @@ import {
     png,
     scanDashboard,
     scanPanel,
+    scanToasts,
     sendImageAsAgent,
     sendImageAsVisitor,
     test,
 } from '../support/chat-lab';
 import { openCustomerSite } from '../support/panel';
 import { must } from '../support/chat-api';
-import { dismiss } from '../support/helpers';
+import { dismiss, setTheme } from '../support/helpers';
 
 /**
  * axe (WCAG A/AA, plus the best-practice rules reported) on the agent screens of the live chat, each in the light and the dark theme,
@@ -83,6 +84,38 @@ test.describe('agent inbox', () => {
         // Cleanup: end what this test started (the offer of Daniel is cancelled by the visitor).
         must(await daniel.visitor.cancel(daniel.ulid), 'cancel');
         must(await alice.api.end(maya.ulid), 'end');
+    });
+});
+
+test.describe('agent inbox toasts', () => {
+    test('the new chat request toast, with its Accept action, in both themes', async ({
+        lab,
+    }, testInfo) => {
+        const tenant = await lab.tenant();
+        const agent = await lab.agent(tenant, 0, {
+            presence: 'online',
+            open: '/inbox',
+        });
+
+        for (const theme of ['light', 'dark'] as const) {
+            await setTheme(agent.page, theme);
+
+            // A request arrives while the theme is already set: its toast appears, and is looked at while it stays (12 s).
+            const chat = await lab.chat(tenant, {
+                name: 'Maya Thompson',
+                message: `Hello (${theme})`,
+            });
+            const toast = agent.page.locator('[data-sonner-toast]');
+
+            await agent.inbox.expectOffer(chat.ulid);
+            await expect(toast.first()).toBeVisible();
+            await expect(toast.first()).toContainText('New chat request');
+            await expect(
+                toast.first().getByRole('button', { name: 'Accept' }),
+            ).toBeVisible();
+            await scanToasts(agent.page, testInfo, `toast-${theme}`);
+            must(await chat.visitor.cancel(chat.ulid), 'cancel');
+        }
     });
 });
 
