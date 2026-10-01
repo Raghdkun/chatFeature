@@ -43,7 +43,10 @@ async function newWidget(
 /** Opens the builder (optionally on a tab). */
 async function openBuilder(page: Page, ulid: string, tab?: Tab) {
     await page.goto(`/widgets/${ulid}`);
-    await expect(page.getByTestId('builder-page')).toBeVisible();
+    // The first render of the dashboard's heaviest page (its chunks come from a PHP dev server): more than 10 s on a loaded machine.
+    await expect(page.getByTestId('builder-page')).toBeVisible({
+        timeout: 30_000,
+    });
 
     if (tab) {
         await goTab(page, tab);
@@ -939,14 +942,15 @@ test.describe('builder: every tab saves and keeps its values', () => {
                 }[]
             ).map((c) => c.slug);
 
-        // No Publish needed: visitors already get the new list, in this order.
-        expect(await slugs()).toEqual(['general', 'sales', 'billing']);
+        // No Publish needed: visitors already get the new list, in this order. A change is a request of its own, and the status
+        // message of an earlier save may still be on screen, so "saved" says nothing about this one: poll what visitors get.
+        await expect.poll(slugs).toEqual(['general', 'sales', 'billing']);
 
         await page
             .getByTestId(`builder-category-remove-${bySlug.general}`)
             .click();
         await save(page);
-        expect(await slugs()).toEqual(['sales', 'billing']);
+        await expect.poll(slugs).toEqual(['sales', 'billing']);
 
         await page.reload();
         await goTab(page, 'categories');
