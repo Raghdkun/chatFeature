@@ -11,12 +11,11 @@ use App\Models\Conversation;
 use App\Models\User;
 use App\Models\Visitor;
 use App\Models\VisitorSession;
-use App\Models\Widget;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * Default: a live chat that was just queued (90 s to find an agent), for a fresh widget / visitor / session that belong
- * together. One state per status and type keeps the timestamps consistent with the state machine
+ * Default: a live chat that was just queued (90 s to find an agent), for a widget / visitor / session that belong
+ * together (see `configure()`). One state per status and type keeps the timestamps consistent with the state machine
  * (`active()`, `ended()`, `closed()`, `missed()`, `offline()`). The ticket number comes from the model.
  *
  * @extends Factory<Conversation>
@@ -32,12 +31,6 @@ class ConversationFactory extends Factory
 
         return [
             'workspace_id' => null,
-            'widget_id' => Widget::factory(),
-            'visitor_id' => fn (array $attributes): int => Visitor::factory()->create(['widget_id' => $attributes['widget_id']])->id,
-            'visitor_session_id' => fn (array $attributes): int => VisitorSession::factory()->create([
-                'visitor_id' => $attributes['visitor_id'],
-                'widget_id' => $attributes['widget_id'],
-            ])->id,
             'category_id' => null,
             'type' => ConversationType::Live,
             'status' => ConversationStatus::Queued,
@@ -46,6 +39,35 @@ class ConversationFactory extends Factory
             'queue_expires_at' => $queuedAt->copy()->addSeconds(90),
             'last_activity_at' => $queuedAt,
         ];
+    }
+
+    /**
+     * `widget_id`, `visitor_id` and `visitor_session_id` are filled in after the model is made, so they always belong together:
+     * a given visitor (`for($visitor)` / `visitor_id`) brings its widget, a given widget (`for($widget)`) gets a new visitor, and
+     * a session is opened for the visitor unless `visitor_session_id` was passed (pass `null` for a conversation without one).
+     */
+    public function configure(): static
+    {
+        return $this->afterMaking(function (Conversation $conversation): void {
+            $attributes = $conversation->getAttributes();
+            $widgetId = $attributes['widget_id'] ?? null;
+            $visitorId = $attributes['visitor_id'] ?? null;
+
+            if ($visitorId === null) {
+                $visitor = Visitor::factory()->create($widgetId === null ? [] : ['widget_id' => $widgetId]);
+                $visitorId = $visitor->id;
+                $widgetId ??= $visitor->widget_id;
+            } elseif ($widgetId === null) {
+                $widgetId = (int) Visitor::query()->whereKey($visitorId)->value('widget_id');
+            }
+
+            $conversation->widget_id = $widgetId;
+            $conversation->visitor_id = $visitorId;
+
+            if (! array_key_exists('visitor_session_id', $attributes)) {
+                $conversation->visitor_session_id = VisitorSession::factory()->create(['visitor_id' => $visitorId, 'widget_id' => $widgetId])->id;
+            }
+        });
     }
 
     public function forCategory(Category $category): static

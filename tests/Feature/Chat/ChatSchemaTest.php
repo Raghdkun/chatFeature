@@ -71,6 +71,23 @@ class ChatSchemaTest extends TestCase
         }
     }
 
+    public function test_the_migrations_roll_back_cleanly_and_run_again(): void
+    {
+        $this->artisan('migrate:rollback', ['--step' => 4, '--force' => true])->assertSuccessful();
+
+        foreach (array_keys(self::expectedColumns()) as $table) {
+            $this->assertFalse(Schema::hasTable($table), "{$table} should be gone after the rollback");
+        }
+
+        $this->assertTrue(Schema::hasTable('widgets'), 'earlier phases are untouched');
+
+        $this->artisan('migrate', ['--force' => true])->assertSuccessful();
+
+        foreach (self::expectedColumns() as $table => $columns) {
+            $this->assertEqualsCanonicalizing($columns, Schema::getColumnListing($table), $table);
+        }
+    }
+
     public function test_the_sweeps_and_lookups_have_their_indexes(): void
     {
         $expected = [

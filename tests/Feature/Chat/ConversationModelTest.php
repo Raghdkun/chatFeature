@@ -113,6 +113,32 @@ class ConversationModelTest extends TestCase
         $this->assertTrue($second->senderUser?->is($agent));
     }
 
+    public function test_the_factory_keeps_widget_visitor_and_session_together(): void
+    {
+        $widget = Widget::factory()->create();
+        $visitor = Visitor::factory()->create();
+
+        $byDefault = Conversation::factory()->create();
+        $forWidget = Conversation::factory()->for($widget)->create();
+        $forVisitor = Conversation::factory()->create(['visitor_id' => $visitor->id]);
+        $second = Conversation::factory()->for($visitor)->create();
+
+        foreach ([$byDefault, $forWidget, $forVisitor, $second] as $conversation) {
+            $this->assertSame($conversation->widget_id, $conversation->visitor->widget_id);
+            $this->assertSame($conversation->visitor_id, $conversation->visitorSession?->visitor_id);
+            $this->assertSame($conversation->widget_id, $conversation->visitorSession?->widget_id);
+        }
+
+        $this->assertSame($widget->id, $forWidget->widget_id);
+        $this->assertSame($visitor->widget_id, $forVisitor->widget_id);
+        $this->assertSame($visitor->widget_id, $second->widget_id);
+        $this->assertSame(3, Widget::query()->count(), 'default, for(widget) and the visitor widget: no stray widgets');
+
+        $withoutSession = Conversation::factory()->create(['visitor_session_id' => null]);
+        $this->assertNull($withoutSession->visitor_session_id);
+        $this->assertSame(0, VisitorSession::query()->where('visitor_id', $withoutSession->visitor_id)->count());
+    }
+
     public function test_a_user_has_one_presence_row_and_the_categories_they_serve(): void
     {
         $agent = User::factory()->create();
