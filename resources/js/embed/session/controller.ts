@@ -140,6 +140,8 @@ const SYNC_STALE_MS = 45_000;
 /** After the signed attachment URLs were refreshed, a picture that still fails is genuinely broken: no second refresh for a while. */
 const URL_REFRESH_COOLDOWN_MS = 20_000;
 const ATTACHMENT_LIMIT = 4;
+/** How many messages back a poll / reconnect looks for read receipts it may have missed (one page of the messages API). */
+const RECEIPT_LOOKBACK = 100;
 
 export const MAX_ATTACHMENTS = ATTACHMENT_LIMIT;
 
@@ -1608,15 +1610,36 @@ export class ChatController {
         return this.urlRefresh;
     }
 
-    /** Where a catch-up fetch starts: the first hole in what we have, else the end of it. */
-    private catchUpFrom(): number {
+    /**
+     * Where a catch-up fetch starts: the first hole in what we have, else the end of it. With `receipts` (a poll, a reconnect, the tab
+     * coming back) it starts earlier, at the oldest of the visitor's own messages the agent has not read yet: a receipt that
+     * happened while the socket was down (or the whole time, when polling) is never replayed, and without it the ticks stay at "sent".
+     */
+    private catchUpFrom(receipts = false): number {
         const { conversation, messages } = this.state;
         const known = Math.max(
             conversation?.lastSeq ?? 0,
             highestSeq(messages),
         );
+        const gap = findGap(messages, known);
 
-        return findGap(messages, known)?.afterSeq ?? highestSeq(messages);
+        if (gap !== null) {
+            return gap.afterSeq;
+        }
+
+        const top = highestSeq(messages);
+        const unread = receipts
+            ? messages.find(
+                  (message) =>
+                      message.sender.type === 'visitor' &&
+                      message.seq !== null &&
+                      message.status !== 'seen',
+              )
+            : undefined;
+
+        return unread?.seq != null
+            ? Math.max(unread.seq - 1, top - RECEIPT_LOOKBACK)
+            : top;
     }
 
     private async catchUpMessages(): Promise<void> {
@@ -1721,7 +1744,7 @@ export class ChatController {
             if (isLiveChat(this.state) || this.state.phase === 'ended') {
                 const messages = await this.fetchMessagesAfter(
                     conversation.ulid,
-                    this.catchUpFrom(),
+                    this.catchUpFrom(true),
                 );
 
                 this.dispatch({ type: 'MESSAGES', messages });
