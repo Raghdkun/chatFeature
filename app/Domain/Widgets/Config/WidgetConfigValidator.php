@@ -93,7 +93,7 @@ final class WidgetConfigValidator
                 return;
             }
 
-            $merged = $this->merge($defaults, $input);
+            $merged = $this->withoutEmptyTextBlocks($this->merge($defaults, $input));
 
             foreach ($this->crossFieldErrors($merged, $field) as $path => $message) {
                 $validator->errors()->add($path, $message);
@@ -118,7 +118,7 @@ final class WidgetConfigValidator
         $defaults = (new WidgetConfigData)->toArray();
 
         try {
-            return WidgetConfigData::from($this->merge($defaults, $this->stripNulls($stored ?? [], $defaults)));
+            return WidgetConfigData::from($this->withoutEmptyTextBlocks($this->merge($defaults, $this->stripNulls($stored ?? [], $defaults))));
         } catch (Throwable $exception) {
             report($exception);
 
@@ -386,6 +386,21 @@ final class WidgetConfigValidator
         }
 
         return $errors;
+    }
+
+    /**
+     * A locale with no texts at all is no locale (it would serialise as `[]` instead of `{}`).
+     *
+     * @param  array<array-key, mixed>  $config
+     * @return array<array-key, mixed>
+     */
+    private function withoutEmptyTextBlocks(array $config): array
+    {
+        if (isset($config['texts']) && is_array($config['texts'])) {
+            $config['texts'] = array_filter($config['texts'], static fn (mixed $block): bool => ! is_array($block) || $block !== []);
+        }
+
+        return $config;
     }
 
     /**

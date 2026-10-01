@@ -91,6 +91,14 @@ class WidgetConfigValidatorTest extends TestCase
         $this->assertSame(2, $config->hours->schedule[0]->day);
     }
 
+    public function test_empty_locale_blocks_are_dropped(): void
+    {
+        $config = $this->validator->validate(['texts' => ['fr' => [], 'de' => ['title' => null], 'ar' => ['title' => 'الدعم']]]);
+
+        $this->assertSame(['en', 'ar'], array_keys($config->texts));
+        $this->assertSame(['en'], array_keys($this->validator->hydrate(['texts' => ['fr' => []]])->texts));
+    }
+
     public function test_a_validated_config_survives_a_round_trip(): void
     {
         $first = $this->validator->validate([

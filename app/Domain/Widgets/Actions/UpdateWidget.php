@@ -31,8 +31,10 @@ final class UpdateWidget
 
             if ($widget->isDirty()) {
                 $changes = $widget->getDirty();
-                $widget->config = ConfigMirror::overlayColumns($widget->config, $widget);
-                $widget->draft_config = ConfigMirror::overlayColumns($widget->draft_config, $widget);
+                // Only what this request changed is mirrored: unpublished draft edits of the other fields stay as they are.
+                $mirrored = array_keys(array_intersect_key($changes, ConfigMirror::PATHS));
+                $widget->config = ConfigMirror::overlayColumns($widget->config, $widget, $mirrored);
+                $widget->draft_config = ConfigMirror::overlayColumns($widget->draft_config, $widget, $mirrored);
                 $widget->save();
 
                 $this->audit->record('widget.updated', $widget, collect($changes)->map(fn (mixed $value): mixed => $value instanceof \BackedEnum ? $value->value : $value)->all(), $actor);

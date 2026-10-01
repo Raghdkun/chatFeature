@@ -5,6 +5,7 @@ namespace App\Domain\Widgets\Config;
 use App\Domain\Widgets\Data\WidgetConfigData;
 use App\Domain\Widgets\Enums\OfflineMode;
 use App\Models\Widget;
+use Illuminate\Support\Arr;
 
 /**
  * Five operational settings exist twice: as `widgets` columns (what the settings form PATCHes and what the
@@ -19,23 +20,33 @@ use App\Models\Widget;
  */
 final class ConfigMirror
 {
+    /** Column => the config path it is mirrored at. */
+    public const PATHS = [
+        'locale' => 'defaultLocale',
+        'offline_mode' => 'hours.mode',
+        'timezone' => 'hours.timezone',
+        'queue_timeout_seconds' => 'routing.queueTimeoutSeconds',
+        'idle_timeout_minutes' => 'session.idleTimeoutMinutes',
+    ];
+
     /**
+     * Write the widget's column values into the mirrored config fields.
+     *
      * @param  array<string, mixed>  $config
+     * @param  list<string>|null  $columns  Only these columns (default: all five). A settings change passes just the ones it
+     *                                      changed, so unpublished draft edits of the others are left alone.
      * @return array<string, mixed>
      */
-    public static function overlayColumns(array $config, Widget $widget): array
+    public static function overlayColumns(array $config, Widget $widget, ?array $columns = null): array
     {
-        $config['defaultLocale'] = $widget->locale;
-        $config['hours'] = array_merge(is_array($config['hours'] ?? null) ? $config['hours'] : [], [
-            'mode' => $widget->offline_mode->value,
-            'timezone' => $widget->timezone,
-        ]);
-        $config['routing'] = array_merge(is_array($config['routing'] ?? null) ? $config['routing'] : [], [
-            'queueTimeoutSeconds' => $widget->queue_timeout_seconds,
-        ]);
-        $config['session'] = array_merge(is_array($config['session'] ?? null) ? $config['session'] : [], [
-            'idleTimeoutMinutes' => $widget->idle_timeout_minutes,
-        ]);
+        foreach (self::PATHS as $column => $path) {
+            if ($columns !== null && ! in_array($column, $columns, true)) {
+                continue;
+            }
+
+            $value = $widget->{$column};
+            Arr::set($config, $path, $value instanceof OfflineMode ? $value->value : $value);
+        }
 
         return $config;
     }

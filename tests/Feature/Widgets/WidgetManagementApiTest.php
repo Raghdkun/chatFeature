@@ -208,6 +208,33 @@ class WidgetManagementApiTest extends TestCase
         $this->assertSame('always_offline', $audit->changes['offline_mode']);
     }
 
+    public function test_a_settings_change_leaves_unpublished_draft_edits_of_other_fields_alone(): void
+    {
+        $widget = $this->widget();
+
+        $this->asAdmin()->putJson('/api/v1/widgets/'.$widget->ulid.'/draft', ['config' => [
+            'defaultLocale' => 'de',
+            'hours' => ['timezone' => 'Europe/Berlin'],
+            'routing' => ['queueTimeoutSeconds' => 120],
+        ]])->assertOk();
+
+        // Unrelated settings do not touch the draft.
+        $this->asAdmin()->patchJson('/api/v1/widgets/'.$widget->ulid, ['name' => 'Renamed', 'is_enabled' => true])->assertOk()->assertJsonPath('data.has_unpublished_changes', true);
+        $draft = $widget->refresh()->draft_config;
+        $this->assertSame('de', $draft['defaultLocale']);
+        $this->assertSame('Europe/Berlin', $draft['hours']['timezone']);
+        $this->assertSame(120, $draft['routing']['queueTimeoutSeconds']);
+
+        // A mirrored setting is written into the published config and the draft; the other draft edits survive.
+        $this->asAdmin()->patchJson('/api/v1/widgets/'.$widget->ulid, ['idle_timeout_minutes' => 45])->assertOk();
+        $widget->refresh();
+        $this->assertSame(45, $widget->config['session']['idleTimeoutMinutes']);
+        $this->assertSame(45, $widget->draft_config['session']['idleTimeoutMinutes']);
+        $this->assertSame('de', $widget->draft_config['defaultLocale']);
+        $this->assertSame('en', $widget->config['defaultLocale'], 'the published config keeps the old locale until publish');
+        $this->assertSame('UTC', $widget->config['hours']['timezone']);
+    }
+
     /**
      * @return array<string, array{0: array<string, mixed>, 1: string}>
      */
@@ -473,6 +500,23 @@ class WidgetManagementApiTest extends TestCase
             ->assertStatus(422)
             ->assertJsonStructure(['error' => ['details' => [$field]]]);
         $this->assertSame(0, $widget->greetings()->count());
+    }
+
+    public function test_new_greetings_may_carry_a_null_ulid(): void
+    {
+        $widget = $this->widget();
+
+        $response = $this->asAdmin()->putJson('/api/v1/widgets/'.$widget->ulid.'/greetings', ['greetings' => [
+            ['ulid' => null, 'body' => 'First', 'agent_name' => null, 'agent_avatar_url' => null, 'locale' => null, 'weight' => 1, 'is_active' => true, 'sort_order' => 0],
+            ['ulid' => null, 'body' => 'Second', 'agent_name' => null, 'agent_avatar_url' => null, 'locale' => null, 'weight' => 2, 'is_active' => true, 'sort_order' => 1],
+        ]])->assertOk();
+
+        $this->assertSame(['First', 'Second'], array_column($response->json('data'), 'body'));
+        $this->assertCount(2, array_unique(array_column($response->json('data'), 'ulid')));
+
+        // Sending the same existing ULID twice is a mistake.
+        $ulid = $response->json('data.0.ulid');
+        $this->asAdmin()->putJson('/api/v1/widgets/'.$widget->ulid.'/greetings', ['greetings' => [['ulid' => $ulid, 'body' => 'A'], ['ulid' => $ulid, 'body' => 'B']]])->assertStatus(422);
     }
 
     public function test_a_greeting_of_another_widget_cannot_be_hijacked(): void
