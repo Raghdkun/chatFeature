@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Auth\Enums\UserRole;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -33,7 +34,57 @@ class UserFactory extends Factory
             'two_factor_secret' => null,
             'two_factor_recovery_codes' => null,
             'two_factor_confirmed_at' => null,
+            'role' => UserRole::Agent,
+            'is_admin' => false,
+            'is_agent' => true,
+            'is_active' => true,
+            'auth_source' => 'local',
         ];
+    }
+
+    /**
+     * An administrator (who can also take chats).
+     */
+    public function admin(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => UserRole::Admin,
+            'is_admin' => true,
+            'is_agent' => true,
+        ]);
+    }
+
+    /**
+     * A support agent (the default).
+     */
+    public function agent(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => UserRole::Agent,
+            'is_admin' => false,
+            'is_agent' => true,
+        ]);
+    }
+
+    /**
+     * A user who is neither admin nor agent: signed in but not allowed into the dashboard.
+     */
+    public function withoutChatAccess(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'is_admin' => false,
+            'is_agent' => false,
+        ]);
+    }
+
+    /**
+     * A deactivated account.
+     */
+    public function inactive(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'is_active' => false,
+        ]);
     }
 
     /**
