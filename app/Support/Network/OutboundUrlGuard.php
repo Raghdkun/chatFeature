@@ -40,11 +40,35 @@ class OutboundUrlGuard
     /** Name suffixes that never resolve on the public internet. */
     private const INTERNAL_SUFFIXES = ['.local', '.localhost', '.internal', '.localdomain', '.lan', '.home.arpa', '.intranet', '.corp', '.private', '.home'];
 
+    /** Reserved names that are not real public hosts either (documentation / testing). */
+    private const RESERVED_SUFFIXES = ['.test', '.invalid', '.example'];
+
     public function __construct(
         private readonly HostResolver $resolver,
         private readonly Repository $config,
         private readonly Application $app,
     ) {}
+
+    /**
+     * Is this a public DNS name: dotted, ordinary labels, not an IP literal, not a numeric spelling and not on a private
+     * or reserved suffix? A lexical check only (no lookup), used to decide whether a host may be shown to visitors.
+     */
+    public static function isPublicDnsName(string $host): bool
+    {
+        $host = strtolower(rtrim(trim($host), '.'));
+
+        if ($host === '' || ! str_contains($host, '.') || filter_var($host, FILTER_VALIDATE_IP) !== false || ! self::isValidHostName($host)) {
+            return false;
+        }
+
+        foreach ([...self::INTERNAL_SUFFIXES, ...self::RESERVED_SUFFIXES] as $suffix) {
+            if (str_ends_with($host, $suffix)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
 
     /** Whether private-network targets are allowed at all (a deliberate server setting, or local development). */
     public function allowsPrivateHosts(): bool
@@ -103,7 +127,7 @@ class OutboundUrlGuard
             return $this->judge($scheme, $host, $port, [$literal], ipLiteral: true, internalName: false);
         }
 
-        if (! $this->isValidHostName($host)) {
+        if (! self::isValidHostName($host)) {
             return OutboundTarget::blocked('bad_host');
         }
 
@@ -305,7 +329,7 @@ class OutboundUrlGuard
         return null;
     }
 
-    private function isValidHostName(string $host): bool
+    private static function isValidHostName(string $host): bool
     {
         if (preg_match('/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/', $host) !== 1) {
             return false;

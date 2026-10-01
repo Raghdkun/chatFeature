@@ -13,6 +13,7 @@ use App\Auth\Pizzasys\PizzasysCircuitBreaker;
 use App\Auth\Pizzasys\PizzasysEndpoint;
 use App\Auth\Pizzasys\PortalGateway;
 use App\Auth\Pizzasys\PortalHealth;
+use App\Auth\Pizzasys\PortalLabel;
 use App\Auth\Pizzasys\Results\PortalFailure;
 use App\Auth\Pizzasys\Results\PortalStatus;
 use App\Auth\Pizzasys\Results\PortalVerifyResult;
@@ -76,7 +77,8 @@ final class PizzasysDriver implements AuthDriver
             canResetPassword: false,
             canManage2fa: false,
             profileEditable: false,
-            portalUrl: $this->environments->active()?->base_url,
+            // Shared with anonymous visitors on every page: only a public label, never the portal's real API address.
+            portalUrl: PortalLabel::forBaseUrl($this->environments->active()?->base_url),
         );
     }
 

@@ -65,7 +65,35 @@ class PizzasysDriverTest extends TestCase
         $this->assertFalse($capabilities->canResetPassword);
         $this->assertFalse($capabilities->canManage2fa);
         $this->assertFalse($capabilities->profileEditable);
-        $this->assertSame(PizzasysMock::BASE_URL, $capabilities->portalUrl);
+        $this->assertNull($capabilities->portalUrl, 'the mock portal lives on a reserved .test name: nothing to show');
+    }
+
+    public function test_the_portal_label_is_a_public_host_name_and_nothing_else(): void
+    {
+        $cases = [
+            'https://auth.example.com' => 'https://auth.example.com',
+            'https://Auth.Example.COM:8443/internal/api?x=1' => 'https://auth.example.com',
+            'http://auth.example.com/portal' => 'https://auth.example.com',
+            'https://auth.example.com.' => 'https://auth.example.com',
+            'http://10.0.0.5:8200' => null,
+            'https://203.0.113.9' => null,
+            'https://[2606:4700:4700::1111]' => null,
+            'http://pizzasys:8200' => null,
+            'http://localhost:8200' => null,
+            'http://127.0.0.1:8200' => null,
+            'https://portal.internal' => null,
+            'https://portal.local' => null,
+            'https://portal.localhost' => null,
+            'https://portal.example.test' => null,
+            'https://2852039166' => null,
+            '' => null,
+        ];
+
+        foreach ($cases as $baseUrl => $label) {
+            AuthEnvironment::query()->update(['base_url' => $baseUrl]);
+
+            $this->assertSame($label, $this->driver()->capabilities()->portalUrl, $baseUrl);
+        }
     }
 
     public function test_an_agent_signs_in_and_a_shadow_user_is_created_without_starting_a_session(): void

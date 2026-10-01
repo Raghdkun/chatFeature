@@ -3,6 +3,7 @@
 namespace Tests\Feature\Auth;
 
 use App\Auth\Contracts\AuthDriver;
+use App\Models\AuthEnvironment;
 use App\Models\ExternalSession;
 use App\Models\User;
 use App\Models\UserExternalIdentity;
@@ -61,7 +62,23 @@ class PizzasysLoginFlowTest extends TestCase
             ->where('canRegister', false)
             ->where('canResetPassword', false)
             ->where('auth.mode', 'pizzasys')
-            ->where('auth.capabilities.portalUrl', PizzasysMock::BASE_URL));
+            ->where('auth.capabilities.portalUrl', null));
+    }
+
+    public function test_visitors_never_see_the_portals_real_address(): void
+    {
+        AuthEnvironment::query()->update(['base_url' => 'http://10.0.0.5:8200/internal-portal']);
+
+        $response = $this->get(route('login'));
+
+        $response->assertInertia(fn (Assert $page) => $page->where('auth.capabilities.portalUrl', null));
+        $json = (string) json_encode($response->inertiaProps());
+        foreach (['10.0.0.5', '8200', 'internal-portal'] as $leak) {
+            $this->assertStringNotContainsString($leak, $json);
+        }
+
+        AuthEnvironment::query()->update(['base_url' => 'https://auth.example.com/api/private']);
+        $this->get(route('login'))->assertInertia(fn (Assert $page) => $page->where('auth.capabilities.portalUrl', 'https://auth.example.com'));
     }
 
     public function test_an_agent_signs_in_through_the_portal_and_lands_on_the_dashboard(): void
@@ -91,7 +108,7 @@ class PizzasysLoginFlowTest extends TestCase
             ->where('auth.user.auth_source', 'pizzasys')
             ->where('auth.user.is_agent', true)
             ->where('auth.user.is_admin', false)
-            ->where('auth.capabilities', ['canRegister' => false, 'canResetPassword' => false, 'canManage2fa' => false, 'profileEditable' => false, 'portalUrl' => PizzasysMock::BASE_URL]));
+            ->where('auth.capabilities', ['canRegister' => false, 'canResetPassword' => false, 'canManage2fa' => false, 'profileEditable' => false, 'portalUrl' => null]));
 
         $json = (string) json_encode($response->inertiaProps());
         foreach ([$this->portal->tokenFor('agent@test.local'), PizzasysMock::SERVICE_TOKEN, 'external_id', 'chat.agent', 'permissions'] as $secret) {
