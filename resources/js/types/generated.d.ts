@@ -379,6 +379,12 @@ export type FlashData = {
 success?: string,
 error?: string,
 };
+export type RealtimeEndpointData = {
+key: string,
+host: string,
+port: number,
+scheme: string,
+};
 export type SharedAuthData = {
 user: App.Data.Auth.AuthUserData | null,
 mode: App.Auth.Enums.AuthMode,
@@ -392,6 +398,7 @@ direction: App.Data.Shared.TextDirection,
 installed: boolean,
 sidebarOpen: boolean,
 flash: App.Data.Shared.FlashData,
+realtime: App.Data.Shared.RealtimeEndpointData | null,
 };
 export type TextDirection = 'ltr' | 'rtl';
 }

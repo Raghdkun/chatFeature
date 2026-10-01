@@ -20,6 +20,12 @@ declare module '@inertiajs/core' {
             installed: boolean;
             sidebarOpen: boolean;
             flash: { success?: string; error?: string };
+            realtime: {
+                key: string;
+                host: string;
+                port: number;
+                scheme: 'http' | 'https';
+            } | null;
             [key: string]: unknown;
         };
     }

@@ -20,5 +20,6 @@ class SharedPropsData extends Data
         public bool $installed,
         public bool $sidebarOpen,
         public FlashData $flash,
+        public ?RealtimeEndpointData $realtime = null,
     ) {}
 }

@@ -15,6 +15,7 @@ Every Inertia page receives these props from `App\Http\Middleware\HandleInertiaR
 | `direction` | `'ltr' \| 'rtl'` | Derived from the locale; the root view also sets `<html lang dir>`. |
 | `installed` | `boolean` | `false` only while the setup wizard is reachable. |
 | `sidebarOpen` | `boolean` | Existing starter-kit prop (cookie). |
+| `realtime` | `{key,host,port,scheme} \| null` | The PUBLIC Reverb address for signed-in active staff when realtime is configured (`ReverbEndpoint`), else `null` (the dashboard polls over REST). Read at runtime because the install generates the Reverb keys after the frontend bundle was built. Never the secret. |
 | `flash` | `{success?:string, error?:string}` | Fed from session keys `success`/`error`; `{}` when empty. The kit's toasts use Inertia v3 page-level `flash.toast` (separate, unchanged). |
 
 **Rules**

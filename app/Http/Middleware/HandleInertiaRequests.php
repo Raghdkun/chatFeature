@@ -8,9 +8,11 @@ use App\Auth\Enums\AuthMode;
 use App\Data\Auth\AuthCapabilitiesData;
 use App\Data\Auth\AuthUserData;
 use App\Data\Shared\FlashData;
+use App\Data\Shared\RealtimeEndpointData;
 use App\Data\Shared\SharedAuthData;
 use App\Data\Shared\SharedPropsData;
 use App\Data\Shared\TextDirection;
+use App\Domain\Chat\Realtime\ReverbEndpoint;
 use App\Domain\Install\InstallState;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -67,6 +69,7 @@ class HandleInertiaRequests extends Middleware
             installed: $installed,
             sidebarOpen: ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
             flash: $this->flash($request),
+            realtime: $user instanceof User ? $this->realtime($user) : null,
         );
 
         $props = $shared->toArray();
@@ -77,6 +80,18 @@ class HandleInertiaRequests extends Middleware
             ...parent::share($request),
             ...$props,
         ];
+    }
+
+    /** The websocket address for signed-in staff (null for everyone else and when Reverb is not configured: the dashboard then polls). */
+    private function realtime(User $user): ?RealtimeEndpointData
+    {
+        $endpoints = app(ReverbEndpoint::class);
+
+        if (! $user->is_active || ! ($user->is_admin || $user->is_agent) || ! $endpoints->isAvailable()) {
+            return null;
+        }
+
+        return new RealtimeEndpointData(...$endpoints->forVisitors());
     }
 
     private function mode(): AuthMode
