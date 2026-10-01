@@ -240,6 +240,8 @@ export class ChatController {
     private viewport: ViewportPayload | null = null;
     private unavailable = false;
     private limits: SessionLimits | null = null;
+    /** The visitor's own cancel of a queued chat is in flight. */
+    private cancelling = false;
     private booted = false;
     private disposed = false;
     /** `startChat` from the host that arrived while the panel was still booting (the loader flushes it right after `init:result`). */
@@ -1762,6 +1764,10 @@ export class ChatController {
             return;
         }
 
+        if (this.cancelling && phase === 'queued') {
+            return;
+        }
+
         if (latest === null || latest.ulid !== conversation.ulid) {
             if (phase === 'queued') {
                 this.dispatch({ type: 'MISSED' });
@@ -2065,10 +2071,17 @@ export class ChatController {
             return;
         }
 
+        // While the cancel is in flight a poll can already see the chat `closed`: that is the visitor's own doing, not a missed queue
+        // (which would show the offline form). The cancel's answer decides.
+        this.cancelling = true;
+
         try {
             await this.api.cancelConversation(conversation.ulid);
+            this.cancelling = false;
             this.dispatch({ type: 'CANCEL_OK' });
         } catch (error) {
+            this.cancelling = false;
+
             if (isVisitorApiError(error) && error.isSessionGone) {
                 this.handleSessionGone();
 
