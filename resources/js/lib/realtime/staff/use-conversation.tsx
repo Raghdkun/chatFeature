@@ -32,8 +32,9 @@ import type {
     MessageData,
     TypingWhisper,
 } from '@/lib/chat/types';
-import { isApiError } from '@/lib/api-client';
+import { ApiError, isApiError } from '@/lib/api-client';
 import { newClientMsgId } from '@/lib/realtime/staff/client-id';
+import { failureOf } from '@/lib/realtime/staff/send-failure';
 import {
     canSend,
     conversationReducer,
@@ -53,6 +54,35 @@ const PAGE_LIMIT = 100;
 /** The server's fallback for the typing whisper (it cannot publish `client-*` events): `{ v, actor, typing }`. Both feed the same typing helper. */
 const TYPING_FALLBACK_EVENT = echoEvent(CHAT_EVENT.typingFallback);
 const MAX_PAGES = 20;
+/** A send that has not been answered by now is given up on (the message turns into a retryable failure; the queue moves on). */
+export const SEND_TIMEOUT_MS = 20_000;
+
+function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(
+            () =>
+                reject(
+                    new ApiError({
+                        status: 0,
+                        code: 'network',
+                        message: 'The server took too long to answer.',
+                    }),
+                ),
+            ms,
+        );
+
+        promise.then(
+            (value) => {
+                clearTimeout(timer);
+                resolve(value);
+            },
+            (error: unknown) => {
+                clearTimeout(timer);
+                reject(error);
+            },
+        );
+    });
+}
 
 export type ConversationViewer = {
     id: number;
@@ -138,6 +168,37 @@ export function useConversation({
             dispatch({ type: 'conversation', conversation: listed });
         }
     }, [listed]);
+
+    // A chat that LEAVES the agent's lists (transferred away, taken over by an admin) is no longer sent to this open view by
+    // `conversation.updated`: read it again, and when the server no longer lets this agent see it say so.
+    const wasListed = useRef(listed !== null);
+    const [lostAccess, setLostAccess] = useState(false);
+
+    useEffect(() => {
+        if (listed) {
+            wasListed.current = true;
+            setLostAccess(false);
+
+            return;
+        }
+
+        if (!wasListed.current || viewer.isAdmin) {
+            return;
+        }
+
+        wasListed.current = false;
+        api.conversation(ulid).then(
+            (fresh) => dispatch({ type: 'conversation', conversation: fresh }),
+            (error: unknown) => {
+                if (
+                    isApiError(error) &&
+                    (error.status === 403 || error.status === 404)
+                ) {
+                    setLostAccess(true);
+                }
+            },
+        );
+    }, [listed, viewer.isAdmin, api, ulid]);
 
     /* ---------------------------------------------------------------- */
     /* Catch-up                                                         */
@@ -351,31 +412,43 @@ export function useConversation({
     /* Sending                                                          */
     /* ---------------------------------------------------------------- */
 
+    // Messages leave one after the other, so the server numbers them in the order they were typed (two quick sends can overtake each other).
+    const sendChain = useRef<Promise<void>>(Promise.resolve());
+
     const deliver = useCallback(
-        async (
+        (
             clientMsgId: string,
             body: string,
             attachments: AttachmentData[],
         ): Promise<void> => {
-            try {
-                const message = await api.sendMessage(ulid, {
-                    clientMsgId,
-                    body,
-                    attachmentUlids: attachments.map((a) => a.ulid),
-                });
+            const run = async (): Promise<void> => {
+                try {
+                    const message = await withDeadline(
+                        api.sendMessage(ulid, {
+                            clientMsgId,
+                            body,
+                            attachmentUlids: attachments.map((a) => a.ulid),
+                        }),
+                        SEND_TIMEOUT_MS,
+                    );
 
-                dispatch({ type: 'acked', message });
-            } catch (error) {
-                dispatch({ type: 'failed', clientMsgId });
+                    dispatch({ type: 'acked', message });
+                } catch (error) {
+                    const failure = failureOf(error);
 
-                if (
-                    isApiError(error) &&
-                    error.code === 'conversation_not_active'
-                ) {
-                    toast.error(describeStaffError(error, t));
-                    void catchUp();
+                    dispatch({ type: 'failed', clientMsgId, failure });
+
+                    if (failure === 'closed') {
+                        toast.error(describeStaffError(error, t));
+                        void catchUp();
+                    }
                 }
-            }
+            };
+            const next = sendChain.current.then(run);
+
+            sendChain.current = next;
+
+            return next;
         },
         [api, ulid, catchUp, t],
     );
@@ -522,6 +595,8 @@ export function useConversation({
         conversation: state.conversation,
         messages: state.messages as LocalMessage[],
         typing,
+        /** The server no longer lets this agent see the chat (it was handed to somebody else). */
+        lostAccess,
         canSend: canSend(state.conversation),
         connection,
         send,

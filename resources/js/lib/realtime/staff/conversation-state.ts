@@ -14,6 +14,7 @@ import type {
     ConversationStaff,
     LocalMessage,
     MessageData,
+    MessageFailure,
     SenderType,
 } from '@/lib/chat/types';
 import { isStaleUpdate } from '@/lib/realtime/staff/store';
@@ -29,7 +30,7 @@ export type ConversationViewAction =
     /** The optimistic copy of a message being sent. */
     | { type: 'pending'; input: PendingMessageInput }
     | { type: 'acked'; message: MessageData }
-    | { type: 'failed'; clientMsgId: string }
+    | { type: 'failed'; clientMsgId: string; failure?: MessageFailure }
     | { type: 'retrying'; clientMsgId: string }
     /** Remove a message that never reached the server (the agent gave up on a failed send). */
     | { type: 'discard'; clientMsgId: string }
@@ -103,7 +104,12 @@ export function conversationReducer(
         case 'failed':
             return settle(
                 state,
-                setPendingStatus(state.messages, action.clientMsgId, 'failed'),
+                setPendingStatus(
+                    state.messages,
+                    action.clientMsgId,
+                    'failed',
+                    action.failure,
+                ),
             );
 
         case 'retrying':

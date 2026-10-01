@@ -1329,3 +1329,317 @@ describe('attachments', () => {
         ).toBe(true);
     });
 });
+
+const MESSAGES_URL = `/api/v1/conversations/${CONVERSATION}/messages`;
+
+const refuse = (
+    status: number,
+    code: string,
+    message: string,
+    details?: Record<string, string[]>,
+) =>
+    http.post(MESSAGES_URL, () =>
+        HttpResponse.json(
+            { error: { code, message, ...(details ? { details } : {}) } },
+            { status },
+        ),
+    );
+
+describe('a send that does not go through', () => {
+    const failedBubble = (view: { container: HTMLElement }) =>
+        view.container.querySelector<HTMLElement>('[data-status="failed"]');
+
+    const attempt = async (
+        view: { byTestId: (id: string) => HTMLElement | null },
+        text: string,
+    ) => {
+        await fill(composer(view), text);
+        await press(composer(view), 'Enter');
+    };
+
+    it('says why a message is too long, and offers no futile retry (only discard)', async () => {
+        backend.server.use(
+            refuse(422, 'validation_failed', 'Too long.', {
+                body: [
+                    'The body field must not be greater than 4000 characters.',
+                ],
+            }),
+        );
+
+        const { view } = await mount();
+
+        await attempt(view, 'A very long message');
+        await waitFor(() => expect(failedBubble(view)).not.toBeNull());
+
+        const bubble = failedBubble(view) as HTMLElement;
+
+        expect(bubble.textContent).toContain(
+            'Not sent: the message is too long.',
+        );
+        expect(
+            bubble.querySelector('[data-testid^="message-retry-"]'),
+        ).toBeNull();
+        expect(
+            bubble.querySelector('[data-testid^="message-discard-"]'),
+        ).not.toBeNull();
+    });
+
+    it('a refusal of the content (422) and a lost permission (403) are final too, with their own reason', async () => {
+        backend.server.use(
+            refuse(422, 'validation_failed', 'Nope.', { attachments: ['bad'] }),
+        );
+
+        const first = await mount();
+
+        await attempt(first.view, 'With a picture');
+        await waitFor(() => expect(failedBubble(first.view)).not.toBeNull());
+        expect(failedBubble(first.view)?.textContent).toContain(
+            'the server refused this message',
+        );
+        expect(
+            failedBubble(first.view)?.querySelector(
+                '[data-testid^="message-retry-"]',
+            ),
+        ).toBeNull();
+        await first.view.unmount();
+
+        backend.server.use(
+            refuse(403, 'forbidden', 'This action is unauthorized.'),
+        );
+
+        const second = await mount();
+
+        await attempt(second.view, 'Not mine any more');
+        await waitFor(() => expect(failedBubble(second.view)).not.toBeNull());
+        expect(failedBubble(second.view)?.textContent).toContain(
+            'you cannot reply in this chat any more',
+        );
+        expect(
+            failedBubble(second.view)?.querySelector(
+                '[data-testid^="message-retry-"]',
+            ),
+        ).toBeNull();
+    });
+
+    it('a rate limit asks to wait and still allows the retry', async () => {
+        backend.server.use(refuse(429, 'rate_limited', 'Too many requests.'));
+
+        const { view } = await mount();
+
+        await attempt(view, 'Fast fingers');
+        await waitFor(() => expect(failedBubble(view)).not.toBeNull());
+
+        expect(failedBubble(view)?.textContent).toContain('too many messages');
+        expect(
+            failedBubble(view)?.querySelector(
+                '[data-testid^="message-retry-"]',
+            ),
+        ).not.toBeNull();
+    });
+
+    it('leaves one message per request: two quick sends go out one after the other, in the order they were typed', async () => {
+        let inFlight = 0;
+        let mostInFlight = 0;
+        const order: string[] = [];
+        let releaseFirst: () => void = () => undefined;
+        const firstDone = new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+        });
+
+        backend.server.use(
+            http.post(MESSAGES_URL, async ({ request }) => {
+                const sent = (await request.json()) as {
+                    client_msg_id: string;
+                    body: string;
+                };
+
+                inFlight += 1;
+                mostInFlight = Math.max(mostInFlight, inFlight);
+                order.push(sent.body);
+
+                if (sent.body === 'first') {
+                    await firstDone;
+                }
+
+                inFlight -= 1;
+
+                return HttpResponse.json(
+                    {
+                        data: makeAgentMessage({
+                            ulid: fakeUlid(5100 + order.length),
+                            seq: 3 + order.length,
+                            conversation: CONVERSATION,
+                            body: sent.body,
+                            clientMsgId: sent.client_msg_id,
+                            sender: {
+                                type: 'agent',
+                                name: 'Sam',
+                                avatarUrl: null,
+                                id: AGENT.id,
+                            },
+                        }),
+                    },
+                    { status: 201 },
+                );
+            }),
+        );
+
+        const { view } = await mount();
+
+        await attempt(view, 'first');
+        await attempt(view, 'second');
+        // the second request has not left while the first is still out
+        await act(
+            async () => new Promise((resolve) => setTimeout(resolve, 60)),
+        );
+        expect(order).toEqual(['first']);
+
+        releaseFirst();
+        await waitFor(() => expect(order).toEqual(['first', 'second']));
+        expect(mostInFlight).toBe(1);
+    });
+
+    it('a request that never answers fails after the deadline, so the next message is not stuck behind it', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+        try {
+            backend.server.use(
+                http.post(MESSAGES_URL, () => new Promise(() => undefined)),
+            );
+
+            const { view } = await mount();
+
+            await attempt(view, 'Hello?');
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(20_001);
+            });
+            await waitFor(() => expect(failedBubble(view)).not.toBeNull());
+
+            expect(failedBubble(view)?.textContent).toContain(
+                'the connection dropped',
+            );
+            expect(
+                failedBubble(view)?.querySelector(
+                    '[data-testid^="message-retry-"]',
+                ),
+            ).not.toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('gives the box a sane length limit', async () => {
+        const { view } = await mount();
+
+        expect(composer(view).maxLength).toBe(4000);
+    });
+});
+
+describe('offline tickets and images', () => {
+    it('does not offer to attach images to an offline ticket (the server only takes them for live chats)', async () => {
+        const ticket = activeChat({ type: 'offline', category: null });
+        const { view } = await mount(props({ conversation: ticket }));
+
+        expect(view.byTestId('composer-input')).not.toBeNull();
+        expect(view.byTestId('composer-attach')).toBeNull();
+        expect(view.byTestId('composer-file')).toBeNull();
+    });
+
+    it('keeps the attach control for a live chat', async () => {
+        const { view } = await mount();
+
+        expect(view.byTestId('composer-attach')).not.toBeNull();
+    });
+});
+
+describe("a chat that stops being the agent's", () => {
+    it('re-reads it when it leaves the lists and then shows who has it, with the composer off', async () => {
+        const { view, session } = await mount();
+
+        await act(async () =>
+            session.store.dispatch({
+                type: 'hydrate',
+                queue: [],
+                mine: [activeChat()],
+            }),
+        );
+        expect(view.byTestId('composer-input')).not.toBeNull();
+
+        // somebody else has it now: the server's copy says so; the agent's own `conversation.updated` has it leave "My chats"
+        const handedOver = activeChat({
+            assignedAgent: { id: 99, name: 'Mia' },
+        });
+
+        backend.current.state.conversations.set(CONVERSATION, handedOver);
+        await act(async () =>
+            session.store.dispatch({
+                type: 'conversationUpdated',
+                conversation: handedOver,
+                viewer: { id: AGENT.id, isAdmin: false },
+            }),
+        );
+        await waitFor(() =>
+            expect(view.byTestId('conversation-reassigned')).not.toBeNull(),
+        );
+
+        expect(view.byTestId('conversation-reassigned')?.textContent).toContain(
+            'Mia',
+        );
+        expect(view.byTestId('composer-input')).toBeNull();
+        expect(view.byTestId('composer-disabled')?.textContent).toBe(
+            'This chat is no longer assigned to you.',
+        );
+    });
+
+    it('when the server no longer lets the agent see the chat at all, it is read-only as well', async () => {
+        const { view, session } = await mount();
+
+        await act(async () =>
+            session.store.dispatch({
+                type: 'hydrate',
+                queue: [],
+                mine: [activeChat()],
+            }),
+        );
+
+        backend.server.use(
+            http.get(`/api/v1/conversations/${CONVERSATION}`, () =>
+                HttpResponse.json(
+                    { error: { code: 'forbidden', message: 'Forbidden.' } },
+                    { status: 403 },
+                ),
+            ),
+        );
+        await act(async () =>
+            session.store.dispatch({
+                type: 'removed',
+                conversation: CONVERSATION,
+            }),
+        );
+        await waitFor(() =>
+            expect(view.byTestId('conversation-reassigned')).not.toBeNull(),
+        );
+
+        expect(view.byTestId('composer-input')).toBeNull();
+    });
+
+    it("an admin watching a colleague's chat is not locked out by this", async () => {
+        const { view, session } = await mount(props(), { viewer: ADMIN });
+
+        await act(async () =>
+            session.store.dispatch({
+                type: 'hydrate',
+                queue: [],
+                mine: [activeChat()],
+            }),
+        );
+        await act(async () =>
+            session.store.dispatch({
+                type: 'removed',
+                conversation: CONVERSATION,
+            }),
+        );
+
+        expect(view.byTestId('conversation-reassigned')).toBeNull();
+    });
+});

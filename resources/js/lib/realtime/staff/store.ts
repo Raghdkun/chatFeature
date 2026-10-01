@@ -17,6 +17,12 @@ import type {
 
 export type QueueItemState = 'open' | 'taken' | 'expired';
 
+/**
+ * An offer as the server may send it. `ttlSeconds` (seconds until `expiresAt`, computed when the payload was built) is newer than the
+ * generated type: a backend without it simply never sets it.
+ */
+export type OfferPayload = OfferData & { ttlSeconds?: number | null };
+
 /** One pending request in the Queue column: a `chat.offered` payload, or a queued conversation known only from a snapshot. */
 export type QueueItem = {
     conversation: string;
@@ -29,8 +35,14 @@ export type QueueItem = {
     wave: number | null;
     /** ISO time the visitor started waiting (a snapshot) or the offer arrived (an offer without a snapshot). */
     waitingSince: string;
-    /** When the offer lapses; `null` for a snapshot row (the REST shape carries no deadline: the UI counts up instead). */
+    /**
+     * When the offer lapses, in THIS browser's clock: an offer that carries `ttlSeconds` is counted from the moment it arrived here
+     * (the agent's clock may be minutes off the server's), otherwise the server's `expiresAt` / `queueExpiresAt` is used as sent.
+     * `null` when nothing says (the UI counts up instead).
+     */
     expiresAt: string | null;
+    /** The length of the wait the deadline belongs to, in seconds (for the countdown ring); `null` when unknown. */
+    totalSeconds: number | null;
     state: QueueItemState;
     /** Who won the race (`state === 'taken'`). */
     takenBy: string | null;
@@ -95,7 +107,7 @@ export type InboxAction =
           /** The store's `clock` when the snapshot was requested: conversations that changed since keep their live copy. */
           since?: number;
       }
-    | { type: 'offered'; offer: OfferData; nowMs: number }
+    | { type: 'offered'; offer: OfferPayload; nowMs: number }
     | { type: 'taken'; conversation: string; by: string | null }
     | { type: 'dismiss'; conversation: string }
     | { type: 'expire'; nowMs: number }
@@ -185,6 +197,16 @@ export function isStaleUpdate(
 /* Queue items                                                                */
 /* -------------------------------------------------------------------------- */
 
+/** How long the queue wait of a snapshot row lasts (a difference of two server times: the clocks cancel out). */
+function queueSeconds(conversation: ConversationStaff): number | null {
+    const start = Date.parse(conversation.createdAt);
+    const end = Date.parse(conversation.queueExpiresAt ?? '');
+
+    return Number.isNaN(start) || Number.isNaN(end)
+        ? null
+        : Math.max(1, Math.round((end - start) / 1000));
+}
+
 function itemFromConversation(
     conversation: ConversationStaff,
     existing?: QueueItem,
@@ -199,17 +221,27 @@ function itemFromConversation(
         widgetName: conversation.widget.name,
         wave: existing?.wave ?? null,
         waitingSince: conversation.createdAt,
-        expiresAt: existing?.expiresAt ?? null,
+        // An offer already counting in this browser's clock keeps its deadline; a snapshot row falls back to the queue deadline.
+        expiresAt: existing?.expiresAt ?? conversation.queueExpiresAt ?? null,
+        totalSeconds:
+            existing?.totalSeconds ?? queueSeconds(conversation) ?? null,
         state: existing?.state === 'taken' ? 'taken' : 'open',
         takenBy: existing?.takenBy ?? null,
     };
 }
 
 function itemFromOffer(
-    offer: OfferData,
+    offer: OfferPayload,
     nowMs: number,
     existing?: QueueItem,
 ): QueueItem {
+    const ttl =
+        typeof offer.ttlSeconds === 'number' &&
+        Number.isFinite(offer.ttlSeconds) &&
+        offer.ttlSeconds >= 0
+            ? offer.ttlSeconds
+            : null;
+
     return {
         conversation: offer.conversation,
         ticketNo: existing?.ticketNo ?? null,
@@ -220,7 +252,11 @@ function itemFromOffer(
         widgetName: offer.widget.name,
         wave: offer.wave,
         waitingSince: existing?.waitingSince ?? new Date(nowMs).toISOString(),
-        expiresAt: offer.expiresAt,
+        expiresAt:
+            ttl === null
+                ? offer.expiresAt
+                : new Date(nowMs + ttl * 1000).toISOString(),
+        totalSeconds: ttl,
         state: 'open',
         takenBy: null,
     };

@@ -133,6 +133,9 @@ export const ATTACHMENT_MIME_TYPES = [
     'image/gif',
 ] as const;
 
+/** The default of `chat.max_message_length`; the server stays the authority (it answers `422 body` beyond its own limit). */
+export const MESSAGE_MAX_LENGTH = 4000;
+
 /** The default of `chat.attachment_max_bytes`; the server stays the authority. */
 export const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
 

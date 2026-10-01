@@ -674,3 +674,85 @@ describe('a snapshot that was in flight while events arrived', () => {
         expect(state.clock).toBe(0);
     });
 });
+
+describe('offer deadlines and the agent clock', () => {
+    it('with ttlSeconds the deadline counts from the moment the offer arrived here, whatever the two clocks say', () => {
+        // the server's clock is ten minutes behind this browser's: expiresAt is already "in the past" locally
+        const offer = {
+            ...makeOffer({ expiresAt: fakeTime(-600 + 60) }),
+            ttlSeconds: 60,
+        };
+        const state = run(EMPTY_INBOX, { type: 'offered', offer, nowMs: NOW });
+
+        expect(state.queue[0].expiresAt).toBe(
+            new Date(NOW + 60_000).toISOString(),
+        );
+        expect(state.queue[0].totalSeconds).toBe(60);
+        expect(nextExpiryMs(state)).toBe(NOW + 60_000);
+
+        // it is still open a second before the local deadline, and expires right at it
+        expect(
+            run(state, { type: 'expire', nowMs: NOW + 59_000 }).queue[0].state,
+        ).toBe('open');
+        expect(
+            run(state, { type: 'expire', nowMs: NOW + 60_000 }).queue[0].state,
+        ).toBe('expired');
+
+        // and the other way round: a clock far ahead of the server does not make a fresh offer last longer
+        const ahead = {
+            ...makeOffer({ expiresAt: fakeTime(600 + 60) }),
+            ttlSeconds: 60,
+        };
+
+        expect(
+            run(EMPTY_INBOX, { type: 'offered', offer: ahead, nowMs: NOW })
+                .queue[0].expiresAt,
+        ).toBe(new Date(NOW + 60_000).toISOString());
+    });
+
+    it('without ttlSeconds (an older backend) the server deadline is used as sent', () => {
+        const offer = makeOffer({ expiresAt: fakeTime(45) });
+        const state = run(EMPTY_INBOX, { type: 'offered', offer, nowMs: NOW });
+
+        expect(state.queue[0].expiresAt).toBe(fakeTime(45));
+        expect(state.queue[0].totalSeconds).toBeNull();
+    });
+
+    it('a snapshot row counts down to queueExpiresAt and lapses, with the wait length as the ring total', () => {
+        const row = makeConversationStaff({
+            createdAt: fakeTime(-30),
+            queueExpiresAt: fakeTime(60),
+        });
+        const state = run(EMPTY_INBOX, {
+            type: 'hydrate',
+            queue: [row],
+            mine: [],
+        });
+
+        expect(state.queue[0]).toMatchObject({
+            expiresAt: fakeTime(60),
+            totalSeconds: 90,
+        });
+        expect(nextExpiryMs(state)).toBe(NOW + 60_000);
+        expect(
+            run(state, { type: 'expire', nowMs: NOW + 61_000 }).queue[0].state,
+        ).toBe('expired');
+    });
+
+    it('an offer keeps its own-clock deadline when a snapshot of the same chat arrives', () => {
+        const offer = { ...makeOffer(), ttlSeconds: 30 };
+        const snapshot = makeConversationStaff({
+            ulid: offer.conversation,
+            queueExpiresAt: fakeTime(500),
+        });
+        const state = run(
+            EMPTY_INBOX,
+            { type: 'offered', offer, nowMs: NOW },
+            { type: 'hydrate', queue: [snapshot], mine: [] },
+        );
+
+        expect(state.queue[0].expiresAt).toBe(
+            new Date(NOW + 30_000).toISOString(),
+        );
+    });
+});

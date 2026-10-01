@@ -5,7 +5,6 @@ import {
     clockLabel,
     dayLabel,
     GROUP_GAP_MS,
-    linkify,
     secondsSince,
     secondsUntil,
     shortAge,
@@ -181,46 +180,6 @@ describe('buildListEntries', () => {
 
     it('is empty for no messages', () => {
         expect(buildListEntries([])).toEqual([]);
-    });
-});
-
-describe('linkify', () => {
-    it('keeps plain text as text', () => {
-        expect(linkify('no links here')).toEqual([
-            { kind: 'text', text: 'no links here' },
-        ]);
-        expect(linkify('')).toEqual([]);
-    });
-
-    it('splits out http and https links and trims trailing punctuation', () => {
-        expect(
-            linkify('See https://example.com/a?b=1, then http://x.test).'),
-        ).toEqual([
-            { kind: 'text', text: 'See ' },
-            {
-                kind: 'link',
-                text: 'https://example.com/a?b=1',
-                href: 'https://example.com/a?b=1',
-            },
-            { kind: 'text', text: ', then ' },
-            { kind: 'link', text: 'http://x.test', href: 'http://x.test' },
-            { kind: 'text', text: ').' },
-        ]);
-    });
-
-    it('never links other schemes or markup', () => {
-        const parts = linkify(
-            'javascript:alert(1) <a href="https://evil.test">x</a> data:text/html,hi',
-        );
-
-        expect(
-            parts
-                .filter((part) => part.kind === 'link')
-                .every((part) => part.href.startsWith('https://')),
-        ).toBe(true);
-        expect(parts.map((part) => part.text).join('')).toContain(
-            'javascript:alert(1)',
-        );
     });
 });
 

@@ -9,7 +9,7 @@ import {
 import { Avatar } from '@/embed/components/ui';
 import { formatTime } from '@/embed/lib/format';
 import { messageTestId } from '@/embed/lib/group';
-import { linkify } from '@/embed/lib/linkify';
+import { linkify } from '@/lib/chat/linkify';
 import type { Translate } from '@/embed/i18n';
 import {
     isFinalFailure,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { linkify, safeHref } from '@/embed/lib/linkify';
+import { linkify, safeHref } from '@/lib/chat/linkify';
 
 describe('linkify', () => {
     it('returns plain text untouched', () => {
@@ -75,6 +75,34 @@ describe('linkify', () => {
 
             expect(hasLink, text).toBe(text === 'http://localhost');
         }
+    });
+
+    it('never links a URL with credentials, even when the "user" part looks like a trusted host', () => {
+        for (const text of [
+            'https://paypal.com@evil.example/x',
+            'http://accounts.google.com:secret@evil.example/login',
+            'Pay at https://paypal.com@evil.example/x now',
+        ]) {
+            expect(
+                linkify(text).some((segment) => segment.type === 'link'),
+                text,
+            ).toBe(false);
+        }
+    });
+
+    it('keeps parentheses that belong to the URL and strips the one that closes the sentence', () => {
+        expect(linkify('https://en.wikipedia.org/wiki/Foo_(bar).')).toEqual([
+            {
+                type: 'link',
+                text: 'https://en.wikipedia.org/wiki/Foo_(bar)',
+                href: 'https://en.wikipedia.org/wiki/Foo_(bar)',
+            },
+            { type: 'text', text: '.' },
+        ]);
+        expect(linkify('(https://example.com/a_(b))')[1]).toMatchObject({
+            type: 'link',
+            text: 'https://example.com/a_(b)',
+        });
     });
 
     it('treats markup as plain text: no HTML ever reaches a segment as a link', () => {

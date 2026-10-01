@@ -14,10 +14,26 @@ import {
 import { MessageBody } from '@/components/inbox/message-body';
 import { Button } from '@/components/ui/button';
 import { useTrans } from '@/hooks/use-trans';
-import type { AttachmentData, LocalMessage } from '@/lib/chat/types';
+import {
+    isFinalFailure,
+    type AttachmentData,
+    type LocalMessage,
+    type MessageFailure,
+} from '@/lib/chat/types';
 import { cn } from '@/lib/utils';
 
 type MessageEntry = Extract<ListEntry, { kind: 'message' }>;
+
+/** What the agent is told under a message that did not go through (the generic "Not sent." when the cause is not known). */
+const FAILURE_KEY = {
+    too_long: 'inbox.message.failed.too_long',
+    rejected: 'inbox.message.failed.rejected',
+    forbidden: 'inbox.message.failed.forbidden',
+    closed: 'inbox.message.failed.closed',
+    rate_limited: 'inbox.message.failed.rate_limited',
+    network: 'inbox.message.failed.network',
+    unknown: 'inbox.message.not_sent',
+} as const satisfies Record<MessageFailure, string>;
 
 /** "Sent" / "Delivered" / "Seen" as ticks (and words for assistive tech). Visitors' messages carry no ticks: they are the agent's receipts. */
 function Ticks({ message }: { message: LocalMessage }) {
@@ -144,7 +160,7 @@ export function MessageBubble({
             )}
             <div
                 className={cn(
-                    'grid max-w-[85%] gap-1.5 rounded-2xl px-3 py-2 sm:max-w-[75%]',
+                    'grid max-w-[85%] min-w-0 gap-1.5 rounded-2xl px-3 py-2 sm:max-w-[75%]',
                     mine
                         ? 'bg-primary text-primary-foreground'
                         : 'bg-muted text-foreground',
@@ -169,18 +185,26 @@ export function MessageBubble({
                     role="alert"
                     className="mt-1 flex flex-wrap items-center gap-1 text-xs text-destructive-foreground"
                 >
-                    <span>{t('inbox.message.not_sent')}</span>
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        data-testid={`message-retry-${message.clientMsgId}`}
-                        onClick={() => onRetry(message.clientMsgId as string)}
+                    <span
+                        data-testid={`message-failure-${message.clientMsgId}`}
                     >
-                        <RotateCw aria-hidden />
-                        {t('inbox.message.retry')}
-                    </Button>
+                        {t(FAILURE_KEY[message.failure ?? 'unknown'])}
+                    </span>
+                    {isFinalFailure(message.failure) ? null : (
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            data-testid={`message-retry-${message.clientMsgId}`}
+                            onClick={() =>
+                                onRetry(message.clientMsgId as string)
+                            }
+                        >
+                            <RotateCw aria-hidden />
+                            {t('inbox.message.retry')}
+                        </Button>
+                    )}
                     <Button
                         type="button"
                         variant="ghost"

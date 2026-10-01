@@ -42,6 +42,7 @@ const item = (overrides: Partial<QueueItem> = {}): QueueItem => ({
     wave: 1,
     waitingSince: new Date(NOW).toISOString(),
     expiresAt: new Date(NOW + 90_000).toISOString(),
+    totalSeconds: null,
     state: 'open',
     takenBy: null,
     ...overrides,
