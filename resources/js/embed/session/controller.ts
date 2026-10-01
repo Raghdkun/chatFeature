@@ -255,6 +255,8 @@ export class ChatController {
     private sessionPromise: Promise<void> | null = null;
     private rotation: Promise<void> | null = null;
     private rotatedAt = 0;
+    /** The visitor's own `POST .../cancel` is on its way: a sync that already sees the chat closed must not call it a missed queue. */
+    private cancelling = false;
     /** A refused token is being dropped (the host is asked whether another tab holds a newer one). */
     private dropping = false;
 
@@ -1782,7 +1784,10 @@ export class ChatController {
                 break;
             case 'closed':
                 if (phase === 'queued') {
-                    this.dispatch({ type: 'MISSED' });
+                    // Closed while queued: the visitor's own cancel (its answer is about to land) or an administrator dismissing it.
+                    if (!this.cancelling) {
+                        this.dispatch({ type: 'MISSED' });
+                    }
                 } else {
                     this.dispatch({ type: 'CLOSED', reason: 'system' });
                 }
@@ -2068,10 +2073,15 @@ export class ChatController {
             return;
         }
 
+        this.cancelling = true;
+
         try {
             await this.api.cancelConversation(conversation.ulid);
+            this.cancelling = false;
             this.dispatch({ type: 'CANCEL_OK' });
         } catch (error) {
+            this.cancelling = false;
+
             if (isVisitorApiError(error) && error.isSessionGone) {
                 this.handleSessionGone();
 
