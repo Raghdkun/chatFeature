@@ -43,7 +43,20 @@ describe('management API routes', () => {
         expect(api.widgets.rotateSecret('w1')).toBe(
             '/api/v1/widgets/w1/rotate-secret',
         );
-        expect(api.widgets.snippet('w1')).toBe('/api/v1/widgets/w1/snippet');
+    });
+
+    it('lists only the routes the screens use (nothing spare to drift out of date)', () => {
+        expect(Object.keys(api.widgets).sort()).toEqual([
+            'categories',
+            'domains',
+            'draft',
+            'greetings',
+            'index',
+            'publish',
+            'rotateSecret',
+            'show',
+        ]);
+        expect(Object.keys(widgetsRoutes.public)).toEqual(['loader']);
     });
 
     it('url-encodes identifiers so they cannot escape the path', () => {
@@ -51,12 +64,8 @@ describe('management API routes', () => {
         expect(widgetsRoutes.pages.widget('../x')).toBe('/widgets/..%2Fx');
     });
 
-    it('points the public helpers at the loader and embed routes', () => {
+    it('points the loader helper at the generic loader and the CSRF helper at Sanctum', () => {
         expect(widgetsRoutes.public.loader()).toBe('/widget/v1/loader.js');
-        expect(widgetsRoutes.public.script('wk_1')).toBe('/w/wk_1.js');
-        expect(widgetsRoutes.public.embed('wk_1')).toBe('/embed/wk_1');
-        expect(widgetsRoutes.public.hosted('wk_1')).toBe('/c/wk_1');
-        expect(widgetsRoutes.public.publicApiBase()).toBe('/api/v1/public');
         expect(widgetsRoutes.csrfCookie()).toBe('/sanctum/csrf-cookie');
     });
 });

@@ -1,4 +1,5 @@
 import { Head, usePage } from '@inertiajs/react';
+import type { ReactNode } from 'react';
 import { ShieldAlert } from 'lucide-react';
 import { ActiveEnvironmentCard } from '@/components/settings/auth/active-environment-card';
 import { EnvironmentCard } from '@/components/settings/auth/environment-card';
@@ -9,6 +10,8 @@ import Heading from '@/components/heading';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { useTrans } from '@/hooks/use-trans';
+import AppLayout from '@/layouts/app-layout';
+import SettingsLayout from '@/layouts/settings/layout';
 import { authSettingsRoutes } from '@/lib/auth-settings-routes';
 import type { SettingsAuthProps } from '@/types/pizzasys';
 
@@ -90,11 +93,22 @@ export default function AuthSettings({ authSettings }: SettingsAuthProps) {
     );
 }
 
-AuthSettings.layout = {
-    breadcrumbs: [
-        {
-            title: 'Authentication',
-            href: authSettingsRoutes.index,
-        },
-    ],
-};
+AuthSettings.layout = [AuthSettingsAppLayout, SettingsLayout];
+
+/** The breadcrumb is translated like every other label (a static layout prop could not be). */
+function AuthSettingsAppLayout({ children }: { children: ReactNode }) {
+    const { t } = useTrans();
+
+    return (
+        <AppLayout
+            breadcrumbs={[
+                {
+                    title: t('settings.auth.title'),
+                    href: authSettingsRoutes.index,
+                },
+            ]}
+        >
+            {children}
+        </AppLayout>
+    );
+}

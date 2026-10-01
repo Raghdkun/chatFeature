@@ -6,6 +6,7 @@ import SettingsLayout from '@/layouts/settings/layout';
 import { inNavGroup, navFor } from '@/nav';
 import AgentsIndex from '@/pages/agents/index';
 import CategoriesIndex from '@/pages/categories/index';
+import AuthSettings from '@/pages/settings/auth';
 import SupportCategories from '@/pages/settings/support-categories';
 import WidgetBuilder from '@/pages/widgets/builder';
 import WidgetsIndex from '@/pages/widgets/index';
@@ -219,6 +220,28 @@ describe('page layouts (breadcrumbs)', () => {
 
         expect(crumbs?.textContent).toContain('Widgets');
         expect(crumbs?.textContent).toContain('Marketing site');
+    });
+
+    it('translates the Settings > Auth breadcrumb and keeps the settings menu around the page', async () => {
+        expect(AuthSettings.layout).toHaveLength(2);
+        expect(AuthSettings.layout[1]).toBe(SettingsLayout);
+
+        const Layout = AuthSettings.layout[0] as React.ComponentType<{
+            children: React.ReactNode;
+        }>;
+        const view = await render(
+            <TooltipProvider>
+                <Layout>
+                    <p>content</p>
+                </Layout>
+            </TooltipProvider>,
+        );
+
+        // The text comes from the translation table (settings.auth.title), not from a literal.
+        expect(
+            view.container.querySelector('nav[aria-label="breadcrumb"]')
+                ?.textContent,
+        ).toContain(en['settings.auth.title']);
     });
 
     it('puts support categories inside the settings layout', () => {
