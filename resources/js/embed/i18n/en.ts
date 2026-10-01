@@ -109,6 +109,8 @@ export const EN = {
         'Your session expired. Start a new chat to continue.',
     'embed.chat.status.reconnecting': 'Reconnecting…',
     'embed.chat.error.generic': 'Something went wrong. Please try again.',
+    'embed.chat.error.screen': "This part of the chat didn't load.",
+    'embed.chat.error.try_again': 'Try again',
     'embed.chat.error.network':
         "We can't reach the server. Check your connection and try again.",
     'embed.chat.error.rate_limited.one':

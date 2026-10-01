@@ -137,6 +137,8 @@ export type Snapshot = {
 const WATCHDOG_MS = 10_000;
 /** A sync pass that has been running this long is presumed lost (a hung request): the next call starts a fresh one. */
 const SYNC_STALE_MS = 45_000;
+/** After the signed attachment URLs were refreshed, a picture that still fails is genuinely broken: no second refresh for a while. */
+const URL_REFRESH_COOLDOWN_MS = 20_000;
 const ATTACHMENT_LIMIT = 4;
 
 export const MAX_ATTACHMENTS = ATTACHMENT_LIMIT;
@@ -264,6 +266,8 @@ export class ChatController {
     private realtimeRetryTimer: ReturnType<typeof setTimeout> | undefined;
     private watchdog: ReturnType<typeof setInterval> | undefined;
     private syncing: Promise<void> | null = null;
+    private urlRefresh: Promise<void> | null = null;
+    private urlRefreshedAt = -Infinity;
     private syncStartedAt = 0;
     private syncPass = 0;
     private syncAgain = false;
@@ -1544,6 +1548,46 @@ export class ChatController {
         }
 
         return all;
+    }
+
+    /**
+     * Signed attachment URLs expire (and a long chat outlives them): when a picture fails to load, the messages are read again and
+     * the fresh URLs merged in. Single-flight, and at most once per failure burst (a picture that still fails afterwards is broken).
+     */
+    refreshAttachmentUrls(): Promise<void> {
+        if (this.urlRefresh !== null) {
+            return this.urlRefresh;
+        }
+
+        const conversation = this.state.conversation;
+
+        if (
+            conversation === null ||
+            this.api === null ||
+            this.disposed ||
+            this.now() - this.urlRefreshedAt < URL_REFRESH_COOLDOWN_MS
+        ) {
+            return Promise.resolve();
+        }
+
+        this.urlRefresh = (async () => {
+            try {
+                this.dispatch({
+                    type: 'MESSAGES',
+                    messages: await this.fetchMessagesAfter(
+                        conversation.ulid,
+                        0,
+                    ),
+                });
+            } catch (error) {
+                this.onBackgroundError(error);
+            } finally {
+                this.urlRefreshedAt = this.now();
+                this.urlRefresh = null;
+            }
+        })();
+
+        return this.urlRefresh;
     }
 
     /** Where a catch-up fetch starts: the first hole in what we have, else the end of it. */

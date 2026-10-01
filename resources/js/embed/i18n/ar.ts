@@ -98,6 +98,8 @@ export const AR: Messages = {
     'embed.chat.closed.expired': 'انتهت جلستك. ابدأ محادثة جديدة للمتابعة.',
     'embed.chat.status.reconnecting': 'جارٍ إعادة الاتصال…',
     'embed.chat.error.generic': 'حدث خطأ ما. يرجى المحاولة مرة أخرى.',
+    'embed.chat.error.screen': 'تعذّر تحميل هذا الجزء من المحادثة.',
+    'embed.chat.error.try_again': 'حاول مرة أخرى',
     'embed.chat.error.network':
         'تعذّر الاتصال بالخادم. تحقق من اتصالك وحاول مرة أخرى.',
     'embed.chat.error.rate_limited.zero':

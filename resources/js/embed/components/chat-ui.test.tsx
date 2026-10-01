@@ -6,7 +6,14 @@ import { fill } from '@/tests/dom';
 import { click } from '@/tests/render';
 import { useBackend } from '@/tests/msw/server';
 import { createHarness, makeInit } from '@/tests/embed-harness';
-import { press, renderPanel, run, text, waitFor } from '@/tests/embed-render';
+import {
+    flushUi,
+    press,
+    renderPanel,
+    run,
+    text,
+    waitFor,
+} from '@/tests/embed-render';
 
 const byTestId = (root: ParentNode, id: string): HTMLElement | null =>
     root.querySelector<HTMLElement>(`[data-testid="${id}"]`);
@@ -317,6 +324,158 @@ describe('message list', () => {
 
         await click(pill);
         expect(byTestId(c, 'new-messages-pill')).toBeNull();
+    });
+});
+
+describe('expiring attachment URLs', () => {
+    const picture = (version: number): AttachmentData => ({
+        ulid: 'att-exp',
+        mime: 'image/webp',
+        size: 10,
+        width: 320,
+        height: 200,
+        url: `https://files.test/full.webp?v=${version}`,
+        thumbUrl: `https://files.test/thumb.webp?v=${version}`,
+    });
+    const fire = (element: Element | null, type: 'error' | 'load') =>
+        act(async () => {
+            element?.dispatchEvent(new Event(type));
+        });
+
+    it('a picture that fails to load makes the panel read the messages again and show the refreshed URL, once per failure burst', async () => {
+        const { backend, c } = await activeChat((b) => {
+            b.agentSays('See this', {
+                attachments: [picture(1)],
+                type: 'image',
+            });
+        });
+        const thumb = () =>
+            c.querySelector<HTMLImageElement>(
+                '[data-testid="message-image"] img',
+            );
+
+        expect(thumb()?.getAttribute('src')).toBe(
+            'https://files.test/thumb.webp?v=1',
+        );
+
+        // the server now signs the same picture with new URLs
+        const stored = backend.state.messages.find(
+            (m) => m.attachments.length > 0,
+        );
+
+        if (stored !== undefined) {
+            stored.attachments = [picture(2)];
+        }
+
+        const before = backend.callsTo('GET', '/messages').length;
+
+        await fire(thumb(), 'error');
+        await waitFor(
+            () =>
+                thumb()?.getAttribute('src') ===
+                'https://files.test/thumb.webp?v=2',
+        );
+        expect(backend.callsTo('GET', '/messages').length).toBe(before + 1);
+
+        // still failing right after: that is a broken picture, not an expired URL: no second refresh
+        await fire(thumb(), 'error');
+        await flushUi();
+        expect(backend.callsTo('GET', '/messages').length).toBe(before + 1);
+    });
+
+    it('an open lightbox follows the refreshed URL when its picture fails', async () => {
+        const { backend, c } = await activeChat((b) => {
+            b.agentSays('See this', {
+                attachments: [picture(1)],
+                type: 'image',
+            });
+        });
+
+        await click(byTestId(c, 'message-image'));
+
+        const big = () => byTestId(c, 'lightbox')?.querySelector('img') ?? null;
+
+        expect(big()?.getAttribute('src')).toBe(
+            'https://files.test/full.webp?v=1',
+        );
+
+        const stored = backend.state.messages.find(
+            (m) => m.attachments.length > 0,
+        );
+
+        if (stored !== undefined) {
+            stored.attachments = [picture(2)];
+        }
+
+        await fire(big(), 'error');
+        await waitFor(
+            () =>
+                big()?.getAttribute('src') ===
+                'https://files.test/full.webp?v=2',
+        );
+    });
+
+    it('a loaded picture keeps the list pinned to the end', async () => {
+        const { c } = await activeChat((b) => {
+            b.agentSays('See this', {
+                attachments: [picture(1)],
+                type: 'image',
+            });
+        });
+        const list = byTestId(c, 'message-list') as HTMLElement;
+
+        Object.defineProperty(list, 'scrollHeight', {
+            value: 900,
+            configurable: true,
+        });
+        list.scrollTop = 0;
+
+        await fire(
+            c.querySelector('[data-testid="message-image"] img'),
+            'load',
+        );
+
+        expect(list.scrollTop).toBe(900);
+    });
+});
+
+describe('screen reader chatter', () => {
+    it('the log announces additions only; typing, receipts and times stay out of it', async () => {
+        const { h, c } = await activeChat((b) => {
+            b.agentSays('Hello');
+        });
+        const log = byTestId(c, 'message-list') as HTMLElement;
+
+        expect(log.getAttribute('role')).toBe('log');
+        expect(log.getAttribute('aria-relevant')).toBe('additions');
+
+        await run(() =>
+            h.socket()?.emit('client-typing', { actor: 'agent', typing: true }),
+        );
+
+        // the typing status is a polite region OUTSIDE the log
+        const status = Array.from(c.querySelectorAll('[role="status"]')).find(
+            (node) => node.textContent?.includes('typing'),
+        );
+
+        expect(status).toBeDefined();
+        expect(log.contains(status ?? null)).toBe(false);
+
+        // the time / receipt line is excluded from the live announcements
+        const stamp = log.querySelector(
+            '[data-sender="agent"] time',
+        )?.parentElement;
+
+        expect(stamp?.getAttribute('aria-live')).toBe('off');
+    });
+});
+
+describe('bottom inset', () => {
+    it('the footer carries the home-indicator inset, so the composer above it does not add it again', async () => {
+        const { c } = await activeChat();
+        const main = byTestId(c, 'chat-state') as HTMLElement;
+
+        expect(main.style.getPropertyValue('--pne-safe-b')).toBe('0px');
     });
 });
 

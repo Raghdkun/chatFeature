@@ -45,13 +45,14 @@ export function useEnv(): PanelEnv {
 }
 
 export type Overlay =
-    | { type: 'image'; url: string; alt: string }
+    | { type: 'image'; url: string; alt: string; ulid?: string }
     | { type: 'end' }
     | null;
 
 export type OverlayApi = {
     overlay: Overlay;
-    openImage: (url: string, alt: string) => void;
+    /** `ulid` names the attachment, so the lightbox follows its (refreshed) signed URL. */
+    openImage: (url: string, alt: string, ulid?: string) => void;
     openEnd: () => void;
     close: () => void;
 };

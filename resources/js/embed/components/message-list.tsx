@@ -1,7 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useController, useSnapshot } from '@/embed/components/context';
 import { MessageBubble } from '@/embed/components/message-bubble';
-import { TypingIndicator } from '@/embed/components/typing-indicator';
+import {
+    TypingIndicator,
+    TypingStatus,
+} from '@/embed/components/typing-indicator';
 import { formatDay } from '@/embed/lib/format';
 import { layoutMessages } from '@/embed/lib/group';
 import { useDocumentVisible, useReducedMotion } from '@/embed/hooks/use-media';
@@ -104,7 +107,7 @@ export function MessageList({ onOpenImage }: Props) {
                 ref={scroller}
                 role="log"
                 aria-live="polite"
-                aria-relevant="additions text"
+                aria-relevant="additions"
                 aria-label={t('embed.chat.active.log_label')}
                 tabIndex={0}
                 data-testid="message-list"
@@ -155,6 +158,15 @@ export function MessageList({ onOpenImage }: Props) {
                             onRetry={(id) => controller.retry(id)}
                             onDiscard={(id) => controller.discard(id)}
                             onOpenImage={onOpenImage}
+                            onImageLoad={() => {
+                                // A picture that finished loading made the list taller: stay pinned to the end.
+                                if (stick.current) {
+                                    scrollToEnd(false);
+                                }
+                            }}
+                            onImageError={() =>
+                                void controller.refreshAttachmentUrls()
+                            }
                         />
                     );
                 })}
@@ -162,9 +174,13 @@ export function MessageList({ onOpenImage }: Props) {
                     typing={state.typing}
                     name={agent?.name ?? t('embed.chat.active.agent_fallback')}
                     avatarUrl={agent?.avatarUrl ?? null}
-                    t={t}
                 />
             </div>
+            <TypingStatus
+                typing={state.typing}
+                name={agent?.name ?? t('embed.chat.active.agent_fallback')}
+                t={t}
+            />
             {!atBottom && below > 0 ? (
                 <button
                     type="button"

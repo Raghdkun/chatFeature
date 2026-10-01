@@ -103,6 +103,10 @@ type Props = {
     onRetry: (clientMsgId: string) => void;
     onDiscard: (clientMsgId: string) => void;
     onOpenImage: (attachment: AttachmentData, alt: string) => void;
+    /** An attached picture finished loading (the list got taller). */
+    onImageLoad?: () => void;
+    /** An attached picture failed to load (its signed URL may have expired): the caller refreshes the URLs. */
+    onImageError?: () => void;
 };
 
 export function MessageBubble({
@@ -116,6 +120,8 @@ export function MessageBubble({
     onRetry,
     onDiscard,
     onOpenImage,
+    onImageLoad,
+    onImageError,
 }: Props) {
     const mine = message.sender.type === 'visitor';
     const failed = message.status === 'failed';
@@ -190,6 +196,8 @@ export function MessageBubble({
                                                 attachment.height ?? undefined
                                             }
                                             referrerPolicy="no-referrer"
+                                            onLoad={onImageLoad}
+                                            onError={onImageError}
                                             className="block h-auto max-h-48 w-auto max-w-full object-cover"
                                             style={{ maxInlineSize: '220px' }}
                                         />
@@ -234,7 +242,11 @@ export function MessageBubble({
                         </button>
                     </div>
                 ) : groupEnd || message.status === 'sending' ? (
-                    <div className="text-subtle mt-1 flex items-center gap-2 px-1 text-[11px]">
+                    // The time and the receipts are read in browse mode, but never announced as the log changes.
+                    <div
+                        aria-live="off"
+                        className="text-subtle mt-1 flex items-center gap-2 px-1 text-[11px]"
+                    >
                         <time dateTime={message.createdAt}>
                             {formatTime(message.createdAt, locale)}
                         </time>

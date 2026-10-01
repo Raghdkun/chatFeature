@@ -352,7 +352,7 @@ describe('requests that never answer', () => {
                         ...options,
                         timeoutMs: 40,
                         fetchImpl: (input, init) =>
-                            String(input).endsWith('/messages') &&
+                            String(input as string).endsWith('/messages') &&
                             init?.method === 'POST'
                                 ? new Promise<Response>(() => undefined)
                                 : fetch(input, init),
