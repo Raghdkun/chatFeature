@@ -6,8 +6,12 @@
  * module is only ever loaded by the connection manager when a chat enters `queued` or is resumed.
  *
  * Every binding made through this socket can be undone: `listen` and the subscription callbacks hand back an unbinder, and `close()`
- * removes whatever is left before it leaves the channel and disconnects, so a socket that is replaced (a resumed chat, a new chat)
- * never leaves a handler behind.
+ * removes whatever is left and disconnects, so a socket that is replaced (a resumed chat, a new chat) never leaves a handler behind.
+ *
+ * `close()` does NOT call `echo.leave()` first: pusher-js hands every frame to the browser a tick later (`Util.defer`), so a
+ * `pusher:unsubscribe` followed by `disconnect()` is sent on a socket that is already CLOSING and Chrome logs "WebSocket is already in
+ * CLOSING or CLOSED state" on the customer's page, once per chat. Closing the socket drops every subscription server-side anyway, and
+ * each Echo instance serves exactly one conversation.
  */
 import { channels } from '@/lib/chat/events';
 import type {
@@ -144,7 +148,6 @@ export const createEchoSocket: SocketFactory = async (input) => {
             failed.clear();
 
             try {
-                echo.leave(name);
                 echo.disconnect();
             } catch {
                 // already closed

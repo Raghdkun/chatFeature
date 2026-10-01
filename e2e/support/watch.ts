@@ -3,7 +3,7 @@
  * error, a failed request, or an HTTP 5xx from the app. It follows every page of a browser context (the visitor panel is an iframe of
  * the customer-site page and reports through that page), and the pattern is that of `collectConsole()` in `loader.ts`.
  *
- * Known product issues that would fail every spec that finishes a chat are listed in `KNOWN_ISSUES`: they are collected in
+ * Known product issues that would fail every spec that finishes a chat are listed in `KNOWN_ISSUES` (none today): they are collected in
  * `watch.known` (so a spec can still look at them) but are not problems. Delete an entry when the product is fixed.
  *
  * Not counted, on purpose: Chrome's own "Failed to load resource: the server responded with a status of 409" console line (the
@@ -18,15 +18,7 @@ export type Allowed = (RegExp | string)[];
  * Open product bugs the e2e infrastructure found (docs/testing.md, "Known issues the watch tolerates"). Each entry names where the bug is,
  * so the fix can remove it.
  */
-export const KNOWN_ISSUES: { pattern: RegExp; issue: string }[] = [
-    {
-        pattern: /WebSocket is already in CLOSING or CLOSED state/,
-        issue:
-            'visitor panel: when the chat ends the panel closes its socket (resources/js/lib/realtime/visitor/echo-socket.ts close(): ' +
-            'echo.leave(name) then echo.disconnect()) and pusher-js still sends `pusher:unsubscribe` on the socket that is already CLOSING; ' +
-            "Chrome logs a console error once per chat. Harmless, but noise in every customer's console.",
-    },
-];
+export const KNOWN_ISSUES: { pattern: RegExp; issue: string }[] = [];
 
 export type Watch = {
     /** Problems found so far, one line each. */

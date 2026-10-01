@@ -215,9 +215,7 @@ lsof -nP -iTCP -sTCP:LISTEN | grep -E ':(82[6-9][0-9]|83[4-4][0-9])'   # nothing
 
 ### Known issues the watch tolerates
 
-`e2e/support/watch.ts` lists product bugs that would fail every spec which finishes a chat (`KNOWN_ISSUES`; they are collected in `watch.known`, not reported as problems). Delete the entry when the product is fixed.
-
-- **Visitor panel, console error on every ended chat**: `WebSocket is already in CLOSING or CLOSED state.` The panel closes its socket when the chat ends (`resources/js/lib/realtime/visitor/echo-socket.ts`, `close()`: `echo.leave(name)` then `echo.disconnect()`), and pusher-js still sends `pusher:unsubscribe` while the socket is already `CLOSING`. Harmless to the visitor, but it lands in the console of every customer's site.
+`e2e/support/watch.ts` lists product bugs that would fail every spec which finishes a chat (`KNOWN_ISSUES`; they are collected in `watch.known`, not reported as problems). Delete the entry when the product is fixed. **None today**: the visitor panel's `WebSocket is already in CLOSING or CLOSED state.` console error on every ended chat was fixed at its root (`echo-socket.ts` `close()` no longer calls `echo.leave()` before `echo.disconnect()`: pusher-js writes the `pusher:unsubscribe` frame one tick later, onto the socket that is already closing; a Vitest regression test in `echo-integration.test.ts` models that deferred write), and every actor of every spec is now held to a clean console.
 
 ### Screenshots for the deck
 
