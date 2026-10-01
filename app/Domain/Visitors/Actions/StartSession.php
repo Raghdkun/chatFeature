@@ -13,8 +13,8 @@ use App\Models\Conversation;
 use App\Models\Visitor;
 use App\Models\VisitorSession;
 use App\Models\Widget;
+use App\Support\Database\DeadlockRetry;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -56,7 +56,9 @@ final class StartSession
         $identity = $this->identity($widget, $input['identity_token'] ?? null);
         $previous = $this->previousSession($widget, $bearerToken);
 
-        $started = DB::transaction(function () use ($widget, $input, $identity, $previous, $userAgent, $ip): StartedSession {
+        // A verified visitor is looked up with `lockForUpdate` on a key that may not exist yet (a gap lock) and then inserted: two
+        // first sessions of different identities in the same index range deadlock (MySQL 1213) and one is the victim: run it again.
+        $started = DeadlockRetry::transaction(function () use ($widget, $input, $identity, $previous, $userAgent, $ip): StartedSession {
             $visitor = $this->visitor($widget, $identity, $previous, (array) ($input['visitor'] ?? []));
             $page = (array) ($input['page'] ?? []);
 
