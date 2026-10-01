@@ -50,7 +50,7 @@ export function WidgetCard({
                     <MessagesSquare className="size-5" />
                 </span>
                 <div className="grid min-w-0 flex-1 gap-1">
-                    <h3 className="truncate font-semibold tracking-tight">
+                    <h2 className="truncate font-semibold tracking-tight">
                         <Link
                             href={widgetsRoutes.pages.widget(widget.ulid)}
                             className="hover:underline focus-visible:underline"
@@ -58,7 +58,7 @@ export function WidgetCard({
                         >
                             {widget.name}
                         </Link>
-                    </h3>
+                    </h2>
                     <div className="flex flex-wrap items-center gap-1.5">
                         <code
                             dir="ltr"

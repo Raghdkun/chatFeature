@@ -1,5 +1,10 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, type Page, type TestInfo } from '@playwright/test';
+import {
+    expect,
+    type Locator,
+    type Page,
+    type TestInfo,
+} from '@playwright/test';
 
 export type Theme = 'light' | 'dark';
 
@@ -132,4 +137,40 @@ export async function settle(page: Page): Promise<void> {
             );
         }
     });
+}
+
+/** A short unique suffix for names created by a test (a retry or a second project never collides with leftovers). */
+export function unique(prefix: string): string {
+    return `${prefix} ${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/**
+ * Makes the navigation reachable: on a phone the sidebar is an off-canvas drawer behind "Toggle Sidebar", on a desktop it is
+ * always there. Returns the locator that contains the navigation links.
+ */
+export async function openNavigation(page: Page): Promise<Locator> {
+    const dashboard = page
+        .getByRole('link', { name: 'Dashboard', exact: true })
+        .first();
+
+    if (!(await dashboard.isVisible())) {
+        await page
+            .getByRole('button', { name: 'Toggle Sidebar' })
+            .first()
+            .click();
+        await expect(dashboard).toBeVisible();
+    }
+
+    return page.locator('[data-sidebar="sidebar"]').first();
+}
+
+/**
+ * Closes the open dialog or popover with Escape and waits until it is really gone (its exit animation and the dimmed overlay):
+ * opening the next one in the first 100-200 ms after a close can leave the new dialog's buttons behind the old overlay.
+ */
+export async function dismiss(page: Page): Promise<void> {
+    await page.keyboard.press('Escape');
+    await expect(
+        page.locator('[data-slot$="-overlay"], [data-slot="popover-content"]'),
+    ).toHaveCount(0);
 }

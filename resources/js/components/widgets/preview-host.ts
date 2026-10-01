@@ -189,11 +189,11 @@ export function buildPreviewHostDocument(options: PreviewHostOptions): string {
 <style>${PAGE_CSS(scheme)}</style>
 </head>
 <body data-scheme="${scheme}">
-<header class="site-header">
+<div class="site-header">
   <span class="logo"><i></i>${escapeHtml(siteName)}</span>
   <nav class="nav" aria-hidden="true"><span class="bar"></span><span class="bar"></span><span class="bar"></span></nav>
-</header>
-<main>
+</div>
+<div class="site-main">
   <section class="hero" aria-hidden="true">
     <span class="bar h1"></span><span class="bar h1 s"></span>
     <span class="bar p"></span><span class="bar p"></span><span class="bar p s"></span>
@@ -204,7 +204,7 @@ export function buildPreviewHostDocument(options: PreviewHostOptions): string {
     <div class="card"><span class="bar t"></span><span class="bar l"></span><span class="bar l s"></span></div>
     <div class="card"><span class="bar t"></span><span class="bar l"></span><span class="bar l s"></span></div>
   </section>
-</main>
+</div>
 <script>window.__PNE_CHAT_BOOT__=window.__PNE_CHAT_BOOT__||{};window.__PNE_CHAT_BOOT__[${safeJson(boot.key)}]=${safeJson(boot)};window.__PNE_PREVIEW__=${safeJson(preview)};</script>
 <script src="${escapeHtml(loaderUrl)}" data-widget-key="${escapeHtml(boot.key)}" data-open-on-load="false" async></script>
 <script>${RELAY_SOURCE}</script>

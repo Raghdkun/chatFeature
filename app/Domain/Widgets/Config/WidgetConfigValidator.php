@@ -268,6 +268,8 @@ final class WidgetConfigValidator
 
             'hours' => ['array'],
             'hours.mode' => [Rule::enum(OfflineMode::class)],
+            // The same rule as `widgets.timezone` (UpdateWidgetRequest): backward-compatible names (`Asia/Calcutta`, `US/Pacific`)
+            // are valid there and mirrored into the config, so the draft must accept them too or the builder could never save.
             'hours.timezone' => ['string', 'timezone:all_with_bc'],
             'hours.schedule' => ['array', 'max:42'],
             'hours.schedule.*' => ['array'],

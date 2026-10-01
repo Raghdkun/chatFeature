@@ -48,9 +48,9 @@ export function CategoryRow({
                 <CategoryTile icon={category.icon} color={category.color} />
                 <div className="grid min-w-0 gap-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <h3 className="font-medium break-words">
+                        <h2 className="font-medium break-words">
                             {category.name}
-                        </h3>
+                        </h2>
                         <code
                             dir="ltr"
                             className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground"

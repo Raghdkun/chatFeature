@@ -15,7 +15,7 @@ export type TestUser = {
     name: string;
     email: string;
     password: string;
-    kind: 'admin' | 'agent' | 'no-access';
+    kind: 'admin' | 'agent' | 'no-access' | 'admin-only';
     unverified?: boolean;
 };
 
@@ -40,6 +40,46 @@ export const AGENT = account(
     'agent',
     { unverified: true },
 );
+
+/** An administrator who does NOT take chats (`is_agent = false`): sees the "not an agent" notice on support categories. */
+export const ADMIN_ONLY = account(
+    'Khalid Mansour',
+    'khalid.mansour@example.test',
+    'admin-only',
+);
+
+/** Staff of the P3 scenarios (`seed: 'staff'`). Sara and Tariq are plain agents; both serve some categories from the start. */
+export const SARA = account(
+    'Sara Ibrahim',
+    'sara.ibrahim@example.test',
+    'agent',
+);
+export const TARIQ = account('Tariq Aziz', 'tariq.aziz@example.test', 'agent');
+
+/** The categories of the P3 scenarios beyond the installer's "General", with the ones Sara / Tariq serve. */
+export const P3_CATEGORIES = [
+    {
+        slug: 'billing',
+        name: 'Billing',
+        icon: 'credit-card',
+        color: '#2563eb',
+        servedBy: ['sara'],
+    },
+    {
+        slug: 'sales',
+        name: 'Sales',
+        icon: 'shopping-cart',
+        color: '#d97706',
+        servedBy: ['sara'],
+    },
+    {
+        slug: 'technical-support',
+        name: 'Technical support',
+        icon: 'wrench',
+        color: '#7c3aed',
+        servedBy: ['tariq'],
+    },
+] as const;
 
 export const NO_ACCESS = account(
     'Lina Karim',
@@ -78,11 +118,10 @@ export const EXTRA_USERS: TestUser[] = [
     ),
 ];
 
+export type Role = 'admin' | 'agent' | 'admin-only';
+
 /** Where the saved session (Playwright storageState) of a role lives for an instance. */
-export function authStatePath(
-    instance: Instance,
-    role: 'admin' | 'agent',
-): string {
+export function authStatePath(instance: Instance, role: Role): string {
     return `${instance.authDir}/${role}.json`;
 }
 

@@ -208,6 +208,28 @@ class WidgetManagementApiTest extends TestCase
         $this->assertSame('always_offline', $audit->changes['offline_mode']);
     }
 
+    public function test_a_widget_saved_with_a_legacy_timezone_name_can_still_save_its_draft(): void
+    {
+        $widget = $this->widget();
+
+        // `Asia/Calcutta` is the legacy spelling of `Asia/Kolkata`: valid for the settings, mirrored into the config.
+        $this->asAdmin()->patchJson('/api/v1/widgets/'.$widget->ulid, ['timezone' => 'Asia/Calcutta'])
+            ->assertOk()
+            ->assertJsonPath('data.timezone', 'Asia/Calcutta');
+
+        $draft = $widget->refresh()->draft_config;
+        $this->assertSame('Asia/Calcutta', $draft['hours']['timezone']);
+
+        // The builder sends the whole draft back: it must not be refused for the zone it was given.
+        $draft['launcher']['label'] = 'Ask us';
+        $this->asAdmin()->putJson('/api/v1/widgets/'.$widget->ulid.'/draft', ['config' => $draft])
+            ->assertOk();
+
+        $this->asAdmin()->postJson('/api/v1/widgets/'.$widget->ulid.'/publish')->assertOk();
+        $this->assertSame('Asia/Calcutta', $widget->refresh()->timezone);
+        $this->assertSame('Ask us', $widget->config['launcher']['label']);
+    }
+
     public function test_a_settings_change_leaves_unpublished_draft_edits_of_other_fields_alone(): void
     {
         $widget = $this->widget();

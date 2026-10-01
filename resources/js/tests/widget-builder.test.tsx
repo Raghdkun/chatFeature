@@ -1471,11 +1471,20 @@ describe('domains tab', () => {
 
         const input = view.byTestId('builder-domain-input') as HTMLInputElement;
 
+        await fill(input, 'ftp://example.org');
+        await click(view.byTestId('builder-domain-add'));
+
+        expect(view.byTestId('builder-domain-problem')?.textContent).toContain(
+            'Only http:// or https:// can come before the host name',
+        );
+        expect(input.value).toBe('ftp://example.org');
+        expect(view.byTestId('builder-badge-dirty')).toBeNull();
+
         await fill(input, 'https://example.org/path');
         await click(view.byTestId('builder-domain-add'));
 
         expect(view.byTestId('builder-domain-problem')?.textContent).toContain(
-            'Remove the https:// part',
+            'Remove everything after the host name',
         );
         expect(input.value).toBe('https://example.org/path');
         expect(view.byTestId('builder-badge-dirty')).toBeNull();
@@ -1491,6 +1500,28 @@ describe('domains tab', () => {
         expect(view.byTestId('builder-domain-problem')?.textContent).toContain(
             'wildcard',
         );
+    });
+
+    it('keeps an http:// entry (a site served without https) and drops the default https://', async () => {
+        const { view } = await setup(makeBuilderData({ domains: [] }));
+
+        await openTab(view, 'domains');
+
+        const input = view.byTestId('builder-domain-input') as HTMLInputElement;
+
+        await fill(
+            input,
+            'http://legacy.example.org https://secure.example.org',
+        );
+        await click(view.byTestId('builder-domain-add'));
+
+        const list = view.byTestId('builder-domains-list')?.textContent ?? '';
+
+        expect(list).toContain('http://legacy.example.org');
+        expect(list).toContain('secure.example.org');
+        expect(list).not.toContain('https://');
+        expect(view.byTestId('builder-domain-problem')).toBeNull();
+        expect(input.value).toBe('');
     });
 
     it('adds on Enter and warns when no site is allowed yet', async () => {

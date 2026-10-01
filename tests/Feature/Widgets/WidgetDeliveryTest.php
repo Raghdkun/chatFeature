@@ -8,6 +8,7 @@ use App\Domain\Widgets\Support\AppOrigin;
 use App\Models\User;
 use App\Models\Widget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Testing\TestResponse;
 use Tests\Support\WidgetFixtures;
 use Tests\TestCase;
@@ -140,6 +141,11 @@ class WidgetDeliveryTest extends TestCase
 
     public function test_conditional_requests_and_etag_changes(): void
     {
+        // The boot config carries the widget's availability, which flips at the default opening hours (09:00 and 17:00 UTC on
+        // weekdays): pin the clock to the middle of an opening day so that `travel(30)` never crosses one of those instants
+        // (the test failed whenever it ran in the half minute before 09:00 or 17:00 UTC).
+        $this->travelTo(Carbon::parse('2026-03-04 12:00:00', 'UTC'));
+
         $first = $this->script()->assertOk();
         $etag = (string) $first->headers->get('ETag');
 

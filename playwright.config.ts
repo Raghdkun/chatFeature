@@ -11,8 +11,9 @@
  *   (`../chatFeature.harness`, port 8200), which `e2e/global-setup.ts` starts and stops.
  *   `auth/portal-outage.spec.ts` STOPS that harness mid-test, so it runs alone in the last project
  *   (`pizzasys-outage`), after every other project finished.
+ * - P3: scenarios with a `hostPort` also start a static "customer site" on another origin (e2e/support/host-server.mjs).
  * - `E2E_SCREENSHOTS=1` additionally starts the screenshot scenarios and runs
- *   e2e/screenshots/p1.spec.ts and p2.spec.ts (write docs/screenshots/p1|p2/*.png).
+ *   e2e/screenshots/p1.spec.ts, p2.spec.ts and p3.spec.ts (write docs/screenshots/p1|p2|p3/*.png).
  */
 import { defineConfig, devices } from '@playwright/test';
 import { ACTIVE_INSTANCES } from './e2e/support/scenarios';
@@ -74,16 +75,30 @@ export default defineConfig({
         },
     ],
 
-    webServer: ACTIVE_INSTANCES.map((instance) => ({
-        // --no-reload lets artisan pass the whole environment on (and honour PHP_CLI_SERVER_WORKERS).
-        command: `php artisan serve --no-reload --host=127.0.0.1 --port=${instance.port}`,
-        // A static file: answers without booting Laravel, so it works before the instance is prepared.
-        url: `${instance.url}/favicon.svg`,
-        env: instance.env,
-        reuseExistingServer: false,
-        timeout: 60_000,
-        stdout: 'ignore',
-        stderr: 'ignore',
-        gracefulShutdown: { signal: 'SIGTERM', timeout: 5_000 },
-    })),
+    webServer: [
+        ...ACTIVE_INSTANCES.map((instance) => ({
+            // --no-reload lets artisan pass the whole environment on (and honour PHP_CLI_SERVER_WORKERS).
+            command: `php artisan serve --no-reload --host=127.0.0.1 --port=${instance.port}`,
+            // A static file: answers without booting Laravel, so it works before the instance is prepared.
+            url: `${instance.url}/favicon.svg`,
+            env: instance.env,
+            reuseExistingServer: false,
+            timeout: 60_000,
+            stdout: 'ignore' as const,
+            stderr: 'ignore' as const,
+            gracefulShutdown: { signal: 'SIGTERM' as const, timeout: 5_000 },
+        })),
+        // The cross-origin "customer site" of the embed specs (one per instance that has a `hostPort`).
+        ...ACTIVE_INSTANCES.filter(
+            (instance) => instance.hostPort !== null,
+        ).map((instance) => ({
+            command: `node e2e/support/host-server.mjs --port=${instance.hostPort} --app=${instance.url}`,
+            url: `${instance.hostUrl}/__health`,
+            reuseExistingServer: false,
+            timeout: 30_000,
+            stdout: 'ignore' as const,
+            stderr: 'ignore' as const,
+            gracefulShutdown: { signal: 'SIGTERM' as const, timeout: 5_000 },
+        })),
+    ],
 });

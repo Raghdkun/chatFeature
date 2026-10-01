@@ -286,6 +286,8 @@ class WidgetConfigValidatorTest extends TestCase
             'loader accessibility texts' => [['texts' => ['ar' => ['closeChat' => 'إغلاق', 'unread' => 'رسائل غير مقروءة', 'dismiss' => 'تجاهل']]]],
             'holiday without a name' => [['hours' => ['holidays' => [['date' => '2026-12-25', 'label' => null]]]]],
             'always offline with named timezone' => [['hours' => ['mode' => 'always_offline', 'timezone' => 'Asia/Riyadh']]],
+            'legacy timezone name (accepted by the widget settings too)' => [['hours' => ['timezone' => 'Asia/Calcutta']]],
+            'legacy timezone alias' => [['hours' => ['timezone' => 'US/Pacific']]],
         ];
     }
 

@@ -1044,7 +1044,7 @@ describe('validateBuilderDoc', () => {
                 clientId: 'g2',
                 patch: { body: 'y'.repeat(2001) },
             },
-            { type: 'domains/add', value: 'https://bad.example.com' },
+            { type: 'domains/add', value: 'ftp://bad.example.com' },
         );
         const errors = validateBuilderDoc(state.doc, t, own);
 
