@@ -5,7 +5,7 @@ import {
 } from '@playwright/test';
 import { type Api, createWidget } from '../support/api';
 import { hostOrigin } from '../support/host';
-import { dismiss, unique } from '../support/helpers';
+import { unique } from '../support/helpers';
 import { expect, test } from '../support/test';
 
 /**
