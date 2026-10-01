@@ -23,7 +23,7 @@ abstract class ConversationBroadcast extends RealtimeBroadcast
     {
         if (! $this->resolved) {
             $this->loaded = Conversation::query()
-                ->with(['category', 'assignedAgent', 'visitor', 'widget'])
+                ->with(['category', 'assignedAgent', 'visitor', 'visitorSession', 'widget'])
                 ->where('ulid', $this->conversation)
                 ->first();
             $this->resolved = true;

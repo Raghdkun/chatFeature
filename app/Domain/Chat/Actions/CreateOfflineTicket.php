@@ -85,7 +85,7 @@ final class CreateOfflineTicket
             return $conversation;
         });
 
-        $conversation->load(['category', 'assignedAgent', 'visitor', 'widget']);
+        $conversation->load(['category', 'assignedAgent', 'visitor', 'visitorSession', 'widget']);
 
         OfflineTicketCreated::dispatch($conversation);
         QueueChanged::dispatch($conversation);

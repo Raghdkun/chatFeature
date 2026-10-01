@@ -45,7 +45,7 @@ class InboxPageController extends Controller
 
         Gate::forUser($user)->authorize('view', $conversation);
 
-        $conversation->load(['category', 'assignedAgent', 'visitor', 'widget']);
+        $conversation->load(['category', 'assignedAgent', 'visitor', 'visitorSession', 'widget']);
 
         return Inertia::render('inbox/show', [
             ...$this->shell($user, $categories),

@@ -72,7 +72,7 @@ final class ConversationExporter
     private function rows(Builder $query): iterable
     {
         $export = $query
-            ->with(['category', 'assignedAgent', 'visitor', 'widget', 'rating'])
+            ->with(['category', 'assignedAgent', 'visitor', 'visitorSession', 'widget', 'rating'])
             ->withCount('messages');
 
         foreach ($export->lazyById(self::CHUNK, 'conversations.id', 'id') as $conversation) {

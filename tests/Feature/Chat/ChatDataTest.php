@@ -267,7 +267,7 @@ class ChatDataTest extends TestCase
         $public = $this->toPayload(ConversationPublicData::fromModel($conversation));
         $staff = $this->toPayload(ConversationStaffData::fromModel($conversation));
 
-        $this->assertKeys([...array_keys($public), 'visitor', 'widget', 'assignedAgent', 'unseenByAgent', 'claimedAt', 'lastMessageAt', 'lastMessagePreview'], $staff);
+        $this->assertKeys([...array_keys($public), 'visitor', 'widget', 'assignedAgent', 'unseenByAgent', 'claimedAt', 'lastMessageAt', 'lastMessagePreview', 'queueExpiresAt', 'pageUrl', 'pageTitle'], $staff);
 
         foreach ($public as $key => $value) {
             $this->assertSame($value, $staff[$key], "staff payload repeats {$key}");
@@ -287,6 +287,18 @@ class ChatDataTest extends TestCase
         $this->assertNotNull($staff['claimedAt']);
         $this->assertNotNull($staff['lastMessageAt']);
         $this->assertSame('Where is my invoice?', $staff['lastMessagePreview']);
+    }
+
+    public function test_the_staff_conversation_carries_the_page_of_the_session_and_the_queue_deadline(): void
+    {
+        $this->conversation->visitorSession?->forceFill(['page_url' => 'https://shop.example/pricing', 'page_title' => 'Pricing'])->save();
+        $this->conversation->forceFill(['queue_expires_at' => '2026-10-01 12:00:30'])->save();
+
+        $staff = $this->toPayload(ConversationStaffData::fromModel($this->fresh()));
+
+        $this->assertSame('https://shop.example/pricing', $staff['pageUrl']);
+        $this->assertSame('Pricing', $staff['pageTitle']);
+        $this->assertSame('2026-10-01T12:00:30.000Z', $staff['queueExpiresAt']);
     }
 
     public function test_visitor_meta_is_always_a_json_object(): void

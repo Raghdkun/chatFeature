@@ -51,7 +51,7 @@ final class EndConversation
             $this->timeline->record($conversation, ConversationTimeline::ENDED, $this->actorType($by), $actorId, ['by' => $by->value]);
         });
 
-        $fresh = Conversation::query()->with(['category', 'assignedAgent', 'visitor', 'widget'])->findOrFail($conversation->id);
+        $fresh = Conversation::query()->with(['category', 'assignedAgent', 'visitor', 'visitorSession', 'widget'])->findOrFail($conversation->id);
 
         ConversationEnded::dispatch($fresh, $by);
 

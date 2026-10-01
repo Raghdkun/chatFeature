@@ -127,6 +127,7 @@ class StaffConversationApiTest extends TestCase
         $this->assertEqualsCanonicalizing([
             'ulid', 'ticketNo', 'status', 'type', 'category', 'agent', 'createdAt', 'endedAt', 'ratingRequested', 'lastSeq',
             'visitor', 'widget', 'assignedAgent', 'unseenByAgent', 'claimedAt', 'lastMessageAt', 'lastMessagePreview',
+            'queueExpiresAt', 'pageUrl', 'pageTitle',
         ], array_keys($item));
         $this->assertSame(['id' => $this->agent->id, 'name' => 'Agent One'], $item['assignedAgent']);
         $this->assertSame(2, $item['unseenByAgent']);

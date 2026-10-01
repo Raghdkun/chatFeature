@@ -153,6 +153,9 @@ export function makeConversationStaff(
         claimedAt: null,
         lastMessageAt: null,
         lastMessagePreview: null,
+        queueExpiresAt: null,
+        pageUrl: null,
+        pageTitle: null,
         ...overrides,
     };
 }

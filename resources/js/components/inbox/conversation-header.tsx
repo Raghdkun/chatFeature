@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { useTrans } from '@/hooks/use-trans';
 import { staffRoutes } from '@/lib/chat-api/staff';
 import type { ConversationStaff } from '@/lib/chat/types';
+import { safeExternalUrl } from '@/lib/urls';
 
 /**
  * Who this is, what it is about, and what the agent can do with it. The back arrow (phones) returns to the list; the queue pill
@@ -46,7 +47,7 @@ export function ConversationHeader({
     const { t } = useTrans();
     const { visitor } = conversation;
     const name = visitor.name ?? t('inbox.visitor.anonymous');
-    const pageUrl = visitorPageUrl(visitor.meta);
+    const pageUrl = safeExternalUrl(conversation.pageUrl ?? '') ?? visitorPageUrl(visitor.meta);
     const subline = [
         `#${conversation.ticketNo}`,
         conversation.category?.label,

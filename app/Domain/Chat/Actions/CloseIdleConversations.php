@@ -70,7 +70,7 @@ final class CloseIdleConversations
         });
 
         if ($closed) {
-            ConversationClosed::dispatch(Conversation::query()->with(['widget', 'visitor', 'category', 'assignedAgent'])->findOrFail($conversationId), ConversationCloseReason::Idle);
+            ConversationClosed::dispatch(Conversation::query()->with(['widget', 'visitor', 'visitorSession', 'category', 'assignedAgent'])->findOrFail($conversationId), ConversationCloseReason::Idle);
         }
 
         return $closed;

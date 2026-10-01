@@ -81,7 +81,7 @@ final class ExpireQueuedConversations
         });
 
         if ($expired) {
-            $conversation = Conversation::query()->with(['widget', 'visitor', 'category', 'assignedAgent'])->findOrFail($conversationId);
+            $conversation = Conversation::query()->with(['widget', 'visitor', 'visitorSession', 'category', 'assignedAgent'])->findOrFail($conversationId);
 
             ConversationMissed::dispatch($conversation);
             ConversationUpdated::dispatch($conversation);

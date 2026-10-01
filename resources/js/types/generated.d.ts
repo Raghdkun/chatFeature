@@ -180,6 +180,9 @@ unseenByAgent: number,
 claimedAt: string | null,
 lastMessageAt: string | null,
 lastMessagePreview: string | null,
+queueExpiresAt: string | null,
+pageUrl: string | null,
+pageTitle: string | null,
 };
 export type MessageData = {
 ulid: string,

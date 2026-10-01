@@ -38,7 +38,7 @@ final class SkipRating
             $this->timeline->record($conversation, ConversationTimeline::CLOSED, ActorType::Visitor, $conversation->visitor_id, ['reason' => ConversationCloseReason::Skipped->value]);
         });
 
-        $fresh = Conversation::query()->with(['category', 'assignedAgent', 'visitor', 'widget'])->findOrFail($conversation->id);
+        $fresh = Conversation::query()->with(['category', 'assignedAgent', 'visitor', 'visitorSession', 'widget'])->findOrFail($conversation->id);
 
         ConversationClosed::dispatch($fresh, ConversationCloseReason::Skipped);
 

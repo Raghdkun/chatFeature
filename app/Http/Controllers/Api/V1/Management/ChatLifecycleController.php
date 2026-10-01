@@ -35,6 +35,6 @@ class ChatLifecycleController extends ChatStaffController
     {
         $moved = $action->handle($conversation, $this->staff($request), $request->agent(), $request->category());
 
-        return $this->data(ConversationStaffData::fromModel($moved->load(['category', 'assignedAgent', 'visitor', 'widget'])));
+        return $this->data(ConversationStaffData::fromModel($moved->load(['category', 'assignedAgent', 'visitor', 'visitorSession', 'widget'])));
     }
 }

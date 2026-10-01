@@ -16,7 +16,7 @@ trait PresentsConversations
     /**
      * @var list<string>
      */
-    private const CONVERSATION_RELATIONS = ['category', 'assignedAgent', 'visitor', 'widget'];
+    private const CONVERSATION_RELATIONS = ['category', 'assignedAgent', 'visitor', 'visitorSession', 'widget'];
 
     /**
      * @param  Builder<Conversation>  $query

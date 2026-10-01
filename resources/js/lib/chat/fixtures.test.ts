@@ -83,6 +83,9 @@ describe('fixture builders', () => {
                 'claimedAt',
                 'lastMessageAt',
                 'lastMessagePreview',
+                'queueExpiresAt',
+                'pageUrl',
+                'pageTitle',
             ].sort(),
         );
         expect(sorted(makeConversationStaff().visitor)).toEqual(

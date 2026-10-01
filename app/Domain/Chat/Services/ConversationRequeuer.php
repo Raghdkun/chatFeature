@@ -71,7 +71,7 @@ final class ConversationRequeuer
 
             ConversationOffer::query()->where('conversation_id', $locked->id)->delete();
 
-            $fresh = Conversation::query()->with(['widget', 'category', 'visitor', 'assignedAgent'])->findOrFail($locked->id);
+            $fresh = Conversation::query()->with(['widget', 'category', 'visitor', 'visitorSession', 'assignedAgent'])->findOrFail($locked->id);
 
             $this->timeline->record($fresh, $event, $actorType, $actorId, $payload + [
                 'from_agent' => $fromAgentId,

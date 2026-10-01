@@ -20,7 +20,7 @@ class ChatStaffConversationController extends ChatStaffController
     /** The queue is short by nature; this bounds the response anyway. */
     private const QUEUE_LIMIT = 200;
 
-    private const RELATIONS = ['category', 'assignedAgent', 'visitor', 'widget'];
+    private const RELATIONS = ['category', 'assignedAgent', 'visitor', 'visitorSession', 'widget'];
 
     public function index(ListConversationsRequest $request, ConversationListQuery $conversations): JsonResponse
     {

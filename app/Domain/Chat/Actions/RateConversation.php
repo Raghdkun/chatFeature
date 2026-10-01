@@ -53,7 +53,7 @@ final class RateConversation
             return $rating;
         });
 
-        $fresh = Conversation::query()->with(['category', 'assignedAgent', 'visitor', 'widget'])->findOrFail($conversation->id);
+        $fresh = Conversation::query()->with(['category', 'assignedAgent', 'visitor', 'visitorSession', 'widget'])->findOrFail($conversation->id);
 
         ConversationRated::dispatch($fresh, $rating);
         ConversationClosed::dispatch($fresh, ConversationCloseReason::Rated);

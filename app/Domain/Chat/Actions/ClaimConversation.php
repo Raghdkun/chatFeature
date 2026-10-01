@@ -115,7 +115,7 @@ final class ClaimConversation
             throw $this->lost($conversation->id);
         }
 
-        $fresh = Conversation::query()->with(['category', 'assignedAgent', 'visitor', 'widget'])->findOrFail($conversation->id);
+        $fresh = Conversation::query()->with(['category', 'assignedAgent', 'visitor', 'visitorSession', 'widget'])->findOrFail($conversation->id);
 
         ConversationClaimed::dispatch($fresh, $actor);
 

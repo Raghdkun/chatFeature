@@ -69,7 +69,7 @@ final class CloseUnratedConversations
         });
 
         if ($closed) {
-            ConversationClosed::dispatch(Conversation::query()->with(['widget', 'visitor', 'category', 'assignedAgent'])->findOrFail($conversationId), ConversationCloseReason::Timeout);
+            ConversationClosed::dispatch(Conversation::query()->with(['widget', 'visitor', 'visitorSession', 'category', 'assignedAgent'])->findOrFail($conversationId), ConversationCloseReason::Timeout);
         }
 
         return $closed;
