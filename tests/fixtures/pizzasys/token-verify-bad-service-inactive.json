@@ -1,0 +1,26 @@
+{
+    "_note": "Captured from local throwaway pizzasys harness (127.0.0.1:8200). Tokens redacted.",
+    "request": {
+        "method": "POST",
+        "path": "/api/v1/auth/token-verify",
+        "authorization": "Bearer <inactive-service-token>",
+        "body": {
+            "service": "inactive-svc",
+            "token": "<token>",
+            "method": "POST",
+            "path": "/api/chat/send",
+            "route_name": null
+        }
+    },
+    "response": {
+        "status": 401,
+        "headers": {
+            "content-type": "application/json",
+            "x-correlation-id": "80535654-ddea-4007-9567-b97e8e65d9a2"
+        },
+        "body": {
+            "message": "Service is inactive."
+        }
+    },
+    "latency_ms": 4
+}

@@ -4,14 +4,13 @@ namespace App\Auth;
 
 use App\Auth\Contracts\AuthDriver;
 use App\Auth\Drivers\FortifyDriver;
+use App\Auth\Drivers\PizzasysDriver;
 use Illuminate\Support\Manager;
 use RuntimeException;
 
 /**
- * Resolves the active AuthDriver from `settings('auth.mode')`. Before the app is installed the
- * setting is not read from the database: it resolves `fortify`.
- *
- * P2 adds `createPizzasysDriver()`.
+ * Resolves the active AuthDriver from `settings('auth.mode')`: `fortify` (mode 1) or `pizzasys` (mode 2). Before the
+ * app is installed the setting is not read from the database: it resolves `fortify`.
  */
 final class AuthModeManager extends Manager
 {
@@ -37,5 +36,10 @@ final class AuthModeManager extends Manager
     protected function createFortifyDriver(): AuthDriver
     {
         return $this->container->make(FortifyDriver::class);
+    }
+
+    protected function createPizzasysDriver(): AuthDriver
+    {
+        return $this->container->make(PizzasysDriver::class);
     }
 }

@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
@@ -106,6 +107,32 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function hasChatAccess(): bool
     {
         return $this->is_admin || $this->is_agent;
+    }
+
+    /**
+     * Accounts of this user in the external auth portal (mode 2); empty for local users.
+     *
+     * @return HasMany<UserExternalIdentity, $this>
+     */
+    public function externalIdentities(): HasMany
+    {
+        return $this->hasMany(UserExternalIdentity::class);
+    }
+
+    /**
+     * Signed-in portal sessions (dashboard sessions and mobile tokens) of this user.
+     *
+     * @return HasMany<ExternalSession, $this>
+     */
+    public function externalSessions(): HasMany
+    {
+        return $this->hasMany(ExternalSession::class);
+    }
+
+    /** Whether this account is managed by the external auth portal instead of a local password. */
+    public function isPortalUser(): bool
+    {
+        return $this->auth_source === 'pizzasys';
     }
 
     /**
