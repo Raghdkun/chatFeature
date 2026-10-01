@@ -60,7 +60,7 @@ OpenWA, optional mysql/redis) are in `docker/compose.dev.yml` behind profiles; *
   Public + webhook routes use the bearer-only `widget` middleware group (never stateful/CSRF).
 - Sidebar: `resources/js/nav/<NN>-<ctx>.ts` default-exports `NavEntry[]`; `navFor(user)` filters by role.
 - Shared payloads: `app/Data/**` with `#[TypeScript]` -> `composer types:generate`. PHP is the source of truth.
-- Widget loader: vanilla TS in `resources/widget/src` (tests `resources/widget/test`, dev host page `resources/widget/dev`); built by `vite.widget.config.ts`. The chat panel `resources/js/embed/main.tsx` is a **stub until P4**.
+- Widget loader: vanilla TS in `resources/widget/src` (tests `resources/widget/test`, dev host page `resources/widget/dev`); built by `vite.widget.config.ts`. The visitor chat panel is `resources/js/embed/**` (entry `main.tsx`, lazy chunks; state machine in `embed/session`, protocol with the loader in `embed/protocol`); the agent inbox is `resources/js/pages/{inbox,history,offline-tickets}` + `components/inbox` + `lib/realtime/staff`.
 - Every `api/*` error is `{error:{code,message,details?}}` (`App\Exceptions\ApiErrorRenderer`); expected failures throw `App\Http\Exceptions\ApiProblemException` with their own code (`docs/contracts/rest-shapes.md`).
 - Public IDs are ULIDs / `public_key`; never leak integer PKs to visitors or APIs.
 - `docs/contracts/*` are orchestrator-owned; parallel tracks request changes, they don't edit them.
