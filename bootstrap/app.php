@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\ApiErrorRenderer;
 use App\Http\Middleware\EnforceAuthFeatures;
 use App\Http\Middleware\EnsureAdmin;
 use App\Http\Middleware\EnsureChatAccess;
@@ -16,6 +17,7 @@ use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\Route;
+use Throwable;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -72,6 +74,9 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withExceptions(function (Exceptions $exceptions): void {
         // The setup token must never be flashed back into a form.
         $exceptions->dontFlash(['token']);
+
+        // `api/*` errors use the documented envelope {error:{code,message,details?}} (docs/contracts/rest-shapes.md).
+        $exceptions->render(fn (Throwable $e, Request $request) => ApiErrorRenderer::render($e, $request));
 
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),

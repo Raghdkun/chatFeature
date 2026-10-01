@@ -12,6 +12,7 @@
 | [auth-driver.md](auth-driver.md) | P1, P2 | written (P0) |
 | [auth-pizzasys.md](auth-pizzasys.md) | P2 (2A, 2B, 2C) | written (ahead of P2) |
 | [ownership.md](ownership.md) | every phase | written (P0), extended per phase |
+| [dashboard-pages-p3.md](dashboard-pages-p3.md) | P3 (3A, 3C) | written (ahead of P3) |
 | [widget-config.md](widget-config.md) | P3 (3A, 3B, 3C), P4 (4D) | written (ahead of P3) |
 | [postmessage-protocol.md](postmessage-protocol.md) | P3 (3B), P4 (4D) | written (ahead of P3) |
 | [rest-shapes.md](rest-shapes.md) | P3, P4 | conventions + P3 widget endpoints + P4 chat endpoints written |
