@@ -226,6 +226,60 @@ describe('receipts', () => {
         expect(stale.messages[1].status).toBe('seen');
     });
 
+    it('ticks my messages "delivered" live, then "seen", and a late delivery never undoes a read', () => {
+        const mine = createConversationState(
+            makeActiveConversationStaff({ ulid: CONVERSATION, lastSeq: 3 }),
+            [msg(1), agent(2), agent(3)],
+        );
+        const delivered = run(mine, {
+            type: 'delivered',
+            upToSeq: 3,
+            by: 'visitor',
+            at: fakeTime(200),
+        });
+
+        expect(delivered.messages.map((m) => m.status)).toEqual([
+            'sent',
+            'delivered',
+            'delivered',
+        ]);
+        expect(delivered.messages[1].deliveredAt).toBe(fakeTime(200));
+        expect(delivered.messages[1].seenAt).toBeNull();
+
+        const read = run(delivered, {
+            type: 'seen',
+            upToSeq: 2,
+            by: 'visitor',
+            at: fakeTime(300),
+        });
+
+        expect(read.messages.map((m) => m.status)).toEqual([
+            'sent',
+            'seen',
+            'delivered',
+        ]);
+
+        const late = run(read, {
+            type: 'delivered',
+            upToSeq: 3,
+            by: 'visitor',
+            at: fakeTime(400),
+        });
+
+        expect(late).toBe(read);
+    });
+
+    it('a delivery receipt for messages the list does not hold yet changes nothing', () => {
+        const state = run(initial, {
+            type: 'delivered',
+            upToSeq: 0,
+            by: 'visitor',
+            at: fakeTime(200),
+        });
+
+        expect(state).toBe(initial);
+    });
+
     it("marks the visitor's messages seen once the agent has read them", () => {
         const state = run(initial, {
             type: 'seen',

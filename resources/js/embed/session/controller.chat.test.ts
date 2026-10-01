@@ -894,6 +894,49 @@ describe('receipts', () => {
         });
     });
 
+    it("the agent's delivery receipt ticks our messages delivered live, then seen", async () => {
+        const backend = useBackend();
+        const h = createHarness({ backend });
+
+        await activate(h);
+        h.controller.send({ body: 'Did you get this?' });
+        await until(() => h.state().messages.at(-1)?.status === 'sent');
+        const seq = h.state().messages.at(-1)?.seq ?? 0;
+
+        h.socket()?.emit('message.delivered', {
+            v: 1,
+            upToSeq: seq,
+            by: 'agent',
+            at: '2026-11-20T10:04:00.000Z',
+        });
+
+        expect(h.state().messages.at(-1)).toMatchObject({
+            status: 'delivered',
+            deliveredAt: '2026-11-20T10:04:00.000Z',
+            seenAt: null,
+        });
+
+        h.socket()?.emit('message.seen', {
+            v: 1,
+            upToSeq: seq,
+            by: 'agent',
+            at: '2026-11-20T10:05:00.000Z',
+        });
+        // a delivery receipt that arrives after the read one does not undo it
+        h.socket()?.emit('message.delivered', {
+            v: 1,
+            upToSeq: seq,
+            by: 'agent',
+            at: '2026-11-20T10:06:00.000Z',
+        });
+
+        expect(h.state().messages.at(-1)).toMatchObject({
+            status: 'seen',
+            deliveredAt: '2026-11-20T10:04:00.000Z',
+            seenAt: '2026-11-20T10:05:00.000Z',
+        });
+    });
+
     it("the agent's seen receipt marks our messages seen", async () => {
         const backend = useBackend();
         const h = createHarness({ backend });

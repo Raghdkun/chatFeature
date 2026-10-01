@@ -26,6 +26,7 @@ const INPUT: SocketInput = {
 function handlers() {
     const calls = {
         messages: [] as unknown[],
+        delivered: [] as unknown[],
         seen: [] as unknown[],
         claimed: [] as unknown[],
         ended: [] as unknown[],
@@ -39,6 +40,7 @@ function handlers() {
     };
     const value: RealtimeHandlers = {
         onMessage: (m) => calls.messages.push(m),
+        onDelivered: (r) => calls.delivered.push(r),
         onSeen: (r) => calls.seen.push(r),
         onClaimed: (c) => calls.claimed.push(c),
         onEnded: (e) => calls.ended.push(e),
@@ -82,6 +84,12 @@ describe('events', () => {
 
         socket.setStatus('connected');
         socket.emit('message.created', { v: 1, message });
+        socket.emit('message.delivered', {
+            v: 1,
+            upToSeq: 4,
+            by: 'agent',
+            at: '2026-11-20T09:59:00.000Z',
+        });
         socket.emit('message.seen', {
             v: 1,
             upToSeq: 3,
@@ -103,6 +111,9 @@ describe('events', () => {
         socket.emit('client-typing', { actor: 'agent', typing: true });
 
         expect(calls.messages).toEqual([message]);
+        expect(calls.delivered).toEqual([
+            { upToSeq: 4, by: 'agent', at: '2026-11-20T09:59:00.000Z' },
+        ]);
         expect(calls.seen).toEqual([
             { upToSeq: 3, by: 'agent', at: '2026-11-20T10:00:00.000Z' },
         ]);
@@ -133,6 +144,24 @@ describe('events', () => {
             at: 'y',
         });
         socket.emit('message.seen', { v: 1, upToSeq: 1, by: 'robot', at: 'y' });
+        socket.emit('message.delivered', {
+            v: 1,
+            upToSeq: 'x',
+            by: 'agent',
+            at: 'y',
+        });
+        socket.emit('message.delivered', {
+            v: 1,
+            upToSeq: 1,
+            by: 'robot',
+            at: 'y',
+        });
+        socket.emit('message.delivered', {
+            v: 2,
+            upToSeq: 1,
+            by: 'agent',
+            at: 'y',
+        });
         socket.emit('chat.claimed', { v: 1, agent: {} });
         socket.emit('conversation.ended', { v: 1, endedBy: 'nobody' });
         socket.emit('conversation.closed', { v: 1, reason: 'weird' });
@@ -142,6 +171,7 @@ describe('events', () => {
 
         expect(calls.messages).toEqual([]);
         expect(calls.seen).toEqual([]);
+        expect(calls.delivered).toEqual([]);
         expect(calls.claimed).toEqual([]);
         expect(calls.ended).toEqual([]);
         expect(calls.closed).toEqual([]);

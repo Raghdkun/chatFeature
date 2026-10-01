@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import {
+    applyDelivered,
     applySeen,
     createPendingMessage,
     findGap,
@@ -616,6 +617,153 @@ describe('applySeen', () => {
 
         expect(
             applySeen(list, { upToSeq: 0, by: 'visitor', at: fakeTime(1) }),
+        ).toBe(list);
+    });
+});
+
+describe('applyDelivered', () => {
+    const conversation = () =>
+        mergeMessages(
+            [],
+            [
+                server(1),
+                makeAgentMessage({
+                    seq: 2,
+                    ulid: 'A2',
+                    conversation: CONVERSATION,
+                }),
+                makeSystemMessage({
+                    seq: 3,
+                    ulid: 'S3',
+                    conversation: CONVERSATION,
+                }),
+                makeAgentMessage({
+                    seq: 4,
+                    ulid: 'A4',
+                    conversation: CONVERSATION,
+                }),
+                server(5),
+            ],
+        );
+
+    it('marks the other side’s messages up to the receipt as delivered, not seen', () => {
+        const next = applyDelivered(conversation(), {
+            upToSeq: 2,
+            by: 'visitor',
+            at: fakeTime(30),
+        });
+
+        expect(next.map((message) => message.status)).toEqual([
+            'sent',
+            'delivered',
+            'sent',
+            'sent',
+            'sent',
+        ]);
+        expect(next[1].deliveredAt).toBe(fakeTime(30));
+        expect(next[1].seenAt).toBeNull();
+    });
+
+    it('works the other way round for the agent’s client', () => {
+        const next = applyDelivered(conversation(), {
+            upToSeq: 5,
+            by: 'agent',
+            at: fakeTime(30),
+        });
+
+        expect(next.map((message) => message.status)).toEqual([
+            'delivered',
+            'sent',
+            'sent',
+            'sent',
+            'delivered',
+        ]);
+    });
+
+    it('never moves backwards: a seen message stays seen, an earlier delivered time stays', () => {
+        const withReceipts = mergeMessages(conversation(), [
+            makeAgentMessage({
+                seq: 2,
+                ulid: 'A2',
+                conversation: CONVERSATION,
+                deliveredAt: fakeTime(10),
+                seenAt: fakeTime(20),
+            }),
+            makeAgentMessage({
+                seq: 4,
+                ulid: 'A4',
+                conversation: CONVERSATION,
+                deliveredAt: fakeTime(11),
+            }),
+        ]);
+        const next = applyDelivered(withReceipts, {
+            upToSeq: 9,
+            by: 'visitor',
+            at: fakeTime(60),
+        });
+
+        expect(next).toBe(withReceipts);
+        expect(next[1]).toMatchObject({
+            status: 'seen',
+            deliveredAt: fakeTime(10),
+            seenAt: fakeTime(20),
+        });
+        expect(next[3].deliveredAt).toBe(fakeTime(11));
+    });
+
+    it('is the same list when applied twice or after the seen receipt', () => {
+        const once = applyDelivered(conversation(), {
+            upToSeq: 4,
+            by: 'visitor',
+            at: fakeTime(30),
+        });
+        const twice = applyDelivered(once, {
+            upToSeq: 4,
+            by: 'visitor',
+            at: fakeTime(31),
+        });
+        const seen = applySeen(once, {
+            upToSeq: 4,
+            by: 'visitor',
+            at: fakeTime(40),
+        });
+        const lateDelivery = applyDelivered(seen, {
+            upToSeq: 4,
+            by: 'visitor',
+            at: fakeTime(41),
+        });
+
+        expect(twice).toBe(once);
+        expect(seen[1].status).toBe('seen');
+        expect(lateDelivery).toBe(seen);
+    });
+
+    it('never receipts system lines, unsent messages or the sender’s own side', () => {
+        const withPending = mergeMessages(conversation(), [pending('p')]);
+        const next = applyDelivered(withPending, {
+            upToSeq: 99,
+            by: 'agent',
+            at: fakeTime(30),
+        });
+
+        expect(next[1].status).toBe('sent');
+        expect(next[2].status).toBe('sent');
+        expect(next[5].status).toBe('sending');
+        expect(next[5].deliveredAt).toBeNull();
+    });
+
+    it('returns the same list when there is nothing to mark', () => {
+        const list = conversation();
+
+        expect(
+            applyDelivered(list, {
+                upToSeq: 0,
+                by: 'visitor',
+                at: fakeTime(1),
+            }),
+        ).toBe(list);
+        expect(
+            applyDelivered(list, { upToSeq: 9, by: 'system', at: fakeTime(1) }),
         ).toBe(list);
     });
 });

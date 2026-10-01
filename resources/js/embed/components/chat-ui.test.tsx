@@ -137,6 +137,48 @@ describe('message list', () => {
         expect(text(bubble())).toContain('Seen');
     });
 
+    it('ticks go sent, delivered, seen live from the receipt events (no resent message)', async () => {
+        const { h, c } = await activeChat();
+
+        await run(() => h.controller.send({ body: 'Live ticks' }));
+        await waitFor(
+            () =>
+                c.querySelector(
+                    '[data-sender="visitor"][data-status="sent"]',
+                ) !== null,
+        );
+
+        const bubble = (): HTMLElement =>
+            c.querySelector<HTMLElement>(
+                '[data-sender="visitor"]',
+            ) as HTMLElement;
+        const seq = h.state().messages.at(-1)?.seq ?? 0;
+
+        expect(text(bubble())).toContain('Sent');
+
+        await run(() =>
+            h.socket()?.emit('message.delivered', {
+                v: 1,
+                upToSeq: seq,
+                by: 'agent',
+                at: fakeTime(5),
+            }),
+        );
+        expect(bubble().dataset.status).toBe('delivered');
+        expect(text(bubble())).toContain('Delivered');
+
+        await run(() =>
+            h.socket()?.emit('message.seen', {
+                v: 1,
+                upToSeq: seq,
+                by: 'agent',
+                at: fakeTime(9),
+            }),
+        );
+        expect(bubble().dataset.status).toBe('seen');
+        expect(text(bubble())).toContain('Seen');
+    });
+
     it('turns URLs into safe links and shows everything else as text', async () => {
         const { c } = await activeChat((backend) => {
             backend.agentSays(

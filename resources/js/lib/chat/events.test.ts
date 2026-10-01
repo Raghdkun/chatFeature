@@ -24,6 +24,7 @@ describe('chat events', () => {
                 'conversation.transferred',
                 'conversation.updated',
                 'message.created',
+                'message.delivered',
                 'message.seen',
                 'offline-ticket.created',
                 'presence.changed',
@@ -47,6 +48,7 @@ describe('chat events', () => {
             'session.revoked': 'session.revoked',
             'presence.changed': 'presence.changed',
             'message.created': 'message.created',
+            'message.delivered': 'message.delivered',
             'message.seen': 'message.seen',
             'conversation.ended': 'conversation.ended',
             'conversation.closed': 'conversation.closed',
@@ -63,6 +65,9 @@ describe('chat events', () => {
 
     it('listens with a leading dot (custom broadcastAs names)', () => {
         expect(echoEvent(CHAT_EVENT.messageCreated)).toBe('.message.created');
+        expect(echoEvent(CHAT_EVENT.messageDelivered)).toBe(
+            '.message.delivered',
+        );
         expect(echoEvent(CHAT_EVENT.typing)).toBe('.client-typing');
         expect(echoEvent(CHAT_EVENT.typingFallback)).toBe('.typing');
     });

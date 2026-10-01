@@ -97,6 +97,10 @@ export const staffEventsConform: {
         ChatEventPayloads['message.created'],
         App.Data.Chat.Events.MessageCreatedPayload
     >;
+    delivered: Same<
+        ChatEventPayloads['message.delivered'],
+        App.Data.Chat.Events.MessageDeliveredPayload
+    >;
     seen: Same<
         ChatEventPayloads['message.seen'],
         App.Data.Chat.Events.MessageSeenPayload
@@ -116,6 +120,7 @@ export const staffEventsConform: {
     unread: true,
     revoked: true,
     created: true,
+    delivered: true,
     seen: true,
     ended: true,
     ticket: true,

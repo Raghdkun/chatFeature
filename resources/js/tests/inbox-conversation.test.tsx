@@ -666,6 +666,46 @@ describe('realtime', () => {
         });
     });
 
+    it('ticks my messages as delivered live, then seen, as the visitor receives and reads them', async () => {
+        const { view } = await mount();
+        const status = () =>
+            view
+                .byTestId(`message-${fakeUlid(6002)}`)
+                ?.getAttribute('data-status');
+
+        expect(status()).toBe('sent');
+        await act(async () =>
+            fakeEcho.emitServer(channel, 'message.delivered', {
+                v: 1,
+                upToSeq: 3,
+                by: 'visitor',
+                at: fakeTime(400),
+            }),
+        );
+        expect(status()).toBe('delivered');
+
+        await act(async () =>
+            fakeEcho.emitServer(channel, 'message.seen', {
+                v: 1,
+                upToSeq: 3,
+                by: 'visitor',
+                at: fakeTime(500),
+            }),
+        );
+        expect(status()).toBe('seen');
+
+        // A delivery receipt that arrives after the read one (two queued broadcasts may swap) does not undo it.
+        await act(async () =>
+            fakeEcho.emitServer(channel, 'message.delivered', {
+                v: 1,
+                upToSeq: 3,
+                by: 'visitor',
+                at: fakeTime(600),
+            }),
+        );
+        expect(status()).toBe('seen');
+    });
+
     it('ticks my messages as seen when the visitor reads them', async () => {
         const { view } = await mount();
 

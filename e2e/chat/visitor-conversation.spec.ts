@@ -160,11 +160,10 @@ test('a reply sent while the visitor has the panel closed is stored as delivered
     );
 
     expect(reply?.seenAt).toBeNull();
-    // `delivered` is stored but not broadcast: the agent's open inbox keeps showing "sent" until it is reloaded (a decided limit,
-    // docs/realtime.md: only `message.seen` is an event).
+    // `delivered` is broadcast (`message.delivered`): the agent's open inbox shows it live, without a reload.
     await expect(
         agent.inbox.message('Reply while you are away').first(),
-    ).toHaveAttribute('data-status', 'sent');
+    ).toHaveAttribute('data-status', 'delivered');
 
     // Opening the panel shows the message and marks it seen.
     await panel.launcher.click();

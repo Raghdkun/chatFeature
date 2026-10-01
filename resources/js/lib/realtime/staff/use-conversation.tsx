@@ -97,6 +97,11 @@ export type SendInput = { body: string; attachments?: AttachmentData[] };
 /** Callbacks the Echo bindings call; stable for the life of the hook. */
 export type ConversationBridge = {
     messageCreated: (message: MessageData) => void;
+    delivered: (receipt: {
+        upToSeq: number;
+        by: 'visitor' | 'agent' | 'system';
+        at: string;
+    }) => void;
     seen: (receipt: {
         upToSeq: number;
         by: 'visitor' | 'agent' | 'system';
@@ -638,6 +643,13 @@ export function useConversation({
                     refreshTyping();
                 }
             },
+            delivered: (receipt) =>
+                dispatch({
+                    type: 'delivered',
+                    upToSeq: receipt.upToSeq,
+                    by: receipt.by,
+                    at: receipt.at,
+                }),
             seen: (receipt) =>
                 dispatch({
                     type: 'seen',
@@ -693,7 +705,7 @@ export function useConversation({
 export type ConversationController = ReturnType<typeof useConversation>;
 
 /**
- * Renders nothing: binds `private-conversation.{ulid}` (`message.created`, `message.seen`, `conversation.ended`, `conversation.closed`,
+ * Renders nothing: binds `private-conversation.{ulid}` (`message.created`, `message.delivered`, `message.seen`, `conversation.ended`, `conversation.closed`,
  * the `client-typing` whisper) to the bridge, hands it the whisper sender and reports reconnects.
  */
 export function ConversationChannelBindings({
@@ -709,6 +721,13 @@ export function ConversationChannelBindings({
 
     useChannelEvent(channel, CHAT_EVENT.messageCreated, (payload) =>
         bridge.messageCreated(payload.message),
+    );
+    useChannelEvent(channel, CHAT_EVENT.messageDelivered, (payload) =>
+        bridge.delivered({
+            upToSeq: payload.upToSeq,
+            by: payload.by,
+            at: payload.at,
+        }),
     );
     useChannelEvent(channel, CHAT_EVENT.messageSeen, (payload) =>
         bridge.seen({

@@ -377,6 +377,44 @@ export function applySeen(
     return changed ? next : (messages as LocalMessage[]);
 }
 
+/**
+ * Apply a `message.delivered` receipt: `by`'s client received the conversation up to `upToSeq` (at `at`), so every message written
+ * by the other side up to that point is at least `delivered`. Receipts only move forward: a `seen` message stays `seen`, an
+ * earlier `deliveredAt` stays, and a replayed or reordered receipt returns the same list. System lines are not receipted.
+ */
+export function applyDelivered(
+    messages: readonly LocalMessage[],
+    receipt: { upToSeq: number; by: SenderType; at: string },
+): LocalMessage[] {
+    if (receipt.by === 'system') {
+        return messages as LocalMessage[];
+    }
+
+    let changed = false;
+    const next = messages.map((message) => {
+        if (
+            message.seq === null ||
+            message.seq > receipt.upToSeq ||
+            message.sender.type === receipt.by ||
+            message.sender.type === 'system' ||
+            message.deliveredAt !== null ||
+            message.seenAt !== null
+        ) {
+            return message;
+        }
+
+        changed = true;
+
+        return {
+            ...message,
+            deliveredAt: receipt.at,
+            status: 'delivered' as const,
+        };
+    });
+
+    return changed ? next : (messages as LocalMessage[]);
+}
+
 /** The highest `seq` of the messages written by `sender` (0 when none): what a receipt for them would acknowledge. */
 export function highestSeqFrom(
     messages: readonly LocalMessage[],
