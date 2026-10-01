@@ -1,9 +1,11 @@
-import { Link } from '@inertiajs/react';
+import { Link, usePage } from '@inertiajs/react';
 import type { PropsWithChildren } from 'react';
 import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useCurrentUrl } from '@/hooks/use-current-url';
+import { useTrans } from '@/hooks/use-trans';
+import { authSettingsRoutes } from '@/lib/auth-settings-routes';
 import { cn, toUrl } from '@/lib/utils';
 import { edit as editAppearance } from '@/routes/appearance';
 import { edit } from '@/routes/profile';
@@ -30,6 +32,25 @@ const sidebarNavItems: NavItem[] = [
 
 export default function SettingsLayout({ children }: PropsWithChildren) {
     const { isCurrentOrParentUrl } = useCurrentUrl();
+    const { auth } = usePage().props;
+    const { t } = useTrans();
+
+    // Admin-only (the route is guarded server side too). Mode 2 calls it the Auth Portal; in mode 1
+    // the page only explains that sign-in is managed by this app.
+    const items: NavItem[] = auth.user?.is_admin
+        ? [
+              ...sidebarNavItems,
+              {
+                  title: t(
+                      auth.mode === 'pizzasys'
+                          ? 'settings.auth.nav'
+                          : 'settings.auth.nav_local',
+                  ),
+                  href: authSettingsRoutes.index,
+                  icon: null,
+              },
+          ]
+        : sidebarNavItems;
 
     return (
         <div className="px-4 py-6">
@@ -38,13 +59,13 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
                 description="Manage your profile and account settings"
             />
 
-            <div className="flex flex-col lg:flex-row lg:space-x-12">
+            <div className="flex flex-col lg:flex-row lg:gap-12">
                 <aside className="w-full max-w-xl lg:w-48">
                     <nav
-                        className="flex flex-col space-y-1 space-x-0"
+                        className="flex flex-col space-y-1"
                         aria-label="Settings"
                     >
-                        {sidebarNavItems.map((item, index) => (
+                        {items.map((item, index) => (
                             <Button
                                 key={`${toUrl(item.href)}-${index}`}
                                 size="sm"
