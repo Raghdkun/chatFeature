@@ -3,11 +3,15 @@
 namespace App\Console\Commands;
 
 use App\Auth\Enums\AuthMode;
+use App\Auth\Roles\RoleMapping;
 use App\Domain\Install\Actions\StoreInstallAnswers;
+use App\Domain\Install\Actions\VerifyPortalAdmin;
 use App\Domain\Install\Exceptions\InstallBusyException;
 use App\Domain\Install\InstallRunner;
 use App\Domain\Install\InstallState;
 use App\Domain\Install\StepReport;
+use App\Rules\NatsUrl;
+use App\Rules\PortalUrl;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -19,6 +23,13 @@ use Illuminate\Validation\Rules\Password;
  *
  *   INSTALL_ADMIN_NAME, INSTALL_ADMIN_EMAIL, INSTALL_ADMIN_PASSWORD,
  *   INSTALL_APP_NAME, INSTALL_APP_URL, INSTALL_LOCALE, INSTALL_TIMEZONE, INSTALL_IDLE_TIMEOUT_MINUTES
+ *
+ * Mode `pizzasys` takes the portal instead of a local administrator (the administrator's login is verified live, the
+ * password is used for that check only):
+ *   INSTALL_AUTH_BASE_URL, INSTALL_AUTH_SERVICE_NAME, INSTALL_AUTH_SERVICE_TOKEN, INSTALL_AUTH_ADMIN_EMAIL,
+ *   INSTALL_AUTH_ADMIN_PASSWORD, optional INSTALL_AUTH_API_PREFIX, INSTALL_AUTH_NATS_URL, INSTALL_AUTH_NATS_TOKEN,
+ *   INSTALL_AUTH_VERIFY_TLS, INSTALL_AUTH_ADMIN_PERMISSION, INSTALL_AUTH_AGENT_PERMISSION, INSTALL_AUTH_SUPER_ROLES
+ *   (comma separated).
  */
 class ChatInstall extends Command
 {
@@ -37,12 +48,6 @@ class ChatInstall extends Command
 
         if ($mode === null) {
             $this->components->error('Unknown mode. Use --mode=local or --mode=pizzasys.');
-
-            return self::FAILURE;
-        }
-
-        if ($mode === AuthMode::Pizzasys) {
-            $this->components->error('The pizzasys mode is available in P2 and cannot be installed non-interactively yet.');
 
             return self::FAILURE;
         }
@@ -95,6 +100,24 @@ class ChatInstall extends Command
 
         $answers->mode($mode->value);
 
+        if ($mode === AuthMode::Pizzasys) {
+            array_push($problems, ...$this->storePortalAnswers($answers));
+        } else {
+            array_push($problems, ...$this->storeLocalAdmin($install, $answers, $cli));
+        }
+
+        array_push($problems, ...$this->storeBasics($install, $answers, $cli));
+
+        return $problems;
+    }
+
+    /**
+     * @param  array<string, mixed>  $cli
+     * @return list<string>
+     */
+    private function storeLocalAdmin(InstallState $install, StoreInstallAnswers $answers, array $cli): array
+    {
+        $problems = [];
         $email = $cli['admin_email'] ?? null;
         $password = $cli['admin_password'] ?? null;
 
@@ -116,6 +139,17 @@ class ChatInstall extends Command
         } elseif ($install->read()['admin'] === null) {
             $problems[] = 'Set INSTALL_ADMIN_EMAIL and INSTALL_ADMIN_PASSWORD (and optionally INSTALL_ADMIN_NAME) for the first administrator.';
         }
+
+        return $problems;
+    }
+
+    /**
+     * @param  array<string, mixed>  $cli
+     * @return list<string>
+     */
+    private function storeBasics(InstallState $install, StoreInstallAnswers $answers, array $cli): array
+    {
+        $problems = [];
 
         $basics = array_filter([
             'app_name' => $cli['app_name'] ?? null,
@@ -148,6 +182,69 @@ class ChatInstall extends Command
         }
 
         return $problems;
+    }
+
+    /**
+     * Mode 2: store the portal answers and verify the portal administrator's login live.
+     *
+     * @return list<string>
+     */
+    private function storePortalAnswers(StoreInstallAnswers $answers): array
+    {
+        $auth = (array) config('install.cli.auth', []);
+        $value = fn (string $key): ?string => is_string($auth[$key] ?? null) && trim((string) $auth[$key]) !== '' ? trim((string) $auth[$key]) : null;
+
+        $input = [
+            'base_url' => $value('base_url'),
+            'service_name' => $value('service_name'),
+            'service_token' => $value('service_token'),
+            'nats_url' => $value('nats_url'),
+            'nats_token' => $value('nats_token'),
+            'admin_email' => $value('admin_email'),
+            'admin_password' => $value('admin_password'),
+        ];
+
+        $validator = Validator::make($input, [
+            'base_url' => ['required', 'string', new PortalUrl],
+            'service_name' => ['required', 'string', 'regex:/^[A-Za-z0-9._-]{1,64}$/'],
+            'service_token' => ['required', 'string', 'max:512'],
+            'nats_url' => ['nullable', 'string', new NatsUrl],
+            'nats_token' => ['nullable', 'string', 'max:512'],
+            'admin_email' => ['required', 'email', 'max:255'],
+            'admin_password' => ['required', 'string', 'max:255'],
+        ]);
+
+        if ($validator->fails()) {
+            return array_values(array_map(fn (string $message): string => 'INSTALL_AUTH_*: '.$message, $validator->errors()->all()));
+        }
+
+        $defaults = new RoleMapping;
+        $supers = $value('super_roles');
+        $prefix = $value('api_prefix');
+
+        $answers->pizzasys(
+            [
+                'production' => [
+                    'base_url' => (string) $input['base_url'],
+                    'api_prefix' => $prefix !== null ? '/'.trim($prefix, '/') : '/api/v1',
+                    'service_name' => (string) $input['service_name'],
+                    'service_token' => $input['service_token'],
+                    'nats_url' => $input['nats_url'],
+                    'nats_token' => $input['nats_token'],
+                    'verify_tls' => ! in_array(strtolower((string) $value('verify_tls')), ['0', 'false', 'no', 'off'], true),
+                ],
+            ],
+            'production',
+            new RoleMapping(
+                $value('admin_permission') ?? $defaults->adminPermission,
+                $value('agent_permission') ?? $defaults->agentPermission,
+                $supers !== null ? array_values(array_filter(array_map('trim', explode(',', $supers)))) : $defaults->superRoles,
+            ),
+        );
+
+        $outcome = app(VerifyPortalAdmin::class)((string) $input['admin_email'], (string) $input['admin_password']);
+
+        return $outcome['ok'] ? [] : ['Portal administrator check failed ('.$outcome['code'].'): '.$outcome['message']];
     }
 
     private function report(StepReport $report): void

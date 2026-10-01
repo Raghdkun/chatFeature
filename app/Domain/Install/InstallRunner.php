@@ -6,6 +6,7 @@ use App\Auth\Enums\AuthMode;
 use App\Domain\Install\Contracts\InstallStep;
 use App\Domain\Install\Exceptions\InstallBusyException;
 use App\Domain\Install\Support\EnvironmentChecker;
+use App\Domain\Install\Support\PizzasysAnswers;
 use Closure;
 use Illuminate\Contracts\Container\Container;
 use InvalidArgumentException;
@@ -54,15 +55,27 @@ final class InstallRunner
         ));
     }
 
-    public function find(string $key): ?InstallStep
+    /**
+     * The step registered under a key. A key may exist once per mode (`create-admin`): with a mode the step that applies
+     * to it wins, otherwise the first registered one is returned.
+     */
+    public function find(string $key, ?string $mode = null): ?InstallStep
     {
+        $fallback = null;
+
         foreach ($this->steps() as $step) {
-            if ($step->key() === $key) {
+            if ($step->key() !== $key) {
+                continue;
+            }
+
+            if ($mode !== null && ($step->modes() === null || in_array($mode, $step->modes(), true))) {
                 return $step;
             }
+
+            $fallback ??= $step;
         }
 
-        return null;
+        return $fallback;
     }
 
     /**
@@ -127,13 +140,12 @@ final class InstallRunner
 
     private function execute(string $key, ?Closure $reporter): StepReport
     {
-        $step = $this->find($key) ?? throw new InvalidArgumentException("Unknown install step [{$key}].");
+        $mode = $this->state->mode();
+        $step = $this->find($key, $mode) ?? throw new InvalidArgumentException("Unknown install step [{$key}].");
 
         if ($this->state->isInstalled()) {
             return new StepReport($key, StepResult::ok('Already installed.'), null, true);
         }
-
-        $mode = $this->state->mode();
 
         if ($step->modes() !== null && ($mode === null || ! in_array($mode, $step->modes(), true))) {
             return new StepReport($key, StepResult::ok('Skipped for this mode.'), $this->nextAfter($key, $mode), false);
@@ -191,6 +203,16 @@ final class InstallRunner
 
         if ($mode === AuthMode::Fortify->value && $data['admin'] === null) {
             $missing[] = 'admin';
+        }
+
+        if ($mode === AuthMode::Pizzasys->value) {
+            $pizzasys = PizzasysAnswers::from($data['auth_environments']);
+
+            if (! $pizzasys->isConfigured()) {
+                $missing[] = 'pizzasys';
+            } elseif ($pizzasys->portalAdmin() === null) {
+                $missing[] = 'portal-admin';
+            }
         }
 
         if ($missing !== []) {

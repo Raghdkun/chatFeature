@@ -19,7 +19,8 @@ class SetupWizardFlowTest extends InstallTestCase
         $this->get(route('setup.index'))->assertInertia(fn (Assert $page) => $page
             ->component('setup/index')
             ->where('setup.step', 'welcome')
-            ->where('setup.pizzasysAvailable', false));
+            ->where('setup.pizzasysAvailable', true)
+            ->where('setup.pizzasys', null));
         $this->verifySetupToken();
 
         // mode
@@ -107,7 +108,7 @@ class SetupWizardFlowTest extends InstallTestCase
 
         $json = $this->getJson(route('setup.state'))->assertOk()->json('setup');
 
-        $this->assertSame(['step', 'steps', 'needsToken', 'tokenVerified', 'mode', 'pizzasysAvailable', 'environment', 'defaults', 'admin', 'run'], array_keys($json));
+        $this->assertSame(['step', 'steps', 'needsToken', 'tokenVerified', 'mode', 'pizzasysAvailable', 'environment', 'defaults', 'admin', 'run', 'pizzasys'], array_keys($json));
         $this->assertSame('run', $json['step']);
         $this->assertSame(['ok', 'checks'], array_keys($json['environment']));
         $this->assertSame(['key', 'label', 'ok'], array_slice(array_keys($json['environment']['checks'][0]), 0, 3));
@@ -130,7 +131,6 @@ class SetupWizardFlowTest extends InstallTestCase
     {
         $this->verifySetupToken();
 
-        $this->post(route('setup.mode'), ['mode' => 'pizzasys'])->assertSessionHasErrors('mode');
         $this->post(route('setup.mode'), ['mode' => 'nonsense'])->assertSessionHasErrors('mode');
         $this->assertNull($this->install->mode());
 

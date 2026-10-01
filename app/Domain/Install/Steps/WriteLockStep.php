@@ -8,6 +8,7 @@ use App\Domain\Install\InstallContext;
 use App\Domain\Install\StepResult;
 use App\Domain\Settings\SettingsRepository;
 use App\Models\User;
+use App\Models\UserExternalIdentity;
 
 /**
  * Step 7: sets the DB flag `app.installed`, then writes `installed.lock`.
@@ -49,12 +50,23 @@ final class WriteLockStep implements InstallStep
             return StepResult::failed('No administrator exists yet. Create the first administrator before finishing.');
         }
 
+        // Mode 2: finishing without a verified portal administrator would lock everybody out.
+        if ($context->mode === 'pizzasys' && ! UserExternalIdentity::query()->whereHas('user', fn ($users) => $users->where('is_admin', true)->where('is_active', true))->exists()) {
+            return StepResult::failed('No verified portal administrator exists yet. Sign in as a portal administrator before finishing.');
+        }
+
         $this->settings->set('app.installed', true);
         $this->audit->record('install.completed', changes: ['mode' => $context->mode]);
 
         $context->state->mutate(function (array $state): array {
             if ($state['admin'] !== null) {
                 $state['admin']['password_hash'] = null;
+            }
+
+            // The portal tokens now live (encrypted) in `auth_environments`; the state file keeps no secret.
+            foreach (array_keys((array) ($state['auth_environments']['environments'] ?? [])) as $key) {
+                $state['auth_environments']['environments'][$key]['service_token'] = null;
+                $state['auth_environments']['environments'][$key]['nats_token'] = null;
             }
 
             return $state;

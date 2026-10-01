@@ -27,6 +27,11 @@ Route::prefix('setup')
             Route::post('mode', [SetupController::class, 'mode'])->name('mode');
             Route::post('admin', [SetupController::class, 'admin'])->name('admin');
             Route::post('basics', [SetupController::class, 'basics'])->name('basics');
+
+            // Mode 2 (pizzasys): portal environments, connection test and the verified portal administrator.
+            Route::post('pizzasys', [SetupController::class, 'pizzasys'])->middleware('throttle:setup-portal-save')->name('pizzasys');
+            Route::post('pizzasys/test', [SetupController::class, 'testPizzasys'])->middleware('throttle:setup-portal-test')->name('pizzasys.test');
+            Route::post('portal-admin', [SetupController::class, 'portalAdmin'])->middleware('throttle:setup-portal-admin')->name('portal-admin');
             Route::post('run/{step}', [SetupController::class, 'run'])
                 ->where('step', '[a-z\-]+')
                 ->middleware('throttle:60,1')
