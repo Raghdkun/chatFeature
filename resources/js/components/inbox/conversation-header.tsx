@@ -47,7 +47,9 @@ export function ConversationHeader({
     const { t } = useTrans();
     const { visitor } = conversation;
     const name = visitor.name ?? t('inbox.visitor.anonymous');
-    const pageUrl = safeExternalUrl(conversation.pageUrl ?? '') ?? visitorPageUrl(visitor.meta);
+    const pageUrl =
+        safeExternalUrl(conversation.pageUrl ?? '') ??
+        visitorPageUrl(visitor.meta);
     const subline = [
         `#${conversation.ticketNo}`,
         conversation.category?.label,
