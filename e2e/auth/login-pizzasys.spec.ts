@@ -30,6 +30,32 @@ test.use({ scenario: 'installed-pizzasys' });
 const users = portalUsers();
 const WRONG_PASSWORD = 'not-the-password';
 
+/**
+ * Waits until the session is over, asking `/dashboard` the way a navigation does (the redirect is not followed) until it answers with
+ * the redirect to the login page, and then opens the login page, where the notice "Your session has ended" waits.
+ *
+ * The browser rests on a blank page meanwhile. A signed-in page reads the staff state (presence, queue, conversations) in the
+ * background, and when one of those requests is the first to find the session revoked it ends the session with a JSON 401: the page then
+ * reloads onto a login page without the notice, which only the navigation that finds the session revoked can flash (and the 401s
+ * of the requests still in flight replace the session cookie again). What the person sees on the login page is therefore only
+ * deterministic when the navigation is the one to find out.
+ */
+async function waitUntilSessionEnds(page: Page): Promise<void> {
+    await page.goto('about:blank');
+    await expect(async () => {
+        const response = await page.request.get('/dashboard', {
+            maxRedirects: 0,
+        });
+
+        expect(response.status()).toBe(302);
+        expect(new URL(response.headers().location!).pathname).toBe('/login');
+    }).toPass({
+        intervals: [1_000, 2_000],
+        timeout: (MIN_VERIFY_TTL_SECONDS + 25) * 1_000,
+    });
+    await page.goto('/login');
+}
+
 async function expectSignedOutAt(page: Page, path: string): Promise<void> {
     await page.goto(path);
     await expect(page).toHaveURL(/\/login$/);
@@ -298,13 +324,7 @@ test.describe(
             );
 
             // The session may keep working until the cached verification runs out, never longer.
-            await expect(async () => {
-                await page.goto('/dashboard');
-                await expect(page).toHaveURL(/\/login$/);
-            }).toPass({
-                intervals: [1_000, 2_000],
-                timeout: (MIN_VERIFY_TTL_SECONDS + 25) * 1_000,
-            });
+            await waitUntilSessionEnds(page);
 
             await expect(
                 page
@@ -353,13 +373,7 @@ test.describe(
 
                 // ... and removing every chat permission takes the access away again: the session ends.
                 await setPortalPermissions(account.email, []);
-                await expect(async () => {
-                    await page.goto('/dashboard');
-                    await expect(page).toHaveURL(/\/login$/);
-                }).toPass({
-                    intervals: [1_000, 2_000],
-                    timeout: (MIN_VERIFY_TTL_SECONDS + 25) * 1_000,
-                });
+                await waitUntilSessionEnds(page);
                 await expect(
                     page
                         .getByText(
