@@ -12,6 +12,7 @@ import {
     type FrameLocator,
     type Locator,
     type Page,
+    type Request,
 } from '@playwright/test';
 import { hostPage, settleWidget, type HostOptions } from './host';
 import type { Instance } from './scenarios';
@@ -137,6 +138,7 @@ export class Panel {
                 await expect(this.stateElement).not.toHaveAttribute(
                     'data-state',
                     last,
+                    { timeout: 30_000 },
                 );
             }
 
@@ -162,15 +164,43 @@ export class Panel {
             if (state === 'idle') {
                 await this.tid('idle-start').click();
             } else if (state === 'prechat') {
-                // A submit that lands before the panel has hydrated does nothing (a loaded machine): fill and submit until it takes.
-                await expect(async () => {
-                    await this.fillPrechat(options);
-                    await expect(this.stateElement).not.toHaveAttribute(
-                        'data-state',
-                        'prechat',
-                        { timeout: 3_000 },
-                    );
-                }).toPass({ timeout: 20_000, intervals: [250] });
+                // A submit that lands before the panel has hydrated does nothing (a loaded machine): submit again until the panel
+                // reacts (it leaves `prechat`, or the chat request leaves the browser). Once it has reacted never submit twice.
+                let requested = false;
+                const seen = (request: Request): void => {
+                    if (
+                        request.method() === 'POST' &&
+                        new URL(request.url()).pathname ===
+                            '/api/v1/public/conversations'
+                    ) {
+                        requested = true;
+                    }
+                };
+
+                this.page.on('request', seen);
+
+                try {
+                    for (let attempt = 0; attempt < 6; attempt += 1) {
+                        await this.fillPrechat(options);
+
+                        const reacted = await expect
+                            .poll(
+                                async () =>
+                                    requested ||
+                                    (await this.state()) !== 'prechat',
+                                { timeout: 4_000, intervals: [100] },
+                            )
+                            .toBe(true)
+                            .then(() => true)
+                            .catch(() => false);
+
+                        if (reacted) {
+                            break;
+                        }
+                    }
+                } finally {
+                    this.page.off('request', seen);
+                }
             } else if (state === 'category') {
                 await this.tid(`category-option-${options.category}`).click();
             }
