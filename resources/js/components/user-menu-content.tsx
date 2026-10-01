@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { UserInfo } from '@/components/user-info';
 import { useMobileNavigation } from '@/hooks/use-mobile-navigation';
+import { useTrans } from '@/hooks/use-trans';
 import { logout } from '@/routes';
 import { edit } from '@/routes/profile';
 import type { User } from '@/types';
@@ -18,6 +19,7 @@ type Props = {
 
 export function UserMenuContent({ user }: Props) {
     const cleanup = useMobileNavigation();
+    const { t } = useTrans();
 
     const handleLogout = () => {
         cleanup();
@@ -27,7 +29,7 @@ export function UserMenuContent({ user }: Props) {
     return (
         <>
             <DropdownMenuLabel className="p-0 font-normal">
-                <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
+                <div className="flex items-center gap-2 px-1 py-1.5 text-start text-sm">
                     <UserInfo user={user} showEmail={true} />
                 </div>
             </DropdownMenuLabel>
@@ -40,8 +42,8 @@ export function UserMenuContent({ user }: Props) {
                         prefetch
                         onClick={cleanup}
                     >
-                        <Settings className="mr-2" />
-                        Settings
+                        <Settings className="me-2" />
+                        {t('user_menu.settings')}
                     </Link>
                 </DropdownMenuItem>
             </DropdownMenuGroup>
@@ -54,8 +56,8 @@ export function UserMenuContent({ user }: Props) {
                     onClick={handleLogout}
                     data-test="logout-button"
                 >
-                    <LogOut className="mr-2" />
-                    Log out
+                    <LogOut className="me-2" />
+                    {t('user_menu.logout')}
                 </Link>
             </DropdownMenuItem>
         </>

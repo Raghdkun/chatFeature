@@ -4,7 +4,12 @@ import type { NavEntry } from '@/nav';
 
 const entries: NavEntry[] = [
     {
-        item: { title: 'Dashboard', href: dashboard(), icon: LayoutGrid },
+        item: {
+            title: 'Dashboard',
+            titleKey: 'nav.dashboard',
+            href: dashboard(),
+            icon: LayoutGrid,
+        },
         order: 0,
         role: 'any',
         group: 'main',

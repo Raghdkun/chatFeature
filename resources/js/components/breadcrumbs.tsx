@@ -1,4 +1,5 @@
 import { Link } from '@inertiajs/react';
+import { ChevronRight } from 'lucide-react';
 import { Fragment } from 'react';
 import {
     Breadcrumb,
@@ -38,7 +39,11 @@ export function Breadcrumbs({
                                             </BreadcrumbLink>
                                         )}
                                     </BreadcrumbItem>
-                                    {!isLast && <BreadcrumbSeparator />}
+                                    {!isLast && (
+                                        <BreadcrumbSeparator>
+                                            <ChevronRight className="rtl:rotate-180" />
+                                        </BreadcrumbSeparator>
+                                    )}
                                 </Fragment>
                             );
                         })}
