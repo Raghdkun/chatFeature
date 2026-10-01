@@ -13,6 +13,21 @@ export type PortalStatus = 'ok' | 'inactive' | 'invalid' | 'service_rejected' | 
 }
 }
 namespace Data {
+namespace Agents {
+export type AgentListItemData = {
+id: number,
+name: string,
+email: string,
+avatar: string | null,
+is_admin: boolean,
+is_agent: boolean,
+is_active: boolean,
+auth_source: string,
+category_ulids: string[],
+max_concurrent_chats: number,
+last_seen_at: string | null,
+};
+}
 namespace Auth {
 export type AuthCapabilitiesData = {
 canRegister: boolean,
@@ -102,6 +117,21 @@ ok: boolean,
 checks: App.Data.Auth.PortalCheckData[],
 };
 }
+namespace Catalog {
+export type CategoryData = {
+ulid: string,
+slug: string,
+name: string,
+name_i18n: Record<string, string>,
+description: string | null,
+icon: string | null,
+color: string | null,
+sort_order: number,
+is_active: boolean,
+agents_count: number,
+widgets_count: number,
+};
+}
 namespace Setup {
 export type SetupAdminData = {
 name: string,
@@ -173,11 +203,255 @@ flash: App.Data.Shared.FlashData,
 };
 export type TextDirection = 'ltr' | 'rtl';
 }
+namespace Widgets {
+export type GreetingData = {
+ulid: string,
+body: string,
+agent_name: string | null,
+agent_avatar_url: string | null,
+locale: string | null,
+weight: number,
+is_active: boolean,
+sort_order: number,
+};
+export type IdentityExampleData = {
+php: string,
+node: string,
+python: string,
+};
+export type WidgetBuilderData = {
+widget: App.Data.Widgets.WidgetData,
+config: App.Domain.Widgets.Data.WidgetConfigData,
+draft_config: App.Domain.Widgets.Data.WidgetConfigData,
+greetings: App.Data.Widgets.GreetingData[],
+domains: string[],
+category_ulids: string[],
+all_categories: App.Data.Catalog.CategoryData[],
+snippets: App.Data.Widgets.WidgetSnippetsData,
+preview: App.Data.Widgets.WidgetPreviewData,
+};
+export type WidgetData = {
+ulid: string,
+name: string,
+public_key: string,
+is_enabled: boolean,
+locale: string,
+idle_timeout_minutes: number,
+queue_timeout_seconds: number,
+offline_mode: App.Domain.Widgets.Enums.OfflineMode,
+timezone: string,
+allow_non_browser_clients: boolean,
+config_version: number,
+has_identity_secret: boolean,
+has_unpublished_changes: boolean,
+whatsapp_connected: boolean,
+created_at: string,
+updated_at: string,
+};
+export type WidgetListItemData = {
+ulid: string,
+name: string,
+public_key: string,
+is_enabled: boolean,
+config_version: number,
+has_unpublished_changes: boolean,
+whatsapp_connected: boolean,
+updated_at: string,
+domains_count: number,
+categories_count: number,
+};
+export type WidgetPreviewData = {
+embed_url: string,
+app_origin: string,
+};
+export type WidgetSnippetsData = {
+script: string,
+iframe: string,
+hosted: string,
+identity_example: App.Data.Widgets.IdentityExampleData,
+};
+}
 }
 namespace Domain {
 namespace Settings {
 export type SettingGroup = 'app' | 'auth' | 'chat' | 'notifications' | 'storage' | 'whatsapp';
 export type SettingType = 'string' | 'bool' | 'int' | 'json';
+}
+namespace Widgets {
+namespace Data {
+export type AvailabilityData = {
+online: boolean,
+openNow: boolean,
+nextOpenAt: string | null,
+categories: App.Domain.Widgets.Data.CategoryAvailabilityData[],
+whatsapp: App.Domain.Widgets.Data.WhatsappAvailabilityData,
+};
+export type BootApiData = {
+base: string,
+embed: string,
+appOrigin: string,
+};
+export type BootCategoryData = {
+slug: string,
+label: string,
+description: string | null,
+icon: string | null,
+color: string | null,
+};
+export type BootGreetingData = {
+id: string,
+body: string,
+agentName: string | null,
+agentAvatarUrl: string | null,
+locale: string | null,
+weight: number,
+};
+export type CategoryAvailabilityData = {
+slug: string,
+online: boolean,
+};
+export type FeaturesConfigData = {
+attachments: boolean,
+rating: boolean,
+sounds: boolean,
+preChat: boolean,
+whatsapp: boolean,
+offlineForm: boolean,
+titleBadge: boolean,
+endChatByVisitor: boolean,
+poweredBy: boolean,
+};
+export type GreetingsConfigData = {
+enabled: boolean,
+onPageLoad: boolean,
+delaySeconds: number,
+intervalMinutes: number,
+autoHideSeconds: number,
+dismissPolicy: App.Domain.Widgets.Enums.DismissPolicy,
+showAgent: boolean,
+};
+export type HolidayData = {
+date: string,
+label: string | null,
+};
+export type HoursConfigData = {
+mode: App.Domain.Widgets.Enums.OfflineMode,
+timezone: string,
+schedule: App.Domain.Widgets.Data.ScheduleRangeData[],
+holidays: App.Domain.Widgets.Data.HolidayData[],
+};
+export type LauncherConfigData = {
+style: App.Domain.Widgets.Enums.LauncherStyle,
+icon: App.Domain.Widgets.Enums.LauncherIcon,
+iconUrl: string | null,
+label: string,
+avatarUrl: string | null,
+};
+export type PreChatConfigData = {
+fields: App.Domain.Widgets.Data.PreChatFieldsData,
+consentText: string | null,
+};
+export type PreChatFieldData = {
+enabled: boolean,
+required: boolean,
+};
+export type PreChatFieldsData = {
+name: App.Domain.Widgets.Data.PreChatFieldData,
+email: App.Domain.Widgets.Data.PreChatFieldData,
+phone: App.Domain.Widgets.Data.PreChatFieldData,
+};
+export type PublicWidgetConfigData = {
+v: number,
+defaultLocale: string,
+localeDetect: boolean,
+theme: App.Domain.Widgets.Data.ThemeConfigData,
+launcher: App.Domain.Widgets.Data.LauncherConfigData,
+texts: Record<string, Record<string, string>>,
+features: App.Domain.Widgets.Data.FeaturesConfigData,
+preChat: App.Domain.Widgets.Data.PreChatConfigData,
+greetings: App.Domain.Widgets.Data.GreetingsConfigData,
+hours: App.Domain.Widgets.Data.HoursConfigData,
+};
+export type ResolvedBootConfigData = {
+v: number,
+key: string,
+configVersion: number,
+generatedAt: string,
+locale: string,
+api: App.Domain.Widgets.Data.BootApiData,
+config: App.Domain.Widgets.Data.PublicWidgetConfigData,
+greetings: App.Domain.Widgets.Data.BootGreetingData[],
+categories: App.Domain.Widgets.Data.BootCategoryData[],
+availability: App.Domain.Widgets.Data.AvailabilityData,
+};
+export type RoutingConfigData = {
+waves: App.Domain.Widgets.Data.RoutingWaveData[],
+wakeOfflineViaPush: boolean,
+queueTimeoutSeconds: number,
+};
+export type RoutingWaveData = {
+afterSeconds: number,
+statuses: App.Domain.Widgets.Enums.RoutingStatus[],
+};
+export type ScheduleRangeData = {
+day: number,
+start: string,
+end: string,
+};
+export type SessionConfigData = {
+idleTimeoutMinutes: number,
+};
+export type ThemeConfigData = {
+mode: App.Domain.Widgets.Enums.ThemeMode,
+primary: string,
+primaryText: string,
+accent: string,
+surface: string,
+text: string,
+fontFamily: string,
+fontUrl: string | null,
+radius: number,
+shadow: App.Domain.Widgets.Enums.ShadowLevel,
+launcherSize: App.Domain.Widgets.Enums.LauncherSize,
+panelWidth: number,
+panelHeight: number,
+position: App.Domain.Widgets.Enums.PanelPosition,
+offsetX: number,
+offsetY: number,
+zIndex: number,
+};
+export type WhatsappAvailabilityData = {
+enabled: boolean,
+};
+export type WidgetConfigData = {
+v: number,
+defaultLocale: string,
+localeDetect: boolean,
+theme: App.Domain.Widgets.Data.ThemeConfigData,
+launcher: App.Domain.Widgets.Data.LauncherConfigData,
+texts: Record<string, Record<string, string>>,
+features: App.Domain.Widgets.Data.FeaturesConfigData,
+preChat: App.Domain.Widgets.Data.PreChatConfigData,
+greetings: App.Domain.Widgets.Data.GreetingsConfigData,
+hours: App.Domain.Widgets.Data.HoursConfigData,
+routing: App.Domain.Widgets.Data.RoutingConfigData,
+session: App.Domain.Widgets.Data.SessionConfigData,
+};
+}
+namespace Enums {
+export type DismissPolicy = 'session' | 'interval' | 'never';
+export type LauncherIcon = 'chat' | 'help' | 'sparkle' | 'custom';
+export type LauncherSize = 'sm' | 'md' | 'lg';
+export type LauncherStyle = 'bubble' | 'pill';
+export type OfflineMode = 'auto_hours' | 'always_online' | 'always_offline';
+export type PanelPosition = 'bottom-right' | 'bottom-left';
+export type RoutingStatus = 'online' | 'away' | 'offline';
+export type ShadowLevel = 'none' | 'soft' | 'strong';
+export type ThemeMode = 'auto' | 'light' | 'dark';
+}
+namespace Identity {
+export type IdentityFailure = 'no_secret' | 'malformed' | 'unsupported_algorithm' | 'bad_signature' | 'wrong_issuer' | 'missing_expiry' | 'expired' | 'expiry_too_far' | 'not_yet_valid' | 'invalid_claims';
+}
 }
 }
 namespace Infrastructure {
