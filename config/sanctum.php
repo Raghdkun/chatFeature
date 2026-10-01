@@ -1,7 +1,7 @@
 <?php
 
+use App\Http\Middleware\PreventRequestForgeryWithoutCookieForApi;
 use Illuminate\Cookie\Middleware\EncryptCookies;
-use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Laravel\Sanctum\Http\Middleware\AuthenticateSession;
 use Laravel\Sanctum\Sanctum;
 
@@ -81,7 +81,8 @@ return [
     'middleware' => [
         'authenticate_session' => AuthenticateSession::class,
         'encrypt_cookies' => EncryptCookies::class,
-        'validate_csrf_token' => ValidateCsrfToken::class,
+        // Same check as the framework's, without an XSRF-TOKEN cookie on the dashboard's background requests (see the class).
+        'validate_csrf_token' => PreventRequestForgeryWithoutCookieForApi::class,
     ],
 
 ];
