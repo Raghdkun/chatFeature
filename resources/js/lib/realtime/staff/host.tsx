@@ -48,6 +48,9 @@ import {
     type InboxState,
 } from '@/lib/realtime/staff/store';
 import { StaffRealtimeBindings } from '@/lib/realtime/staff/use-staff-realtime';
+import { useWaStateOptional } from '@/lib/realtime/whatsapp/context';
+import { WhatsAppRealtimeProvider } from '@/lib/realtime/whatsapp/provider';
+import { selectUnreadTotal } from '@/lib/realtime/whatsapp/store';
 
 type Translate = (
     key: string,
@@ -327,15 +330,26 @@ export function StaffRealtimeHost({
                     isAdmin={session.viewer.isAdmin}
                 />
             ) : null}
-            {session ? <AttentionTitle /> : null}
-            {children}
+            {/* Administrators only (P6): the WhatsApp live data. Everybody else gets no WhatsApp context at all. */}
+            <WhatsAppRealtimeProvider
+                admin={session?.viewer.isAdmin === true}
+                sockets={session?.sockets === true}
+            >
+                {session ? <AttentionTitle /> : null}
+                {children}
+            </WhatsAppRealtimeProvider>
         </StaffRealtimeContext.Provider>
     );
 }
 
-/** Puts the number of waiting offers + unread messages in front of the document title. */
+/**
+ * Puts the number of waiting offers + unread messages in front of the document title (an administrator's unread WhatsApp messages
+ * count too: ONE observer owns the prefix, two would rewrite each other's).
+ */
 function AttentionTitle() {
-    const count = useInboxOptional(selectAttentionCount) ?? 0;
+    const count =
+        (useInboxOptional(selectAttentionCount) ?? 0) +
+        (useWaStateOptional(selectUnreadTotal) ?? 0);
 
     useAttentionTitle(count);
 

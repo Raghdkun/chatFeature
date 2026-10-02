@@ -246,7 +246,7 @@ describe('sidebar entries', () => {
     const titles = (flags: { is_admin?: boolean; is_agent?: boolean }) =>
         inNavGroup(navFor(flags), 'main').map((item) => item.title);
 
-    it('gives agents Inbox and Offline tickets after the dashboard, and admins History as well', () => {
+    it('gives agents Inbox and Offline tickets after the dashboard, and admins History and WhatsApp as well', () => {
         expect(titles({ is_agent: true })).toEqual([
             'Dashboard',
             'Inbox',
@@ -257,22 +257,26 @@ describe('sidebar entries', () => {
             'Inbox',
             'Offline tickets',
             'History',
+            // P6: the WhatsApp inbox is for administrators only (never in an agent's list above).
+            'WhatsApp',
         ]);
         expect(titles({})).toEqual(['Dashboard']);
     });
 
-    it('links to the pages, with translatable titles and live badges on the first two', () => {
+    it('links to the pages, with translatable titles and live badges on the unread-aware ones', () => {
         const items = inNavGroup(navFor({ is_admin: true }), 'main').slice(1);
 
         expect(items.map((item) => item.href)).toEqual([
             '/inbox',
             '/offline-tickets',
             '/history',
+            '/whatsapp',
         ]);
         expect(items.map((item) => Boolean(item.badge))).toEqual([
             true,
             true,
             false,
+            true,
         ]);
 
         for (const item of items) {

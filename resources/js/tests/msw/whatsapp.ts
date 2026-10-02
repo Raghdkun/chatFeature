@@ -105,6 +105,10 @@ export function createWaBackend(options: WaBackendOptions = {}) {
             message?: string;
             retryAfter?: number;
         }[],
+        /** Every reply send is stored at once but answered this long afterwards (to observe the optimistic bubble, and the race with the websocket). */
+        sendDelayMs: 0,
+        /** The next N reply sends are STORED by the server but the answer never reaches the browser (a dropped connection). */
+        loseAnswers: 0,
         /** Answer every call as if the network were down. */
         offline: false,
         /** Every failing call answers `403` (an agent). */
@@ -636,6 +640,19 @@ export function createWaBackend(options: WaBackendOptions = {}) {
                     lastMessagePreview: text,
                     lastMessageAt: message.createdAt,
                 });
+
+                if (state.loseAnswers > 0) {
+                    state.loseAnswers -= 1;
+
+                    return HttpResponse.error();
+                }
+
+                // Stored by now; the answer is what is slow (a websocket event can be faster than it).
+                if (state.sendDelayMs > 0) {
+                    await new Promise((resolve) =>
+                        setTimeout(resolve, state.sendDelayMs),
+                    );
+                }
 
                 return HttpResponse.json({ data: message }, { status: 201 });
             },
