@@ -73,7 +73,9 @@ export function ConfirmDialog({
         >
             <AlertDialogContent data-testid={testId} {...returnFocus}>
                 <AlertDialogHeader>
-                    <AlertDialogTitle>{title}</AlertDialogTitle>
+                    <AlertDialogTitle className="[overflow-wrap:anywhere]">
+                        {title}
+                    </AlertDialogTitle>
                     <AlertDialogDescription>{body}</AlertDialogDescription>
                 </AlertDialogHeader>
                 {failure !== null && (

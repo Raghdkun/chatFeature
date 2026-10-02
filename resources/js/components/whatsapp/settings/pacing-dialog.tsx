@@ -141,10 +141,10 @@ function PacingForm({
             onSubmit={(event) => void submit(event)}
             noValidate
             data-testid="wa-pacing-form"
-            className="grid gap-5"
+            className="grid min-w-0 gap-5"
         >
             <DialogHeader>
-                <DialogTitle>
+                <DialogTitle className="[overflow-wrap:anywhere]">
                     {t('whatsapp.pacing.title', { name: session.name })}
                 </DialogTitle>
                 <DialogDescription>
