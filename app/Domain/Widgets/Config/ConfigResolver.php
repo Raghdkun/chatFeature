@@ -60,10 +60,14 @@ final class ConfigResolver
             fn (): array => $this->build($widget, $origin),
         );
 
-        return [
-            ...$this->localise($base, LocaleResolver::sanitize($locale)),
-            'availability' => $this->availability->arrayFor($widget),
-        ];
+        $availability = $this->availability->arrayFor($widget);
+        $resolved = $this->localise($base, LocaleResolver::sanitize($locale));
+
+        // The cached base holds what the administrator published; whether the channel can be offered right now (a `ready` session is
+        // linked, the global switch is on) changes on its own clock, so it is decided per request from the availability answer.
+        $resolved['config']['features']['whatsapp'] = ($availability['whatsapp']['enabled'] ?? false) === true;
+
+        return [...$resolved, 'availability' => $availability];
     }
 
     /**
@@ -72,8 +76,6 @@ final class ConfigResolver
     private function build(Widget $widget, string $origin): array
     {
         $config = $this->configs->hydrate(ConfigMirror::overlayColumns($widget->config, $widget));
-        // A WhatsApp hand-off needs a connected session (P6); until then the feature is never offered to visitors.
-        $config->features->whatsapp = false;
 
         // Complete text blocks (locale -> default locale -> built-in English), including the default locale itself.
         $texts = [];

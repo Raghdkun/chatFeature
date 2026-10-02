@@ -20,7 +20,7 @@ class WidgetController extends ManagementController
 {
     public function index(WidgetPresenter $presenter): JsonResponse
     {
-        $widgets = Widget::query()->withCount(['domains', 'categories'])->orderBy('name')->orderBy('id')->get();
+        $widgets = Widget::query()->with('whatsappSession')->withCount(['domains', 'categories'])->orderBy('name')->orderBy('id')->get();
 
         return $this->list($presenter->listItems($widgets));
     }

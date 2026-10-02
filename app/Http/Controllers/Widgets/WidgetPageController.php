@@ -16,7 +16,7 @@ class WidgetPageController extends Controller
 {
     public function index(WidgetPresenter $presenter): Response
     {
-        $widgets = Widget::query()->withCount(['domains', 'categories'])->orderBy('name')->orderBy('id')->get();
+        $widgets = Widget::query()->with('whatsappSession')->withCount(['domains', 'categories'])->orderBy('name')->orderBy('id')->get();
 
         return Inertia::render('widgets/index', [
             'widgets' => array_map(fn (WidgetListItemData $item): array => $item->toArray(), $presenter->listItems($widgets)),

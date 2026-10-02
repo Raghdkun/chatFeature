@@ -4,6 +4,7 @@ namespace App\Domain\Widgets\Availability;
 
 use App\Domain\Chat\Enums\PresenceStatus;
 use App\Domain\Chat\Services\RoutingPlan;
+use App\Domain\WhatsApp\Support\PhoneNumber;
 use App\Domain\Widgets\Config\WidgetConfigValidator;
 use App\Domain\Widgets\Contracts\PresenceReader;
 use App\Domain\Widgets\Data\AvailabilityData;
@@ -99,7 +100,23 @@ final class AvailabilityService
             openNow: $openNow,
             nextOpenAt: $next?->utc()->format('Y-m-d\TH:i:s.v\Z'),
             categories: $perCategory,
-            whatsapp: new WhatsappAvailabilityData(enabled: false),
+            whatsapp: new WhatsappAvailabilityData(enabled: $this->offersWhatsApp($widget)),
         );
+    }
+
+    /**
+     * Whether visitors may be offered the WhatsApp channel: the global switch (`whatsapp.enabled`), the widget's PUBLISHED `features.whatsapp`
+     * and a `ready` session with a number linked to the widget (a deleted session counts as none). Nothing else about the session or its
+     * number is public: the number appears only inside the `waUrl` of a hand-off.
+     */
+    private function offersWhatsApp(Widget $widget): bool
+    {
+        if (! settings()->bool('whatsapp.enabled', false) || ! $this->configs->hydrate($widget->config)->features->whatsapp) {
+            return false;
+        }
+
+        $session = $widget->whatsappSession;
+
+        return $session !== null && $session->isUsable() && PhoneNumber::digits($session->phone_e164) !== null;
     }
 }

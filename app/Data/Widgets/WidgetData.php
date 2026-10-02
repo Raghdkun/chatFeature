@@ -50,8 +50,8 @@ class WidgetData extends Data
             config_version: $widget->config_version,
             has_identity_secret: $widget->hasIdentitySecret(),
             has_unpublished_changes: $hasUnpublishedChanges,
-            // The WhatsApp session link arrives with P6.
-            whatsapp_connected: false,
+            // A `ready` WhatsApp session is linked to the widget (P6).
+            whatsapp_connected: $widget->whatsappSession?->isUsable() ?? false,
             created_at: (string) Timestamps::iso($widget->created_at),
             updated_at: (string) Timestamps::iso($widget->updated_at),
         );

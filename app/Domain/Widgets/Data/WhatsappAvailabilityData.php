@@ -5,7 +5,7 @@ namespace App\Domain\Widgets\Data;
 use Spatie\LaravelData\Data;
 use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 
-/** WhatsApp hand-off availability (always disabled until P6 connects a session). */
+/** WhatsApp hand-off availability: true when `whatsapp.enabled`, the widget's `features.whatsapp` and a `ready` linked session all hold (P6). Never carries the number. */
 #[TypeScript]
 class WhatsappAvailabilityData extends Data
 {

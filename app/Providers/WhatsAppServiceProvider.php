@@ -11,6 +11,7 @@ use App\Domain\WhatsApp\Realtime\WhatsAppEventSubscriber;
 use App\Domain\WhatsApp\Support\SignedWaMediaUrls;
 use App\Domain\Widgets\Support\ClientNetwork;
 use App\Infrastructure\OpenWa\OpenWaHttpClient;
+use App\Models\VisitorSession;
 use App\Models\WaChat;
 use App\Models\WaMessage;
 use App\Models\WhatsAppSession;
@@ -64,6 +65,22 @@ class WhatsAppServiceProvider extends ServiceProvider
             return [
                 Limit::perMinute($this->limit('webhook.rate_limits.per_network', 600))->by('wa-hook-ip:'.ClientNetwork::bucket($request->ip())),
                 Limit::perMinute($this->limit('webhook.rate_limits.per_session', 3000))->by('wa-hook:'.$session),
+            ];
+        });
+
+        // The hand-off creates a ticket (and lets the visitor open WhatsApp): bounded per visitor, per network, and per widget (+ network),
+        // after the visitor is authenticated (the widget comes from the token's session).
+        RateLimiter::for('wa-handoff', function (Request $request): array {
+            $session = $request->attributes->get('visitor_session');
+            $widget = $session instanceof VisitorSession ? (string) $session->widget_id : '-';
+            $token = $request->bearerToken();
+            $subject = $token !== null && $token !== '' ? hash('sha256', $token) : 'ip:'.ClientNetwork::bucket($request->ip());
+
+            return [
+                Limit::perMinute($this->limit('handoff.rate_limits.per_visitor', 6))->by('wa-handoff:'.$subject),
+                Limit::perMinute($this->limit('handoff.rate_limits.per_network', 20))->by('wa-handoff-ip:'.ClientNetwork::bucket($request->ip())),
+                Limit::perMinute($this->limit('handoff.rate_limits.per_widget_network', 10))->by('wa-handoff-wn:'.$widget.':'.ClientNetwork::bucket($request->ip())),
+                Limit::perMinute($this->limit('handoff.rate_limits.per_widget', 120))->by('wa-handoff-w:'.$widget),
             ];
         });
 

@@ -1,10 +1,13 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Management\WhatsAppChatController;
+use App\Http\Controllers\Api\V1\Management\WhatsAppExportController;
+use App\Http\Controllers\Api\V1\Management\WhatsAppMediaController;
 use App\Http\Controllers\Api\V1\Management\WhatsAppMessageController;
 use App\Http\Controllers\Api\V1\Management\WhatsAppSessionControlController;
 use App\Http\Controllers\Api\V1\Management\WhatsAppSessionController;
 use App\Http\Controllers\Api\V1\Management\WhatsAppSettingsController;
+use App\Http\Controllers\Api\V1\Management\WidgetWhatsAppController;
 use App\Http\Middleware\Chat\ChatThrottle;
 use Illuminate\Support\Facades\Route;
 
@@ -44,4 +47,15 @@ Route::middleware(['auth:sanctum', 'session.valid', 'chat.access', 'wa.admin', C
         Route::post('archive', [WhatsAppChatController::class, 'archive'])->name('api.whatsapp.chats.archive');
         Route::post('unarchive', [WhatsAppChatController::class, 'unarchive'])->name('api.whatsapp.chats.unarchive');
     });
+
+    Route::get('export', [WhatsAppExportController::class, 'index'])->name('api.whatsapp.export');
+
+    // The target of the signed URLs in `WaMediaData`: the signature AND an administrator's session (an `<img>` carries the cookie).
+    Route::get('media/{message}', [WhatsAppMediaController::class, 'show'])->whereUlid('message')->middleware('signed')->name('whatsapp.media.show');
+});
+
+// Which WhatsApp number a widget hands visitors over to (the widget belongs to /widgets, the permission to WhatsApp: administrators only).
+Route::middleware(['auth:sanctum', 'session.valid', 'chat.access', 'wa.admin', ChatThrottle::class.':staff-api'])->group(function () {
+    Route::get('widgets/{widget}/whatsapp', [WidgetWhatsAppController::class, 'show'])->name('api.widgets.whatsapp.show');
+    Route::put('widgets/{widget}/whatsapp', [WidgetWhatsAppController::class, 'update'])->name('api.widgets.whatsapp.update');
 });
