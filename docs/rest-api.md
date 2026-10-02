@@ -41,7 +41,7 @@ Sanctum **stateful cookie** for the dashboard, **bearer** token for mobile. Admi
 
 | Area | Endpoint (draft) | Notes |
 |---|---|---|
-| Auth | `GET /auth/me`, `GET /auth/tokens`, `DELETE /auth/tokens/{id}`, `POST /auth/logout` (P7); `GET /auth/mode` and a password login endpoint are **not implemented** | See "Own credential (P7)" below; the login endpoint is the main mobile gap ([mobile-readiness.md](mobile-readiness.md)) |
+| Auth | `POST /auth/token`, `POST /auth/token/two-factor` (P7, **guest**: the only unauthenticated management routes), `GET /auth/me`, `GET /auth/tokens`, `DELETE /auth/tokens/{id}`, `POST /auth/logout` (P7); `GET /auth/mode` is **not implemented** | See "Native sign-in (P7)" and "Own credential (P7)" below |
 | Me | categories (P3), presence (P4), notification settings, push subscriptions, devices (P5, "Notifications API (P5)" below); a profile resource is **not implemented** (web pages only) | |
 | Conversations (P4) | `GET /conversations` (+ `/queue`, `/export`, `/{ulid}`, `/{ulid}/messages`), `POST /conversations/{ulid}/{claim,messages,attachments,receipts,typing,end,close,transfer}` | Claim is atomic ([realtime.md](realtime.md)); see "Chat API (P4)" |
 | Presence (P4, P5) | `GET/PUT /me/presence`, `POST /me/presence/heartbeat` | Redis store, auto-away and the sweep (P5, track 5A) sit behind the same endpoints: see "Presence and routing" below and [realtime.md](realtime.md) "Presence" |
@@ -53,9 +53,20 @@ Sanctum **stateful cookie** for the dashboard, **bearer** token for mobile. Admi
 ## Mobile-readiness
 
 - Same endpoints serve the dashboard and the mobile app; only the credential differs (cookie vs bearer).
-- In pizzasys mode the mobile app receives **our own Sanctum token** bound to the `external_sessions` row; the pizzasys token never leaves the server. The driver method exists (`attemptForApi`), but no HTTP login route exposes it yet (still true after P7: the design, and why 2FA makes it more than a thin wrapper, are in [mobile-readiness.md](mobile-readiness.md)). Staff tokens carry the ability `staff` and expire after `SANCTUM_EXPIRATION_MINUTES` (default 30 days); deactivating an account or removing its chat role deletes its tokens.
+- In pizzasys mode the mobile app receives **our own Sanctum token** bound to the `external_sessions` row; the pizzasys token never leaves the server. `POST /auth/token` exposes the driver's `attemptForApi` (see "Native sign-in (P7)"). Staff tokens carry the ability `staff` and expire after `SANCTUM_EXPIRATION_MINUTES` (default 30 days); deactivating an account or removing its chat role deletes its tokens.
 - Push: `PushChannel` interface with `WebPushChannel` (P5, [notifications.md](notifications.md)); `FcmChannel` stub, a `device_tokens` table and `POST/DELETE /me/devices` prepare for FCM.
 - The mobile-readiness review (P7, 7B) is [mobile-readiness.md](mobile-readiness.md); the OpenAPI export is the generated reference above.
+
+## Native sign-in (P7)
+
+Guest routes (no credential, no session, no cookie, no CORS, every answer `Cache-Control: no-store`, body at most 8 KiB). Limiters: `login` (the dashboard login's own budget, so both doors share it) on the password step, `staff-two-factor` on the second step. Full behaviour: [mobile-readiness.md](mobile-readiness.md) "Sign-in (implemented in track 7D)"; threat model: [security.md](security.md) "Native sign-in"; curl sequence: [api-guide.md](api-guide.md) section 11.
+
+| Endpoint | Notes |
+|---|---|
+| `POST /auth/token` | Body `{ email, password, device_name }`. `201 { data: { token, tokenType: "Bearer", expiresAt, user, mode, capabilities, realtime, serverTime } }` (the token is shown once), or `202 { data: { twoFactor: true, challenge, expiresAt, methods } }` for a local account with a second factor (no token yet). Refusals: `401 invalid_credentials` (one answer for unknown email, wrong password, deactivated account, local account without a chat role), `403 no_chat_access` (external auth mode only), `503 auth_unavailable` (external auth mode, with `Retry-After: 30`), `422`, `413`, `429` |
+| `POST /auth/token/two-factor` | Body `{ challenge, code }` or `{ challenge, recovery_code }`. `201` as above, `401 invalid_challenge`, `401 invalid_two_factor_code` (`details.attempts_remaining`), `422`, `413`, `429` |
+
+New codes: `invalid_credentials` (401), `invalid_challenge` (401), `invalid_two_factor_code` (401).
 
 ## Own credential (P7)
 
@@ -68,7 +79,7 @@ Management group (`/api/v1/auth`, Sanctum cookie or bearer, `session.valid`, `ch
 | `DELETE /auth/tokens/{id}` | `204`; `404 token_not_found` for any token that is not the caller's. In external auth mode the portal session behind the token ends and the portal token is logged out upstream |
 | `POST /auth/logout` | `204`; revokes only the bearer token of the call. `409 not_a_token_session` when called with the dashboard's cookie (use `POST /logout`) |
 
-New codes: `token_not_found` (404), `not_a_token_session` (409).
+New codes: `token_not_found` (404), `not_a_token_session` (409). A signed-in device is one token per sign-in; at most 10 per user (the least recently used goes first).
 
 ## Chat API (P4)
 

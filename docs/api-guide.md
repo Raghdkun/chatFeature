@@ -1,6 +1,6 @@
 # API integration guide
 
-> Status: written in P7 (track 7B). The curl sequences in "Flow 1" and "Flow 2" were **run against a local instance** (Laravel's dev server, MySQL, a real Reverb for the realtime step) and the answers shown are real. "Flow 3" (WhatsApp hand-off) needs a connected WhatsApp session, so it is **derived from the feature tests** (`tests/Feature/WhatsApp/WhatsAppHandoffApiTest.php`), not run.
+> Status: written in P7 (track 7B). The curl sequences in "Flow 1" and "Flow 2" were **run against a local instance** (Laravel's dev server, MySQL, a real Reverb for the realtime step) and the answers shown are real. "Flow 4" (staff sign-in, track 7D) was run against the same kind of local instance. "Flow 3" (WhatsApp hand-off) needs a connected WhatsApp session, so it is **derived from the feature tests** (`tests/Feature/WhatsApp/WhatsAppHandoffApiTest.php`), not run.
 > This is the short, hand-written guide. The complete reference is generated from the code: [api/openapi-public.yaml](api/openapi-public.yaml) (visitor API) and [api/openapi-management.yaml](api/openapi-management.yaml) (staff API), plus browsable HTML. [rest-api.md](rest-api.md) is the hand-written overview of the decisions behind them.
 
 ## 1. Which API, and where the reference lives
@@ -184,4 +184,49 @@ Naming: the P3 admin resources (widgets, categories, agents, the auth user) use 
 
 ## 11. Staff clients (agent apps)
 
-Everything the dashboard does is in the Management API, with the same endpoints for cookie and bearer. There is no password-login endpoint yet; read [mobile-readiness.md](mobile-readiness.md) for the verdict on each thing a native agent app needs (auth in both modes, inbox, presence heartbeats of a backgrounded app, push, realtime with a bearer, deep links, gaps and estimates).
+Everything the dashboard does is in the Management API, with the same endpoints for cookie and bearer. A native app signs in with a password (and a second factor when the account has one) and then sends the bearer token it got. Read [mobile-readiness.md](mobile-readiness.md) for the verdict on each thing a native agent app needs (auth in both modes, inbox, presence heartbeats of a backgrounded app, push, realtime with a bearer, deep links, gaps and estimates), and [security.md](security.md) ("Native staff sign-in") for what the sign-in endpoints guarantee.
+
+**Flow 4: sign in, second factor, sign out.** Run against a local instance (`php artisan serve --port=8313`, MySQL, local accounts); the answers are real, tokens shortened. Two accounts: `sam@example.test` (no second factor) and `alex@example.test` (authenticator app).
+
+```bash
+H=http://127.0.0.1:8313
+
+# 1. Password step. `device_name` is the label shown in GET /auth/tokens (3 to 60 characters).
+curl -s -i -X POST $H/api/v1/auth/token -H 'Accept: application/json' -H 'Content-Type: application/json' \
+  -d '{"email":"sam@example.test","password":"...","device_name":"Sam'"'"'s Pixel 9"}'
+# HTTP/1.1 201 Created
+# Cache-Control: no-store, private          <- no cookie, no CORS headers, never cached
+# {"data":{"token":"1|uLtZ...","tokenType":"Bearer","expiresAt":"2026-11-01T13:58:06.000Z",
+#   "user":{"id":2,"name":"Sam Rivera","email":"sam@example.test","avatar":null,"is_admin":false,"is_agent":true,"auth_source":"local"},
+#   "mode":"fortify","capabilities":{"canRegister":false,"canResetPassword":true,"canManage2fa":true,"profileEditable":true,"portalUrl":null},
+#   "realtime":{"key":"mhqt...","host":"localhost","port":8317,"scheme":"http"},"serverTime":"2026-10-02T13:58:06.704Z"}}
+# The token is shown ONCE: keep it in the Keychain / Keystore; send it as `Authorization: Bearer 1|uLtZ...` from now on.
+
+# 2. An account with a second factor gets a challenge instead of a token.
+curl -s -i -X POST $H/api/v1/auth/token -H 'Accept: application/json' -H 'Content-Type: application/json' \
+  -d '{"email":"alex@example.test","password":"...","device_name":"Alex iPhone"}'
+# HTTP/1.1 202 Accepted
+# {"data":{"twoFactor":true,"challenge":"tfc_7miu1pxWOZLHs20ZKpbtcyO9jw1HSugpOEOGSRX3","expiresAt":"2026-10-02T14:05:23.000Z","methods":["totp","recovery_code"]}}
+
+# 3. Answer it with the six-digit code (or {"challenge":"...","recovery_code":"..."}). Nothing names the account: the challenge does.
+curl -s -X POST $H/api/v1/auth/token/two-factor -H 'Accept: application/json' -H 'Content-Type: application/json' \
+  -d '{"challenge":"tfc_7miu...","code":"000000"}'
+# {"error":{"code":"invalid_two_factor_code","message":"That code is not right. Check it and try again.","details":{"attempts_remaining":4}}}
+curl -s -X POST $H/api/v1/auth/token/two-factor -H 'Accept: application/json' -H 'Content-Type: application/json' \
+  -d '{"challenge":"tfc_7miu...","code":"<code from the authenticator app>"}'
+# {"data":{"token":"2|qhvP...","tokenType":"Bearer","expiresAt":"2026-11-01T14:00:24.000Z","user":{"id":3,"name":"Alex Kim",...},"mode":"fortify",...}}
+# The same challenge again: 401 {"error":{"code":"invalid_challenge",...}}  (single use, 5 minutes, burnt after 5 wrong codes)
+
+# 4. The device list and signing out (unchanged endpoints).
+curl -s $H/api/v1/auth/tokens -H 'Accept: application/json' -H "Authorization: Bearer $TOKEN"
+# {"data":[{"id":1,"name":"Sam's Pixel 9","abilities":["staff"],"lastUsedAt":"2026-10-02T14:00:30.000Z","createdAt":"2026-10-02T13:58:06.000Z","expiresAt":"2026-11-01T13:58:06.000Z","current":true}],"meta":{"next_cursor":null}}
+curl -s -o /dev/null -w '%{http_code}\n' -X POST $H/api/v1/auth/logout -H 'Accept: application/json' -H "Authorization: Bearer $TOKEN"    # 204; the next call with the token is 401
+
+# 5. Refusals. A wrong password and an unknown email are ONE answer (and take the same time, about 0.22 s here):
+#   401 {"error":{"code":"invalid_credentials","message":"The email or password is incorrect."}}
+# The sixth attempt for one email within a minute (the dashboard login shares this budget):
+#   429 {"error":{"code":"rate_limited","message":"Too many requests."}}   + Retry-After: 59
+# A body over 8 KiB: 413 {"error":{"code":"payload_too_large",...}}
+```
+
+How a client handles the answers: `201` store the token; `202` ask for the code and go to step 3; `401 invalid_credentials` show "email or password is incorrect" (never say which); `401 invalid_challenge` go back to step 1; `401 invalid_two_factor_code` let the person retry (`details.attempts_remaining`), at 0 start again from step 1; `403 no_chat_access` (external auth mode) the account has no chat role; `429` wait `Retry-After` seconds; `503 auth_unavailable` (external auth mode) the sign-in service is down, retry after `Retry-After` and do not treat it as wrong credentials. In the external auth mode the portal owns passwords and second factors (the portal has no second-factor step, so there is no `202`). Passkeys are not supported by these endpoints.
