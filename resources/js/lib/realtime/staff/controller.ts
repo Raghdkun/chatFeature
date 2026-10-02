@@ -507,6 +507,9 @@ export function createStaffController(deps: StaffControllerDeps) {
             title: t('inbox.toast.offer_title'),
             body: t('inbox.toast.offer_body', { name: who, topic }),
             tag: offerTag(offer.conversation),
+            kind: 'offer',
+            // With previews off the page says what the push says: the topic (admin-defined), nothing the visitor typed or is called.
+            generic: { title: t('inbox.toast.offer_title'), body: topic },
             onClick: () => effects.openConversation(offer.conversation),
         });
     }
@@ -576,6 +579,11 @@ export function createStaffController(deps: StaffControllerDeps) {
                 title: t('inbox.toast.message_title', { name: who }),
                 body: before.lastMessagePreview ?? undefined,
                 tag: `message-${payload.conversation}`,
+                kind: 'message',
+                generic: {
+                    title: t('notifications.push.message_title_private'),
+                    body: t('notifications.push.message_body_private'),
+                },
                 onClick: () => effects.openConversation(payload.conversation),
             });
         }

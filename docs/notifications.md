@@ -15,7 +15,7 @@ An agent who has closed the dashboard (or minimised the browser, or locked the p
 
 Offline tickets are not pushed (they show in the offline-ticket list and as a toast); WhatsApp chats never are (admin-only, P6).
 
-**Looking at the dashboard.** The listeners ask `App\Domain\Notifications\Contracts\DashboardVisibility::isViewingDashboard($userId, 60)`. The default implementation answers from the presence heartbeat the dashboard already sends (a heartbeat of an `online` / `away` agent younger than 60 s counts as looking); the presence context (5A) binds an implementation that reads the heartbeat's `visible` flag, so a hidden tab no longer counts. A tab that is open but in the background shows the OS notification itself (the page's own `Notification`, same tag as the push, so the browser replaces rather than doubles).
+**Looking at the dashboard.** The listeners ask `App\Domain\Notifications\Contracts\DashboardVisibility::isViewingDashboard($userId, 60)`. The default implementation answers from the presence heartbeat the dashboard already sends (a heartbeat of an `online` / `away` agent younger than 60 s counts as looking); the presence context (5A) binds an implementation that reads the heartbeat's `visible` flag, so a hidden tab no longer counts. A tab that is open but in the background shows the OS notification itself, **through the service worker's registration** whenever a worker is active (the same notification list and the same tag as the push, so the browser replaces rather than doubles; `new Notification()` is only the fallback without a worker). The page's notification obeys the member's preferences exactly like the push does: "Turn off for this browser" silences it, "New chat requests" / "New messages" switch their own kind off, and the visitor's name and words appear only with the administrator's `notifications.push_include_preview` AND the member's own "Show message text" on (otherwise: "New chat request" + the topic, "New message" + "Open the chat to read it."; settings that have not loaded yet count as "no text").
 
 **Quiet hours** (per member, `notification_settings.quiet_hours`): `{ enabled, start, end, timezone }`, wall-clock `HH:MM` in an IANA zone, `start` after `end` is an overnight window (22:00-07:00), the end is exclusive. They silence pushes and the page's own OS notifications; the toast and sound follow the sound setting. The same rule is implemented in PHP (`QuietHours`) and TypeScript (`lib/notifications/quiet-hours.ts`) with the same test matrix.
 
@@ -31,7 +31,7 @@ Offline tickets are not pushed (they show in the offline-ticket list and as a to
 | Endpoints, settings page, manifest | `routes/api/management/notifications.php`, `routes/web/notifications.php` |
 | Service worker (plain JavaScript, no build step, no caching, no fetch handler) | `public/sw.js` |
 | Client: controller (permission flow, subscribe, resubscribe on key change), host, dialog, settings page | `resources/js/lib/notifications`, `resources/js/components/notifications`, `resources/js/pages/settings/notifications.tsx` |
-| The page's own OS notifications (same tag as the push, quiet hours, Android fallback through the worker) | `resources/js/lib/realtime/staff/os-notification.ts` |
+| The page's own OS notifications (same tag as the push, quiet hours, the member's preferences, shown through the worker) | `resources/js/lib/realtime/staff/os-notification.ts` (policy registered by `components/notifications/notifications-host.tsx`) |
 
 ## Setup
 
@@ -41,11 +41,13 @@ Offline tickets are not pushed (they show in the offline-ticket list and as a to
 4. **https.** Service workers and push need a secure context (localhost counts). Behind Caddy set `TRUSTED_PROXIES`.
 5. Optional: `PUSH_FCM_ENABLED=true` only turns on the FCM stub's logging; nothing is sent over the network.
 
+The sound switch is ONE setting: the inbox toolbar's mute button writes the same `sound` preference as Settings > Notifications (the server's value is applied to the player on every page load).
+
 The administrator's switch for message text in pushes is the setting `notifications.push_include_preview` (default on; `settings()->set(...)` until an admin screen exists): off, no push carries anything a visitor typed, not even their name ("New chat request" / "New message" and the topic). Every member can also turn their own previews off in Settings > Notifications.
 
 ## The first-login flow (P5-D7)
 
-Never on page load. After a staff member's first sign-in (no `prompt_state` yet) the page shows an **in-app explainer dialog**; only its **"Turn on notifications"** button calls `Notification.requestPermission()`, then registers `/sw.js`, subscribes with `userVisibleOnly` and the server's key and POSTs the subscription. **"Not now"** (also Escape and the close button) snoozes for 7 days (`push.snooze_days`, the server computes the deadline); a refusal is recorded as `denied` and shown on Settings > Notifications with instructions to unblock the site; the dialog never opens on that page itself. A browser that cannot do push (no service worker / Push API, http, an iPhone Safari tab) never sees the dialog: it keeps toast + sound + title badge, and the settings page says why.
+Never on page load. After an **agent's** first sign-in (no `prompt_state` yet; only agents are pushed, so an administrator who does not take chats is not asked, but can turn notifications on in Settings) the page shows an **in-app explainer dialog**; only its **"Turn on notifications"** button calls `Notification.requestPermission()`, then registers `/sw.js`, subscribes with `userVisibleOnly` and the server's key and POSTs the subscription. **"Not now"** (also Escape and the close button) snoozes for 7 days (`push.snooze_days`, the server computes the deadline); a refusal is recorded as `denied` and shown on Settings > Notifications with instructions to unblock the site; the dialog never opens on that page itself. A browser that cannot do push (no service worker / Push API, http, an iPhone Safari tab) never sees the dialog: it keeps toast + sound + title badge, and the settings page says why.
 
 When the permission is already granted the page re-checks the subscription on every load (it registers the browser again, which refreshes the session it belongs to). "Turn off for this browser" unsubscribes it and remembers the choice per user on that device, so the next load does not quietly subscribe again.
 

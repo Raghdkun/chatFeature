@@ -21,9 +21,16 @@ import {
     resetFixtures,
 } from '@/lib/chat/fixtures';
 import type { LocalMessage } from '@/lib/chat/types';
+import { NotificationsContext } from '@/lib/notifications/context';
+import { createNotificationsController } from '@/lib/notifications/controller';
 import { useAttentionTitle } from '@/lib/realtime/staff/document-title';
 import type { QueueItem } from '@/lib/realtime/staff/store';
 import { resetInertiaMock } from '@/tests/inertia-mock';
+import {
+    fakeEnv,
+    fakeNotificationsApi,
+    fakeStorage,
+} from '@/tests/notifications-kit';
 import { click, render } from '@/tests/render';
 
 vi.mock('@inertiajs/react', async () =>
@@ -610,5 +617,111 @@ describe('SoundToggle', () => {
         expect(toggle.getAttribute('title')).toBe('Unmute sounds');
         await click(toggle);
         expect(toggle.getAttribute('data-state')).toBe('on');
+    });
+
+    describe('with the notification settings (one source of truth)', () => {
+        async function withSettings(
+            sound: ReturnType<typeof player>,
+            initial: Parameters<typeof fakeNotificationsApi>[0] = {},
+            failSave = false,
+        ) {
+            const api = fakeNotificationsApi(initial);
+
+            if (failSave) {
+                api.updateSettings.mockRejectedValue(new Error('offline'));
+            }
+
+            const controller = createNotificationsController({
+                userId: 7,
+                vapidPublicKey: null,
+                api,
+                env: fakeEnv({
+                    support: { supported: false, reason: 'insecure' },
+                }),
+                storage: fakeStorage(),
+                onSoundToggle: (on) => sound.setMuted(!on),
+            });
+
+            await act(async () => {
+                await controller.start();
+            });
+
+            const view = await render(
+                <NotificationsContext.Provider value={controller}>
+                    <SoundToggle sound={sound} />
+                </NotificationsContext.Provider>,
+            );
+
+            return { api, controller, view };
+        }
+
+        it('muting from the toolbar saves sound = off, unmuting saves sound = on (the next page load keeps it)', async () => {
+            const sound = player('on');
+            const { api, controller, view } = await withSettings(sound);
+            const toggle = view.byTestId('sound-toggle') as HTMLElement;
+
+            await click(toggle);
+            expect(api.updateSettings).toHaveBeenLastCalledWith({
+                sound: false,
+            });
+            expect(controller.getState().settings?.sound).toBe(false);
+            expect(toggle.getAttribute('data-state')).toBe('muted');
+
+            await click(toggle);
+            expect(api.updateSettings).toHaveBeenLastCalledWith({
+                sound: true,
+            });
+            expect(api.settingsState.sound).toBe(true);
+            expect(toggle.getAttribute('data-state')).toBe('on');
+        });
+
+        it('a server that has sound off, unmuted here, ends up with sound on (the toolbar no longer fights the setting)', async () => {
+            const sound = player('muted');
+            const { api, view } = await withSettings(sound, {
+                settings: { sound: false },
+            });
+
+            await click(view.byTestId('sound-toggle'));
+
+            expect(api.settingsState.sound).toBe(true);
+            expect(sound.state()).toBe('on');
+        });
+
+        it('puts the toggle back when the save is refused', async () => {
+            const sound = player('on');
+            const { view } = await withSettings(sound, {}, true);
+            const toggle = view.byTestId('sound-toggle') as HTMLElement;
+
+            await click(toggle);
+            await act(async () => {
+                await new Promise((resolve) => setTimeout(resolve, 5));
+            });
+
+            expect(toggle.getAttribute('data-state')).toBe('on');
+        });
+
+        it('keeps working as a local toggle before the settings have loaded', async () => {
+            const sound = player('on');
+            const api = fakeNotificationsApi();
+            const controller = createNotificationsController({
+                userId: 7,
+                vapidPublicKey: null,
+                api,
+                env: fakeEnv({
+                    support: { supported: false, reason: 'insecure' },
+                }),
+                storage: fakeStorage(),
+            });
+            const view = await render(
+                <NotificationsContext.Provider value={controller}>
+                    <SoundToggle sound={sound} />
+                </NotificationsContext.Provider>,
+            );
+
+            await click(view.byTestId('sound-toggle'));
+
+            expect(api.updateSettings).not.toHaveBeenCalled();
+            expect(sound.state()).toBe('muted');
+        });
     });
 });

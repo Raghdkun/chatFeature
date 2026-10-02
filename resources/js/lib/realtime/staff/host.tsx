@@ -127,7 +127,7 @@ function browserEffects(
             toast.dismiss(id);
         },
         notify: (options) => {
-            showOsNotification(options);
+            void showOsNotification(options);
         },
         closeNotification: (tag) => closeOsNotification(tag),
         signOut,

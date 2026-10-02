@@ -27,6 +27,7 @@ import {
     type PushEnv,
 } from '@/lib/notifications/browser';
 import { shouldPrompt } from '@/lib/notifications/prompt';
+import type { OsPreferences } from '@/lib/realtime/staff/os-notification';
 import type {
     NotificationSettings,
     NotificationSettingsPatch,
@@ -74,6 +75,8 @@ export type NotificationsDeps = {
     userId: number;
     /** The public VAPID key (`push.vapidPublicKey`), `null` when the server has none. */
     vapidPublicKey: string | null;
+    /** Whether this account takes chats (`is_agent`); only agents are pushed, so only they get the first-login dialog. Default: yes. */
+    isAgent?: boolean;
     api?: NotificationsApi;
     env?: PushEnv;
     storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null;
@@ -96,6 +99,27 @@ function defaultStorage(): NotificationsDeps['storage'] {
     } catch {
         return null;
     }
+}
+
+/**
+ * What the page's own OS notifications may show, from the member's settings: visitor text needs the administrator's switch AND the
+ * member's own (and settings that have not loaded yet count as "no"), the two push switches also govern the page's notifications, and
+ * "Turn off for this browser" silences them here as well.
+ */
+export function osPreferencesOf(
+    state: Pick<NotificationsState, 'settings' | 'offHere'>,
+): OsPreferences {
+    const settings = state.settings;
+
+    return {
+        previews:
+            settings !== null &&
+            settings.previewsAllowed &&
+            settings.includePreview,
+        offers: settings?.pushOffers ?? true,
+        messages: settings?.pushMessages ?? true,
+        off: state.offHere,
+    };
 }
 
 const SAME_ORIGIN_PATH = /^\/(?!\/)[^\\\s]*$/;
@@ -386,6 +410,7 @@ export function createNotificationsController(deps: NotificationsDeps) {
             settings: state.settings,
             nowMs: now(),
             offHere: state.offHere,
+            isAgent: deps.isAgent !== false,
         });
     }
 

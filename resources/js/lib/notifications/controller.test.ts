@@ -11,11 +11,13 @@ import { applicationServerKey } from '@/lib/notifications/browser';
 import {
     createNotificationsController,
     openablePath,
+    osPreferencesOf,
     type NotificationsDeps,
 } from '@/lib/notifications/controller';
 import {
     deviceFixture,
     fakeEnv,
+    settingsFixture,
     fakeNotificationsApi,
     fakeStorage,
     fakeSubscription,
@@ -124,6 +126,18 @@ describe('start: the page opens', () => {
         expect(controller.getState().promptOpen).toBe(false);
         await vi.advanceTimersByTimeAsync(1);
         expect(controller.getState().promptOpen).toBe(true);
+    });
+
+    it('never opens the explainer for an account that does not take chats (only agents are pushed)', async () => {
+        const r = rig({ deps: { isAgent: false } });
+        const controller = r.make();
+
+        await controller.start();
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(controller.getState().promptOpen).toBe(false);
+        // The settings page still works for them: nothing was asked, nothing was blocked.
+        expect(controller.getState().settingsStatus).toBe('ready');
     });
 
     it.each([
@@ -942,5 +956,49 @@ describe('openablePath', () => {
         expect(openablePath('//evil.example')).toBeNull();
         expect(openablePath('inbox')).toBeNull();
         expect(openablePath('')).toBeNull();
+    });
+});
+
+describe("osPreferencesOf (what the page's own OS notifications may show)", () => {
+    it('allows visitor text only when the administrator AND the member allow it', () => {
+        const previews = (
+            previewsAllowed: boolean,
+            includePreview: boolean,
+        ): boolean =>
+            osPreferencesOf({
+                settings: settingsFixture({ previewsAllowed, includePreview }),
+                offHere: false,
+            }).previews;
+
+        expect(previews(true, true)).toBe(true);
+        expect(previews(false, true)).toBe(false);
+        expect(previews(true, false)).toBe(false);
+        expect(previews(false, false)).toBe(false);
+    });
+
+    it("carries the two push switches and this browser's off choice", () => {
+        expect(
+            osPreferencesOf({
+                settings: settingsFixture({
+                    pushOffers: false,
+                    pushMessages: true,
+                }),
+                offHere: true,
+            }),
+        ).toEqual({
+            previews: true,
+            offers: false,
+            messages: true,
+            off: true,
+        });
+    });
+
+    it('says no visitor text, and the server defaults for the switches, until the settings have loaded', () => {
+        expect(osPreferencesOf({ settings: null, offHere: false })).toEqual({
+            previews: false,
+            offers: true,
+            messages: true,
+            off: false,
+        });
     });
 });

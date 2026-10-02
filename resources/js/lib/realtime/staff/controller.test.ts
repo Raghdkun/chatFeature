@@ -143,6 +143,27 @@ describe('offers', () => {
         );
     });
 
+    it('hands the notification a generic wording without the visitor name (previews off): the topic only, like the push', () => {
+        const { effects, controller } = rig();
+
+        controller.handle(
+            'chat.offered',
+            makeOffer({
+                visitor: { name: 'Mina', verified: false },
+                category: { slug: 'billing', label: 'Billing' },
+            }),
+        );
+
+        const options = effects.notify.mock.calls[0][0];
+
+        expect(options.kind).toBe('offer');
+        expect(options.generic).toEqual({
+            title: 'New chat request',
+            body: 'Billing',
+        });
+        expect(JSON.stringify(options.generic)).not.toContain('Mina');
+    });
+
     it('names an anonymous visitor and an uncategorised chat', () => {
         const { effects, controller } = rig();
 
@@ -414,6 +435,18 @@ describe('other events', () => {
                 body: 'Are you there?',
                 tag: `message-${chat.ulid}`,
             }),
+        );
+
+        const options = effects.notify.mock.calls[0][0];
+
+        // Previews off: neither the visitor's name nor their words.
+        expect(options.kind).toBe('message');
+        expect(options.generic).toEqual({
+            title: 'New message',
+            body: 'Open the chat to read it.',
+        });
+        expect(JSON.stringify(options.generic)).not.toMatch(
+            /Vera|Are you there/,
         );
 
         effects.playSound.mockClear();

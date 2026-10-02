@@ -249,29 +249,29 @@ describe('showOsNotification', () => {
         FakeNotification.instances = [];
     });
 
-    it('shows a notification only when permission is already granted and the page is in the background', () => {
+    it('shows a notification only when permission is already granted and the page is in the background', async () => {
         expect(
-            showOsNotification({ title: 'New chat', tag: 't1' }, env()),
+            await showOsNotification({ title: 'New chat', tag: 't1' }, env()),
         ).toBe(true);
         expect(FakeNotification.instances).toHaveLength(1);
 
         expect(
-            showOsNotification(
+            await showOsNotification(
                 { title: 'x', tag: 't2' },
                 env({ pageInFront: () => true }),
             ),
         ).toBe(false);
 
         FakeNotification.permission = 'default';
-        expect(showOsNotification({ title: 'x', tag: 't3' }, env())).toBe(
+        expect(await showOsNotification({ title: 'x', tag: 't3' }, env())).toBe(
             false,
         );
         FakeNotification.permission = 'denied';
-        expect(showOsNotification({ title: 'x', tag: 't4' }, env())).toBe(
+        expect(await showOsNotification({ title: 'x', tag: 't4' }, env())).toBe(
             false,
         );
         expect(
-            showOsNotification(
+            await showOsNotification(
                 { title: 'x', tag: 't5' },
                 env({ Notification: undefined }),
             ),
@@ -279,22 +279,22 @@ describe('showOsNotification', () => {
         expect(FakeNotification.instances).toHaveLength(1);
     });
 
-    it('never asks for permission', () => {
+    it('never asks for permission', async () => {
         const request = vi.fn();
 
         (
             FakeNotification as unknown as { requestPermission: () => void }
         ).requestPermission = request;
-        showOsNotification({ title: 'x', tag: 't6' }, env());
+        await showOsNotification({ title: 'x', tag: 't6' }, env());
 
         expect(request).not.toHaveBeenCalled();
     });
 
-    it('focuses the window and runs the click handler, then closes', () => {
+    it('focuses the window and runs the click handler, then closes', async () => {
         const focusWindow = vi.fn();
         const onClick = vi.fn();
 
-        showOsNotification(
+        await showOsNotification(
             { title: 'x', tag: 't7', onClick },
             env({ focusWindow }),
         );
@@ -307,9 +307,9 @@ describe('showOsNotification', () => {
         expect(shown.closed).toBe(true);
     });
 
-    it('replaces the notification with the same tag and closes it on request', () => {
-        showOsNotification({ title: 'a', tag: 'same' }, env());
-        showOsNotification({ title: 'b', tag: 'same' }, env());
+    it('replaces the notification with the same tag and closes it on request', async () => {
+        await showOsNotification({ title: 'a', tag: 'same' }, env());
+        await showOsNotification({ title: 'b', tag: 'same' }, env());
 
         expect(FakeNotification.instances[0].closed).toBe(true);
 
@@ -317,7 +317,7 @@ describe('showOsNotification', () => {
         expect(FakeNotification.instances[1].closed).toBe(true);
     });
 
-    it('swallows a constructor that throws (some mobile browsers)', () => {
+    it('swallows a constructor that throws (some mobile browsers)', async () => {
         class Throwing {
             static permission: NotificationPermission = 'granted';
             constructor() {
@@ -326,7 +326,7 @@ describe('showOsNotification', () => {
         }
 
         expect(
-            showOsNotification(
+            await showOsNotification(
                 { title: 'x', tag: 't8' },
                 {
                     Notification:

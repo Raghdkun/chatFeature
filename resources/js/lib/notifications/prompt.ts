@@ -21,6 +21,11 @@ export type PromptInput = {
     nowMs: number;
     /** The person turned notifications off for this browser: never nag them. */
     offHere?: boolean;
+    /**
+     * Only agents are pushed (`PushRecipients`): an account that is not one (an administrator who does not take chats) is never asked,
+     * they can still turn notifications on from the settings page. Unspecified = an agent.
+     */
+    isAgent?: boolean;
 };
 
 /**
@@ -33,6 +38,7 @@ export function shouldPrompt(input: PromptInput): boolean {
         !input.pushConfigured ||
         input.permission !== 'default' ||
         input.offHere === true ||
+        input.isAgent === false ||
         input.settings === null ||
         !input.settings.pushAvailable
     ) {
