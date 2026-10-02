@@ -58,6 +58,10 @@ class WhatsAppServiceProvider extends ServiceProvider
                 Limit::perMinute($this->limit('webhook.rate_limits.per_session', 3000))->by('wa-hook:'.$session),
             ];
         });
+
+        // The QR is polled every couple of seconds while the administrator looks at it; the connection test calls out to OpenWA.
+        RateLimiter::for('wa-qr', fn (Request $request): Limit => Limit::perMinute($this->limit('admin_rate_limits.qr', 60))->by('wa-qr:'.($request->user()?->getAuthIdentifier() ?? ClientNetwork::bucket($request->ip()))));
+        RateLimiter::for('wa-test', fn (Request $request): Limit => Limit::perMinute($this->limit('admin_rate_limits.test', 10))->by('wa-test:'.($request->user()?->getAuthIdentifier() ?? ClientNetwork::bucket($request->ip()))));
     }
 
     private function limit(string $key, int $default): int
