@@ -1,6 +1,7 @@
-import { expect, test } from '../support/test';
+import { test } from '../support/test';
 import { must } from '../support/chat-api';
 import {
+    expect,
     notificationSettings,
     prepareBrowser,
     pushDevices,
@@ -23,6 +24,8 @@ import type { Instance } from '../support/scenarios';
  * reports a failed delivery and the page says so. The delivered / removed answers are in `notifications-delivery.spec.ts` (a live fake service).
  */
 test.use({ scenario: 'p5-notify' });
+
+test.describe.configure({ timeout: 120_000 });
 
 const SETTINGS = '/settings/notifications';
 

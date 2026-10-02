@@ -1,18 +1,18 @@
 /**
  * What lets the real server talk to the suite's FAKE push service (e2e/support/push.ts) over https without a single hook in the product.
  *
- * A web push endpoint must be https (`PushEndpointGuard`), and the server verifies the certificate of the push service it posts to
- * (Laravel's HTTP client, curl). The e2e scenarios run `APP_ENV=local`, where the SSRF guard lets a loopback address through (a private
- * network is allowed in development, exactly like a Docker or VPN install with `PORTAL_ALLOW_PRIVATE_HOSTS`), so an endpoint such as
- * `https://127.0.0.1:8398/send/<id>` is accepted at registration and again before every send. What is left is trust: the fake service
- * presents a throw-away certificate, so the scenario's PHP processes get their own `php.ini` (`PHPRC`) that is the machine's php.ini plus
- * `curl.cainfo` / `openssl.cafile` pointing at a bundle of the usual authorities AND that one certificate. Nothing else changes: every
- * other certificate is still verified.
+ * A web push endpoint must be an https URL of a PUBLIC host (`PushEndpointGuard`: never a loopback or private address), and the server verifies
+ * the certificate of the push service it posts to (Laravel's HTTP client, curl). So the specs' subscriptions name a vendor host
+ * (`https://fcm.googleapis.com/fcm/send/<id>`: it resolves publicly, which is all registration checks), and the scenario's HTTP client reaches
+ * the internet through the fake push service, an HTTP proxy for that one host (`HTTPS_PROXY`, scenarios.ts). What is left is trust: the fake
+ * service presents a throw-away certificate for `fcm.googleapis.com`, so the scenario's PHP processes get their own `php.ini` (`PHPRC`) that is
+ * the machine's php.ini plus `curl.cainfo` / `openssl.cafile` pointing at a bundle of the usual authorities AND that one certificate. Nothing
+ * else changes: every other certificate is still verified.
  *
  * Everything lives in `storage/e2e-p5-trust/` (git-ignored, outside any scenario's own directory so the setup wipe leaves it alone):
- * `service.crt` / `service.key` (a self-signed EC certificate for `127.0.0.1` / `localhost`, made with the `openssl` command line tool),
- * `ca-bundle.pem` and `php.ini`. Created on first use, remade after a day; the suite's config calls `ensurePushTrust()` before any server
- * starts (the servers read their php.ini at start-up).
+ * `service.crt` / `service.key` (a self-signed EC certificate for `fcm.googleapis.com`, made with the `openssl` command line tool),
+ * `ca-bundle.pem` and `php.ini`. Created on first use, remade after a day or when it was made for something else; the suite's config calls
+ * `ensurePushTrust()` before any server starts (the servers read their php.ini at start-up).
  */
 import { execFileSync } from 'node:child_process';
 import {
@@ -22,6 +22,7 @@ import {
     statSync,
     writeFileSync,
 } from 'node:fs';
+import { isIP } from 'node:net';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -30,13 +31,23 @@ const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 export const PUSH_TRUST_DIR = `${ROOT}storage/e2e-p5-trust`;
 export const PUSH_CERT = `${PUSH_TRUST_DIR}/service.crt`;
 export const PUSH_KEY = `${PUSH_TRUST_DIR}/service.key`;
+/**
+ * The vendor host the specs' subscriptions name and the fake push service answers for. Registering a subscription and every push look the
+ * host up in DNS (public-host check), which on a machine with a slow resolver can take seconds; `E2E_PUSH_HOST=<public IPv4>` names the
+ * vendor by an address instead (no lookup at all, nothing contacted either way: the fake service is the only thing ever reached).
+ */
+export const PUSH_HOST = process.env.E2E_PUSH_HOST ?? 'fcm.googleapis.com';
+const HOST_MARK = `${PUSH_TRUST_DIR}/service.host`;
 
 const PHP = process.env.E2E_PHP ?? 'php';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function fresh(path: string): boolean {
     try {
-        return Date.now() - statSync(path).mtimeMs < DAY_MS;
+        return (
+            Date.now() - statSync(path).mtimeMs < DAY_MS &&
+            readFileSync(HOST_MARK, 'utf8') === PUSH_HOST
+        );
     } catch {
         return false;
     }
@@ -54,7 +65,7 @@ export function ensurePushTrust(): void {
 
     mkdirSync(PUSH_TRUST_DIR, { recursive: true });
 
-    // A day of validity is plenty; the subject alternative name must carry the IP the endpoints use (curl checks it).
+    // A day of validity is plenty; the subject alternative name must carry the host the endpoints name (curl checks it).
     execFileSync(
         'openssl',
         [
@@ -72,12 +83,13 @@ export function ensurePushTrust(): void {
             '-days',
             '2',
             '-subj',
-            '/CN=127.0.0.1',
+            `/CN=${PUSH_HOST}`,
             '-addext',
-            'subjectAltName=IP:127.0.0.1,DNS:localhost',
+            `subjectAltName=${isIP(PUSH_HOST) === 0 ? 'DNS' : 'IP'}:${PUSH_HOST}`,
         ],
         { stdio: 'ignore' },
     );
+    writeFileSync(HOST_MARK, PUSH_HOST);
 
     const loaded = execFileSync(
         PHP,

@@ -1,7 +1,9 @@
-import { expect, test } from '../support/test';
+import { test } from '../support/test';
+import { PUSH_HOST } from '../support/push-trust';
 import { must } from '../support/chat-api';
 import {
     endpointHash,
+    expect,
     notificationSettings,
     passPromptDelay,
     prepareBrowser,
@@ -26,6 +28,8 @@ import { createWorld } from '../support/world';
  * permission API are stubbed in the page (e2e/support/push.ts); everything else, the server included, is real.
  */
 test.use({ scenario: 'p5-notify' });
+
+test.describe.configure({ timeout: 120_000 });
 
 const dialog = (page: import('@playwright/test').Page) =>
     page.getByTestId('notification-prompt');
@@ -88,7 +92,7 @@ test('a never-asked agent gets the explainer after the dashboard loads; only its
 
     expect(devices).toHaveLength(1);
     expect(devices[0].endpointHash).toBe(endpointHash(subscription.endpoint));
-    expect(devices[0].host).toBe('127.0.0.1');
+    expect(devices[0].host).toBe(PUSH_HOST);
     expect(JSON.stringify(devices)).not.toContain(subscription.p256dh);
     expect(JSON.stringify(devices)).not.toContain(subscription.endpoint);
 

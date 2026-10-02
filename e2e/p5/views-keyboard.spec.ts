@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
-import { expect, test } from '../support/test';
-import { notificationSettings } from '../support/notify';
+import { test } from '../support/test';
+import { expect, notificationSettings } from '../support/notify';
 import {
     dialogOpen,
     inboxIn,

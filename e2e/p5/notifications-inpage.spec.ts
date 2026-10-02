@@ -1,7 +1,12 @@
 import type { Page } from '@playwright/test';
-import { expect, test } from '../support/test';
+import { test } from '../support/test';
 import { must, VisitorApi } from '../support/chat-api';
-import { prepareBrowser, setNotificationRow } from '../support/notify';
+import {
+    expect,
+    expectEventually,
+    prepareBrowser,
+    setNotificationRow,
+} from '../support/notify';
 import { setVisibility } from '../support/presence';
 import {
     clickPageNotification,
@@ -12,7 +17,6 @@ import { createWorld, type World } from '../support/world';
 import type { Actors, StaffActor } from '../support/actors';
 import type { Api } from '../support/api';
 import type { Instance } from '../support/scenarios';
-import { expectEventually } from '../support/wait';
 
 /**
  * What the PAGE itself shows when a chat request or a message arrives over the websocket (decision P5-D8): with the tab in front it is a toast
@@ -22,6 +26,8 @@ import { expectEventually } from '../support/wait';
  * person would have been shown / heard. Tab visibility is controlled from the spec.
  */
 test.use({ scenario: 'p5-notify' });
+
+test.describe.configure({ timeout: 120_000 });
 
 type Rig = { actors: Actors; adminApi: Api; instance: Instance };
 
@@ -73,6 +79,13 @@ async function onlineAgent(
     await ann.inbox.goto();
     await ann.inbox.tid('presence-go-online').click();
     await expect(ann.inbox.tid('presence-select')).toHaveValue('online');
+    // The server has it (a reload right after would cancel the request that is still on its way).
+    await expect
+        .poll(
+            async () =>
+                ((await ann.api.presence()).data as { status: string }).status,
+        )
+        .toBe('online');
     // The first click on the page is the gesture that lets the browser play sounds.
     await ann.page.locator('body').click({ position: { x: 5, y: 5 } });
 

@@ -5,7 +5,16 @@
  * The browser is a plain Playwright context of the staff actor; everything is installed BEFORE its first page loads (init scripts).
  */
 import { createHash } from 'node:crypto';
-import type { Page } from '@playwright/test';
+import {
+    mkdirSync,
+    readFileSync,
+    rmSync,
+    statSync,
+    writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { expect as baseExpect, type Page } from '@playwright/test';
 import type { StaffActor } from './actors';
 import { tinker } from './artisan';
 import { must } from './chat-api';
@@ -17,6 +26,7 @@ import {
     type PermissionAnswer,
 } from './push';
 import { installVisibilityControl } from './presence';
+import { expectEventually as baseEventually } from './wait';
 
 export type NotifyBrowser = {
     /**
@@ -226,3 +236,86 @@ export async function countSubscriptions(
 
     return Number(line.slice('E2E_COUNT='.length));
 }
+
+const CENTRE_LOCK = join(tmpdir(), 'chatfeature-e2e-notification-centre.lock');
+const CENTRE_STALE_MS = 5 * 60_000;
+
+/**
+ * Browsers share one place that shows notifications (on macOS the system's notification centre, which every Chrome process of this machine
+ * writes to and the ids of which are made of the origin and the tag, not of the process): a notification one Chrome shows can vanish when
+ * another Chrome closes or replaces its namesake, and `registration.getNotifications()` then says `[]` although the worker's
+ * `showNotification()` resolved (seen as 1 test in 7 with four workers running the worker specs side by side). Specs that look at what the
+ * browser DISPLAYS therefore take this machine-wide lock for the length of the test, so only one Chrome at a time shows notifications. Waits for
+ * the holder; a lock whose holder is gone (or older than five minutes) is taken over. Returns the release function.
+ */
+export async function takeNotificationCentre(
+    timeoutMs = 540_000,
+): Promise<() => void> {
+    const deadline = Date.now() + timeoutMs;
+
+    for (;;) {
+        try {
+            mkdirSync(CENTRE_LOCK);
+            writeFileSync(join(CENTRE_LOCK, 'pid'), String(process.pid));
+
+            return () => rmSync(CENTRE_LOCK, { recursive: true, force: true });
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+                throw error;
+            }
+        }
+
+        if (centreIsAbandoned()) {
+            rmSync(CENTRE_LOCK, { recursive: true, force: true });
+
+            continue;
+        }
+
+        if (Date.now() > deadline) {
+            throw new Error(
+                `The notification centre stayed taken for ${timeoutMs} ms (${CENTRE_LOCK}).`,
+            );
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+}
+
+function centreIsAbandoned(): boolean {
+    try {
+        if (Date.now() - statSync(CENTRE_LOCK).mtimeMs > CENTRE_STALE_MS) {
+            return true;
+        }
+
+        const pid = Number(readFileSync(join(CENTRE_LOCK, 'pid'), 'utf8'));
+
+        if (!Number.isInteger(pid) || pid <= 0) {
+            return false;
+        }
+
+        try {
+            process.kill(pid, 0);
+
+            return false;
+        } catch (error) {
+            return (error as NodeJS.ErrnoException).code === 'ESRCH';
+        }
+    } catch {
+        // The directory is being created (no pid file yet) or was just released: look again.
+        return false;
+    }
+}
+
+/**
+ * Registering a push subscription and every push look the endpoint's host up in DNS (the product only accepts public hosts), and on a
+ * machine whose resolver is a VPN that lookup takes about 300 ms and now and then stalls for seconds (found: 2 runs of 100). What a spec waits
+ * for after such a step gets this much time instead of the suite's ten seconds; `E2E_PUSH_HOST=<public IPv4>` takes DNS out of it altogether.
+ */
+export const DNS_BOUND_MS = 45_000;
+
+/** Playwright's `expect` with the time a DNS-bound step needs. */
+export const expect = baseExpect.configure({ timeout: DNS_BOUND_MS });
+
+/** `expectEventually` with the time a DNS-bound step needs (an explicit `timeout` still wins). */
+export const expectEventually: typeof baseEventually = (read, until, options) =>
+    baseEventually(read, until, { timeout: DNS_BOUND_MS, ...options });

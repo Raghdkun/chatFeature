@@ -3,12 +3,15 @@
  *
  * What stands in for what:
  *
- *  - `FakePushService`: an https server on the scenario's push port (`Instance.push.port`), the "push service" the server posts to. It records
- *    every request (path, headers, body), answers 201 (or any status a spec sets per subscription: 410 = the browser dropped it), and, since the
- *    subscription's keys are the spec's own, DECRYPTS the body (RFC 8291, `aes128gcm`) and checks the VAPID header. The server trusts its
- *    throw-away certificate through the scenario's own `php.ini` (push-trust.ts); the SSRF guard lets 127.0.0.1 through because the scenarios
- *    run `APP_ENV=local`. No product code knows about any of this.
- *  - `FakeSubscription`: an endpoint on that service plus a key pair and an auth secret, in the shape of a browser `PushSubscription`.
+ *  - `FakePushService`: the "push service" the server posts to. The product accepts only https endpoints on a PUBLIC host, so the specs'
+ *    subscriptions name a vendor (`https://fcm.googleapis.com/fcm/send/<id>`, which resolves publicly: that is all registration checks) and the
+ *    scenario's HTTP client reaches the internet through this service: it is an HTTP proxy (`HTTPS_PROXY`, scenarios.ts) on the scenario's push
+ *    port (`Instance.push.port`) that tunnels `CONNECT fcm.googleapis.com:443` into an https server of its own (throw-away certificate for that
+ *    host, which the server's PHP trusts through its own `php.ini`, push-trust.ts). Nothing is ever sent to the real vendor, and the product
+ *    has no idea any of this exists. The service records every request (path, headers, body), answers 201 (or any status a spec sets per
+ *    subscription: 410 = the browser dropped it), and, since the subscription's keys are the spec's own, DECRYPTS the body (RFC 8291,
+ *    `aes128gcm`) and checks the VAPID header. Anything else the server tries to reach through the proxy is refused and listed in `stray`.
+ *  - `FakeSubscription`: an endpoint on that vendor plus a key pair and an auth secret, in the shape of a browser `PushSubscription`.
  *  - `installPushStub()`: in the PAGE, `PushManager.subscribe()` / `getSubscription()` hand out that subscription (the real call has no push
  *    service to talk to in headless Chrome and rejects). It survives reloads like a real subscription does (kept in localStorage).
  *  - `installPermissionStub()`: in the page, `Notification.permission` / `requestPermission()` are controllable and counted, so a spec can prove
@@ -26,15 +29,21 @@ import {
     type ECDH,
 } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import {
+    createServer as createHttpServer,
+    type Server as HttpServer,
+} from 'node:http';
 import { createServer, type Server } from 'node:https';
+import type { Duplex } from 'node:stream';
 import type {
     BrowserContext,
     CDPSession,
     Page,
     Worker,
 } from '@playwright/test';
-import { PUSH_CERT, PUSH_KEY } from './push-trust';
+import { PUSH_CERT, PUSH_HOST, PUSH_KEY } from './push-trust';
 import { vapidKeys, type Instance } from './scenarios';
+import { expectEventually } from './wait';
 
 const b64url = (bytes: Buffer): string => bytes.toString('base64url');
 
@@ -47,7 +56,7 @@ export type SubscriptionJson = {
 
 /** One request the server made to the fake push service. */
 export type PushRequest = {
-    /** The subscription id in the path (`/send/<id>`). */
+    /** The subscription id: the last segment of the path (`/fcm/send/<id>`). */
     id: string;
     method: string;
     headers: Record<string, string | string[] | undefined>;
@@ -68,6 +77,10 @@ export type DecodedPush = {
     };
 };
 
+/** The endpoint of a subscription on the (fake) vendor. */
+const vendorEndpoint = (id: string): string =>
+    `https://${PUSH_HOST}/fcm/send/${id}`;
+
 /** An endpoint on the fake service with the receiver's keys (what a browser generates and keeps). */
 export class FakeSubscription {
     private readonly ecdh: ECDH;
@@ -87,13 +100,14 @@ export class FakeSubscription {
     }
 
     /**
-     * A subscription whose endpoint nobody listens on (`https://127.0.0.1:8409/...`: the port no scenario uses): to the server it is a valid
-     * public-enough endpoint, and every push to it is refused at the connection, which the server reports as a failed delivery.
+     * A subscription for a spec that runs no push service: a valid vendor endpoint to the product, and since the scenario's proxy has nothing
+     * behind it (the port is closed while no `FakePushService` runs), every push to it is refused at the connection, which the server reports
+     * as a failed delivery. Nothing reaches the real vendor.
      */
     static dead(): FakeSubscription {
         const id = `dead${randomBytes(6).toString('hex')}`;
 
-        return new FakeSubscription(id, `https://127.0.0.1:8409/send/${id}`);
+        return new FakeSubscription(id, vendorEndpoint(id));
     }
 
     toJSON(): SubscriptionJson {
@@ -167,13 +181,16 @@ export class FakeSubscription {
 
 export class FakePushService {
     readonly requests: PushRequest[] = [];
-    private readonly subscriptions = new Map<string, FakeSubscription>();
+    /** What the server asked the proxy to reach that is not the fake vendor (`CONNECT host:port` or a plain URL): there should be none. */
+    readonly stray: string[] = [];
+    readonly subscriptions = new Map<string, FakeSubscription>();
     private readonly answers = new Map<string, number>();
+    private readonly tunnels = new Set<Duplex>();
     private sequence = 0;
 
     private constructor(
-        private readonly server: Server,
-        readonly origin: string,
+        private readonly proxy: HttpServer,
+        private readonly vendor: Server,
     ) {}
 
     /** Starts it on the scenario's push port (the port belongs to ONE scenario instance: only one service runs there at a time). */
@@ -187,8 +204,11 @@ export class FakePushService {
         }
 
         let service!: FakePushService;
-        const server = createServer(
-            { key: readFileSync(PUSH_KEY), cert: readFileSync(PUSH_CERT) },
+        const vendor = createServer(
+            {
+                key: readFileSync(PUSH_KEY),
+                cert: readFileSync(PUSH_CERT),
+            },
             (request, response) => {
                 const chunks: Buffer[] = [];
 
@@ -205,17 +225,79 @@ export class FakePushService {
                         body: Buffer.concat(chunks),
                         at: Date.now(),
                     });
-                    response.statusCode = service.answers.get(id) ?? 201;
+                    // A subscription this service did not hand out (a `dead()` one of a spec that runs no service, or of another test that shares
+                    // the scenario's push port): the push service is "down", a failed delivery that keeps the registration.
+                    response.statusCode =
+                        service.answers.get(id) ??
+                        (service.subscriptions.has(id) ? 201 : 503);
                     response.end();
                 });
             },
         );
+        const build = (): HttpServer => {
+            const proxy = createHttpServer((request, response) => {
+                // A plain-http request through the proxy: not what a push does.
+                service.stray.push(`${request.method} ${request.url}`);
+                response.statusCode = 502;
+                response.end();
+            });
 
-        await new Promise<void>((resolve, reject) => {
-            server.once('error', reject);
-            server.listen(port, '127.0.0.1', () => resolve());
-        });
-        service = new FakePushService(server, `https://127.0.0.1:${port}`);
+            proxy.on('connect', (request, socket, head) => {
+                const target = request.url ?? '';
+
+                if (target !== `${PUSH_HOST}:443`) {
+                    service.stray.push(`CONNECT ${target}`);
+                    socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+
+                    return;
+                }
+
+                service.tunnels.add(socket);
+                socket.on('close', () => service.tunnels.delete(socket));
+                socket.on('error', () => undefined);
+                socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+
+                if (head.length > 0) {
+                    socket.unshift(head);
+                }
+
+                // The tunnel is a TLS connection to the "vendor": hand the socket to its https server.
+                vendor.emit('connection', socket);
+            });
+
+            return proxy;
+        };
+
+        // The port belongs to one scenario instance. A repeat of the same test on another worker (`--repeat-each`) may still hold it: wait.
+        const deadline = Date.now() + 90_000;
+        let proxy = build();
+
+        for (;;) {
+            try {
+                await new Promise<void>((resolve, reject) => {
+                    proxy.once('error', reject);
+                    proxy.listen(port, '127.0.0.1', () => {
+                        proxy.off('error', reject);
+                        resolve();
+                    });
+                });
+
+                break;
+            } catch (error) {
+                if (
+                    (error as NodeJS.ErrnoException).code !== 'EADDRINUSE' ||
+                    Date.now() > deadline
+                ) {
+                    throw error;
+                }
+
+                proxy.close();
+                proxy = build();
+                await new Promise((resolve) => setTimeout(resolve, 250));
+            }
+        }
+
+        service = new FakePushService(proxy, vendor);
 
         return service;
     }
@@ -225,10 +307,7 @@ export class FakePushService {
         this.sequence += 1;
 
         const id = `sub${Date.now().toString(36)}${this.sequence}${randomBytes(3).toString('hex')}`;
-        const subscription = new FakeSubscription(
-            id,
-            `${this.origin}/send/${id}`,
-        );
+        const subscription = new FakeSubscription(id, vendorEndpoint(id));
 
         this.subscriptions.set(id, subscription);
 
@@ -255,10 +334,20 @@ export class FakePushService {
     }
 
     async stop(): Promise<void> {
-        await new Promise<void>((resolve) =>
-            this.server.close(() => resolve()),
+        const closed = new Promise<void>((resolve) =>
+            this.proxy.close(() => resolve()),
         );
-        this.server.closeAllConnections();
+
+        // Idle keep-alive connections of the server's HTTP client would hold the port; the next test must be able to take it.
+        this.proxy.closeAllConnections();
+
+        for (const tunnel of this.tunnels) {
+            tunnel.destroy();
+        }
+
+        this.vendor.close();
+        this.vendor.closeAllConnections();
+        await closed;
     }
 }
 
@@ -620,6 +709,28 @@ export type RecordedNotification = {
 };
 
 /** A notification as `registration.getNotifications()` reports it (what the real service worker showed). */
+/** The browser's notification display lost what the worker had shown, without the worker closing it (see `ServiceWorkerDriver.awaitListed`). */
+export class DisplayWiped extends Error {}
+
+/**
+ * Runs one attempt of a scenario that looks at what the browser DISPLAYS and runs it again when the display was wiped under it
+ * (`DisplayWiped`): `attempt` counts from 1 (make tags unique with it). Anything else an attempt throws is a real failure.
+ */
+export async function surviveWipes<T>(
+    run: (attempt: number) => Promise<T>,
+    attempts = 6,
+): Promise<T> {
+    for (let attempt = 1; ; attempt += 1) {
+        try {
+            return await run(attempt);
+        } catch (error) {
+            if (!(error instanceof DisplayWiped) || attempt >= attempts) {
+                throw error;
+            }
+        }
+    }
+}
+
 export type ShownNotification = {
     title: string;
     body: string;
@@ -734,6 +845,7 @@ export class ServiceWorkerDriver {
         await worker.evaluate(() => {
             const scope = self as unknown as {
                 __shown?: { title: string; options: Record<string, any> }[];
+                __log?: string[];
                 registration: ServiceWorkerRegistration;
             };
 
@@ -741,7 +853,16 @@ export class ServiceWorkerDriver {
                 return;
             }
 
+            const log = (scope.__log = [] as string[]);
+
             scope.__shown = [];
+            self.addEventListener('push', () => log.push('push event'));
+            self.addEventListener('error', (event) =>
+                log.push(`error: ${(event as ErrorEvent).message}`),
+            );
+            self.addEventListener('unhandledrejection', (event) =>
+                log.push(`rejection: ${String(event.reason)}`),
+            );
 
             const original = scope.registration.showNotification.bind(
                 scope.registration,
@@ -752,10 +873,128 @@ export class ServiceWorkerDriver {
                     title,
                     options: JSON.parse(JSON.stringify(options ?? {})),
                 });
+                log.push(`show ${options?.tag ?? ''}`);
 
-                return original(title, options);
+                return original(title, options).then(
+                    () => {
+                        log.push(`shown ${options?.tag ?? ''}`);
+                    },
+                    (error) => {
+                        log.push(`show failed ${String(error)}`);
+                        throw error;
+                    },
+                );
+            };
+
+            const close = Reflect.get(
+                Notification.prototype,
+                'close',
+            ) as () => void;
+
+            Notification.prototype.close = function (this: Notification) {
+                log.push(`close ${this.tag}`);
+
+                return close.call(this);
             };
         });
+    }
+
+    /** What the worker did since `record()` (push events, showNotification outcomes, closes, errors), for a failure message. */
+    async log(since = 0): Promise<string[]> {
+        const worker = await this.worker();
+        const log = await worker.evaluate(
+            () => (self as unknown as { __log?: string[] }).__log ?? [],
+        );
+
+        return log.slice(since);
+    }
+
+    /** Where the worker's log is now: pass it to `awaitListed()` / `awaitClosed()` / `log(since)` to look only at what happens after. */
+    async mark(): Promise<number> {
+        return (await this.log()).length;
+    }
+
+    /**
+     * Waits until the worker has shown every tag (the log says so) and the BROWSER lists them (and `where`, when given, holds of the list).
+     * Chrome's notification display is shared by everything on the machine: closing ANY browser context, in any Chrome process, removes every
+     * notification still displayed and nothing tells the page (no `notificationclose`). So a list that stays empty after the worker's
+     * `showNotification()` resolved, without the worker having closed anything, is such a removal and not a defect: it throws
+     * `DisplayWiped`, which `surviveWipes()` answers by running the scenario again. A worker that never shows, or a list that is not
+     * empty and not what was expected, are real failures. Needs `record()`.
+     */
+    async awaitListed(
+        tags: string[],
+        mark: number,
+        options: {
+            where?: (list: ShownNotification[]) => boolean;
+            timeout?: number;
+        } = {},
+    ): Promise<ShownNotification[]> {
+        const timeout = options.timeout ?? 15_000;
+
+        await expectEventually(
+            () => this.log(),
+            (log) =>
+                tags.every((tag) => log.slice(mark).includes(`shown ${tag}`)),
+            {
+                message: `the worker showed ${tags.join(', ')}`,
+                timeout,
+            },
+        );
+
+        let emptySince: number | null = null;
+
+        return expectEventually(
+            async () => {
+                const list = await this.notifications();
+
+                emptySince =
+                    list.length === 0 ? (emptySince ?? Date.now()) : null;
+
+                if (emptySince !== null && Date.now() - emptySince > 2_000) {
+                    throw new DisplayWiped(
+                        `The browser lists nothing although the worker showed ${tags.join(', ')} (log: ${JSON.stringify((await this.log()).slice(mark))}).`,
+                    );
+                }
+
+                return list;
+            },
+            (list) =>
+                tags.every((tag) => list.some((item) => item.tag === tag)) &&
+                (options.where?.(list) ?? true),
+            {
+                message: `the browser lists ${tags.join(', ')}`,
+                timeout,
+                stopOn: DisplayWiped,
+            },
+        );
+    }
+
+    /**
+     * Waits until the worker has closed the notification with this tag (its log says `close <tag>`). When the worker finished the dismissal
+     * without closing anything (its look-up found nothing) the notification was removed before: `DisplayWiped`. Needs `record()`.
+     */
+    async awaitClosed(tag: string, mark: number): Promise<void> {
+        await expectEventually(
+            async () => (await this.log()).slice(mark),
+            (log) => {
+                if (log.includes(`close ${tag}`)) {
+                    return true;
+                }
+
+                if (log.includes('shown pne-dismiss')) {
+                    throw new DisplayWiped(
+                        `The worker found no notification ${tag} to close (log: ${JSON.stringify(log)}).`,
+                    );
+                }
+
+                return false;
+            },
+            {
+                message: `the worker closed ${tag}`,
+                stopOn: DisplayWiped,
+            },
+        );
     }
 
     /** What `record()` saw, oldest first (optionally one tag). The transient notification of a dismiss is in there too (tag `pne-dismiss`). */

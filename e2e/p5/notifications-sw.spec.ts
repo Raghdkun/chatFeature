@@ -1,15 +1,22 @@
-import { expect, test } from '../support/test';
+import { test as base } from '../support/test';
 import { must } from '../support/chat-api';
-import { endpointHash, prepareBrowser, pushDevices } from '../support/notify';
+import {
+    endpointHash,
+    expect,
+    expectEventually,
+    prepareBrowser,
+    pushDevices,
+    takeNotificationCentre,
+} from '../support/notify';
 import { setVisibility } from '../support/presence';
 import {
     FakeSubscription,
     ServiceWorkerDriver,
+    surviveWipes,
     type DecodedPush,
 } from '../support/push';
 import { readSeed } from '../support/chat-seed';
 import { createWorld } from '../support/world';
-import { expectEventually } from '../support/wait';
 import type { Actors, StaffActor } from '../support/actors';
 import type { Api } from '../support/api';
 import type { Instance } from '../support/scenarios';
@@ -24,7 +31,25 @@ import type { Instance } from '../support/scenarios';
  * to the dashboard, the dashboard's own navigation, the fetch with the session cookie and the XSRF token). The notification permission is the
  * browser's real one (`grantPermissions`); only `PushManager.subscribe` is a stub (there is no push service here).
  */
+const test = base.extend<{ notificationCentre: void }>({
+    // The browser's display of notifications is shared with every other Chrome here: one test at a time (see takeNotificationCentre).
+    notificationCentre: [
+        async ({ instance: _instance }, use) => {
+            const release = await takeNotificationCentre();
+
+            try {
+                await use();
+            } finally {
+                release();
+            }
+        },
+        { auto: true, timeout: 600_000 },
+    ],
+});
+
 test.use({ scenario: 'p5-notify' });
+
+test.describe.configure({ timeout: 120_000 });
 
 type Rig = { actors: Actors; adminApi: Api; instance: Instance };
 
@@ -125,7 +150,7 @@ test('the dashboard registers the worker at the root scope: it controls the page
                 (device) =>
                     device.endpointHash === endpointHash(subscription.endpoint),
             ),
-        { message: 'the browser was registered' },
+        { timeout: 45_000, message: 'the browser was registered' },
     );
 });
 
@@ -135,33 +160,45 @@ test('a pushed offer is shown by the real worker with its title, body, tag, icon
     instance,
 }) => {
     const { driver, ulid } = await withWorker({ actors, adminApi, instance });
-    const tag = `offer-${ulid}`;
 
-    await driver.deliver(offer(ulid));
+    await driver.record();
 
-    const first = await expectEventually(
-        () => driver.notifications(tag),
-        (list) => list.length === 1,
-        { message: 'the worker showed the offer' },
-    );
+    // What the browser displays can be wiped by anything else closing a browser context on this machine: such an attempt is run again
+    // (support/push.ts `surviveWipes`), with tags of its own.
+    await surviveWipes(async (attempt) => {
+        const id = `${ulid.slice(0, -1)}${attempt}`;
+        const tag = `offer-${id}`;
+        const mark = await driver.mark();
 
-    expect(first[0]).toMatchObject({
-        title: 'New chat request',
-        body: 'Billing - Do you ship to Oslo?',
-        tag,
-        requireInteraction: true,
-        data: { url: `/inbox/${ulid}`, tag, type: 'offer' },
+        await driver.deliver(offer(id));
+
+        const first = (await driver.awaitListed([tag], mark)).filter(
+            (item) => item.tag === tag,
+        );
+
+        expect(first).toHaveLength(1);
+        expect(first[0]).toMatchObject({
+            title: 'New chat request',
+            body: 'Billing - Do you ship to Oslo?',
+            tag,
+            requireInteraction: true,
+            data: { url: `/inbox/${id}`, tag, type: 'offer' },
+        });
+        expect(first[0].icon).toBe(`${instance.url}/icons/icon-192.png`);
+
+        // The same tag again (the page's own notification, a second wave): ONE notification, the newer text.
+        await driver.deliver(offer(id, 'Billing - Still waiting'));
+        await driver.awaitListed([tag], mark, {
+            where: (list) => {
+                const mine = list.filter((item) => item.tag === tag);
+
+                return (
+                    mine.length === 1 &&
+                    mine[0].body === 'Billing - Still waiting'
+                );
+            },
+        });
     });
-    expect(first[0].icon).toBe(`${instance.url}/icons/icon-192.png`);
-
-    // The same tag again (the page's own notification, a second wave): ONE notification, the newer text.
-    await driver.deliver(offer(ulid, 'Billing - Still waiting'));
-    await expectEventually(
-        () => driver.notifications(tag),
-        (list) =>
-            list.length === 1 && list[0].body === 'Billing - Still waiting',
-        { message: 'the offer was replaced, not doubled' },
-    );
 
     // A message push: tag chat-<ulid>, renotify on (the browser alerts again for the newest message of the same chat). It is not
     // `requireInteraction`, which headless Chrome closes at once, so what is checked is what the worker asked the browser to show.
@@ -175,7 +212,6 @@ test('a pushed offer is shown by the real worker with its title, body, tag, icon
         data: { url: `/inbox/${ulid}`, tag: chatTag, type: 'message' },
     });
 
-    await driver.record();
     await driver.deliver(message('first'));
     await driver.deliver(message('second'));
 
@@ -203,41 +239,53 @@ test('a silent dismiss closes the notification with its tag and leaves nothing b
     instance,
 }) => {
     const { driver, ulid } = await withWorker({ actors, adminApi, instance });
-    const tag = `offer-${ulid}`;
-    const other = `offer-01hz8w3q4n5p6r7s8t9v0x1y3a`;
 
-    await driver.deliver(offer(ulid));
-    await driver.deliver(offer('01hz8w3q4n5p6r7s8t9v0x1y3a'));
-    await expectEventually(
-        () => driver.notifications(),
-        (list) => list.length === 2,
-        { message: 'two offers shown' },
-    );
+    await driver.record();
 
-    // Somebody took the first chat: the server sends a silent push of type `dismiss` with that tag (no title, no body).
-    await driver.deliver({
-        v: 1,
-        data: { url: '/inbox', tag, type: 'dismiss' },
+    // (A browser display wiped by anything else closing a browser context on this machine: the attempt is run again, `surviveWipes`.)
+    await surviveWipes(async (attempt) => {
+        const first = `${ulid.slice(0, -1)}${attempt}`;
+        const second = `01hz8w3q4n5p6r7s8t9v0x1y3${attempt}`;
+        const tag = `offer-${first}`;
+        const other = `offer-${second}`;
+        const mark = await driver.mark();
+
+        await driver.deliver(offer(first));
+        await driver.deliver(offer(second));
+        await driver.awaitListed([tag, other], mark);
+
+        // Somebody took the first chat: the server sends a silent push of type `dismiss` with that tag (no title, no body).
+        await driver.deliver({
+            v: 1,
+            data: { url: '/inbox', tag, type: 'dismiss' },
+        });
+        await driver.awaitClosed(tag, mark);
+        await driver.awaitListed([other], mark, {
+            where: (list) => list.length === 1 && list[0].tag === other,
+        });
+        expect((await driver.notifications('pne-dismiss')).length).toBe(0);
+
+        // A dismiss for a tag that is not shown (the notification was clicked already) is harmless and shows nothing either.
+        const before = await driver.mark();
+
+        await driver.deliver({
+            v: 1,
+            data: {
+                url: '/inbox',
+                tag: `offer-gone-${attempt}`,
+                type: 'dismiss',
+            },
+        });
+        await expectEventually(
+            () => driver.log(before),
+            (log) => log.includes('shown pne-dismiss'),
+            { message: 'the worker handled the second dismiss' },
+        );
+        await driver.awaitListed([other], mark, {
+            where: (list) => list.length === 1 && list[0].tag === other,
+        });
+        expect((await driver.notifications('pne-dismiss')).length).toBe(0);
     });
-
-    await expectEventually(
-        () => driver.notifications(),
-        (list) => list.length === 1 && list[0].tag === other,
-        { message: 'only the other offer is left' },
-    );
-    expect((await driver.notifications('pne-dismiss')).length).toBe(0);
-
-    // A dismiss for a tag that is not shown (the notification was clicked already) is harmless and shows nothing either.
-    await driver.deliver({
-        v: 1,
-        data: { url: '/inbox', tag: 'offer-gone', type: 'dismiss' },
-    });
-    await expectEventually(
-        () => driver.notifications(),
-        (list) => list.length === 1 && list[0].tag === other,
-        { message: 'still only the other offer' },
-    );
-    expect((await driver.notifications('pne-dismiss')).length).toBe(0);
 });
 
 test('odd payloads are survived: plain text becomes the title, junk becomes a generic notification, and a foreign or script URL becomes the inbox', async ({
@@ -427,7 +475,7 @@ test('a rotated subscription is registered again by the worker itself (session c
     await expectEventually(
         () => pushDevices(ann),
         (devices) => devices.length === 1,
-        { message: 'the first registration' },
+        { timeout: 45_000, message: 'the first registration' },
     );
 
     // The browser replaced the subscription: the event carries the new one (a stand-in with `toJSON`, like the real PushSubscription).
@@ -454,7 +502,10 @@ test('a rotated subscription is registered again by the worker itself (session c
                 (device) =>
                     device.endpointHash === endpointHash(replacement.endpoint),
             ),
-        { message: 'the replacement was registered by the worker' },
+        {
+            timeout: 45_000,
+            message: 'the replacement was registered by the worker',
+        },
     );
 
     expect(devices.map((device) => device.endpointHash)).toContain(
@@ -496,6 +547,13 @@ test('where `new Notification()` is not allowed (Chrome on Android) the page sho
     await ann.inbox.goto();
     await ann.inbox.tid('presence-go-online').click();
     await expect(ann.inbox.tid('presence-select')).toHaveValue('online');
+    // The server has it (the next steps age its record, and a reload would cancel a request still on its way).
+    await expect
+        .poll(
+            async () =>
+                ((await ann.api.presence()).data as { status: string }).status,
+        )
+        .toBe('online');
 
     const driver = await ServiceWorkerDriver.attach(ann.page, instance);
 

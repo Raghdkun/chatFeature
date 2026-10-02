@@ -1,10 +1,14 @@
-import { expect, test as base } from '../support/test';
+import { test as base } from '../support/test';
+import { PUSH_HOST } from '../support/push-trust';
 import { must, VisitorApi } from '../support/chat-api';
 import {
     countSubscriptions,
     endpointHash,
+    expect,
+    expectEventually,
     prepareBrowser,
     pushDevices,
+    takeNotificationCentre,
 } from '../support/notify';
 import {
     agePresenceRecord,
@@ -16,10 +20,10 @@ import {
     FakePushService,
     FakeSubscription,
     ServiceWorkerDriver,
+    surviveWipes,
 } from '../support/push';
 import { readMessages } from '../support/staff-ui';
 import { openUserMenu } from '../support/portal';
-import { expectEventually } from '../support/wait';
 import { createWorld, type World } from '../support/world';
 import type { Actors, StaffActor } from '../support/actors';
 import type { Api } from '../support/api';
@@ -34,16 +38,42 @@ import type { Instance } from '../support/scenarios';
  * a push service that has forgotten the browser (410), and signing out. The last test hands a pushed message to the real service worker.
  * The whole file is one server-wide user of the push port: tests run one after the other.
  */
-const test = base.extend<{ service: FakePushService }>({
-    service: async ({ instance }, use) => {
-        const service = await FakePushService.start(instance);
+const test = base.extend<{
+    service: FakePushService;
+    notificationCentre: void;
+}>({
+    // Only the last test makes the real browser show notifications (shared with every other Chrome here: see takeNotificationCentre).
+    notificationCentre: [
+        async ({ instance: _instance }, use) => {
+            const release = await takeNotificationCentre();
 
-        await use(service);
-        await service.stop();
-    },
+            try {
+                await use();
+            } finally {
+                release();
+            }
+        },
+        { timeout: 600_000 },
+    ],
+    // The push port belongs to one test at a time (waiting for it, when a repeat on another worker holds it, is not test time).
+    service: [
+        async ({ instance }, use) => {
+            const service = await FakePushService.start(instance);
+
+            await use(service);
+            await service.stop();
+            // Through the proxy the server asked for nothing but the (fake) vendor.
+            expect(service.stray, 'only the push vendor was reached').toEqual(
+                [],
+            );
+        },
+        { timeout: 300_000 },
+    ],
 });
 
 test.use({ scenario: 'p5-notify' });
+
+test.describe.configure({ timeout: 120_000 });
 
 type Rig = { actors: Actors; adminApi: Api; instance: Instance };
 
@@ -158,8 +188,7 @@ test("the test notification is delivered: the page says sent, the push service g
     // The VAPID header: the instance's key, a valid signature, the push service as audience, a subject, expiring within a day.
     const claims = checkVapid(request, instance);
 
-    // (The library names the audience by scheme and host; a push service on another port is the test's own doing.)
-    expect(claims.aud).toBe('https://127.0.0.1');
+    expect(claims.aud).toBe(`https://${PUSH_HOST}`);
     expect(claims.sub).toBe('mailto:e2e@example.test');
     expect(claims.exp).toBeGreaterThan(Date.now() / 1000);
     expect(claims.exp).toBeLessThanOrEqual(Date.now() / 1000 + 24 * 3600);
@@ -186,7 +215,7 @@ test("the test notification is delivered: the page says sent, the push service g
     await expectEventually(
         () => pushDevices(ann),
         (devices) => devices.length === 1 && devices[0].lastUsedAt !== null,
-        { message: 'the device was marked as notified' },
+        { timeout: 45_000, message: 'the device was marked as notified' },
     );
     await ann.page.reload();
     await expect(
@@ -494,7 +523,7 @@ test("signing out takes that session's browser registration with it; another bro
                 (device) =>
                     device.endpointHash === endpointHash(firstSub.endpoint),
             ),
-        { message: 'the first browser registered itself' },
+        { timeout: 45_000, message: 'the first browser registered itself' },
     );
     expect(await countSubscriptions(instance, world.agents.ann.id)).toBe(2);
 
@@ -515,6 +544,7 @@ test("signing out takes that session's browser registration with it; another bro
 });
 
 test('the whole chain: a chat request is pushed by the server, the fake push service receives it, and the real service worker shows it from that very payload; the dismiss closes it again', async ({
+    notificationCentre: _centre,
     actors,
     adminApi,
     instance,
@@ -542,10 +572,17 @@ test('the whole chain: a chat request is pushed by the server, the fake push ser
     await expectEventually(
         () => pushDevices(ann),
         (devices) => devices.length === 1,
-        { message: 'the page registered its subscription' },
+        { timeout: 45_000, message: 'the page registered its subscription' },
     );
     await ann.inbox.tid('presence-go-online').click();
     await expect(ann.inbox.tid('presence-select')).toHaveValue('online');
+    // The server has it (the next steps age its record, and a reload would cancel a request still on its way).
+    await expect
+        .poll(
+            async () =>
+                ((await ann.api.presence()).data as { status: string }).status,
+        )
+        .toBe('online');
     await setVisibility(ann.page, 'hidden');
     await awayFromTheDashboard(rig, world, 'ann');
 
@@ -566,33 +603,48 @@ test('the whole chain: a chat request is pushed by the server, the fake push ser
     });
 
     // ... and the worker turns exactly that payload into the notification the agent sees.
-    await driver.deliver(offer);
-
-    const [shown] = await expectEventually(
-        () => driver.notifications(`offer-${ulid}`),
-        (list) => list.length === 1,
-        { message: 'the worker showed the pushed offer' },
-    );
-
-    expect(shown).toMatchObject({
-        title: 'New chat request',
-        body: `${world.categories.main.name} - Is this thing on?`,
-        requireInteraction: true,
-        data: { url: `/inbox/${ulid}`, type: 'offer' },
-    });
-
-    // Ben takes the chat: the server's silent dismiss, delivered to the worker, closes the notification.
+    // Ben takes the chat: the server sends the silent dismiss to the devices it pushed the offer to.
     must(await ben.api.claim(ulid), 'Ben takes the chat');
 
     const sent = service.messagesFor(subscription);
 
     expect(sent).toHaveLength(2);
-    await driver.deliver(sent[1]);
-    await expectEventually(
-        () => driver.notifications(),
-        (list) => list.length === 0,
-        { message: 'the dismiss closed the notification' },
-    );
+    expect(sent[1]).toEqual({
+        v: 1,
+        data: {
+            url: '/inbox',
+            tag: `offer-${ulid}`,
+            type: 'dismiss',
+        },
+    });
+
+    // The worker gets the two messages in the order the server sent them: the offer, then the dismiss. (What the browser displays can be wiped
+    // by anything else closing a browser context on this machine: such an attempt is run again, support/push.ts `surviveWipes`.)
+    await driver.record();
+    await surviveWipes(async () => {
+        const mark = await driver.mark();
+
+        await driver.deliver(offer);
+
+        const [shown] = (
+            await driver.awaitListed([`offer-${ulid}`], mark)
+        ).filter((item) => item.tag === `offer-${ulid}`);
+
+        expect(shown).toMatchObject({
+            title: 'New chat request',
+            body: `${world.categories.main.name} - Is this thing on?`,
+            requireInteraction: true,
+            data: { url: `/inbox/${ulid}`, type: 'offer' },
+        });
+
+        await driver.deliver(sent[1]);
+        await driver.awaitClosed(`offer-${ulid}`, mark);
+        await expectEventually(
+            () => driver.notifications(),
+            (list) => list.length === 0,
+            { message: 'the dismiss closed the notification' },
+        );
+    });
 
     await api.dispose();
 });

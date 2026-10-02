@@ -13,8 +13,8 @@
  *   web servers      8110-8129 (8120-8129: mode 2)   8230-8249 (P3)   8260-8279 (P4)   8380-8387 (P5)
  *   customer sites   8240-8247 (P3)                  8280-8289, 8292-8293 (P4; `p4-poll`: 8291 / 8296)   8390-8397 (P5)
  *   Reverb (P4)      8340-8348, 8350-8351 (`p4-staff`: 8344 / 8348)   8400-8406 (P5)
- *   P5 spare         web 8388-8389, Reverb 8407-8408; 8398 / 8399 are the fake push services of `p5-notify` (desktop / mobile, started by
- *                    the specs, not by Playwright); 8409 is nothing on purpose (`p5-presence-failover` points its Redis there)
+ *   P5 spare         web 8388-8389, Reverb 8407-8408; 8398 / 8399 are the fake push services of `p5-notify` (desktop / mobile: an HTTP proxy
+ *                    for fcm.googleapis.com, started by the specs, not by Playwright); 8409 is nothing on purpose (`p5-presence-failover` points its Redis there)
  * P4 layout: a stateful scenario takes web `8260 + n` (desktop) and `8270 + n` (mobile twin), a customer site `8280 + n` / `8285 + n`
  * and Reverb `8340 + n` / `8345 + n`; `p4-chat` is n = 0, `p4-chat-views` n = 2, `p4-chat-views-rtl` n = 3. 8264-8269, 8274-8279,
  * 8284, 8289 and 8344/8348 are free for more P4 scenarios. The deck-screenshot scenario `p4-shots` (n = 6) uses 8266 / 8276, customer
@@ -123,8 +123,9 @@ type Definition = {
      */
     redisDb?: number;
     /**
-     * P5: web push is configured (VAPID keys derived from a fixed seed, see `vapidKeys()`), and the server trusts the suite's fake push
-     * service (`PHPRC`, e2e/support/push-trust.ts). A never-asked agent then gets the first-login dialog on the dashboard.
+     * P5: web push is configured (VAPID keys derived from a fixed seed, see `vapidKeys()`), and the server reaches the push vendor only
+     * through the suite's fake push service (an HTTP proxy for `fcm.googleapis.com` it trusts through `PHPRC`, e2e/support/push-trust.ts). A
+     * never-asked agent then gets the first-login dialog on the dashboard.
      * `port` is where the specs start the fake push service (`perProject.mobilePushPort` for the mobile twin); none: the scenario never sends.
      */
     push?: { port?: number };
@@ -617,6 +618,11 @@ function build(
         CACHE_STORE: 'file',
         QUEUE_CONNECTION: 'sync',
         BROADCAST_CONNECTION: 'null',
+        // P5: no web push and the table as the presence store unless a scenario says otherwise (`.env` must not leak VAPID keys in: a
+        // never-asked agent would get the first-login dialog on top of every P4 flow).
+        VAPID_PUBLIC_KEY: '',
+        VAPID_PRIVATE_KEY: '',
+        PRESENCE_STORE: 'database',
         MAIL_MAILER: 'log',
         LARAVEL_STORAGE_PATH: dir,
         INSTALL_STATE_DIR: `${dir}/state`,
@@ -673,7 +679,12 @@ function build(
         });
     }
 
-    // P5: web push on (the first-login dialog, Settings > Notifications), the fake push service trusted by this instance's PHP.
+    // P5: web push on (the first-login dialog, Settings > Notifications). The endpoints of the specs' subscriptions are a PUBLIC vendor host
+    // (`https://fcm.googleapis.com/...`, which is all the product's endpoint guard accepts), and this instance's HTTP client reaches the
+    // internet only through the fake push service on `pushPort`, which is an HTTP proxy for that one host (push.ts); nothing else it calls
+    // (Reverb, itself) goes through it. Where nothing listens (no service running, or a scenario without a port: 8409 is nobody's) a push is
+    // refused at the connection: a failed delivery, and never a request to the real vendor. The server trusts the service's certificate through
+    // its own `php.ini` (`PHPRC`, push-trust.ts).
     if (definition.push !== undefined) {
         const keys = vapidKeys();
 
@@ -682,6 +693,8 @@ function build(
             VAPID_PRIVATE_KEY: keys.privateKey,
             VAPID_SUBJECT: 'mailto:e2e@example.test',
             PHPRC: PUSH_TRUST_DIR,
+            HTTPS_PROXY: `http://127.0.0.1:${pushPort ?? 8409}`,
+            NO_PROXY: '127.0.0.1,localhost,::1',
         });
     }
 
