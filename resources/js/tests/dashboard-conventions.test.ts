@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
     BUILDER_TABS,
+    builderTabLabelKey,
     DOMAIN_PROBLEM_KEYS,
     LIVE_SLICES,
 } from '@/components/widgets/builder-state';
@@ -87,7 +88,7 @@ describe('translations', () => {
         const expected: string[] = [
             ...CATEGORY_ICON_KEYS.map((key) => `categories.icon.${key}`),
             ...TEXT_KEYS.map((key) => `builder.texts.key.${key}`),
-            ...BUILDER_TABS.map((tab) => `builder.tabs.${tab}`),
+            ...BUILDER_TABS.map((tab) => builderTabLabelKey(tab)),
             ...['php', 'node', 'python'].map(
                 (code) => `builder.embed.lang_${code}`,
             ),

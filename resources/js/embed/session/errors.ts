@@ -17,6 +17,8 @@ export function toNotice(error: unknown): Notice {
     switch (error.code) {
         case 'feature_disabled':
             return { code: 'feature_disabled' };
+        case 'whatsapp_unavailable':
+            return { code: 'whatsapp_unavailable' };
         case 'rate_limited':
             return { code: 'rate_limited', seconds: error.retryAfter ?? 5 };
         case 'network':
@@ -59,6 +61,31 @@ export function toCreateFailure(error: unknown): CreateFailure {
             if (Object.keys(errors).length > 0) {
                 return { kind: 'validation', errors };
             }
+        }
+    }
+
+    return { kind: 'notice', notice: toNotice(error) };
+}
+
+/**
+ * What a failed WhatsApp hand-off means for the screen: no connected session (`409`, whatever the code says: nothing the visitor can fix)
+ * is its own message that points back to the chat; a refused topic (`422 details.category`) goes under the topic picker; everything else is
+ * the usual notice (`403 feature_disabled`, the rate limit with its seconds, the network).
+ */
+export function toHandoffFailure(error: unknown): CreateFailure {
+    if (isVisitorApiError(error)) {
+        if (error.status === 409) {
+            return {
+                kind: 'notice',
+                notice: { code: 'whatsapp_unavailable' },
+            };
+        }
+
+        if (error.status === 422 && 'category' in error.details) {
+            return {
+                kind: 'validation',
+                errors: { category: error.details.category[0] },
+            };
         }
     }
 

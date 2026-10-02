@@ -29,6 +29,7 @@ import { CategoryScreen } from '@/embed/components/screens/category-screen';
 import { ClosedScreen } from '@/embed/components/screens/closed-screen';
 import { PrechatScreen } from '@/embed/components/screens/prechat-screen';
 import { QueuedScreen } from '@/embed/components/screens/queued-screen';
+import { WhatsAppScreen } from '@/embed/components/screens/whatsapp-screen';
 import { WelcomeScreen } from '@/embed/components/screens/welcome-screen';
 import { resolveScheme, rootStyle } from '@/embed/config/theme';
 import { usePrefersDark } from '@/embed/hooks/use-media';
@@ -51,6 +52,8 @@ function Screen({ phase }: { phase: Phase }) {
             return <ChatScreen />;
         case 'offline':
             return <OfflineScreen />;
+        case 'whatsapp':
+            return <WhatsAppScreen />;
         case 'closed':
             return <ClosedScreen />;
         default:

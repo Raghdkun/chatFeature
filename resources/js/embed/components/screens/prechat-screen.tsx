@@ -195,6 +195,18 @@ export function PrechatScreen() {
                 <Button type="submit" block busy={busy} className="mt-auto">
                     {t('embed.chat.prechat.submit')}
                 </Button>
+                {state.flow.whatsapp ? (
+                    // P6: the form follows "Chat here"; the channel choice is one step back.
+                    <Button
+                        variant="ghost"
+                        className="self-start"
+                        disabled={busy}
+                        data-testid="prechat-back"
+                        onClick={() => controller.back()}
+                    >
+                        {t('embed.chat.back')}
+                    </Button>
+                ) : null}
             </form>
         </section>
     );

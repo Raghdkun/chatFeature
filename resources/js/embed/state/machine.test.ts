@@ -26,6 +26,7 @@ import {
     resetFixtures,
 } from '@/lib/chat/fixtures';
 import { createPendingMessage, toLocalMessage } from '@/lib/chat/messages';
+import type { HandoffResponse } from '@/lib/whatsapp/types';
 
 const NOW = 1_000_000;
 const VALUES = {
@@ -70,6 +71,21 @@ function active(patch: Partial<Flow> = {}): MachineState {
         type: 'CLAIMED',
         agent: { name: 'Sam', avatarUrl: null },
     });
+}
+
+const HANDOFF: HandoffResponse = {
+    code: 'K7M2QX4P',
+    waUrl: 'https://wa.me/491701234567?text=Hi%21%20My%20support%20code%20is%20K7M2QX4P',
+    expiresAt: '2026-11-21T10:00:00.000Z',
+};
+
+/** A widget that offers WhatsApp, the visitor on the hand-off screen. */
+function whatsapp(patch: Partial<Flow> = {}): MachineState {
+    return run(
+        booted({ whatsapp: true, ...patch }),
+        { type: 'WHATSAPP_START' },
+        { type: 'WHATSAPP_OK', handoff: HANDOFF },
+    );
 }
 
 beforeEach(() => resetFixtures());
@@ -556,6 +572,7 @@ describe('illegal transitions are ignored', () => {
         active: () => active(),
         ended: () => run(active(), { type: 'ENDED', ratingRequested: true }),
         offline: () => booted({ offline: true }),
+        whatsapp: () => whatsapp(),
         closed: () => run(queued(), { type: 'CANCEL_OK' }),
     };
 
@@ -629,6 +646,18 @@ describe('illegal transitions are ignored', () => {
             { type: 'SESSION_LOST' },
             { type: 'HOST_OPEN' },
             { type: 'HOST_CLOSE' },
+            {
+                type: 'CONFIGURED',
+                flow: flow({ whatsapp: true, categoryCount: 2 }),
+            },
+            { type: 'WHATSAPP_START' },
+            { type: 'WHATSAPP_NEW_CODE' },
+            { type: 'WHATSAPP_OK', handoff: HANDOFF },
+            {
+                type: 'WHATSAPP_FAIL',
+                failure: { kind: 'notice', notice: { code: 'network' } },
+            },
+            { type: 'WHATSAPP_SENT' },
         ];
         let seed = 42;
         const random = (n: number): number => {
@@ -1024,9 +1053,11 @@ describe('unread and the host state', () => {
     it('maps phases to the statuses the loader knows (category is reported as prechat, booting not at all)', () => {
         expect(hostStatus('booting')).toBeNull();
         expect(hostStatus('category')).toBe('prechat');
+        // P6: the hand-off to WhatsApp is not a conversation of ours.
+        expect(hostStatus('whatsapp')).toBe('idle');
 
         for (const phase of PHASES.filter(
-            (p) => p !== 'booting' && p !== 'category',
+            (p) => p !== 'booting' && p !== 'category' && p !== 'whatsapp',
         )) {
             expect(hostStatus(phase)).toBe(phase);
         }
@@ -1122,5 +1153,278 @@ describe('presets, prefill and reset', () => {
     it('toLocalMessage helper stays in step with the reducer (sanity)', () => {
         expect(toLocalMessage(makeMessage()).status).toBe('sent');
         expect(makeLocalMessage().status).toBeDefined();
+    });
+});
+
+describe('the WhatsApp hand-off (P6)', () => {
+    it('opens on the channel choice (idle) even when a form or topic picker would follow "Chat here"', () => {
+        expect(
+            booted({ whatsapp: true, preChat: true, categoryCount: 3 }).phase,
+        ).toBe('idle');
+        expect(booted({ whatsapp: true, categoryCount: 3 }).phase).toBe('idle');
+        // Without it nothing changes.
+        expect(booted({ preChat: true, categoryCount: 3 }).phase).toBe(
+            'prechat',
+        );
+    });
+
+    it('still opens on the offline screen when nobody can answer: WhatsApp is offered there as the alternative', () => {
+        expect(booted({ whatsapp: true, offline: true }).phase).toBe('offline');
+    });
+
+    it('"Chat here" is the old start: the form, the picker, or the chat itself', () => {
+        const chooser = booted({
+            whatsapp: true,
+            preChat: true,
+            categoryCount: 3,
+        });
+
+        expect(run(chooser, { type: 'START' }).phase).toBe('prechat');
+        expect(
+            run(booted({ whatsapp: true, categoryCount: 3 }), { type: 'START' })
+                .phase,
+        ).toBe('category');
+        expect(run(booted({ whatsapp: true }), { type: 'START' }).busy).toBe(
+            'starting',
+        );
+    });
+
+    it('"Continue on WhatsApp" with one topic asks for the code at once, skipping every form', () => {
+        const next = run(booted({ whatsapp: true, preChat: true }), {
+            type: 'WHATSAPP_START',
+        });
+
+        expect(next.phase).toBe('idle');
+        expect(next.busy).toBe('whatsapp');
+        expect(next.channel).toBe('whatsapp');
+    });
+
+    it('with several topics it asks for the topic first, with the picker marked for WhatsApp', () => {
+        const next = run(booted({ whatsapp: true, categoryCount: 3 }), {
+            type: 'WHATSAPP_START',
+        });
+
+        expect(next.phase).toBe('category');
+        expect(next.channel).toBe('whatsapp');
+        expect(next.busy).toBeNull();
+
+        const picked = run(next, { type: 'CATEGORY_PICK', slug: 'sales' });
+
+        expect(picked.busy).toBe('whatsapp');
+        expect(picked.category).toBe('sales');
+    });
+
+    it('a preset topic is not asked again', () => {
+        const preset = run(
+            createInitialState(),
+            {
+                type: 'CONFIGURED',
+                flow: flow({ whatsapp: true, categoryCount: 3 }),
+            },
+            { type: 'PRESET', category: 'billing' },
+            { type: 'BOOTED', conversation: null, messages: [], now: NOW },
+            { type: 'WHATSAPP_START' },
+        );
+
+        expect(preset.phase).toBe('idle');
+        expect(preset.busy).toBe('whatsapp');
+    });
+
+    it('can start from the offline screen', () => {
+        const next = run(booted({ whatsapp: true, offline: true }), {
+            type: 'WHATSAPP_START',
+        });
+
+        expect(next.phase).toBe('offline');
+        expect(next.busy).toBe('whatsapp');
+    });
+
+    it('a widget without WhatsApp ignores the start, and so does any other phase', () => {
+        const plain = booted();
+
+        expect(run(plain, { type: 'WHATSAPP_START' })).toBe(plain);
+
+        const waiting = queued({ whatsapp: true });
+
+        expect(run(waiting, { type: 'WHATSAPP_START' })).toBe(waiting);
+    });
+
+    it('shows the code when the hand-off comes back, and only for a request that was made', () => {
+        const asked = run(booted({ whatsapp: true }), {
+            type: 'WHATSAPP_START',
+        });
+        const shown = run(asked, { type: 'WHATSAPP_OK', handoff: HANDOFF });
+
+        expect(shown.phase).toBe('whatsapp');
+        expect(shown.whatsapp.handoff).toEqual(HANDOFF);
+        expect(shown.busy).toBeNull();
+
+        const idle = booted({ whatsapp: true });
+
+        expect(run(idle, { type: 'WHATSAPP_OK', handoff: HANDOFF })).toBe(idle);
+    });
+
+    it('keeps the visitor where they were, with the reason, when the code cannot be had', () => {
+        const asked = run(booted({ whatsapp: true }), {
+            type: 'WHATSAPP_START',
+        });
+        const failed = run(asked, {
+            type: 'WHATSAPP_FAIL',
+            failure: {
+                kind: 'notice',
+                notice: { code: 'whatsapp_unavailable' },
+            },
+        });
+
+        expect(failed.phase).toBe('idle');
+        expect(failed.busy).toBeNull();
+        expect(failed.notice).toEqual({ code: 'whatsapp_unavailable' });
+        // A failure nobody asked for changes nothing.
+        expect(
+            run(failed, {
+                type: 'WHATSAPP_FAIL',
+                failure: { kind: 'notice', notice: { code: 'network' } },
+            }),
+        ).toBe(failed);
+    });
+
+    it('puts a topic the server refused under the picker, not in a banner', () => {
+        const picking = run(
+            booted({ whatsapp: true, categoryCount: 3 }),
+            { type: 'WHATSAPP_START' },
+            { type: 'CATEGORY_PICK', slug: 'gone' },
+            {
+                type: 'WHATSAPP_FAIL',
+                failure: {
+                    kind: 'validation',
+                    errors: { category: 'Pick a topic.' },
+                },
+            },
+        );
+
+        expect(picking.phase).toBe('category');
+        expect(picking.fieldErrors).toEqual({ category: 'Pick a topic.' });
+        expect(picking.notice).toBeNull();
+    });
+
+    it('replaces the code in place when a new one is asked for', () => {
+        const again = run(whatsapp(), { type: 'WHATSAPP_NEW_CODE' });
+
+        expect(again.phase).toBe('whatsapp');
+        expect(again.busy).toBe('whatsapp');
+
+        const fresh = run(again, {
+            type: 'WHATSAPP_OK',
+            handoff: { ...HANDOFF, code: 'ZZ99AA77' },
+        });
+
+        expect(fresh.phase).toBe('whatsapp');
+        expect(fresh.whatsapp.handoff?.code).toBe('ZZ99AA77');
+        expect(fresh.busy).toBeNull();
+    });
+
+    it('does not ask twice at once', () => {
+        const again = run(whatsapp(), { type: 'WHATSAPP_NEW_CODE' });
+
+        expect(run(again, { type: 'WHATSAPP_NEW_CODE' })).toBe(again);
+    });
+
+    it('"I sent it" closes with the friendly state, and "Start a new chat" begins again', () => {
+        const sent = run(whatsapp(), { type: 'WHATSAPP_SENT' });
+
+        expect(sent.phase).toBe('closed');
+        expect(sent.closedReason).toBe('whatsapp');
+        expect(sent.whatsapp.handoff).toBeNull();
+
+        const again = run(sent, { type: 'NEW_CHAT' });
+
+        expect(again.phase).toBe('idle');
+        expect(again.channel).toBe('chat');
+        expect(again.category).toBeNull();
+        expect(again.closedReason).toBeNull();
+    });
+
+    it('goes back to the channel choice from the hand-off screen and from the topic picker', () => {
+        const fromScreen = run(whatsapp({ categoryCount: 3 }), {
+            type: 'BACK',
+        });
+
+        expect(fromScreen.phase).toBe('idle');
+        expect(fromScreen.whatsapp.handoff).toBeNull();
+        expect(fromScreen.channel).toBe('chat');
+
+        const fromPicker = run(
+            booted({ whatsapp: true, categoryCount: 3 }),
+            { type: 'WHATSAPP_START' },
+            { type: 'BACK' },
+        );
+
+        expect(fromPicker.phase).toBe('idle');
+        expect(fromPicker.channel).toBe('chat');
+    });
+
+    it('goes back to the offline screen when that is where the visitor started', () => {
+        const back = run(
+            booted({ whatsapp: true, offline: true }),
+            { type: 'WHATSAPP_START' },
+            { type: 'WHATSAPP_OK', handoff: HANDOFF },
+            { type: 'BACK' },
+        );
+
+        expect(back.phase).toBe('offline');
+    });
+
+    it('lets a form or a picker that follows "Chat here" go back to the choice', () => {
+        const form = run(booted({ whatsapp: true, preChat: true }), {
+            type: 'START',
+        });
+
+        expect(form.phase).toBe('prechat');
+        expect(run(form, { type: 'BACK' }).phase).toBe('idle');
+
+        const picker = run(booted({ whatsapp: true, categoryCount: 3 }), {
+            type: 'START',
+        });
+
+        expect(picker.phase).toBe('category');
+        expect(run(picker, { type: 'BACK' }).phase).toBe('idle');
+
+        // Without WhatsApp there is no earlier screen: unchanged.
+        const plain = run(booted({ preChat: true }), { type: 'START' });
+
+        expect(run(plain, { type: 'BACK' })).toBe(plain);
+    });
+
+    it('a changed availability does not drag a visitor out of the topic picker they opened for WhatsApp', () => {
+        const picker = run(booted({ whatsapp: true, categoryCount: 3 }), {
+            type: 'WHATSAPP_START',
+        });
+        const refreshed = run(picker, {
+            type: 'CONFIGURED',
+            flow: flow({ whatsapp: true, categoryCount: 3, offline: true }),
+        });
+
+        expect(refreshed.phase).toBe('category');
+    });
+
+    it('is invisible to the launcher: the hand-off reports an idle panel, never a chat', () => {
+        expect(hostStatus('whatsapp')).toBe('idle');
+        expect(toHostState(whatsapp())?.status).toBe('idle');
+        expect(isLiveChat(whatsapp())).toBe(false);
+        expect(selectUnread(whatsapp())).toBe(0);
+    });
+
+    it('the transition table lets every phase leave the hand-off the way the screens do', () => {
+        expect(TRANSITIONS.whatsapp).toEqual([
+            'closed',
+            'idle',
+            'category',
+            'offline',
+        ]);
+        expect(TRANSITIONS.idle).toContain('whatsapp');
+        expect(TRANSITIONS.offline).toContain('whatsapp');
+        expect(TRANSITIONS.category).toContain('whatsapp');
+        expect(TRANSITIONS.queued).not.toContain('whatsapp');
+        expect(TRANSITIONS.active).not.toContain('whatsapp');
     });
 });

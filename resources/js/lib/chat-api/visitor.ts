@@ -15,6 +15,7 @@ import type {
     ConversationPublic,
     MessageData,
 } from '@/lib/chat/types';
+import type { HandoffResponse } from '@/lib/whatsapp/types';
 
 /** The `ws` block of a session response: where Reverb lives for visitors (client-facing values). */
 export type WsConfig = {
@@ -72,6 +73,9 @@ export type OfflineTicketRequest = {
     category?: string;
     missed_conversation?: string;
 };
+
+/** `POST .../whatsapp-handoff`: the topic the visitor asks about (the ticket records it, like a chat would). */
+export type HandoffRequest = { category?: string };
 
 export type SendMessageRequest = {
     client_msg_id: string;
@@ -646,6 +650,36 @@ export function createVisitorApi(options: VisitorApiOptions) {
             );
 
             return asSession(data(body, status), status);
+        },
+
+        /**
+         * The WhatsApp hand-off (P6): a code and the `wa.me` link that opens WhatsApp with it typed. A visitor who asks again for the same
+         * topic while the ticket is live gets that ticket back. `409 whatsapp_unavailable` (no connected session), `403 feature_disabled`,
+         * `422` (`details.category`), `429`.
+         */
+        async whatsappHandoff(
+            request_: HandoffRequest = {},
+        ): Promise<HandoffResponse> {
+            const { body, status } = await request(
+                `/widgets/${widget}/whatsapp-handoff`,
+                { method: 'POST', json: request_ },
+            );
+            const value = data(body, status);
+
+            if (
+                !isRecord(value) ||
+                typeof value.code !== 'string' ||
+                typeof value.waUrl !== 'string' ||
+                typeof value.expiresAt !== 'string'
+            ) {
+                throw invalid(status);
+            }
+
+            return {
+                code: value.code,
+                waUrl: value.waUrl,
+                expiresAt: value.expiresAt,
+            };
         },
 
         /** Revokes the current token (best effort by the caller). */

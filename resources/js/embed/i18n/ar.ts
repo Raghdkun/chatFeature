@@ -119,4 +119,30 @@ export const AR: Messages = {
         'تعذّر التحقق من تسجيل دخولك. أعد تحميل الصفحة وحاول مرة أخرى.',
     'embed.chat.error.feature_disabled': 'هذا الخيار غير متاح في هذه المحادثة.',
     'embed.chat.whatsapp.title': 'المتابعة عبر واتساب',
+    'embed.chat.whatsapp.chooser_label': 'اختر طريقة التواصل معنا',
+    'embed.chat.whatsapp.choose_chat': 'الدردشة هنا',
+    'embed.chat.whatsapp.choose_chat_hint':
+        'تحدّث مع أحد وكلائنا في هذه النافذة.',
+    'embed.chat.whatsapp.choose_whatsapp_hint': 'راسلنا من هاتفك.',
+    'embed.chat.whatsapp.offline_option':
+        'تفضّل واتساب؟ يمكنك التواصل معنا هناك.',
+    'embed.chat.whatsapp.heading': 'المتابعة عبر واتساب',
+    'embed.chat.whatsapp.intro':
+        'أرسل لنا هذا الرمز عبر واتساب ليتسنى لنا ربط رسالتك بزيارتك هذه.',
+    'embed.chat.whatsapp.code_label': 'رمزك',
+    'embed.chat.whatsapp.copy': 'نسخ الرمز',
+    'embed.chat.whatsapp.copied': 'تم النسخ',
+    'embed.chat.whatsapp.copy_failed': 'تعذّر النسخ. حدّد الرمز وانسخه.',
+    'embed.chat.whatsapp.open': 'فتح واتساب',
+    'embed.chat.whatsapp.open_hint':
+        'يُفتح واتساب والرسالة جاهزة. ما عليك سوى الضغط على إرسال.',
+    'embed.chat.whatsapp.sent': 'أرسلتها',
+    'embed.chat.whatsapp.expires': 'يبقى هذا الرمز صالحًا لمدة :time أخرى.',
+    'embed.chat.whatsapp.expired': 'انتهت صلاحية هذا الرمز.',
+    'embed.chat.whatsapp.new_code': 'احصل على رمز جديد',
+    'embed.chat.whatsapp.closed_title': 'سنردّ عليك عبر واتساب',
+    'embed.chat.whatsapp.closed_body':
+        'سيصلك ردّنا على واتساب. يمكنك إغلاق هذه النافذة.',
+    'embed.chat.whatsapp.unavailable':
+        'واتساب غير متاح الآن. يمكنك الدردشة هنا بدلاً من ذلك.',
 };

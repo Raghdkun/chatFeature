@@ -117,6 +117,35 @@ describe('approximation (no loader needed)', () => {
         ).toBe('Approximation');
     });
 
+    it('draws the WhatsApp option in the panel exactly when the draft turns the feature on', async () => {
+        fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
+
+        const off = await render(<BuilderPreview {...props()} />);
+
+        await flush();
+        await click(off.byTestId('builder-preview-panel'));
+        expect(off.byTestId('preview-panel')).not.toBeNull();
+        expect(off.byTestId('preview-whatsapp')).toBeNull();
+        await off.unmount();
+
+        const base = props();
+        const on = await render(
+            <BuilderPreview
+                {...base}
+                config={{
+                    ...base.config,
+                    features: { ...base.config.features, whatsapp: true },
+                }}
+            />,
+        );
+
+        await flush();
+        await click(on.byTestId('builder-preview-panel'));
+        expect(on.byTestId('preview-whatsapp')?.textContent).toBe(
+            'Continue on WhatsApp',
+        );
+    });
+
     it('treats HTTP 200 with the "bundle not built" stub like a missing loader', async () => {
         fakeApi({ 'GET /widget/v1/loader.js': STUB_LOADER });
 

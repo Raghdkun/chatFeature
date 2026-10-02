@@ -182,6 +182,7 @@ describe('deriveFlow', () => {
             preChat: true,
             categoryCount: 2,
             rating: true,
+            whatsapp: false,
         });
 
         const closed = deriveFlow(
@@ -196,6 +197,23 @@ describe('deriveFlow', () => {
         );
 
         expect(closed).toMatchObject({ offline: true, offlineReason: 'hours' });
+    });
+
+    it('offers WhatsApp exactly when the panel config does (the feature AND a connected session, already combined)', () => {
+        const base = config();
+
+        expect(
+            deriveFlow(
+                { ...base, features: { ...base.features, whatsapp: true } },
+                { identified: false, form: EMPTY_FORM },
+            ).whatsapp,
+        ).toBe(true);
+        expect(
+            deriveFlow(
+                { ...base, features: { ...base.features, whatsapp: false } },
+                { identified: false, form: EMPTY_FORM },
+            ).whatsapp,
+        ).toBe(false);
     });
 
     it('a signed identity that fills the required fields makes the form unnecessary (never when consent is needed)', () => {

@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { useController, useSnapshot } from '@/embed/components/context';
+import { ChannelChooser } from '@/embed/components/channel-chooser';
 import { NoticeBanner } from '@/embed/components/notice';
 import { Button, Field, INPUT_CLASS } from '@/embed/components/ui';
 import { formatNextOpen } from '@/embed/lib/format';
@@ -58,6 +59,8 @@ export function OfflineScreen() {
                 {reason === 'hours' && next ? (
                     <p className="text-subtle">{lead}</p>
                 ) : null}
+                <NoticeBanner />
+                <ChannelChooser variant="offline" />
             </section>
         );
     }
@@ -224,6 +227,7 @@ export function OfflineScreen() {
                 <Button type="submit" block busy={busy} className="mt-auto">
                     {t('embed.chat.offline.submit')}
                 </Button>
+                <ChannelChooser variant="offline" />
             </form>
         </section>
     );

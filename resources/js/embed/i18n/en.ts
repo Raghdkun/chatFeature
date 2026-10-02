@@ -122,6 +122,33 @@ export const EN = {
         "We couldn't verify your sign-in. Reload the page and try again.",
     'embed.chat.error.feature_disabled': "That isn't available in this chat.",
     'embed.chat.whatsapp.title': 'Continue on WhatsApp',
+    'embed.chat.whatsapp.chooser_label': 'Choose how to talk to us',
+    'embed.chat.whatsapp.choose_chat': 'Chat here',
+    'embed.chat.whatsapp.choose_chat_hint':
+        'Talk to a live agent in this window.',
+    'embed.chat.whatsapp.choose_whatsapp_hint': 'Message us from your phone.',
+    'embed.chat.whatsapp.offline_option':
+        'Prefer WhatsApp? You can reach us there instead.',
+    'embed.chat.whatsapp.heading': 'Continue on WhatsApp',
+    'embed.chat.whatsapp.intro':
+        'Send us this code on WhatsApp. It lets us connect your message to this visit.',
+    'embed.chat.whatsapp.code_label': 'Your code',
+    'embed.chat.whatsapp.copy': 'Copy code',
+    'embed.chat.whatsapp.copied': 'Copied',
+    'embed.chat.whatsapp.copy_failed':
+        "Couldn't copy. Select the code and copy it.",
+    'embed.chat.whatsapp.open': 'Open WhatsApp',
+    'embed.chat.whatsapp.open_hint':
+        'WhatsApp opens with the message ready. Just press send.',
+    'embed.chat.whatsapp.sent': 'I sent it',
+    'embed.chat.whatsapp.expires': 'This code works for another :time.',
+    'embed.chat.whatsapp.expired': 'This code has expired.',
+    'embed.chat.whatsapp.new_code': 'Get a new code',
+    'embed.chat.whatsapp.closed_title': "We'll reply on WhatsApp",
+    'embed.chat.whatsapp.closed_body':
+        'Our reply will arrive in your WhatsApp. You can close this window.',
+    'embed.chat.whatsapp.unavailable':
+        "WhatsApp isn't available right now. You can chat here instead.",
 } as const;
 
 export type MessageKey = keyof typeof EN;

@@ -228,6 +228,17 @@ export function createVisitorBackend(options: BackendOptions = {}) {
         /** Tokens the server rotated (a returning bearer on session creation): old token -> the one that replaced it. */
         rotated: new Map<string, string>(),
         authorised: [] as string[],
+        /** The hand-offs the server has issued (`POST /widgets/{key}/whatsapp-handoff`), newest last. */
+        handoffs: [] as {
+            code: string;
+            waUrl: string;
+            expiresAt: string;
+            category: string | null;
+        }[],
+        /** The widget has no connected WhatsApp session: the hand-off answers `409 whatsapp_unavailable`. */
+        whatsappUnavailable: false,
+        /** How long a hand-off lives (ms), from now. */
+        handoffTtlMs: 24 * 3_600_000,
     };
     const calls: RecordedCall[] = [];
     const failures: Failure[] = [];
@@ -473,6 +484,95 @@ export function createVisitorBackend(options: BackendOptions = {}) {
                             ...(state.limits === undefined
                                 ? {}
                                 : { limits: state.limits }),
+                        },
+                    },
+                    { status: 201 },
+                );
+            },
+        ),
+
+        // P6 (docs/rest-api.md, "Widget link and hand-off"): a code and the wa.me link; the same live ticket again for the same topic.
+        http.post(
+            `${API}/widgets/:key/whatsapp-handoff`,
+            async ({ request, params }) => {
+                const call = await record(request);
+
+                if (params.key !== KEY) {
+                    return err(404, 'widget_not_found', 'Widget not found.');
+                }
+
+                const forced = injected(call);
+
+                if (forced !== null) {
+                    return forced;
+                }
+
+                const who = bearer(call);
+
+                if (typeof who !== 'string') {
+                    return who;
+                }
+
+                if (state.whatsappUnavailable) {
+                    return err(
+                        409,
+                        'whatsapp_unavailable',
+                        'WhatsApp is not available.',
+                    );
+                }
+
+                const category =
+                    (call.body as { category?: string } | undefined)
+                        ?.category ?? null;
+
+                if (
+                    category !== null &&
+                    !(state.config.categories as { slug: string }[]).some(
+                        (c) => c.slug === category,
+                    )
+                ) {
+                    return err(422, 'validation_failed', 'Invalid.', {
+                        category: ['The selected topic is invalid.'],
+                    });
+                }
+
+                const existing = state.handoffs.find(
+                    (h) =>
+                        h.category === category &&
+                        Date.parse(h.expiresAt) > Date.now(),
+                );
+
+                if (existing) {
+                    return HttpResponse.json(
+                        {
+                            data: {
+                                code: existing.code,
+                                waUrl: existing.waUrl,
+                                expiresAt: existing.expiresAt,
+                            },
+                        },
+                        { status: 200 },
+                    );
+                }
+
+                const code = `K7M2Q${String(state.handoffs.length + 1).padStart(3, '0')}`;
+                const issued = {
+                    code,
+                    waUrl: `https://wa.me/491701234567?text=Hi%21%20My%20support%20code%20is%20${code}`,
+                    expiresAt: new Date(
+                        Date.now() + state.handoffTtlMs,
+                    ).toISOString(),
+                    category,
+                };
+
+                state.handoffs.push(issued);
+
+                return HttpResponse.json(
+                    {
+                        data: {
+                            code,
+                            waUrl: issued.waUrl,
+                            expiresAt: issued.expiresAt,
                         },
                     },
                     { status: 201 },

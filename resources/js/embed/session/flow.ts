@@ -51,6 +51,8 @@ export function deriveFlow(
         preChat: needsPreChat(config) && !satisfied,
         categoryCount: config.categories.length,
         rating: config.features.rating,
+        // Already `features.whatsapp` AND `availability.whatsapp.enabled` (`buildPanelConfig`): a widget without a connected session never offers it.
+        whatsapp: config.features.whatsapp,
     };
 }
 

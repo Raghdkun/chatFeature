@@ -2,11 +2,12 @@
  * The panel's single source of truth: a pure reducer over `MachineState` (docs/contracts/chat-ui-p4.md, "Embed panel").
  *
  *   booting -> idle | prechat | category | offline        (first step, or a resumed queued / active / ended chat)
- *   idle -> prechat | category | offline | queued
+ *   idle -> prechat | category | offline | queued | whatsapp
  *   prechat <-> category -> queued                        (steps the widget config skips are never entered)
  *   queued -> active | offline (missed) | closed (cancelled) | ended
  *   active -> ended | closed | queued (transfer)
- *   ended -> closed          offline -> closed (ticket) | idle...  closed -> first step (a new chat is a new ticket)
+ *   ended -> closed          offline -> closed (ticket) | idle... | whatsapp   closed -> first step (a new chat is a new ticket)
+ *   whatsapp -> closed ("I sent it") | back to the first step      (P6: the visitor continues on WhatsApp; no conversation exists on our side)
  *
  * Nothing here talks to the network or the clock: the controller (`session/controller.ts`) performs the effects and feeds the
  * outcomes back as actions, with times passed in. A transition that is not in `TRANSITIONS` is ignored (the same state object
@@ -24,6 +25,7 @@ import {
     mergeMessages,
     setPendingStatus,
 } from '@/lib/chat/messages';
+import type { HandoffResponse } from '@/lib/whatsapp/types';
 import type {
     AgentRef,
     ConversationCloseReason,
@@ -44,6 +46,8 @@ export type Phase =
     | 'active'
     | 'ended'
     | 'offline'
+    /** P6: the hand-off to WhatsApp (a code and a link); not a conversation of ours. */
+    | 'whatsapp'
     | 'closed';
 
 export const TRANSITIONS: Readonly<Record<Phase, readonly Phase[]>> = {
@@ -57,13 +61,14 @@ export const TRANSITIONS: Readonly<Record<Phase, readonly Phase[]>> = {
         'ended',
     ],
     // `active` here is a resumed chat (`409 conversation_exists`: the session already has one, e.g. from a second tab).
-    idle: ['prechat', 'category', 'offline', 'queued', 'active'],
-    prechat: ['category', 'queued', 'offline', 'active'],
-    category: ['prechat', 'queued', 'offline', 'active'],
+    idle: ['prechat', 'category', 'offline', 'queued', 'active', 'whatsapp'],
+    prechat: ['idle', 'category', 'queued', 'offline', 'active'],
+    category: ['idle', 'prechat', 'queued', 'offline', 'active', 'whatsapp'],
     queued: ['active', 'ended', 'offline', 'closed'],
     active: ['ended', 'closed', 'queued'],
     ended: ['closed'],
-    offline: ['closed', 'idle', 'prechat', 'category'],
+    offline: ['closed', 'idle', 'prechat', 'category', 'whatsapp'],
+    whatsapp: ['closed', 'idle', 'category', 'offline'],
     closed: ['idle', 'prechat', 'category', 'offline'],
 };
 
@@ -81,6 +86,8 @@ export type Flow = {
     /** How many topics the visitor can choose from. */
     categoryCount: number;
     rating: boolean;
+    /** The widget offers WhatsApp (`availability.whatsapp.enabled` and `features.whatsapp`): the first screen is the channel choice. */
+    whatsapp: boolean;
 };
 
 export const DEFAULT_FLOW: Flow = {
@@ -90,6 +97,7 @@ export const DEFAULT_FLOW: Flow = {
     preChat: false,
     categoryCount: 0,
     rating: true,
+    whatsapp: false,
 };
 
 export type FormValues = {
@@ -106,13 +114,22 @@ export const EMPTY_FORM: FormValues = {
     consent: false,
 };
 
-export type Busy = 'starting' | 'ending' | 'rating' | 'offline' | null;
+export type Busy =
+    | 'starting'
+    | 'ending'
+    | 'rating'
+    | 'offline'
+    /** A WhatsApp hand-off code is being requested. */
+    | 'whatsapp'
+    | null;
 
 export type OfflineReason = 'hours' | 'no_agents' | 'missed' | 'category';
 
 export type ClosedReason =
     | ConversationCloseReason
     | 'ticket'
+    /** The visitor sent the hand-off code: the rest happens on WhatsApp. */
+    | 'whatsapp'
     | 'ended'
     | 'expired';
 
@@ -131,7 +148,9 @@ export type NoticeCode =
     /** A signed identity the server refused (`422 details.identity_token`): retrying the same token cannot work. */
     | 'identity'
     /** The widget switched the feature off (`403 feature_disabled`). */
-    | 'feature_disabled';
+    | 'feature_disabled'
+    /** No connected WhatsApp session serves this widget right now (`409 whatsapp_unavailable`). */
+    | 'whatsapp_unavailable';
 
 export type Notice = { code: NoticeCode; seconds?: number };
 
@@ -143,6 +162,8 @@ export type MachineState = {
     /** Server-side `422` messages by field (`name`, `email`, `phone`, `category`, `message`, `consent`). */
     fieldErrors: Record<string, string>;
     category: string | null;
+    /** Which way the visitor chose to talk to us: the topic picker serves both (P6). */
+    channel: 'chat' | 'whatsapp';
     /** A message handed over by `startChat({message})`, sent with the conversation. */
     initialMessage: string | null;
     conversation: ConversationPublic | null;
@@ -164,6 +185,8 @@ export type MachineState = {
         email?: string;
     };
     closedReason: ClosedReason | null;
+    /** The hand-off the visitor is looking at (`whatsapp` phase): the code, the `wa.me` link, when it stops working. */
+    whatsapp: { handoff: HandoffResponse | null };
     /**
      * Agent messages up to this `seq` were on screen while the panel was open: the launcher never counts them as unread, whether or
      * not the visitor scrolled to them (the receipts stay honest, they only follow what was really seen).
@@ -179,6 +202,7 @@ export function createInitialState(open = false): MachineState {
         form: EMPTY_FORM,
         fieldErrors: {},
         category: null,
+        channel: 'chat',
         initialMessage: null,
         conversation: null,
         messages: [],
@@ -190,6 +214,7 @@ export function createInitialState(open = false): MachineState {
         transferred: false,
         offline: { reason: 'no_agents', missed: null, ticket: null },
         closedReason: null,
+        whatsapp: { handoff: null },
         acknowledgedSeq: 0,
     };
 }
@@ -220,6 +245,14 @@ export type Action =
     | { type: 'CATEGORY_OFFLINE'; slug: string }
     | { type: 'CREATE_OK'; conversation: ConversationPublic; now: number }
     | { type: 'CREATE_FAIL'; failure: CreateFailure }
+    /** "Continue on WhatsApp": the topic is asked first when the widget has several. */
+    | { type: 'WHATSAPP_START' }
+    /** "Get a new code" on the hand-off screen. */
+    | { type: 'WHATSAPP_NEW_CODE' }
+    | { type: 'WHATSAPP_OK'; handoff: HandoffResponse }
+    | { type: 'WHATSAPP_FAIL'; failure: CreateFailure }
+    /** "I sent it". */
+    | { type: 'WHATSAPP_SENT' }
     | { type: 'RESUMED'; conversation: ConversationPublic; now: number }
     | { type: 'CLAIMED'; agent: AgentRef }
     | { type: 'TRANSFERRED'; now: number }
@@ -295,7 +328,8 @@ function sameFlow(a: Flow, b: Flow): boolean {
         a.offlineForm === b.offlineForm &&
         a.preChat === b.preChat &&
         a.categoryCount === b.categoryCount &&
-        a.rating === b.rating
+        a.rating === b.rating &&
+        a.whatsapp === b.whatsapp
     );
 }
 
@@ -321,6 +355,8 @@ function cleared(state: MachineState): MachineState {
     return {
         ...state,
         category: null,
+        channel: 'chat',
+        whatsapp: { handoff: null },
         initialMessage: null,
         conversation: null,
         messages: [],
@@ -339,7 +375,9 @@ function cleared(state: MachineState): MachineState {
 
 /** From a cleared state to the first step (phase `idle` when nothing has to be asked). */
 function toFirstStep(state: MachineState): MachineState {
-    const step = firstStep(state);
+    // A widget that offers WhatsApp opens on the channel choice (idle) even when a form or a topic picker follows "Chat here".
+    const step =
+        state.flow.whatsapp && !state.flow.offline ? null : firstStep(state);
     const to = step ?? 'idle';
 
     return go(state, to, {
@@ -405,7 +443,8 @@ export function reduce(state: MachineState, action: Action): MachineState {
             if (
                 (state.phase === 'idle' ||
                     state.phase === 'prechat' ||
-                    state.phase === 'category') &&
+                    (state.phase === 'category' &&
+                        state.channel !== 'whatsapp')) &&
                 action.flow.offline
             ) {
                 return go(next, 'offline', {
@@ -527,10 +566,32 @@ export function reduce(state: MachineState, action: Action): MachineState {
             });
         }
 
-        case 'BACK':
-            return state.phase === 'category' && state.flow.preChat
-                ? go(state, 'prechat', { notice: null, fieldErrors: {} })
+        case 'BACK': {
+            // From the hand-off screen, or from a topic picker opened for WhatsApp: back to the channel choice (or the first step).
+            if (
+                state.phase === 'whatsapp' ||
+                (state.phase === 'category' && state.channel === 'whatsapp')
+            ) {
+                return toFirstStep({
+                    ...state,
+                    channel: 'chat',
+                    whatsapp: { handoff: null },
+                    busy: null,
+                    notice: null,
+                    fieldErrors: {},
+                });
+            }
+
+            if (state.phase === 'category' && state.flow.preChat) {
+                return go(state, 'prechat', { notice: null, fieldErrors: {} });
+            }
+
+            // The channel choice is the idle screen: a form or a picker that follows "Chat here" can go back to it.
+            return (state.phase === 'category' || state.phase === 'prechat') &&
+                state.flow.whatsapp
+                ? go(state, 'idle', { notice: null, fieldErrors: {} })
                 : state;
+        }
 
         case 'PRECHAT_SUBMIT': {
             if (state.phase !== 'prechat') {
@@ -556,11 +617,97 @@ export function reduce(state: MachineState, action: Action): MachineState {
                 ? {
                       ...state,
                       category: action.slug,
-                      busy: 'starting',
+                      // The same topic picker serves "Chat here" and "Continue on WhatsApp".
+                      busy:
+                          state.channel === 'whatsapp'
+                              ? 'whatsapp'
+                              : 'starting',
                       notice: null,
                       fieldErrors: {},
                   }
                 : state;
+
+        case 'WHATSAPP_START': {
+            if (
+                (state.phase !== 'idle' && state.phase !== 'offline') ||
+                !state.flow.whatsapp
+            ) {
+                return state;
+            }
+
+            const base: MachineState = {
+                ...state,
+                channel: 'whatsapp',
+                notice: null,
+                fieldErrors: {},
+            };
+
+            // Several topics and none chosen yet: ask first (the hand-off ticket records the topic, like a chat would).
+            return state.flow.categoryCount > 1 && state.category === null
+                ? go(base, 'category', { busy: null })
+                : { ...base, busy: 'whatsapp' };
+        }
+
+        case 'WHATSAPP_NEW_CODE':
+            return state.phase === 'whatsapp' && state.busy === null
+                ? { ...state, busy: 'whatsapp', notice: null }
+                : state;
+
+        case 'WHATSAPP_OK': {
+            if (state.busy !== 'whatsapp') {
+                return state;
+            }
+
+            const patch: Partial<MachineState> = {
+                whatsapp: { handoff: action.handoff },
+                busy: null,
+                notice: null,
+                fieldErrors: {},
+            };
+
+            // A new code on the hand-off screen replaces the old one in place.
+            return state.phase === 'whatsapp'
+                ? { ...state, ...patch }
+                : go(state, 'whatsapp', patch);
+        }
+
+        case 'WHATSAPP_FAIL': {
+            if (state.busy !== 'whatsapp') {
+                return state;
+            }
+
+            const { failure } = action;
+
+            if (failure.kind === 'validation') {
+                return {
+                    ...state,
+                    busy: null,
+                    fieldErrors: failure.errors,
+                    notice:
+                        state.phase === 'category' ? null : { code: 'generic' },
+                };
+            }
+
+            return {
+                ...state,
+                busy: null,
+                notice:
+                    failure.kind === 'notice'
+                        ? failure.notice
+                        : { code: 'generic' },
+            };
+        }
+
+        case 'WHATSAPP_SENT':
+            return state.phase !== 'whatsapp'
+                ? state
+                : go(state, 'closed', {
+                      closedReason: 'whatsapp',
+                      channel: 'chat',
+                      whatsapp: { handoff: null },
+                      busy: null,
+                      notice: null,
+                  });
 
         case 'CATEGORY_OFFLINE':
             return state.phase === 'category' && state.flow.offlineForm
@@ -969,6 +1116,9 @@ export function hostStatus(phase: Phase): HostStatus | null {
             return null;
         case 'category':
             return 'prechat';
+        // The hand-off is not a conversation: the launcher sees an idle panel.
+        case 'whatsapp':
+            return 'idle';
         default:
             return phase;
     }

@@ -111,6 +111,7 @@ export type BuilderTab =
     | 'branding'
     | 'texts'
     | 'features'
+    | 'whatsapp'
     | 'greetings'
     | 'hours'
     | 'domains'
@@ -122,12 +123,21 @@ export const BUILDER_TABS: readonly BuilderTab[] = [
     'branding',
     'texts',
     'features',
+    'whatsapp',
     'greetings',
     'hours',
     'domains',
     'categories',
     'embed',
 ];
+
+/**
+ * The translation key of a tab's label. The WhatsApp tab (P6) keeps its text under its own prefix, like everything WhatsApp; the others
+ * are `builder.tabs.<tab>`.
+ */
+export function builderTabLabelKey(tab: BuilderTab): string {
+    return tab === 'whatsapp' ? 'whatsapp.builder.tab' : `builder.tabs.${tab}`;
+}
 
 export type FieldErrors = Record<string, string[]>;
 

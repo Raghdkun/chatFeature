@@ -1909,6 +1909,8 @@ describe('tab list', () => {
             'Branding',
             'Texts',
             'Features',
+            // P6: the WhatsApp section (its own tests: whatsapp-builder-tab.test.tsx).
+            'WhatsApp',
             'Greetings',
             'Hours',
             'Domains',

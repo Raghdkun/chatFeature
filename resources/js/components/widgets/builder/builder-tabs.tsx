@@ -3,6 +3,7 @@ import {
     Code,
     Globe,
     Languages,
+    MessageCircleMore,
     Palette,
     SlidersHorizontal,
     Sparkles,
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react';
 import {
     BUILDER_TABS,
+    builderTabLabelKey,
     tabsWithErrors,
     type BuilderTab,
 } from '@/components/widgets/builder-state';
@@ -25,6 +27,7 @@ import { GreetingsTab } from '@/components/widgets/builder/greetings-tab';
 import { HoursTab } from '@/components/widgets/builder/hours-tab';
 import type { TabProps } from '@/components/widgets/builder/tab-props';
 import { TextsTab } from '@/components/widgets/builder/texts-tab';
+import { WhatsAppTab } from '@/components/widgets/builder/whatsapp-tab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useTrans } from '@/hooks/use-trans';
 import type { CategoryData, WidgetSnippetsData } from '@/types/widgets';
@@ -34,6 +37,7 @@ const TAB_ICONS: Record<BuilderTab, LucideIcon> = {
     branding: Palette,
     texts: Languages,
     features: ToggleRight,
+    whatsapp: MessageCircleMore,
     greetings: Sparkles,
     hours: Clock,
     domains: Globe,
@@ -91,7 +95,7 @@ export function BuilderTabs({
                                 className="h-8 flex-none gap-1.5 px-3 text-foreground/70"
                             >
                                 <Icon aria-hidden />
-                                {t(`builder.tabs.${value}`)}
+                                {t(builderTabLabelKey(value))}
                                 {withErrors.has(value) && (
                                     <>
                                         <span
@@ -126,6 +130,9 @@ export function BuilderTabs({
             </TabsContent>
             <TabsContent value="features">
                 <FeaturesTab state={state} dispatch={dispatch} />
+            </TabsContent>
+            <TabsContent value="whatsapp">
+                <WhatsAppTab state={state} dispatch={dispatch} />
             </TabsContent>
             <TabsContent value="greetings">
                 <GreetingsTab

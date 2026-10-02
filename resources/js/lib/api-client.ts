@@ -90,6 +90,13 @@ type Query = Record<string, string | number | boolean | null | undefined>;
 export type RequestOptions = {
     query?: Query;
     signal?: AbortSignal;
+    /**
+     * Resolve with the whole body (`{ data, meta }`) instead of `data` alone: cursor-paged lists carry `meta.next_cursor`. Errors,
+     * the 204 answer and a body without an envelope behave as without the option.
+     */
+    envelope?: boolean;
+    /** The `fetch` cache mode (`'no-store'` for a response that must never be reused, like a login QR code). */
+    cache?: RequestCache;
 };
 
 export type ApiClientDeps = {
@@ -253,6 +260,7 @@ export function createApiClient({
             headers,
             credentials: 'same-origin',
             signal: options.signal,
+            ...(options.cache === undefined ? {} : { cache: options.cache }),
         };
 
         if (body !== undefined) {
@@ -326,7 +334,7 @@ export function createApiClient({
         }
 
         if (isRecord(payload) && 'data' in payload) {
-            return payload.data as T;
+            return (options.envelope ? payload : payload.data) as T;
         }
 
         return payload as T;

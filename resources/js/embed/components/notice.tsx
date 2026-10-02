@@ -26,6 +26,8 @@ export function noticeText(
             return t('embed.chat.error.identity');
         case 'feature_disabled':
             return t('embed.chat.error.feature_disabled');
+        case 'whatsapp_unavailable':
+            return t('embed.chat.whatsapp.unavailable');
         default:
             return t('embed.chat.error.generic');
     }

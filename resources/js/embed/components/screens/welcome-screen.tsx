@@ -6,7 +6,7 @@ import { Button } from '@/embed/components/ui';
 
 /** `idle`: nothing has to be asked, so the visitor only has to say they want to chat. */
 export function WelcomeScreen() {
-    const { state, t } = useSnapshot();
+    const { state, config, t } = useSnapshot();
     const controller = useController();
 
     return (
@@ -28,16 +28,20 @@ export function WelcomeScreen() {
                 <p className="text-subtle">{t('subtitle')}</p>
             </div>
             <NoticeBanner />
-            <Button
-                data-testid="idle-start"
-                data-autofocus
-                block
-                busy={state.busy === 'starting'}
-                onClick={() => controller.start()}
-            >
-                {t('embed.chat.idle.start')}
-            </Button>
-            <ChannelChooser />
+            {config?.features.whatsapp === true ? (
+                // P6: the channel choice replaces the single start button ("Chat here" is that button).
+                <ChannelChooser />
+            ) : (
+                <Button
+                    data-testid="idle-start"
+                    data-autofocus
+                    block
+                    busy={state.busy === 'starting'}
+                    onClick={() => controller.start()}
+                >
+                    {t('embed.chat.idle.start')}
+                </Button>
+            )}
         </section>
     );
 }

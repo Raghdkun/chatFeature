@@ -8,6 +8,7 @@ import { useCurrentUrl } from '@/hooks/use-current-url';
 import { useTrans } from '@/hooks/use-trans';
 import { authSettingsRoutes } from '@/lib/auth-settings-routes';
 import { notificationRoutes } from '@/lib/notifications/routes';
+import { waRoutes } from '@/lib/whatsapp-api/routes';
 import { cn, toUrl } from '@/lib/utils';
 import { edit as editAppearance } from '@/routes/appearance';
 import { edit } from '@/routes/profile';
@@ -65,12 +66,21 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
         href: notificationRoutes.pages.settings,
         icon: null,
     };
+    // Administrators only (P6-D1): an agent's settings menu has no trace of WhatsApp (the page answers 403 to them as well).
+    const whatsappItem: NavItem | null = auth.user?.is_admin
+        ? {
+              title: t('whatsapp.settings.nav'),
+              href: waRoutes.pages.settings(),
+              icon: null,
+          }
+        : null;
 
     const items: NavItem[] = [
         ...accountItems,
         notificationsItem,
         ...(supportCategories ? [supportCategories] : []),
         ...(authItem ? [authItem] : []),
+        ...(whatsappItem ? [whatsappItem] : []),
     ];
 
     return (
