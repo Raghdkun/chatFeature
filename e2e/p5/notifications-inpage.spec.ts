@@ -224,12 +224,10 @@ test("a visitor message in a chat the agent handles: tag chat-<ulid> (the page's
     await api.dispose();
 });
 
-// Open product bug (found by this spec): the page notifies when `unread.updated` arrives, and takes the body from the conversation it holds,
-// whose preview only changes with the `conversation.updated` that the server sends AFTER it (SendMessage::announce). The notification therefore
-// carries the PREVIOUS message's words. Swapping the two events does not help (the count the page compares with is then already raised and no
-// notification is made at all): the page has to notify from whichever event brings the raised count first, or `unread.updated` has to carry
-// the new preview. See the e2e report.
-test.fixme("a visitor message notification carries the newest message's words, not the previous one's", async ({
+// Regression (found by this spec): the page notified when `unread.updated` arrived and took the body from the conversation it held, whose
+// preview only changes with the `conversation.updated` that the server sends right after it, so the notification carried the PREVIOUS
+// message's words. The controller now waits for that update (at most 400 ms) before it builds the notification.
+test("a visitor message notification carries the newest message's words, not the previous one's", async ({
     actors,
     adminApi,
     instance,
