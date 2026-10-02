@@ -4,13 +4,14 @@
  * with the presence selector (hint / offline notice), and the launcher on a customer site with a badge. Everything is built through the real
  * UI and API; the browser's push APIs are the stubs of push.ts.
  */
-import { expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import type { Actors, StaffActor } from './actors';
 import type { Api } from './api';
 import { must } from './chat-api';
 import { readSeed } from './chat-seed';
 import { Launcher } from './launcher';
 import {
+    expect,
     notificationSettings,
     prepareBrowser,
     setNotificationRow,
