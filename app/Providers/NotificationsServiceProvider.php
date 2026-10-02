@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Domain\Notifications\Channels\FcmChannel;
 use App\Domain\Notifications\Channels\WebPushChannel;
 use App\Domain\Notifications\Contracts\DashboardVisibility;
+use App\Domain\Notifications\Listeners\ForgetSessionPushSubscriptions;
 use App\Domain\Notifications\Listeners\PushEventSubscriber;
 use App\Domain\Notifications\Services\PushDispatcher;
 use App\Domain\Notifications\Services\PushLedger;
@@ -14,6 +15,7 @@ use App\Domain\Settings\SettingGroup;
 use App\Domain\Settings\SettingsRegistry;
 use App\Domain\Settings\SettingType;
 use App\Domain\Widgets\Support\ClientNetwork;
+use Illuminate\Auth\Events\Logout;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
@@ -24,7 +26,8 @@ use Illuminate\Support\ServiceProvider;
  * Push notifications (P5, docs/notifications.md): Web Push now, FCM later (a stub).
  *
  * Owns the push dispatcher and its channels, the listeners that turn the chat's domain events into pushes
- * (`PushEventSubscriber`), the `notifications.push_include_preview` setting and the two push rate limiters. The default
+ * (`PushEventSubscriber`), the sign-out clean-up of a browser's subscription, the `notifications.push_include_preview` setting and the
+ * two push rate limiters. The default
  * `DashboardVisibility` (a fresh presence heartbeat) is bound in `boot()` only when nothing else bound one during `register()`, so
  * the presence context can replace it. Keep bindings and boot logic for this bounded context here so parallel tracks never edit
  * the same provider.
@@ -54,6 +57,7 @@ class NotificationsServiceProvider extends ServiceProvider
         );
 
         Event::subscribe(PushEventSubscriber::class);
+        Event::listen(Logout::class, ForgetSessionPushSubscriptions::class);
 
         $this->configureRateLimiting();
     }

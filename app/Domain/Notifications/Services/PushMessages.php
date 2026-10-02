@@ -16,7 +16,7 @@ use Carbon\CarbonInterface;
  * previews on, the visitor's first words), a message the visitor's name and words. With previews OFF nothing the visitor typed
  * (not even their name) leaves the server: "New chat request" / "New message" and the topic only. No integer id, no e-mail address.
  */
-final class PushMessages
+class PushMessages
 {
     /** An offer's notification is replaced / closed by this tag (the page uses the same one: `offerTag()` in the staff controller). */
     public static function offerTag(string $conversationUlid): string

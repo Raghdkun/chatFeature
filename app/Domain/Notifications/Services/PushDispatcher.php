@@ -13,7 +13,7 @@ use Throwable;
  * is reported and the request that caused the push carries on); `now()` sends in the caller's process for the one user-initiated case
  * that wants an answer ("Send a test notification").
  */
-final class PushDispatcher
+class PushDispatcher
 {
     /**
      * @param  list<PushChannel>  $channels

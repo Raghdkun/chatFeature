@@ -12,7 +12,8 @@ use Illuminate\Support\Facades\DB;
  * Registers the browser's push subscription for the signed-in user (`POST /me/push-subscriptions`), an upsert by the hash of the
  * endpoint: the same browser registering again refreshes its keys instead of adding a row, and a browser that a different member of
  * staff signs in to is handed over to them (the device now belongs to the person using it). A user keeps at most
- * `push.max_subscriptions_per_user` browsers: the least recently used are dropped beyond that.
+ * `push.max_subscriptions_per_user` browsers: the least recently used are dropped beyond that. The web session that registered it is
+ * remembered (hashed) so that signing out can take the browser's subscription with it (`ForgetSessionPushSubscriptions`).
  */
 final class StorePushSubscription
 {
@@ -20,11 +21,11 @@ final class StorePushSubscription
      * @param  array{endpoint: string, p256dh: string, auth: string, content_encoding?: string, expiration_time?: int|float|null}  $data
      * @return array{0: PushSubscription, 1: bool} the row and whether it is new
      */
-    public function handle(User $user, array $data, ?string $userAgent): array
+    public function handle(User $user, array $data, ?string $userAgent, ?string $sessionId = null): array
     {
         for ($attempt = 1; ; $attempt++) {
             try {
-                return DB::transaction(fn (): array => $this->upsert($user, $data, $userAgent));
+                return DB::transaction(fn (): array => $this->upsert($user, $data, $userAgent, $sessionId));
             } catch (UniqueConstraintViolationException $exception) {
                 // Two first registrations of one endpoint raced for its unique row: the second now finds it and updates it.
                 if ($attempt >= 2) {
@@ -38,7 +39,7 @@ final class StorePushSubscription
      * @param  array{endpoint: string, p256dh: string, auth: string, content_encoding?: string, expiration_time?: int|float|null}  $data
      * @return array{0: PushSubscription, 1: bool}
      */
-    private function upsert(User $user, array $data, ?string $userAgent): array
+    private function upsert(User $user, array $data, ?string $userAgent, ?string $sessionId): array
     {
         $hash = PushSubscription::hashEndpoint($data['endpoint']);
         $subscription = PushSubscription::query()->where('endpoint_hash', $hash)->lockForUpdate()->first();
@@ -53,6 +54,7 @@ final class StorePushSubscription
             'auth' => $data['auth'],
             'content_encoding' => $data['content_encoding'] ?? 'aes128gcm',
             'user_agent' => $userAgent === null ? null : mb_substr($userAgent, 0, 255),
+            'session_hash' => $sessionId === null || $sessionId === '' ? null : PushSubscription::hashSession($sessionId),
             'expires_at' => $this->expiry($data['expiration_time'] ?? null),
         ])->save();
 

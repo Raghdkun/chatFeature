@@ -16,7 +16,7 @@ use Illuminate\Database\Eloquent\Builder;
  * allow this kind of push, are outside their quiet hours and are not looking at the dashboard right now (an agent in front of the
  * inbox gets the in-page toast and sound; a push on top would double the alert).
  */
-final class PushRecipients
+class PushRecipients
 {
     public function __construct(
         private readonly NotificationPreferences $preferences,

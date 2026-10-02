@@ -9,7 +9,8 @@ use Illuminate\Support\Facades\Schema;
  *
  * - `push_subscriptions`: one row per browser a staff member enabled notifications in. `endpoint_hash` (sha256 of the endpoint) is the
  *   unique key an upsert uses (the endpoint is a long text); `p256dh` and `auth` are the subscription's keys, encrypted at rest by the
- *   model cast. `ulid` is the public id the API uses.
+ *   model cast. `ulid` is the public id the API uses. `session_hash` (sha256 of the web session that registered it) lets signing out
+ *   remove the browser's subscription, so a shared computer stops showing the previous person's chats.
  * - `notification_settings`: one row per user (created when first needed): the preferences and the state of the first-login dialog.
  * - `device_tokens`: FCM registration tokens of a future mobile app (a stub for now; the token is encrypted, `token_hash` is the key).
  *
@@ -29,11 +30,13 @@ return new class extends Migration
             $table->text('auth');
             $table->string('content_encoding', 16)->default('aes128gcm');
             $table->string('user_agent', 255)->nullable();
+            $table->char('session_hash', 64)->nullable();
             $table->timestamp('expires_at')->nullable();
             $table->timestamp('last_used_at')->nullable();
             $table->timestamps();
 
             $table->index('user_id');
+            $table->index(['user_id', 'session_hash']);
         });
 
         Schema::create('notification_settings', function (Blueprint $table) {

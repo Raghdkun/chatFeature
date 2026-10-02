@@ -32,7 +32,12 @@ class PushSubscriptionController extends ChatStaffController
     {
         $this->requirePush();
 
-        [$subscription, $created] = $action->handle($this->staff($request), $request->subscription(), $request->userAgent());
+        [$subscription, $created] = $action->handle(
+            $this->staff($request),
+            $request->subscription(),
+            $request->userAgent(),
+            $request->hasSession() ? $request->session()->getId() : null,
+        );
 
         return $this->data(PushSubscriptionData::fromModel($subscription), $created ? 201 : 200);
     }

@@ -25,13 +25,14 @@ use Illuminate\Support\Carbon;
  * @property string $auth
  * @property string $content_encoding
  * @property string|null $user_agent
+ * @property string|null $session_hash sha256 of the web session that registered it (null for a bearer-token client).
  * @property Carbon|null $expires_at
  * @property Carbon|null $last_used_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read User $user
  */
-#[Fillable(['user_id', 'endpoint_hash', 'endpoint', 'p256dh', 'auth', 'content_encoding', 'user_agent', 'expires_at', 'last_used_at'])]
+#[Fillable(['user_id', 'endpoint_hash', 'endpoint', 'p256dh', 'auth', 'content_encoding', 'user_agent', 'session_hash', 'expires_at', 'last_used_at'])]
 class PushSubscription extends Model
 {
     /** @use HasFactory<PushSubscriptionFactory> */
@@ -86,6 +87,11 @@ class PushSubscription extends Model
     public function scopeOwnedBy(Builder $query, User|int $user): Builder
     {
         return $query->where($query->qualifyColumn('user_id'), $user instanceof User ? $user->id : $user);
+    }
+
+    public static function hashSession(string $sessionId): string
+    {
+        return hash('sha256', $sessionId);
     }
 
     /** The host of the push service (`fcm.googleapis.com`): all that is ever shown about the endpoint. */
