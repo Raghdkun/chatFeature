@@ -33,7 +33,10 @@ x-app: &app
     init: true
     restart: unless-stopped
     env_file:
-        - .env
+        # `required: false` only so that `config` can be validated without a .env (see the header); a stack without one cannot start anyway,
+        # the required variables below fail first
+        - path: .env
+          required: false
     environment:
         &app-environment # The wiring between the containers is fixed here, not in .env, so it cannot drift from the service names below.
         DB_HOST: mysql
