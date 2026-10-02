@@ -1,6 +1,6 @@
 import type { NavItem } from '@/types';
 
-export type NavRole = 'any' | 'admin' | 'agent';
+export type NavRole = 'any' | 'admin' | 'agent' | 'agent-only';
 
 export type NavGroup = 'main' | 'admin' | 'settings';
 
@@ -31,14 +31,20 @@ const allEntries: NavEntry[] = Object.values(modules)
     .flat()
     .sort((a, b) => a.order - b.order);
 
-/** Role filter: `any` for everyone, `agent` for agents and admins, `admin` for admins only. */
+/**
+ * Role filter: `any` for everyone, `agent` for agents and admins, `admin` for admins only, `agent-only` for agents who are not admins (an
+ * entry whose admin twin is a different entry: "Analytics" for admins, "My performance" for agents).
+ */
 export function filterNav(entries: NavEntry[], user: NavUser): NavEntry[] {
     return entries.filter(
         (entry) =>
             entry.role === 'any' ||
             (entry.role === 'admin' && user.is_admin === true) ||
             (entry.role === 'agent' &&
-                (user.is_agent === true || user.is_admin === true)),
+                (user.is_agent === true || user.is_admin === true)) ||
+            (entry.role === 'agent-only' &&
+                user.is_agent === true &&
+                user.is_admin !== true),
     );
 }
 
