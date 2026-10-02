@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\AnalyticsRollup;
 use App\Console\Commands\ChatCloseIdle;
 use App\Console\Commands\ChatCloseUnrated;
 use App\Console\Commands\ChatExpireQueued;
@@ -43,3 +44,14 @@ Schedule::command(ChatPruneVisitorSessions::class)->dailyAt('03:45')->withoutOve
 Schedule::command(WhatsAppReconcileSessions::class)->everyMinute()->withoutOverlapping(5)->onOneServer();
 Schedule::command(WhatsAppReplayDeliveries::class)->everyFiveMinutes()->withoutOverlapping(10)->onOneServer();
 Schedule::command(WhatsAppPrune::class)->dailyAt('04:15')->withoutOverlapping(60)->onOneServer();
+
+/*
+|--------------------------------------------------------------------------
+| Analytics (P7)
+|--------------------------------------------------------------------------
+| `analytics:rollup --days=2` (hourly) recomputes today and the two days before it, so the last hour of a day that just ended is never lost;
+| the nightly run catches up on every unsealed day of the last 35 days (a scheduler that was down for a weekend heals itself). Each day is
+| recomputed from the raw tables and replaced in one transaction: running it again, or twice at once, gives the same rows (docs/analytics.md).
+*/
+Schedule::command(AnalyticsRollup::class, ['--days=2'])->hourlyAt(7)->withoutOverlapping(30)->onOneServer();
+Schedule::command(AnalyticsRollup::class)->dailyAt('00:25')->withoutOverlapping(120)->onOneServer();

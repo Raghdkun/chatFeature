@@ -251,6 +251,8 @@ describe('sidebar entries', () => {
             'Dashboard',
             'Inbox',
             'Offline tickets',
+            // P7: an agent's own numbers (admins get "Analytics" instead: the whole account).
+            'My performance',
         ]);
         expect(titles({ is_admin: true })).toEqual([
             'Dashboard',
@@ -259,6 +261,7 @@ describe('sidebar entries', () => {
             'History',
             // P6: the WhatsApp inbox is for administrators only (never in an agent's list above).
             'WhatsApp',
+            'Analytics',
         ]);
         expect(titles({})).toEqual(['Dashboard']);
     });
@@ -271,12 +274,14 @@ describe('sidebar entries', () => {
             '/offline-tickets',
             '/history',
             '/whatsapp',
+            '/analytics',
         ]);
         expect(items.map((item) => Boolean(item.badge))).toEqual([
             true,
             true,
             false,
             true,
+            false,
         ]);
 
         for (const item of items) {

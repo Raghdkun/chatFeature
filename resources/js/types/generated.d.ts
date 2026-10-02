@@ -28,6 +28,196 @@ max_concurrent_chats: number,
 last_seen_at: string | null,
 };
 }
+namespace Analytics {
+export type AnalyticsBreakdownData = {
+by: string,
+range: App.Data.Analytics.AnalyticsRangeData,
+rows: App.Data.Analytics.AnalyticsBreakdownRowData[],
+meta: App.Data.Analytics.AnalyticsMetaData,
+};
+export type AnalyticsBreakdownRowData = {
+key: string,
+label: string,
+deleted: boolean,
+kpis: App.Data.Analytics.AnalyticsKpisData,
+sparkline: number[],
+};
+export type AnalyticsDurationData = {
+averageSeconds: number | null,
+maxSeconds: number,
+count: number,
+};
+export type AnalyticsFiltersData = {
+from: string,
+to: string,
+widget: string | null,
+category: string | null,
+agent: number | null,
+compare: boolean,
+};
+export type AnalyticsHeatmapData = {
+timezone: string,
+metric: string,
+range: App.Data.Analytics.AnalyticsRangeData,
+matrix: number[][],
+max: number,
+total: number,
+meta: App.Data.Analytics.AnalyticsMetaData,
+};
+export type AnalyticsKpisData = {
+started: number | null,
+handled: number,
+reclaimed: number,
+transferred: number,
+missed: number | null,
+cancelled: number | null,
+ended: number,
+closed: number | null,
+answerRate: number | null,
+wait: App.Data.Analytics.AnalyticsDurationData,
+firstResponse: App.Data.Analytics.AnalyticsDurationData,
+handling: App.Data.Analytics.AnalyticsDurationData,
+ratings: App.Data.Analytics.AnalyticsRatingsData,
+messages: App.Data.Analytics.AnalyticsMessagesData,
+peakConcurrent: number,
+queuePeak: number | null,
+resolution: App.Data.Analytics.AnalyticsResolutionData,
+offline: App.Data.Analytics.AnalyticsOfflineData,
+offers: App.Data.Analytics.AnalyticsOffersData,
+};
+export type AnalyticsMessagesData = {
+visitor: number | null,
+agent: number,
+perChat: number | null,
+};
+export type AnalyticsMetaData = {
+timezone: string,
+today: string,
+live: boolean,
+rolledUpTo: string | null,
+missingDays: number,
+timezoneChanged: boolean,
+generatedAt: string,
+};
+export type AnalyticsOffersData = {
+received: number,
+acceptRate: number | null,
+};
+export type AnalyticsOfflineData = {
+created: number | null,
+answered: number,
+closed: number | null,
+averageResponseSeconds: number | null,
+};
+export type AnalyticsOptionData = {
+key: string,
+label: string,
+deleted: boolean,
+};
+export type AnalyticsOptionsData = {
+widgets: App.Data.Analytics.AnalyticsOptionData[],
+categories: App.Data.Analytics.AnalyticsOptionData[],
+agents: App.Data.Analytics.AnalyticsOptionData[],
+};
+export type AnalyticsOverviewData = {
+range: App.Data.Analytics.AnalyticsRangeData,
+previousRange: App.Data.Analytics.AnalyticsRangeData | null,
+scope: App.Data.Analytics.AnalyticsScopeData,
+current: App.Data.Analytics.AnalyticsKpisData,
+previous: App.Data.Analytics.AnalyticsKpisData | null,
+meta: App.Data.Analytics.AnalyticsMetaData,
+};
+export type AnalyticsPageData = {
+scope: App.Data.Analytics.AnalyticsPageScopeData,
+timezone: string,
+today: string,
+filters: App.Data.Analytics.AnalyticsFiltersData,
+options: App.Data.Analytics.AnalyticsOptionsData,
+};
+export type AnalyticsPageScopeData = {
+role: string,
+userId: number,
+whatsapp: boolean,
+};
+export type AnalyticsPointData = {
+date: string,
+value: number | null,
+days: number,
+};
+export type AnalyticsRangeData = {
+from: string,
+to: string,
+days: number,
+};
+export type AnalyticsRatingEntryData = {
+conversation: string,
+score: number,
+comment: string | null,
+createdAt: string,
+widget: string | null,
+category: string | null,
+agent: string | null,
+};
+export type AnalyticsRatingsData = {
+count: number,
+average: number | null,
+distribution: number[],
+};
+export type AnalyticsRatingsReportData = {
+range: App.Data.Analytics.AnalyticsRangeData,
+ratings: App.Data.Analytics.AnalyticsRatingsData,
+recent: App.Data.Analytics.AnalyticsRatingEntryData[],
+meta: App.Data.Analytics.AnalyticsMetaData,
+};
+export type AnalyticsResolutionData = {
+visitor: number,
+agent: number,
+system: number,
+idle: number,
+};
+export type AnalyticsScopeData = {
+role: string,
+dimension: string,
+key: string | null,
+whatsapp: boolean,
+};
+export type AnalyticsSeriesData = {
+metric: string,
+unit: string,
+points: App.Data.Analytics.AnalyticsPointData[],
+};
+export type AnalyticsTimeseriesData = {
+range: App.Data.Analytics.AnalyticsRangeData,
+interval: string,
+series: App.Data.Analytics.AnalyticsSeriesData[],
+meta: App.Data.Analytics.AnalyticsMetaData,
+};
+export type AnalyticsWhatsAppData = {
+range: App.Data.Analytics.AnalyticsRangeData,
+previousRange: App.Data.Analytics.AnalyticsRangeData | null,
+interval: string,
+current: App.Data.Analytics.AnalyticsWhatsAppTotalsData,
+previous: App.Data.Analytics.AnalyticsWhatsAppTotalsData | null,
+series: App.Data.Analytics.AnalyticsWhatsAppPointData[],
+meta: App.Data.Analytics.AnalyticsMetaData,
+};
+export type AnalyticsWhatsAppPointData = {
+date: string,
+chats: number,
+inbound: number,
+outbound: number,
+averageResponseSeconds: number | null,
+};
+export type AnalyticsWhatsAppTotalsData = {
+chats: number,
+linkedChats: number,
+linkedShare: number | null,
+inbound: number,
+outbound: number,
+averageResponseSeconds: number | null,
+responseCount: number,
+};
+}
 namespace Auth {
 export type AuthCapabilitiesData = {
 canRegister: boolean,
@@ -696,6 +886,9 @@ identity_example: App.Data.Widgets.IdentityExampleData,
 }
 }
 namespace Domain {
+namespace Analytics {
+export type AnalyticsMetric = 'started' | 'handled' | 'reclaimed' | 'transferred' | 'missed' | 'cancelled' | 'ended' | 'closed' | 'answer_rate' | 'wait_avg' | 'wait_max' | 'frt_avg' | 'frt_max' | 'handling_avg' | 'handling_max' | 'rating_avg' | 'rating_count' | 'messages_visitor' | 'messages_agent' | 'messages_per_chat' | 'peak_concurrent' | 'queue_peak' | 'offline_created' | 'offline_answered' | 'offline_closed' | 'offline_response_avg' | 'offers' | 'offer_accept_rate' | 'res_visitor' | 'res_agent' | 'res_system' | 'res_idle';
+}
 namespace Chat {
 namespace Enums {
 export type ActorType = 'visitor' | 'agent' | 'admin' | 'system';

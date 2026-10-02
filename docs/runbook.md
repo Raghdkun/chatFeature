@@ -160,6 +160,28 @@ Needs: the scheduler (`chat:presence-sweep`, every minute, `withoutOverlapping` 
 | Agents never turn `away` by themselves | Only an agent who chose `Online` in the dashboard (the automatic status, `isManual: false`) follows the tab; one who pinned `online` through the API does not. `PRESENCE_AUTO_AWAY_MINUTES=0` turns it off. A visible tab of the same agent (any device) keeps them `online` |
 | A widget shows offline while agents are `away` | A widget whose `routing.waves` only offer chats to `online` agents does not count `away` ones; the cached answer is dropped when an agent changes status |
 
+## Analytics (P7)
+
+Reporting reads two tables, `analytics_daily` (one row per day, dimension and key) and `analytics_slots` (15-minute counts for the busiest-hours heatmap), filled by `php artisan analytics:rollup`; today is always computed live. Definitions and rules: [analytics.md](analytics.md). Needs the scheduler (`schedule:run` every minute) and a shared cache for `onOneServer` / the run lock.
+
+| Task | Command |
+|---|---|
+| The scheduled runs | hourly at minute 7: `analytics:rollup --days=2` (today and the two days before); daily 00:25: `analytics:rollup` (every unsealed day of the last 35 days, so a scheduler that was down heals itself) |
+| First fill after the upgrade, or history older than 35 days | `php artisan analytics:rollup --from=2025-01-01` (to today; chunked, safe to stop and re-run; sealed days are skipped, so a re-run resumes) |
+| Rebuild a range from the raw tables | `php artisan analytics:rollup --from=2026-03-01 --to=2026-03-31 --force` (also needed after changing the application time zone: `meta.timezoneChanged` is true until then) |
+| Only today / only look back 2 days | `analytics:rollup --today` / `analytics:rollup --days=2` |
+
+The command prints one line per day (`2026-03-10  41 rows  sealed`), says when a second run is already going (it stops at once), and exits `2` on a bad date or range.
+
+| Symptom | Likely cause / check |
+|---|---|
+| The analytics page says "numbers are being prepared" / `meta.missingDays > 0` | No rollup has run for those days: the scheduler is down, or this is a new install / old history. Run `php artisan analytics:rollup` (or with `--from`); up to 14 unrolled past days are computed on the spot, the rest are empty until then |
+| Yesterday's last hour or a late rating is missing | The hourly run covers today and the two days before it; run `analytics:rollup --days=3` once. Days older than 3 days are sealed on purpose: `--from=... --to=... --force` to rebuild one |
+| Numbers changed after a widget / topic / agent / chat was deleted | They do not, for sealed days (rows hold numbers, not references). A `--force` rebuild recomputes from what still exists, so a hard-deleted widget (it cascades to its conversations) really disappears from the rebuilt days; the WhatsApp rows of a day the retention setting may have pruned are kept |
+| Heatmap hours look shifted | The heatmap uses the **viewer's** time zone (`tz`, the browser's by default) and the days use the application's (`app.timezone`): both are shown on the page |
+| A rollup run takes long | A backfill of two years is minutes; each day is ~12 indexed queries. If a day is slow, check that the P7 indexes exist (`SHOW INDEX FROM conversation_events` has `conversation_events_type_created_index`) and `EXPLAIN` the day's queries |
+| The page shows stale numbers for a minute | Reports are cached for 60 s (900 s for finished ranges) and today for 30 s (`analytics.report_ttl`, `analytics.past_report_ttl`, `analytics.live_ttl`; a rollup run empties the cache) |
+
 ## Load-test results
 
 TBD in P7 (k6, about 1k concurrent sockets): record date, hardware, p50/p95 latency, connection count, and fd/CPU/RAM limits. See [realtime.md](realtime.md).
