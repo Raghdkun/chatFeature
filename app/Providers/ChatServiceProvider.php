@@ -9,9 +9,11 @@ use App\Domain\Chat\Listeners\RequeueDeactivatedAgentConversations;
 use App\Domain\Chat\Policies\ConversationPolicy;
 use App\Domain\Chat\Support\ConversationCategoryUsageChecker;
 use App\Domain\Chat\Support\SignedAttachmentUrls;
+use App\Domain\Privacy\Policies\VisitorPolicy;
 use App\Domain\Widgets\Support\ClientNetwork;
 use App\Http\Controllers\Security\CspReportController;
 use App\Models\Conversation;
+use App\Models\Visitor;
 use App\Models\VisitorSession;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -42,6 +44,7 @@ class ChatServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Gate::policy(Conversation::class, ConversationPolicy::class);
+        Gate::policy(Visitor::class, VisitorPolicy::class);
 
         Event::listen(StaffSessionRevoked::class, RequeueDeactivatedAgentConversations::class);
 

@@ -2,6 +2,7 @@
 
 namespace App\Domain\Settings;
 
+use App\Domain\Settings\Rules\ZeroOrAtLeast;
 use App\Rules\HandoffText;
 use App\Rules\OpenWaBaseUrl;
 use Illuminate\Validation\Rule;
@@ -38,6 +39,9 @@ final class DefaultSettings
             new SettingDefinition('chat.max_message_length', SettingGroup::Chat, SettingType::Int, 4000, ['integer', 'min:100', 'max:16000']),
             new SettingDefinition('chat.attachment_max_total_bytes', SettingGroup::Chat, SettingType::Int, 30 * 1024 * 1024, ['integer', 'min:10240', 'max:524288000']),
             new SettingDefinition('chat.attachment_url_ttl_minutes', SettingGroup::Chat, SettingType::Int, 240, ['integer', 'min:5', 'max:1440']),
+            // Retention of the live chat (docs/security.md): closed and missed conversations (messages, images, ratings) older than that many days
+            // are deleted by `chat:prune-conversations`; 0 keeps them for ever. At least 7 days otherwise: analytics rollups seal a day 3 days after it ends.
+            new SettingDefinition('chat.retention_days', SettingGroup::Chat, SettingType::Int, 0, ['integer', 'min:0', 'max:3650', new ZeroOrAtLeast(7)]),
 
             // Auth mode 2 (pizzasys). The portal's service/NATS secrets are NOT settings: they live encrypted in `auth_environments`.
             new SettingDefinition('auth.pizzasys.active_env', SettingGroup::Auth, SettingType::String, 'production', ['required', 'string', Rule::in(['production', 'testing'])]),
