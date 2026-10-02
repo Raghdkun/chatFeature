@@ -310,7 +310,10 @@ export async function readySession(
             'read the session',
         );
 
-        return session.status === 'ready' ? session : undefined;
+        // `ready` comes first, the number with `session.authenticated` a moment later: a session is usable once it has both.
+        return session.status === 'ready' && session.phone !== null
+            ? session
+            : undefined;
     }, `session ${name} to become ready`);
 
     return { ulid: created.ulid, name, phone };
