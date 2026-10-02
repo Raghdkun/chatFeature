@@ -43,10 +43,12 @@ class WhatsAppSchemaTest extends TestCase
                 'handoff_ticket_id', 'last_inbound_at', 'last_message_at', 'last_message_preview', 'unread_by_admin', 'inbound_initiated', 'created_at', 'updated_at',
             ],
             'wa_messages' => [
-                'id', 'ulid', 'wa_chat_id', 'direction', 'wa_message_id', 'type', 'body', 'media_path', 'media_mime', 'media_filename', 'media_size',
+                'id', 'ulid', 'wa_chat_id', 'direction', 'wa_message_id', 'client_msg_id', 'type', 'body', 'media_path', 'media_mime', 'media_filename', 'media_size',
                 'sent_by_user_id', 'status', 'error', 'wa_timestamp', 'raw', 'created_at', 'updated_at',
             ],
             'wa_webhook_deliveries' => ['id', 'session_id', 'idempotency_key', 'delivery_id', 'event', 'outcome', 'received_at', 'processed_at', 'error'],
+            // Added by the backend track (migration 2026_11_26): the daily send counter.
+            'wa_send_counters' => ['session_id', 'day', 'count'],
         ];
     }
 
@@ -80,7 +82,7 @@ class WhatsAppSchemaTest extends TestCase
 
     public function test_the_migrations_roll_back_cleanly_and_run_again(): void
     {
-        $this->artisan('migrate:rollback', ['--step' => 5, '--force' => true])->assertSuccessful();
+        $this->artisan('migrate:rollback', ['--step' => 6, '--force' => true])->assertSuccessful();
 
         foreach (array_keys(self::expectedColumns()) as $table) {
             $this->assertFalse(Schema::hasTable($table), "{$table} should be gone after the rollback");
@@ -104,7 +106,7 @@ class WhatsAppSchemaTest extends TestCase
             'whatsapp_sessions' => ['ulid', 'status', 'openwa_session_id', 'name_key'],
             'wa_chats' => ['ulid', 'session_id,chat_id', 'status,last_message_at', 'session_id,status,last_message_at', 'phone_e164', 'handoff_ticket_id'],
             'wa_handoff_tickets' => ['ulid', 'code', 'expires_at', 'session_id,expires_at'],
-            'wa_messages' => ['ulid', 'wa_chat_id,wa_message_id', 'wa_chat_id,id', 'wa_message_id'],
+            'wa_messages' => ['ulid', 'wa_chat_id,wa_message_id', 'wa_chat_id,id', 'wa_message_id', 'wa_chat_id,client_msg_id', 'status,created_at'],
             'wa_webhook_deliveries' => ['session_id,idempotency_key', 'received_at'],
         ];
 

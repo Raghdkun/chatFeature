@@ -25,6 +25,7 @@ use Illuminate\Support\Carbon;
  * @property int $wa_chat_id
  * @property WaDirection $direction
  * @property string|null $wa_message_id
+ * @property string|null $client_msg_id
  * @property WaMessageType $type
  * @property string|null $body
  * @property string|null $media_path
@@ -42,7 +43,7 @@ use Illuminate\Support\Carbon;
  * @property-read User|null $sentBy
  */
 #[Fillable([
-    'wa_chat_id', 'direction', 'wa_message_id', 'type', 'body', 'media_path', 'media_mime', 'media_filename', 'media_size',
+    'wa_chat_id', 'direction', 'wa_message_id', 'client_msg_id', 'type', 'body', 'media_path', 'media_mime', 'media_filename', 'media_size',
     'sent_by_user_id', 'status', 'error', 'wa_timestamp', 'raw',
 ])]
 #[Hidden(['raw', 'media_path'])]

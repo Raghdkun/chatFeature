@@ -308,7 +308,7 @@ class WhatsAppDataTest extends TestCase
     public function test_every_data_class_is_exported_to_typescript(): void
     {
         $files = array_merge(glob(app_path('Data/WhatsApp/*.php')) ?: [], glob(app_path('Data/WhatsApp/Events/*.php')) ?: []);
-        $this->assertCount(13, $files, 'nine Data classes and four realtime payloads');
+        $this->assertCount(17, $files, 'thirteen Data classes (four of them added by the backend track: settings, QR, connection test, widget link) and four realtime payloads');
 
         foreach ($files as $file) {
             $class = 'App\\Data\\WhatsApp\\'.str_replace(['/', '.php'], ['\\', ''], substr($file, strlen(app_path('Data/WhatsApp/'))));

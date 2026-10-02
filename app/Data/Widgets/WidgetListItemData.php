@@ -33,7 +33,7 @@ class WidgetListItemData extends Data
             is_enabled: $widget->is_enabled,
             config_version: $widget->config_version,
             has_unpublished_changes: $hasUnpublishedChanges,
-            whatsapp_connected: false,
+            whatsapp_connected: $widget->whatsappSession?->isUsable() ?? false,
             updated_at: (string) Timestamps::iso($widget->updated_at),
             domains_count: (int) $widget->domains_count,
             categories_count: (int) $widget->categories_count,
