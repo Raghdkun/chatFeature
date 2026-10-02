@@ -588,6 +588,32 @@ export function waitLabel(seconds: number, locale = 'en'): string {
     }
 }
 
+/**
+ * An exact duration in the largest unit that divides it evenly ("1 day", "90 minutes"): for a setting, where rounding up would say
+ * something false (a wait, which rounds up, is `waitLabel`).
+ */
+export function durationLabel(seconds: number, locale = 'en'): string {
+    const s = Math.max(0, Math.round(seconds));
+    const [value, unit] =
+        s > 0 && s % 86_400 === 0
+            ? ([s / 86_400, 'day'] as const)
+            : s > 0 && s % 3_600 === 0
+              ? ([s / 3_600, 'hour'] as const)
+              : s > 0 && s % 60 === 0
+                ? ([s / 60, 'minute'] as const)
+                : ([s, 'second'] as const);
+
+    try {
+        return new Intl.NumberFormat(locale, {
+            style: 'unit',
+            unit,
+            unitDisplay: 'long',
+        }).format(value);
+    } catch {
+        return `${value} ${unit}${value === 1 ? '' : 's'}`;
+    }
+}
+
 /** A sentence for a failed WhatsApp action: this area's domain failures first, then the shared transport / validation texts. */
 export function describeWaError(
     error: unknown,

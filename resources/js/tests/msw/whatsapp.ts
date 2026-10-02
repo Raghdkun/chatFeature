@@ -466,6 +466,7 @@ export function createWaBackend(options: WaBackendOptions = {}) {
 
             if (state.scanned.has(ulid)) {
                 state.sessions.set(ulid, { ...session, status: 'ready' });
+                state.qr.delete(ulid);
             }
 
             const current = state.sessions.get(ulid) as WhatsAppSession;

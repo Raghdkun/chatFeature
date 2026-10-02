@@ -5,6 +5,7 @@ import {
     connectionResultFromWire,
     createWaApi,
     describeWaError,
+    durationLabel,
     qrFromWire,
     settingsBody,
     settingsFromWire,
@@ -574,6 +575,15 @@ describe('errors', () => {
         expect(describeWaError(error('server_error', 500), t)).toBe(
             t('widgets.api.error.server'),
         );
+    });
+
+    it('says a setting duration exactly, in the largest unit that divides it', () => {
+        expect(durationLabel(86_400)).toBe('1 day');
+        expect(durationLabel(172_800)).toBe('2 days');
+        expect(durationLabel(7_200)).toBe('2 hours');
+        expect(durationLabel(5_400)).toBe('90 minutes');
+        expect(durationLabel(300)).toBe('5 minutes');
+        expect(durationLabel(45)).toBe('45 seconds');
     });
 
     it('says waits in the unit a person reads', () => {

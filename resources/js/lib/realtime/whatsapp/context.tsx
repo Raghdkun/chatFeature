@@ -6,7 +6,7 @@ import {
 } from 'react';
 import type { WaController } from '@/lib/realtime/whatsapp/controller';
 import type { WaLiveState, WaLiveStore } from '@/lib/realtime/whatsapp/store';
-import type { WaApi } from '@/lib/whatsapp-api/client';
+import { waApi, type WaApi } from '@/lib/whatsapp-api/client';
 
 export type WaRealtimeContextValue = {
     store: WaLiveStore;
@@ -79,4 +79,9 @@ export function useWaWatch(): void {
     const context = useContext(WaRealtimeContext);
 
     useEffect(() => context?.controller.watch(), [context]);
+}
+
+/** The API client of the WhatsApp screens: the provider's (a test may inject a double), else the shared one. */
+export function useWaApi(): WaApi {
+    return useContext(WaRealtimeContext)?.api ?? waApi;
 }
