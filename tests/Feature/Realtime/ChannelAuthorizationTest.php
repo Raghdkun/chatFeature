@@ -149,7 +149,7 @@ class ChannelAuthorizationTest extends TestCase
         $this->join($agent, 'staff')->assertForbidden();
     }
 
-    // ---- private-admin and the reserved WhatsApp channel -------------------------------------------------------------------
+    // ---- private-admin and the WhatsApp admin channel (P6; the full matrix is in WhatsAppChannelAuthorizationTest) -------------------------------------------------------------------
 
     public function test_only_admins_join_the_admin_channel(): void
     {
@@ -159,9 +159,9 @@ class ChannelAuthorizationTest extends TestCase
         $this->join(User::factory()->admin()->create(), 'presence-admin')->assertForbidden();
     }
 
-    public function test_the_whatsapp_admin_channel_stays_closed_until_p6_even_for_admins(): void
+    public function test_the_whatsapp_admin_channel_is_for_active_admins_and_never_for_agents(): void
     {
-        $this->join(User::factory()->admin()->create(), 'private-whatsapp-admin')->assertForbidden();
+        $this->assertJoined($this->join(User::factory()->admin()->create(), 'private-whatsapp-admin'), 'private-whatsapp-admin');
         $this->join(User::factory()->agent()->create(), 'private-whatsapp-admin')->assertForbidden();
     }
 

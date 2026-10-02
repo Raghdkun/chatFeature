@@ -6,6 +6,7 @@ use App\Http\Middleware\EnforceAuthFeatures;
 use App\Http\Middleware\EnsureAdmin;
 use App\Http\Middleware\EnsureChatAccess;
 use App\Http\Middleware\EnsureSessionIsValid;
+use App\Http\Middleware\EnsureWhatsAppAdmin;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\InstallGate;
@@ -59,6 +60,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'admin' => EnsureAdmin::class,
             // Public chat API: bearer visitor token (`vt_...`) -> request attributes `visitor_session` / `visitor`.
             'visitor' => AuthenticateVisitor::class,
+            // WhatsApp management API and pages: active administrators only, through WhatsAppPolicy (P6-D1).
+            'wa.admin' => EnsureWhatsAppAdmin::class,
         ]);
 
         // Bearer-only group for the public widget API and webhooks (deliberately NOT stateful).
