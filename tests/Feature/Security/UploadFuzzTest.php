@@ -165,10 +165,11 @@ class UploadFuzzTest extends TestCase
     public function test_a_valid_image_over_the_pixel_budget_is_refused_before_it_is_decoded(): void
     {
         $limit = ini_get('memory_limit');
-        ini_set('memory_limit', '256M');
+        // The decoder's budget is what is left of the limit: leave 128 MB on top of what the (long-running) test process already holds.
+        ini_set('memory_limit', (string) (memory_get_usage(true) + 128 * 1024 * 1024));
 
         try {
-            // 16.7 million pixels in 17 KB: legal in size and in edge length, far too many pixels to decode inside 256 MB.
+            // 16.7 million pixels in 17 KB: legal in size and in edge length, far too many pixels to decode inside 128 MB.
             [$result, $seconds, $memory] = $this->sanitize(C::solidPng(4096));
         } finally {
             ini_set('memory_limit', (string) $limit);
