@@ -419,6 +419,41 @@ describe('search and filters', () => {
     });
 });
 
+describe('export', () => {
+    const href = (id: string) => byTestId(id)?.getAttribute('href') ?? '';
+
+    it('offers the three downloads as plain links that carry the filters in use', async () => {
+        await mount([makeWaChat({ session: ref() })], {
+            sessions: [SESSION, OTHER],
+        });
+
+        expect(href('wa-export-messages-csv')).toBe(
+            '/api/v1/whatsapp/export?format=csv&resource=messages&status=open',
+        );
+        expect(href('wa-export-messages-json')).toBe(
+            '/api/v1/whatsapp/export?format=json&resource=messages&status=open',
+        );
+        expect(href('wa-export-chats-csv')).toBe(
+            '/api/v1/whatsapp/export?format=csv&resource=chats&status=open',
+        );
+
+        await click(byTestId('wa-filter-linked'));
+        await fill(byTestId('wa-search') as HTMLInputElement, 'vera');
+
+        const url = new URL(href('wa-export-messages-csv'), 'https://app.test');
+
+        expect(Object.fromEntries(url.searchParams)).toEqual({
+            format: 'csv',
+            resource: 'messages',
+            status: 'open',
+            linked: '1',
+            q: 'vera',
+        });
+        // A link (the browser downloads it with the session cookie), not a request the page makes.
+        expect(byTestId('wa-export-messages-csv')?.tagName).toBe('A');
+    });
+});
+
 describe('more than one page', () => {
     it('reads the first page once to learn the cursor, then loads more', async () => {
         const all = Array.from({ length: 5 }, (_, n) =>

@@ -1505,5 +1505,11 @@
     "whatsapp.pacing.use_global": "Use the global limits",
     "whatsapp.pacing.use_global_hint": "At least :interval s between sends, :cap a day (Behaviour settings below).",
     "whatsapp.pacing.save": "Save limits",
-    "whatsapp.toast.pacing_saved": "The limits of :name were saved."
+    "whatsapp.toast.pacing_saved": "The limits of :name were saved.",
+    "whatsapp.export.button": "Export",
+    "whatsapp.export.messages_csv": "Messages as CSV",
+    "whatsapp.export.messages_json": "Messages as JSON",
+    "whatsapp.export.chats_csv": "Chats as CSV",
+    "whatsapp.export.hint": "Uses the filters above. The file contains phone numbers and message texts: keep it safe.",
+    "whatsapp.builder.preview_option": "Continue on WhatsApp"
 }

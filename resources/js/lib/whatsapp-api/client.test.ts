@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { ApiError, createApiClient } from '@/lib/api-client';
 import {
     classifyWaError,
+    exportUrl,
     connectionResultFromWire,
     createWaApi,
     describeWaError,
@@ -514,6 +515,61 @@ describe('the widget link', () => {
         ).resolves.toMatchObject({ session: null, connected: false });
         expect(bodyOf(written.calls[0])).toEqual({ session: null });
         expect(written.calls[0].init.method).toBe('PUT');
+    });
+});
+
+describe('export', () => {
+    const open = {
+        status: 'open',
+        session: '',
+        widget: '',
+        category: '',
+        linked: 'all',
+        q: '',
+    } as const;
+
+    it('links to the export with the format, the resource and the status, and nothing else when no filter is set', () => {
+        expect(exportUrl(open, { format: 'csv', resource: 'messages' })).toBe(
+            '/api/v1/whatsapp/export?format=csv&resource=messages&status=open',
+        );
+    });
+
+    it('carries every filter that is set, spelled the way the API reads them', () => {
+        const url = new URL(
+            exportUrl(
+                {
+                    status: 'all',
+                    session: '01SESSION',
+                    widget: '01WIDGET',
+                    category: 'billing',
+                    linked: 'unlinked',
+                    q: '  Vera & co  ',
+                },
+                { format: 'json', resource: 'chats' },
+            ),
+            'https://app.test',
+        );
+
+        expect(url.pathname).toBe('/api/v1/whatsapp/export');
+        expect(Object.fromEntries(url.searchParams)).toEqual({
+            format: 'json',
+            resource: 'chats',
+            status: 'all',
+            session: '01SESSION',
+            widget: '01WIDGET',
+            category: 'billing',
+            linked: '0',
+            q: 'Vera & co',
+        });
+        expect(
+            new URL(
+                exportUrl(
+                    { ...open, linked: 'linked' },
+                    { format: 'csv', resource: 'messages' },
+                ),
+                'https://app.test',
+            ).searchParams.get('linked'),
+        ).toBe('1');
     });
 });
 

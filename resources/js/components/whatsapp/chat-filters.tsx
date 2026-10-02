@@ -1,4 +1,4 @@
-import { Search } from 'lucide-react';
+import { Download, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useTrans } from '@/hooks/use-trans';
 import type { WaListFilters } from '@/lib/realtime/whatsapp/use-wa-chat-list';
@@ -7,6 +7,7 @@ import type {
     WaWidgetRef,
     WhatsAppSession,
 } from '@/lib/whatsapp/types';
+import { exportUrl } from '@/lib/whatsapp-api/client';
 import { WA_LIMITS } from '@/lib/whatsapp-api/types';
 import { cn } from '@/lib/utils';
 
@@ -231,6 +232,34 @@ export function ChatFilters({
                     onChange={(category) => onChange({ category })}
                 />
             )}
+
+            <details className="group text-xs" data-testid="wa-export">
+                <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+                    <Download className="size-3.5" aria-hidden />
+                    {t('whatsapp.export.button')}
+                </summary>
+                <div className="mt-1.5 grid gap-1 ps-5">
+                    {(
+                        [
+                            ['messages', 'csv'],
+                            ['messages', 'json'],
+                            ['chats', 'csv'],
+                        ] as const
+                    ).map(([resource, format]) => (
+                        <a
+                            key={`${resource}-${format}`}
+                            href={exportUrl(filters, { format, resource })}
+                            data-testid={`wa-export-${resource}-${format}`}
+                            className="w-fit rounded-sm text-primary underline-offset-4 hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                        >
+                            {t(`whatsapp.export.${resource}_${format}`)}
+                        </a>
+                    ))}
+                    <p className="text-muted-foreground">
+                        {t('whatsapp.export.hint')}
+                    </p>
+                </div>
+            </details>
         </div>
     );
 }

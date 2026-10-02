@@ -8,6 +8,7 @@
 import {
     CircleHelp,
     MessageCircle,
+    MessageCircleMore,
     Paperclip,
     Send,
     Sparkles,
@@ -17,6 +18,7 @@ import { useId, useState, type CSSProperties } from 'react';
 import type { GreetingDraft } from '@/components/widgets/builder-state';
 import type { PreviewScheme } from '@/components/widgets/preview-protocol';
 import { useInitials } from '@/hooks/use-initials';
+import { useTrans } from '@/hooks/use-trans';
 import { directionFor } from '@/lib/i18n';
 import {
     DEFAULT_TEXTS_EN,
@@ -193,6 +195,7 @@ export function StaticPreview({
     panelOpen: boolean;
 }) {
     const uid = useId();
+    const { t } = useTrans();
     const { theme, launcher } = config;
     const viewport = DEVICES[device];
     const compact = viewport.width < COMPACT_BREAKPOINT;
@@ -448,6 +451,23 @@ export function StaticPreview({
                                 </span>
                             ))}
                         </div>
+                        {config.features.whatsapp && (
+                            // The visitor's second option (the real panel offers it when a number is connected): drawn whenever the draft turns it on.
+                            <span
+                                data-testid="preview-whatsapp"
+                                className="inline-flex w-fit items-center gap-2"
+                                style={{
+                                    background: palette.raised,
+                                    borderRadius: Math.max(radius / 1.5, 8),
+                                    padding: '8px 12px',
+                                    fontSize: 13,
+                                    fontWeight: 500,
+                                }}
+                            >
+                                <MessageCircleMore size={16} aria-hidden />
+                                {t('whatsapp.builder.preview_option')}
+                            </span>
+                        )}
                     </div>
                     <div
                         style={{

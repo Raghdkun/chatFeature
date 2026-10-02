@@ -115,6 +115,53 @@ export function settingsFromWire(raw: unknown): WaSettings {
     };
 }
 
+/** The list filters an export understands (the unread switch and the sort are about the screen, not about what to export). */
+export type WaExportFilters = {
+    status: 'open' | 'archived' | 'all';
+    session: string;
+    widget: string;
+    category: string;
+    linked: 'all' | 'linked' | 'unlinked';
+    q: string;
+};
+
+/**
+ * The link of a download (`GET /whatsapp/export`): a plain `<a href>`, the dashboard's own session authorises it. `resource=messages` is
+ * one row per message of the chats the filters match, `chats` one row per chat. Only the filters that are set go into the address.
+ */
+export function exportUrl(
+    filters: WaExportFilters,
+    options: { format: 'csv' | 'json'; resource: 'messages' | 'chats' },
+): string {
+    const query = new URLSearchParams({
+        format: options.format,
+        resource: options.resource,
+        status: filters.status,
+    });
+
+    if (filters.session !== '') {
+        query.set('session', filters.session);
+    }
+
+    if (filters.widget !== '') {
+        query.set('widget', filters.widget);
+    }
+
+    if (filters.category !== '') {
+        query.set('category', filters.category);
+    }
+
+    if (filters.linked !== 'all') {
+        query.set('linked', filters.linked === 'linked' ? '1' : '0');
+    }
+
+    if (filters.q.trim() !== '') {
+        query.set('q', filters.q.trim());
+    }
+
+    return `${waRoutes.api.export()}?${query.toString()}`;
+}
+
 /** The wire body of `PUT /whatsapp/settings` (snake_case, like every request body of the management API). */
 export function settingsBody(input: WaSettingsInput): Record<string, unknown> {
     const body: Record<string, unknown> = {};
