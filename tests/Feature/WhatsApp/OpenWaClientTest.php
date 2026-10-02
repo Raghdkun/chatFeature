@@ -12,6 +12,7 @@ use App\Domain\WhatsApp\Support\OpenWa\Exceptions\OpenWaUnavailable;
 use App\Domain\WhatsApp\Support\OpenWa\OpenWaMedia;
 use App\Domain\WhatsApp\Support\OpenWa\OpenWaSendResult;
 use App\Domain\WhatsApp\Support\SignedWaMediaUrls;
+use App\Infrastructure\OpenWa\OpenWaHttpClient;
 use App\Models\WaMessage;
 use Closure;
 use Database\Factories\WhatsAppSessionFactory;
@@ -60,14 +61,20 @@ class OpenWaClientTest extends TestCase
         yield 'downloadMedia' => [fn (OpenWaClient $c) => $c->downloadMedia('id', '4915100000000@c.us', 'message')];
     }
 
-    #[DataProvider('everyCall')]
-    public function test_without_a_configured_client_every_call_fails_loudly_and_touches_no_network(Closure $call): void
+    public function test_the_default_binding_is_the_http_client(): void
     {
         $this->app->forgetInstance(OpenWaClient::class);
+        $this->app->bind(OpenWaClient::class, OpenWaHttpClient::class);
+
+        $this->assertInstanceOf(OpenWaHttpClient::class, app(OpenWaClient::class));
+    }
+
+    #[DataProvider('everyCall')]
+    public function test_the_null_client_fails_loudly_and_touches_no_network(Closure $call): void
+    {
         Http::fake();
 
-        $client = app(OpenWaClient::class);
-        $this->assertInstanceOf(NullOpenWaClient::class, $client);
+        $client = new NullOpenWaClient;
 
         try {
             $call($client);
