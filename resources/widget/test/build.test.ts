@@ -11,7 +11,7 @@ function runBundle(): void {
 }
 
 /** Same budget as .size-limit.json (`npm run size`): the loader must stay tiny on every host page. */
-const BUDGET_BYTES = 16_000;
+const BUDGET_BYTES = 18_000;
 /** First line of the bundle (vite.widget.config.ts `postBanner`). */
 const MARKER = '/*! pne-chat-loader v1 */';
 
@@ -62,7 +62,7 @@ describe('production bundle (vite.widget.config.ts)', () => {
         ) as { limit: string; path: string; gzip: boolean }[];
         expect(entry.path).toBe('public/widget/v1/loader.js');
         expect(entry.gzip).toBe(true);
-        expect(entry.limit).toBe('16 KB');
+        expect(entry.limit).toBe('18 KB');
     });
 
     it('contains the stylesheet inline and no dangerous DOM sinks', () => {

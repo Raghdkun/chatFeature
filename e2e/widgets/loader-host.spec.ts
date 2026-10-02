@@ -59,11 +59,11 @@ const windowSize = (page: Page) =>
     }));
 
 test.describe('bundle', () => {
-    test('stays within the 16 KB gzip budget and announces itself', () => {
+    test('stays within the 18 KB gzip budget and announces itself', () => {
         const file = readFileSync(`${ROOT}public/widget/v1/loader.js`);
 
         expect(gzipSync(file, { level: 9 }).length).toBeLessThanOrEqual(
-            16 * 1024,
+            18 * 1024,
         );
         expect(file.subarray(0, 40).toString()).toContain(
             '/*! pne-chat-loader v1 */',

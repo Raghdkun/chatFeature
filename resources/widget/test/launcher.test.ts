@@ -343,6 +343,44 @@ describe('Ui (launcher, popup, panel frame)', () => {
             vi.advanceTimersByTime(ALERT_MS - 1);
             expect(q('button.launcher').dataset.alert).toBe('true');
         });
+
+        it('alert() announces the accessible name (with the count) in a polite status region; reading clears it', () => {
+            mount();
+            const status = q('.root > [role="status"]');
+
+            expect(status.textContent).toBe('');
+            ui.setBadge(2);
+            expect(status.textContent).toBe(''); // the count alone is not announced, only an alert is
+            ui.alert();
+            expect(status.textContent).toBe('Chat with us, 2 unread messages');
+            ui.setBadge(0);
+            expect(status.textContent).toBe('');
+        });
+
+        it('the badge itself is hidden from assistive technology (the label and the status carry the count)', () => {
+            mount();
+            expect(q('.badge').getAttribute('aria-hidden')).toBe('true');
+        });
+
+        it('opening the panel ends a running alert at once', () => {
+            mount();
+            ui.alert();
+            ui.setOpen(true, false);
+            expect(q('button.launcher').dataset.alert).toBe('false');
+            vi.advanceTimersByTime(ALERT_MS);
+            expect(q('button.launcher').dataset.alert).toBe('false');
+        });
+
+        it('alert and motion are independent attributes: reduced motion keeps the alert state, the stylesheet swaps the animation for a highlight', () => {
+            mount();
+            ui.setMotion(true);
+            ui.alert();
+            expect(q('button.launcher').dataset.alert).toBe('true');
+            expect(q('.root').dataset.motion).toBe('reduced');
+            ui.setMotion(false);
+            expect(q('button.launcher').dataset.alert).toBe('true');
+            expect(q('.root').dataset.motion).toBe('full');
+        });
     });
 
     describe('greeting popup', () => {
@@ -550,6 +588,81 @@ describe('Ui (launcher, popup, panel frame)', () => {
                     'opacity,',
                 ]).toContain(prop);
             }
+        });
+    });
+
+    describe('alert styles', () => {
+        const css = readFileSync(
+            resolvePath(process.cwd(), 'resources/widget/src/styles.css'),
+            'utf8',
+        );
+
+        /** The body of the first rule or at-rule that starts with `header` (balanced braces), or null. */
+        const body = (header: string): string | null => {
+            const at = css.indexOf(`${header} {`);
+
+            if (at === -1) {
+                return null;
+            }
+
+            let depth = 0;
+            const start = css.indexOf('{', at);
+
+            for (let i = start; i < css.length; i++) {
+                depth += css[i] === '{' ? 1 : css[i] === '}' ? -1 : 0;
+
+                if (depth === 0) {
+                    return css.slice(start + 1, i);
+                }
+            }
+
+            return null;
+        };
+        const props = (b: string | null): string[] =>
+            [...(b ?? '').matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]);
+
+        it('the hop runs on the card and moves only through the individual translate / rotate properties, so the flip keeps its transform', () => {
+            expect(body(".launcher[data-alert='true'] .card")).toMatch(
+                /animation:\s*hop\s/,
+            );
+            expect(new Set(props(body('@keyframes hop')))).toEqual(
+                new Set(['translate', 'rotate']),
+            );
+            // the launcher's own `animation: enter` is never replaced (that would replay the entrance when the alert ends)
+            expect(body(".launcher[data-alert='true']")).toBeNull();
+        });
+
+        it('the expanding ring is still there, and animates transform and opacity only', () => {
+            expect(body(".launcher[data-alert='true'] .ring")).toMatch(
+                /animation:\s*ring\s/,
+            );
+            expect(new Set(props(body('@keyframes ring')))).toEqual(
+                new Set(['opacity', 'transform']),
+            );
+        });
+
+        it('under reduced motion every animation is off and the alert is a steady highlight halo', () => {
+            expect(body("[data-motion='reduced'] *")).toMatch(
+                /animation:\s*none\s*!important/,
+            );
+
+            const halo = body(
+                "[data-motion='reduced'] .launcher[data-alert='true'] .ring",
+            );
+
+            expect(halo).not.toBeNull();
+            expect(halo).toMatch(/opacity:\s*1/);
+            expect(halo).toMatch(/border:[^;]*var\(--accent\)/);
+            expect(halo).not.toMatch(/animation|transform|translate|rotate/);
+            // it fades in and out with the alert instead of snapping
+            expect(body('.ring')).toMatch(/transition:\s*opacity/);
+        });
+
+        it('the status region is visually hidden without being removed from the accessibility tree', () => {
+            const sr = body('.sr') ?? '';
+
+            expect(sr).toMatch(/clip-path:\s*inset\(50%\)/);
+            expect(sr).not.toMatch(/display:\s*none|visibility:\s*hidden/);
         });
     });
 
