@@ -1,3 +1,5 @@
+> Reference copy of the OpenWA API specification (OpenWA, MIT licence, `rmyndharis/OpenWA`), kept here so the WhatsApp work can be checked against it offline. Source of truth: the OpenWA repository and the real image (see `docs/whatsapp-openwa.md`).
+
 # 06 - API Specification
 
 ## 6.1 API Overview
