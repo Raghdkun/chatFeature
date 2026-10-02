@@ -17,31 +17,8 @@ type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
 type Row<T> = T extends readonly (infer R)[] ? R : never;
 
-/**
- * The four Data classes track 6A added (`WhatsAppSettingsData`, `WhatsAppQrData`, `WhatsAppConnectionTestData`,
- * `WidgetWhatsAppLinkData`) are not in this branch's generated file yet. Until the integrator regenerates (`composer types:generate`
- * after merging 6A), these are their PHP constructors written out; the day `App.Data.WhatsApp.WhatsAppSettingsData` exists, replace
- * each mirror below by the generated type and delete the mirror.
- */
-type WhatsAppSettingsData = {
-    enabled: boolean;
-    baseUrl: string;
-    hasApiKey: boolean;
-    handoffTtlMinutes: number;
-    handoffText: string;
-    ignoreGroups: boolean;
-    replyOnlyToInbound: boolean;
-    sendMinIntervalMs: number;
-    dailySendCap: number;
-    mediaMaxBytes: number;
-};
-type WidgetWhatsAppLinkData = {
-    widget: App.Data.Chat.WidgetRefData;
-    session: App.Data.WhatsApp.WaSessionRefData | null;
-    status: App.Domain.WhatsApp.Enums.SessionStatus | null;
-    maskedPhone: string | null;
-    connected: boolean;
-};
+type WhatsAppSettingsData = App.Data.WhatsApp.WhatsAppSettingsData;
+type WidgetWhatsAppLinkData = App.Data.WhatsApp.WidgetWhatsAppLinkData;
 
 /** The two inbox pages' props are made of the generated Data classes, field for field. */
 export const inboxPageConforms: {
