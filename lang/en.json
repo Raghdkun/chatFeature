@@ -1179,5 +1179,17 @@
     "history.pager.none": "No results",
     "history.pager.page": "Page :page of :pages",
     "history.pager.prev": "Previous",
-    "history.pager.next": "Next"
+    "history.pager.next": "Next",
+    "whatsapp.error.session_not_ready": "The WhatsApp session is not connected. Reconnect it in Settings > WhatsApp.",
+    "whatsapp.error.daily_cap": "The daily sending limit of this session is reached. Replies can go out again tomorrow, or raise the limit in Settings > WhatsApp.",
+    "whatsapp.error.pacing": "Messages are going out too fast. Wait a moment and try again.",
+    "whatsapp.error.pacing_after": "WhatsApp is limiting how fast messages go out. Try again in :wait.",
+    "whatsapp.error.not_inbound": "You can only reply to chats where the customer wrote first.",
+    "whatsapp.error.unreachable": "OpenWA could not be reached. Check the address and that OpenWA is running.",
+    "whatsapp.error.unauthorized_key": "OpenWA did not accept the API key.",
+    "whatsapp.error.webhook_rejected": "OpenWA refused this app's webhook address. If OpenWA runs on a private network, add this app's host to SSRF_ALLOWED_HOSTS on the OpenWA container.",
+    "whatsapp.error.name_taken": "A session with this name already exists.",
+    "whatsapp.error.teardown_pending": "A session with this name was only just deleted. Wait a few seconds and try again.",
+    "whatsapp.error.session_busy": "The session is in use. Stop it first.",
+    "whatsapp.error.not_found": "That WhatsApp item no longer exists. Reload the page."
 }

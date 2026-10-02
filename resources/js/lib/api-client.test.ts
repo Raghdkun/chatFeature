@@ -136,6 +136,42 @@ describe('requests', () => {
 
         await expect(client(f).get('/x')).resolves.toEqual({ ok: true });
     });
+
+    it('hands over the whole body (data and meta) when asked for the envelope', async () => {
+        const f = fakeFetch({
+            json: { data: [{ id: 1 }], meta: { next_cursor: 'c2' } },
+        });
+
+        await expect(client(f).get('/x', { envelope: true })).resolves.toEqual({
+            data: [{ id: 1 }],
+            meta: { next_cursor: 'c2' },
+        });
+    });
+
+    it('passes the cache mode to fetch only when one is given', async () => {
+        const f = fakeFetch({ json: { data: 1 } }, { json: { data: 2 } });
+
+        await client(f).get('/qr', { cache: 'no-store' });
+        await client(f).get('/other');
+
+        expect(f.calls[0].init.cache).toBe('no-store');
+        expect('cache' in f.calls[1].init).toBe(false);
+    });
+
+    it('still unwraps by default and still throws the error envelope with the option', async () => {
+        const f = fakeFetch(
+            { json: { data: [1], meta: { next_cursor: null } } },
+            {
+                status: 403,
+                json: { error: { code: 'forbidden', message: 'No.' } },
+            },
+        );
+
+        await expect(client(f).get('/x')).resolves.toEqual([1]);
+        await expect(
+            client(f).get('/x', { envelope: true }),
+        ).rejects.toMatchObject({ code: 'forbidden', status: 403 });
+    });
 });
 
 describe('errors', () => {
