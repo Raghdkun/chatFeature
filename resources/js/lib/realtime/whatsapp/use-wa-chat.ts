@@ -479,6 +479,22 @@ export function useWaChat({
         [api, ulid, store],
     );
 
+    /**
+     * Delete the chat (admin hard delete). Resolves once the server did it (a `404` means it is gone already, which is what was asked);
+     * any other failure is thrown for the dialog to show. The chat leaves the live state at once.
+     */
+    const deleteChat = useCallback(async (): Promise<void> => {
+        try {
+            await api.deleteChat(ulid);
+        } catch (error) {
+            if (!(error instanceof ApiError && error.status === 404)) {
+                throw error;
+            }
+        }
+
+        store.dispatch({ type: 'chatRemoved', ulid });
+    }, [api, ulid, store]);
+
     /* ---------------------------------------------------------------- */
 
     const block: ComposerBlock | null =
@@ -508,6 +524,7 @@ export function useWaChat({
         catchUp,
         refreshMediaUrls,
         setArchived,
+        deleteChat,
     };
 }
 

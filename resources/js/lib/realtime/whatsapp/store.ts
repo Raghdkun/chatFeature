@@ -54,6 +54,8 @@ export type WaLiveAction =
     | { type: 'chatChanged'; chat: WaChat }
     /** The admin opened the chat: its unread count is zero (the server is told separately). */
     | { type: 'chatRead'; ulid: string }
+    /** The chat was deleted (here): it and its transcript leave the live state (and a snapshot older than this must not bring it back). */
+    | { type: 'chatRemoved'; ulid: string }
     | { type: 'messagesLoaded'; chat: string; messages: WaMessage[] }
     | { type: 'messageChanged'; message: WaMessage }
     /**
@@ -139,6 +141,20 @@ export function waLiveReducer(
                 chats: { ...state.chats, [action.chat.ulid]: action.chat },
                 ...touch(state, action.chat.ulid),
             };
+        }
+
+        case 'chatRemoved': {
+            if (!(action.ulid in state.chats) && !(action.ulid in state.messages)) {
+                return state;
+            }
+
+            const chats = { ...state.chats };
+            const messages = { ...state.messages };
+
+            delete chats[action.ulid];
+            delete messages[action.ulid];
+
+            return { ...state, chats, messages, ...touch(state, action.ulid) };
         }
 
         case 'chatRead': {

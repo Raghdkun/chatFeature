@@ -142,6 +142,8 @@ export function createWaBackend(options: WaBackendOptions = {}) {
             code: string;
             message: string;
         } | null,
+        /** The next chat delete answers this error (`DELETE /whatsapp/chats/{ulid}`, the admin hard delete of the backend fix). */
+        deleteChatError: null as { status: number; code: string } | null,
         /** The next N QR reads answer `429 rate_limited` (the `wa-qr` limiter, or OpenWA's throttle with nothing stored yet). */
         qrThrottled: 0,
         calls: [] as RecordedWaCall[],
@@ -763,6 +765,40 @@ export function createWaBackend(options: WaBackendOptions = {}) {
                     : null);
 
             return detail ? HttpResponse.json({ data: detail }) : notFound();
+        }),
+
+        http.delete(route(waRoutes.api.chat), ({ request, params }) => {
+            record(request);
+
+            const outage = down();
+
+            if (outage) {
+                return outage;
+            }
+
+            const ulid = String(params.ulid);
+
+            if (state.deleteChatError) {
+                const { status, code } = state.deleteChatError;
+
+                state.deleteChatError = null;
+
+                return envelopeError(
+                    code,
+                    'Could not delete the chat.',
+                    status,
+                );
+            }
+
+            if (!state.chats.has(ulid)) {
+                return notFound();
+            }
+
+            state.chats.delete(ulid);
+            state.messages.delete(ulid);
+            state.details.delete(ulid);
+
+            return new HttpResponse(null, { status: 204 });
         }),
 
         http.get(route(waRoutes.api.chatMessages), ({ request, params }) => {

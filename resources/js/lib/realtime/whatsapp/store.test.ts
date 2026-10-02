@@ -114,6 +114,42 @@ describe('chats', () => {
         expect(state.chats[chat.ulid].unreadByAdmin).toBe(2);
     });
 
+    it('removes a deleted chat and its transcript, and a snapshot that was requested before it cannot bring it back', () => {
+        const chat = makeWaChat({ unreadByAdmin: 3 });
+        const kept = makeWaChat({ unreadByAdmin: 1 });
+        const loaded = run(
+            EMPTY_WA_STATE,
+            { type: 'chatsLoaded', chats: [chat, kept] },
+            {
+                type: 'messagesLoaded',
+                chat: chat.ulid,
+                messages: [makeWaMessage({ chat: chat.ulid })],
+            },
+        );
+        const since = loaded.clock;
+        const removed = waLiveReducer(loaded, {
+            type: 'chatRemoved',
+            ulid: chat.ulid,
+        });
+
+        expect(removed.chats[chat.ulid]).toBeUndefined();
+        expect(removed.messages[chat.ulid]).toBeUndefined();
+        expect(selectUnreadTotal(removed)).toBe(1);
+
+        // An older snapshot (requested before the delete) still lists it: it stays gone.
+        const stale = waLiveReducer(removed, {
+            type: 'chatsLoaded',
+            chats: [chat, kept],
+            since,
+        });
+
+        expect(stale.chats[chat.ulid]).toBeUndefined();
+        // Removing what is not there is a no-op.
+        expect(
+            waLiveReducer(removed, { type: 'chatRemoved', ulid: chat.ulid }),
+        ).toBe(removed);
+    });
+
     it('reads a chat: its unread count drops to zero and only then', () => {
         const chat = makeWaChat({ unreadByAdmin: 2 });
         const loaded = run(EMPTY_WA_STATE, {

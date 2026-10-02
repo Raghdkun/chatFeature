@@ -473,6 +473,17 @@ describe('chats and messages', () => {
             'POST /api/v1/whatsapp/chats/c1/unarchive',
         ]);
     });
+
+    it('deletes a chat with DELETE on the chat itself (204: nothing comes back)', async () => {
+        const { api, calls } = clientWith(
+            () => new Response(null, { status: 204 }),
+        );
+
+        await expect(api.deleteChat('c1')).resolves.toBeNull();
+        expect(calls.map((c) => `${c.init.method} ${c.url}`)).toEqual([
+            'DELETE /api/v1/whatsapp/chats/c1',
+        ]);
+    });
 });
 
 describe('the widget link', () => {

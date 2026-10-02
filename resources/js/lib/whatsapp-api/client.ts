@@ -488,6 +488,10 @@ export function createWaApi(client: ApiClient = api) {
         unarchive: (ulid: string) =>
             client.post<WaChat>(waRoutes.api.chatUnarchive(ulid)),
 
+        /** Admin hard delete: the chat and every message of it leave this app (the customer's phone is not touched). `204`. */
+        deleteChat: (ulid: string) =>
+            client.delete<null>(waRoutes.api.chat(ulid)),
+
         /* ---------------------------------------------------------- widgets */
 
         widgetWhatsApp: async (
