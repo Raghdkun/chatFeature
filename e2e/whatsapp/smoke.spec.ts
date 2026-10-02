@@ -5,6 +5,7 @@ import { P4_CATEGORIES } from '../support/users';
 import {
     data,
     eventually,
+    resetMock,
     WaAdminApi,
     type WaChat,
     type WaMessage,
@@ -26,10 +27,10 @@ import {
 test.use({ scenario: 'p6-wa' });
 
 test.beforeEach(async ({ openWa }) => {
-    await openWa.reset();
+    await resetMock(openWa);
 });
 
-test.fixme("needs 6A+6B merged: a customer's WhatsApp message with the hand-off code is linked, answered and acked; agents see nothing", async ({
+test("a customer's WhatsApp message with the hand-off code is linked, answered and acked; agents see nothing", async ({
     actors,
     adminApi,
     instance,
@@ -75,7 +76,7 @@ test.fixme("needs 6A+6B merged: a customer's WhatsApp message with the hand-off 
             )?.status === 'qr' && true,
         'the session waiting for a scan',
     );
-    expect((await wa.sessionQr(created.ulid)).data.qr).toMatch(
+    expect(data(await wa.sessionQr(created.ulid), 'read the QR').qr).toMatch(
         /^data:image\/png;base64,/,
     );
 
@@ -91,8 +92,9 @@ test.fixme("needs 6A+6B merged: a customer's WhatsApp message with the hand-off 
         return session.status === 'ready' ? session : undefined;
     }, 'the session to become ready');
 
-    expect(ready.maskedPhone).not.toBeNull();
-    expect(JSON.stringify(ready)).not.toContain('4915100000000'); // the full number is never sent to the page
+    // The administrator's own data carries the number (the page shows it masked until revealed): E.164 and a masked twin.
+    expect(ready.phone).toBe('+4915100000000');
+    expect(ready.maskedPhone).toBe('+49•••••••0000');
 
     // 3. A widget offers WhatsApp: linked to the ready session, `features.whatsapp` on, published.
     const widget = await createWidget(adminApi, {
