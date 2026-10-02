@@ -61,6 +61,7 @@ import {
     type TestUser,
 } from './support/users';
 import { Api, createWidget } from './support/api';
+import { cleanRedis } from './support/redis';
 
 const CREATE_DATABASE = `
 $name = (string) getenv('E2E_DB_NAME');
@@ -151,6 +152,8 @@ $answers->basics(\\App\\Domain\\Install\\Actions\\StoreInstallAnswers::defaultBa
 async function prepare(instance: Instance): Promise<void> {
     assertSafe(instance);
 
+    // P5 Redis scenarios: whatever an earlier run left under THIS instance's key prefix (user ids repeat after a database reset).
+    await cleanRedis(instance);
     await rm(instance.dir, { recursive: true, force: true });
     await Promise.all(
         [
@@ -555,6 +558,11 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     );
     let harnessStarted = false;
     const teardown = async (): Promise<void> => {
+        // P5 Redis scenarios: leave nothing behind under the suite's key prefixes (only those, never a flush).
+        await Promise.all(
+            ACTIVE_INSTANCES.map((instance) => cleanRedis(instance)),
+        );
+
         if (harnessStarted) {
             harnessStarted = false;
             await stopHarness();

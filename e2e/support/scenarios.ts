@@ -10,15 +10,19 @@
  * Add a scenario: append it to `DEFINITIONS`, then point a spec at it with `test.use({ scenario: '<name>' })`. See docs/testing.md.
  *
  * Ports the suite owns (everything else belongs to other suites or running agents):
- *   web servers      8110-8129 (8120-8129: mode 2)   8230-8249 (P3)   8260-8279 (P4)
- *   customer sites   8240-8247 (P3)                  8280-8289, 8292-8293 (P4; `p4-poll`: 8291 / 8296)
- *   Reverb (P4)      8340-8348, 8350-8351 (`p4-staff`: 8344 / 8348)
+ *   web servers      8110-8129 (8120-8129: mode 2)   8230-8249 (P3)   8260-8279 (P4)   8380-8387 (P5)
+ *   customer sites   8240-8247 (P3)                  8280-8289, 8292-8293 (P4; `p4-poll`: 8291 / 8296)   8390-8397 (P5)
+ *   Reverb (P4)      8340-8348, 8350-8351 (`p4-staff`: 8344 / 8348)   8400-8406 (P5)
+ *   P5 spare         web 8388-8389, Reverb 8407-8408; 8398 / 8399 are the fake push services of `p5-notify` (desktop / mobile, started by
+ *                    the specs, not by Playwright); 8409 is nothing on purpose (`p5-presence-failover` points its Redis there)
  * P4 layout: a stateful scenario takes web `8260 + n` (desktop) and `8270 + n` (mobile twin), a customer site `8280 + n` / `8285 + n`
  * and Reverb `8340 + n` / `8345 + n`; `p4-chat` is n = 0, `p4-chat-views` n = 2, `p4-chat-views-rtl` n = 3. 8264-8269, 8274-8279,
  * 8284, 8289 and 8344/8348 are free for more P4 scenarios. The deck-screenshot scenario `p4-shots` (n = 6) uses 8266 / 8276, customer
  * sites 8292 / 8293 and Reverb 8350 / 8351.
  */
+import { createECDH, createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { ensurePushTrust, PUSH_TRUST_DIR } from './push-trust';
 
 export const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -62,7 +66,13 @@ export type ScenarioName =
     | 'p4-shots'
     // P4 staff side (E2): the inbox, the permission matrices and the realtime resilience specs.
     | 'p4-staff'
-    | 'p4-poll';
+    | 'p4-poll'
+    // P5 (presence, notifications, the launcher alert). Ports 8380-8409, see the comment at the top.
+    | 'p5-chat'
+    | 'p5-presence-redis'
+    | 'p5-presence-failover'
+    | 'p5-notify'
+    | 'p5-notify-rtl';
 
 export type ProjectName = 'desktop' | 'mobile' | 'pizzasys-outage';
 
@@ -83,6 +93,8 @@ type Definition = {
         mobileHostPort?: number;
         /** Scenarios with a Reverb server: the mobile project's own Reverb port. */
         mobileReverbPort?: number;
+        /** Scenarios with `push`: the mobile project's own fake push service port. */
+        mobilePushPort?: number;
     };
     /**
      * Test data created right after the install (see `SEED_P3` in global-setup.ts): `staff` adds the staff accounts and
@@ -105,6 +117,17 @@ type Definition = {
     reverbPort?: number;
     /** Extra environment of the instance's server and artisan calls (after the defaults). */
     env?: Record<string, string>;
+    /**
+     * P5: the presence store is REDIS (`PRESENCE_STORE=redis`, phpredis) on the machine's local Redis, in its own database index with a key
+     * prefix of the instance's port (`e2e-p5-<port>-`); the specs and the setup only ever touch that prefix (never FLUSHALL / FLUSHDB).
+     */
+    redisDb?: number;
+    /**
+     * P5: web push is configured (VAPID keys derived from a fixed seed, see `vapidKeys()`), and the server trusts the suite's fake push
+     * service (`PHPRC`, e2e/support/push-trust.ts). A never-asked agent then gets the first-login dialog on the dashboard.
+     * `port` is where the specs start the fake push service (`perProject.mobilePushPort` for the mobile twin); none: the scenario never sends.
+     */
+    push?: { port?: number };
     /** Only started when E2E_SCREENSHOTS=1. */
     screenshotsOnly?: boolean;
     /**
@@ -386,6 +409,94 @@ const DEFINITIONS: Record<ScenarioName, Definition> = {
             mobileHostPort: 8296,
         },
     },
+    // P5: presence, notifications and the launcher alert (specs in e2e/p5). Every scenario has the `chat` seed, a customer site and, unless
+    // noted, a real Reverb. None of the P4 scenarios has VAPID keys (`push` is null: no first-login dialog), so the P4 specs are unaffected.
+    // `p5-chat`: the DATABASE presence store (the P4 default of the suite), the launcher alert chain and the presence screens; every test works in
+    // a world of its own (`createWorld`) because presence, queues and capacity are global to a scenario.
+    'p5-chat': {
+        kind: 'installed',
+        port: 8380,
+        dbSuffix: '_p5_chat',
+        mode: 'local',
+        seed: 'chat',
+        hostPort: 8390,
+        reverbPort: 8400,
+        env: { TRUSTED_PROXIES: '*' },
+        perProject: {
+            mobilePort: 8381,
+            mobileDbSuffix: '_p5_chat_mobile',
+            mobileHostPort: 8391,
+            mobileReverbPort: 8401,
+        },
+    },
+    // The same presence rules on the REDIS store (the real Redis on 127.0.0.1:6379, database 13, prefix `e2e-p5-<port>-`).
+    'p5-presence-redis': {
+        kind: 'installed',
+        port: 8382,
+        dbSuffix: '_p5_presence_redis',
+        mode: 'local',
+        seed: 'chat',
+        hostPort: 8392,
+        reverbPort: 8402,
+        redisDb: 13,
+        env: { TRUSTED_PROXIES: '*' },
+        perProject: {
+            mobilePort: 8383,
+            mobileDbSuffix: '_p5_presence_redis_mobile',
+            mobileHostPort: 8393,
+            mobileReverbPort: 8403,
+        },
+    },
+    // Redis is configured but nothing listens there (8409 is nobody's): the database store answers, one warning is logged. No Reverb: the
+    // dashboard runs on REST polling, which is all this scenario needs. One instance for both projects (every test has its own world).
+    'p5-presence-failover': {
+        kind: 'installed',
+        port: 8384,
+        dbSuffix: '_p5_presence_failover',
+        mode: 'local',
+        seed: 'chat',
+        hostPort: 8394,
+        env: {
+            TRUSTED_PROXIES: '*',
+            PRESENCE_STORE: 'redis',
+            REDIS_CLIENT: 'phpredis',
+            REDIS_HOST: '127.0.0.1',
+            REDIS_PORT: '8409',
+        },
+    },
+    // Web push is configured: VAPID keys, a fake push service the specs start (https, trusted by the server's PHP), the first-login dialog for
+    // never-asked staff, Settings > Notifications with a real "this browser" section. Sound / push settings are per user: worlds again.
+    'p5-notify': {
+        kind: 'installed',
+        port: 8385,
+        dbSuffix: '_p5_notify',
+        mode: 'local',
+        seed: 'chat',
+        hostPort: 8395,
+        reverbPort: 8404,
+        push: { port: 8398 },
+        env: { TRUSTED_PROXIES: '*' },
+        perProject: {
+            mobilePort: 8386,
+            mobileDbSuffix: '_p5_notify_mobile',
+            mobileHostPort: 8396,
+            mobileReverbPort: 8405,
+            mobilePushPort: 8399,
+        },
+    },
+    // Arabic / right-to-left: Settings > Notifications, the first-login dialog, the agents page and the inbox, mirrored. One instance for both projects.
+    'p5-notify-rtl': {
+        kind: 'installed',
+        port: 8387,
+        dbSuffix: '_p5_notify_rtl',
+        mode: 'local',
+        locale: 'ar',
+        seed: 'chat',
+        hostPort: 8397,
+        reverbPort: 8406,
+        push: {},
+        env: { TRUSTED_PROXIES: '*' },
+    },
     // Real wizard runs, in token mode, that the screenshot spec walks through for the deck.
     'shots-desktop': {
         kind: 'fresh',
@@ -411,6 +522,24 @@ const APP_KEY = `base64:${Buffer.from('pne-chat-e2e-test-key-0123456789').toStri
 
 /** Every P4 instance's Reverb app key (the secret and app id are per instance). The dashboard learns the address from the `realtime` shared prop at runtime. */
 export const E2E_REVERB_KEY = 'e2e-reverb-key';
+
+/**
+ * The VAPID key pair of every `push` scenario, derived from a fixed seed so nothing secret is committed and every run (and every process of
+ * a run) agrees: the private key is a SHA-256 of the seed (a valid P-256 scalar), the public key its uncompressed point; both URL-safe
+ * base64 without padding, the format `minishlink/web-push` and `pushManager.subscribe({ applicationServerKey })` use. Test-only values.
+ */
+export function vapidKeys(): { publicKey: string; privateKey: string } {
+    const ecdh = createECDH('prime256v1');
+
+    ecdh.setPrivateKey(
+        createHash('sha256').update('pne-chat-e2e-vapid-seed').digest(),
+    );
+
+    return {
+        publicKey: ecdh.getPublicKey().toString('base64url'),
+        privateKey: ecdh.getPrivateKey().toString('base64url'),
+    };
+}
 
 export type ReverbServer = {
     port: number;
@@ -450,6 +579,10 @@ export type Instance = {
     hostUrl: string | null;
     /** The instance's Reverb server (P4), or null: the app then broadcasts to nothing (`BROADCAST_CONNECTION=null`). */
     reverb: ReverbServer | null;
+    /** P5: the presence store is Redis: its database index and the key prefix this instance (and nobody else) uses. */
+    redis: { db: number; prefix: string } | null;
+    /** P5: web push is configured (VAPID keys, the server trusts the fake push service); `port` is where the specs start that service. */
+    push: { port: number | null } | null;
     /** Environment shared by the web server and every artisan call made for this instance. */
     env: Record<string, string>;
 };
@@ -462,6 +595,7 @@ function build(
     dbSuffix: string,
     hostPort: number | null = definition.hostPort ?? null,
     reverbPort: number | null = definition.reverbPort ?? null,
+    pushPort: number | null = definition.push?.port ?? null,
 ): Instance {
     const url = `http://127.0.0.1:${port}`;
     const dir = `${ROOT}storage/e2e-${key}`;
@@ -522,6 +656,35 @@ function build(
         });
     }
 
+    // P5: the presence state in Redis, in the suite's own database index under a prefix of this instance's port (phpredis, as the product needs).
+    const redis =
+        definition.redisDb === undefined
+            ? null
+            : { db: definition.redisDb, prefix: `e2e-p5-${port}-` };
+
+    if (redis !== null) {
+        Object.assign(env, {
+            PRESENCE_STORE: 'redis',
+            REDIS_CLIENT: 'phpredis',
+            REDIS_HOST: '127.0.0.1',
+            REDIS_PORT: '6379',
+            REDIS_DB: String(redis.db),
+            REDIS_PREFIX: redis.prefix,
+        });
+    }
+
+    // P5: web push on (the first-login dialog, Settings > Notifications), the fake push service trusted by this instance's PHP.
+    if (definition.push !== undefined) {
+        const keys = vapidKeys();
+
+        Object.assign(env, {
+            VAPID_PUBLIC_KEY: keys.publicKey,
+            VAPID_PRIVATE_KEY: keys.privateKey,
+            VAPID_SUBJECT: 'mailto:e2e@example.test',
+            PHPRC: PUSH_TRUST_DIR,
+        });
+    }
+
     Object.assign(env, definition.env ?? {});
 
     if (definition.mode === 'token') {
@@ -548,36 +711,88 @@ function build(
         hostPort,
         hostUrl: hostPort === null ? null : `http://localhost:${hostPort}`,
         reverb,
+        redis,
+        push: definition.push === undefined ? null : { port: pushPort },
         env,
     };
 }
 
+/**
+ * Moves instances to other ports (and databases): `E2E_PORT_MAP='{"p4-staff":{"port":8380,"hostPort":8390,"reverbPort":8400,"dbSuffix":"_x_staff"},
+ * "p4-staff-mobile":{...}}'` (keys are instance keys, every field optional). For running a scenario while its own ports (and database, the
+ * name is the same on every checkout of the machine) belong to another run: give it a `dbSuffix` of its own too. The state directory is
+ * per checkout already (`storage/e2e-<key>`).
+ */
+type PortMap = Record<
+    string,
+    {
+        port?: number;
+        hostPort?: number;
+        reverbPort?: number;
+        pushPort?: number;
+        dbSuffix?: string;
+    }
+>;
+
+const PORT_MAP: PortMap = JSON.parse(process.env.E2E_PORT_MAP ?? '{}');
+
 function expand(): Instance[] {
     const instances: Instance[] = [];
+    const place = (
+        name: ScenarioName,
+        definition: Definition,
+        key: string,
+        ports: {
+            port: number;
+            dbSuffix: string;
+            hostPort?: number;
+            reverbPort?: number;
+            pushPort?: number;
+        },
+    ): Instance => {
+        const moved = PORT_MAP[key] ?? {};
+
+        return build(
+            name,
+            definition,
+            key,
+            moved.port ?? ports.port,
+            moved.dbSuffix ?? ports.dbSuffix,
+            moved.hostPort ?? ports.hostPort ?? null,
+            moved.reverbPort ?? ports.reverbPort ?? null,
+            moved.pushPort ?? ports.pushPort ?? null,
+        );
+    };
 
     for (const [name, definition] of Object.entries(DEFINITIONS) as [
         ScenarioName,
         Definition,
     ][]) {
         instances.push(
-            build(name, definition, name, definition.port, definition.dbSuffix),
+            place(name, definition, name, {
+                port: definition.port,
+                dbSuffix: definition.dbSuffix,
+                hostPort: definition.hostPort,
+                reverbPort: definition.reverbPort,
+                pushPort: definition.push?.port,
+            }),
         );
 
         if (definition.perProject) {
             instances.push(
-                build(
-                    name,
-                    definition,
-                    `${name}-mobile`,
-                    definition.perProject.mobilePort,
-                    definition.perProject.mobileDbSuffix,
-                    definition.perProject.mobileHostPort ??
-                        definition.hostPort ??
-                        null,
-                    definition.perProject.mobileReverbPort ??
-                        definition.reverbPort ??
-                        null,
-                ),
+                place(name, definition, `${name}-mobile`, {
+                    port: definition.perProject.mobilePort,
+                    dbSuffix: definition.perProject.mobileDbSuffix,
+                    hostPort:
+                        definition.perProject.mobileHostPort ??
+                        definition.hostPort,
+                    reverbPort:
+                        definition.perProject.mobileReverbPort ??
+                        definition.reverbPort,
+                    pushPort:
+                        definition.perProject.mobilePushPort ??
+                        definition.push?.port,
+                }),
             );
         }
     }
@@ -608,6 +823,11 @@ export const ACTIVE_INSTANCES: readonly Instance[] = ALL_INSTANCES.filter(
             only.includes(instance.key) ||
             only.includes(instance.scenario)),
 );
+
+// The servers read their php.ini when they start, so the fake push service's trust files must exist before Playwright starts them.
+if (ACTIVE_INSTANCES.some((instance) => instance.push !== null)) {
+    ensurePushTrust();
+}
 
 /**
  * The instance a spec talks to: stateful scenarios have one instance per project, the others

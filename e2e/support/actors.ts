@@ -39,14 +39,26 @@ const STAFF: Record<StaffName, { user: TestUser; role: Role }> = {
 };
 
 type DeviceOptions = {
-    /** `project` (default): the viewport / user agent of the running project (desktop 1280x800, mobile Pixel 7). `desktop`: always 1280x800. */
-    device?: 'project' | 'desktop';
+    /**
+     * `project` (default): the viewport / user agent of the running project (desktop 1280x800, mobile Pixel 7). `desktop`: always 1280x800.
+     * `phone`: a 375x812 phone at 2x with touch (the deck's phone pictures, whatever project runs).
+     */
+    device?: 'project' | 'desktop' | 'phone';
 };
 
 /** What the actor's context takes over from the running Playwright project (`devices['Pixel 7']` in the mobile project). */
 function contextOptions(testInfo: TestInfo, device: DeviceOptions['device']) {
     if (device === 'desktop') {
         return { viewport: { width: 1280, height: 800 } };
+    }
+
+    if (device === 'phone') {
+        return {
+            viewport: { width: 375, height: 812 },
+            deviceScaleFactor: 2,
+            isMobile: true,
+            hasTouch: true,
+        };
     }
 
     const use = testInfo.project.use;
@@ -151,8 +163,11 @@ export class StaffActor extends Actor {
     }
 
     /** Sets the presence through the management API (`online` / `away` count as a heartbeat). */
-    async setPresence(status: PresenceStatus): Promise<void> {
-        const result = await this.api.setPresence(status);
+    async setPresence(
+        status: PresenceStatus,
+        options: { automatic?: boolean } = {},
+    ): Promise<void> {
+        const result = await this.api.setPresence(status, options);
 
         if (!result.ok) {
             throw new Error(
