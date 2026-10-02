@@ -1,0 +1,3314 @@
+openapi: 3.0.3
+info:
+  title: 'PNE Chat Public (visitor) API'
+  description: 'REST API for visitor chat clients: widget config, sessions, chat, messages, attachments, rating, offline tickets and WhatsApp hand-off. Bearer visitor token, no cookies.'
+  version: v1
+  contact:
+    name: 'PNE Chat'
+  license:
+    name: Proprietary
+servers:
+  -
+    url: 'https://chat.example.com'
+tags:
+  -
+    name: 'Widget config'
+    description: 'What a visitor client needs before it starts: the published configuration and the live availability. Cacheable, origin-checked.'
+  -
+    name: Sessions
+    description: 'A visitor session is the `vt_...` bearer token every other call carries.'
+  -
+    name: Conversation
+    description: "Starting, reading, ending and cancelling the visitor's chat. A visitor never lists history: at most one open live chat."
+  -
+    name: 'Messages & attachments'
+    description: 'Reading and writing the messages of a conversation, image uploads, read receipts and typing.'
+  -
+    name: Rating
+    description: "The visitor's answer to the rating prompt after a chat ended."
+  -
+    name: 'Offline tickets'
+    description: 'The offline form: a separate ticket when nobody is available.'
+  -
+    name: 'WhatsApp hand-off'
+    description: 'Continue the conversation in WhatsApp: a code and a `wa.me` link.'
+  -
+    name: Realtime
+    description: "Authorisation of the visitor's websocket channel (Pusher protocol, served by Laravel Reverb)."
+  -
+    name: 'Widget delivery'
+    description: 'Not JSON APIs: the script, iframe page and hosted page a custom front end can embed or build on.'
+components:
+  securitySchemes:
+    default:
+      type: http
+      scheme: bearer
+      description: 'The visitor token `vt_...` from `POST /widgets/{key}/sessions`.'
+  schemas:
+    AgentRef:
+      type: object
+      description: 'The agent as a visitor sees them: display name and avatar only.'
+      required:
+        - name
+        - avatarUrl
+      properties:
+        name:
+          type: string
+        avatarUrl:
+          type: string
+          nullable: true
+      example:
+        name: 'Sam Rivera'
+        avatarUrl: 'https://chat.example.com/storage/avatars/sam.jpg'
+    Attachment:
+      type: object
+      description: 'An image attached to a message.'
+      required:
+        - ulid
+        - mime
+        - size
+        - width
+        - height
+        - url
+        - thumbUrl
+      properties:
+        ulid:
+          type: string
+        mime:
+          type: string
+        size:
+          type: integer
+          description: 'Bytes of the stored (re-encoded) image.'
+        width:
+          type: integer
+          nullable: true
+        height:
+          type: integer
+          nullable: true
+        url:
+          type: string
+          description: 'Short-lived signed URL (`chat.attachment_url_ttl_minutes`, default 240). The signature is the credential: send no `Authorization` header with it and never log it.'
+        thumbUrl:
+          type: string
+          description: 'The 320 px thumbnail, signed the same way.'
+          nullable: true
+      example:
+        ulid: 01j0jbdbac9228nyw65ghr7fhn
+        mime: image/jpeg
+        size: 48213
+        width: 1280
+        height: 720
+        url: 'https://chat.example.com/api/v1/public/attachments/01j0ay932vvkjhp0dcv6p5r0j8?expires=1790000000&signature=4f2a9c'
+        thumbUrl: 'https://chat.example.com/api/v1/public/attachments/01j0ay932vvkjhp0dcv6p5r0j8?thumb=1&expires=1790000000&signature=7be1d3'
+    Availability:
+      type: object
+      description: 'Whether a widget can take chats right now (docs/contracts/rest-shapes.md).'
+      required:
+        - online
+        - openNow
+        - nextOpenAt
+        - categories
+        - whatsapp
+      properties:
+        online:
+          type: boolean
+        openNow:
+          type: boolean
+        nextOpenAt:
+          type: string
+          format: date-time
+          nullable: true
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/CategoryAvailability'
+        whatsapp:
+          $ref: '#/components/schemas/WhatsappAvailability'
+      example:
+        online: true
+        openNow: true
+        nextOpenAt: '2026-09-30T12:00:00.000Z'
+        categories:
+          -
+            slug: billing
+            online: true
+        whatsapp:
+          enabled: true
+    BootApi:
+      type: object
+      description: 'Where the loader talks to: public API base, the iframe page and the postMessage origin to trust.'
+      required:
+        - base
+        - embed
+        - appOrigin
+      properties:
+        base:
+          type: string
+        embed:
+          type: string
+        appOrigin:
+          type: string
+      example:
+        base: 'https://chat.example.com/api/v1/public'
+        embed: 'https://chat.example.com/embed/wk_k3j9x2m5n8p4q7r1s6t0'
+        appOrigin: 'https://chat.example.com'
+    BootCategory:
+      type: object
+      description: "A category a visitor may pick (already filtered to the widget's enabled, active categories)."
+      required:
+        - slug
+        - label
+        - description
+        - icon
+        - color
+      properties:
+        slug:
+          type: string
+        label:
+          type: string
+        description:
+          type: string
+          nullable: true
+        icon:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+      example:
+        slug: billing
+        label: Billing
+        description: 'Questions about invoices, payments and refunds.'
+        icon: message-circle
+        color: '#0ea5e9'
+    BootGreeting:
+      type: object
+      description: "One greeting of the pool as the loader sees it (`id` is the greeting's ulid; `body` is plain text)."
+      required:
+        - id
+        - body
+        - agentName
+        - agentAvatarUrl
+        - locale
+        - weight
+      properties:
+        id:
+          type: string
+        body:
+          type: string
+        agentName:
+          type: string
+          nullable: true
+        agentAvatarUrl:
+          type: string
+          nullable: true
+        locale:
+          type: string
+          nullable: true
+        weight:
+          type: integer
+      example:
+        id: 01j2f3fck3zr8cwg62eq61nmgp
+        body: 'Hi! Need a hand?'
+        agentName: Sam
+        agentAvatarUrl: 'https://chat.example.com/storage/avatars/sam.jpg'
+        locale: en
+        weight: 1
+    CategoryAvailability:
+      type: object
+      description: 'Per-category availability inside AvailabilityData.'
+      required:
+        - slug
+        - online
+      properties:
+        slug:
+          type: string
+        online:
+          type: boolean
+      example:
+        slug: billing
+        online: true
+    CategoryRef:
+      type: object
+      description: 'A category as chat payloads name it: its slug and the label to show (`{slug, label}`, docs/contracts/realtime-events.md).'
+      required:
+        - slug
+        - label
+      properties:
+        slug:
+          type: string
+        label:
+          type: string
+      example:
+        slug: billing
+        label: Billing
+    ConversationPublic:
+      type: object
+      description: "A conversation as its visitor sees it (`ConversationPublic`, docs/contracts/realtime-events.md): the ulid, the human ticket number, status, topic and the agent's public face."
+      required:
+        - ulid
+        - ticketNo
+        - status
+        - type
+        - category
+        - agent
+        - createdAt
+        - endedAt
+        - ratingRequested
+        - lastSeq
+      properties:
+        ulid:
+          type: string
+          description: 'Public id of the conversation.'
+        ticketNo:
+          type: string
+          description: 'Short ticket number the visitor can quote and staff can search by.'
+        status:
+          type: string
+          enum:
+            - queued
+            - active
+            - ended
+            - closed
+            - missed
+          description: '`queued` (waiting for an agent), `active`, `ended` (the rating window is open), `closed`, `missed` (nobody accepted in time).'
+        type:
+          type: string
+          enum:
+            - live
+            - offline
+          description: '`live` chat or `offline` ticket.'
+        category:
+          allOf:
+            -
+              $ref: '#/components/schemas/CategoryRef'
+          description: 'The topic the visitor chose; `null` for an offline ticket without one.'
+          nullable: true
+        agent:
+          allOf:
+            -
+              $ref: '#/components/schemas/AgentRef'
+          description: "The agent's public face (name and avatar) once someone accepted; `null` while queued."
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          description: 'ISO-8601 UTC with milliseconds.'
+        endedAt:
+          type: string
+          format: date-time
+          description: 'When the chat ended or closed; `null` while it is running.'
+          nullable: true
+        ratingRequested:
+          type: boolean
+          description: 'True while the rating prompt is open (status `ended` on a widget that rates chats).'
+        lastSeq:
+          type: integer
+          description: 'Number (`seq`) of the newest message. After a reconnect ask for `after_seq` = the last `seq` you hold.'
+      example:
+        ulid: 01j9z3q8x7m5n2k4p6r8t0v1w2
+        ticketNo: X4BWQW
+        status: active
+        type: live
+        category:
+          slug: billing
+          label: Billing
+        agent:
+          name: 'Sam Rivera'
+          avatarUrl: 'https://chat.example.com/storage/avatars/sam.jpg'
+        createdAt: '2026-09-30T12:00:00.000Z'
+        endedAt: null
+        ratingRequested: false
+        lastSeq: 14
+    FeaturesConfig:
+      type: object
+      description: '`config.features`: switches the dashboard controls (clients may only turn a feature off, never on).'
+      required:
+        - attachments
+        - rating
+        - sounds
+        - preChat
+        - whatsapp
+        - offlineForm
+        - titleBadge
+        - endChatByVisitor
+        - poweredBy
+      properties:
+        attachments:
+          type: boolean
+        rating:
+          type: boolean
+        sounds:
+          type: boolean
+        preChat:
+          type: boolean
+        whatsapp:
+          type: boolean
+        offlineForm:
+          type: boolean
+        titleBadge:
+          type: boolean
+        endChatByVisitor:
+          type: boolean
+        poweredBy:
+          type: boolean
+      example:
+        attachments: true
+        rating: true
+        sounds: true
+        preChat: true
+        whatsapp: true
+        offlineForm: true
+        titleBadge: true
+        endChatByVisitor: true
+        poweredBy: true
+    GreetingsConfig:
+      type: object
+      description: '`config.greetings`: scheduling of the greeting popup.'
+      required:
+        - enabled
+        - onPageLoad
+        - delaySeconds
+        - intervalMinutes
+        - autoHideSeconds
+        - dismissPolicy
+        - showAgent
+      properties:
+        enabled:
+          type: boolean
+        onPageLoad:
+          type: boolean
+        delaySeconds:
+          type: integer
+        intervalMinutes:
+          type: integer
+        autoHideSeconds:
+          type: integer
+        dismissPolicy:
+          type: string
+          enum:
+            - session
+            - interval
+            - never
+        showAgent:
+          type: boolean
+      example:
+        enabled: true
+        onPageLoad: true
+        delaySeconds: 3
+        intervalMinutes: 30
+        autoHideSeconds: 12
+        dismissPolicy: session
+        showAgent: true
+    Handoff:
+      type: object
+      description: 'The response of the public hand-off call (`POST /api/v1/public/widgets/{key}/whatsapp-handoff`): the code the visitor sends, the `https://wa.me/<number>?text=...` link that opens WhatsApp with it typed in, and when it stops working.'
+      required:
+        - code
+        - waUrl
+        - expiresAt
+        - ttlSeconds
+      properties:
+        code:
+          type: string
+          description: 'The 8-character code the visitor sends in WhatsApp.'
+        waUrl:
+          type: string
+          description: '`https://wa.me/<number>?text=...`: opens WhatsApp with the code typed in.'
+        expiresAt:
+          type: string
+          format: date-time
+          description: 'When the code stops linking a chat.'
+        ttlSeconds:
+          type: integer
+          description: "Whole seconds left when the answer was built. Count down from your own arrival time with this instead of comparing `expiresAt` with the visitor's clock."
+      example:
+        code: K7M2Q9XA
+        waUrl: 'https://wa.me/15551234567?text=Hi%2C%20my%20code%20is%20K7M2Q9XA'
+        expiresAt: '2026-09-30T12:30:00.000Z'
+        ttlSeconds: 540
+    Holiday:
+      type: object
+      description: "A closed day (`date` is `YYYY-MM-DD` in the widget's timezone; `label` is `''` when the admin gave none, never null)."
+      required:
+        - date
+        - label
+      properties:
+        date:
+          type: string
+        label:
+          type: string
+      example:
+        date: '2026-12-25'
+        label: 'Christmas Day'
+    HoursConfig:
+      type: object
+      description: '`config.hours`.'
+      required:
+        - mode
+        - timezone
+        - schedule
+        - holidays
+      properties:
+        mode:
+          type: string
+          enum:
+            - auto_hours
+            - always_online
+            - always_offline
+        timezone:
+          type: string
+        schedule:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleRange'
+        holidays:
+          type: array
+          items:
+            $ref: '#/components/schemas/Holiday'
+      example:
+        mode: auto_hours
+        timezone: Europe/Berlin
+        schedule:
+          -
+            day: 1
+            start: '09:00'
+            end: '17:00'
+        holidays:
+          -
+            date: '2026-12-25'
+            label: 'Christmas Day'
+    LauncherConfig:
+      type: object
+      description: '`config.launcher`: the bubble or pill that opens the panel.'
+      required:
+        - style
+        - icon
+        - iconUrl
+        - label
+        - avatarUrl
+      properties:
+        style:
+          type: string
+          enum:
+            - bubble
+            - pill
+        icon:
+          type: string
+          enum:
+            - chat
+            - help
+            - sparkle
+            - custom
+        iconUrl:
+          type: string
+          nullable: true
+        label:
+          type: string
+        avatarUrl:
+          type: string
+          nullable: true
+      example:
+        style: bubble
+        icon: chat
+        iconUrl: null
+        label: 'Chat with us'
+        avatarUrl: null
+    Message:
+      type: object
+      description: 'A chat message exactly as `docs/contracts/realtime-events.md` defines `Message` (REST + `message.created`).'
+      required:
+        - ulid
+        - seq
+        - conversation
+        - sender
+        - type
+        - body
+        - attachments
+        - clientMsgId
+        - createdAt
+        - deliveredAt
+        - seenAt
+      properties:
+        ulid:
+          type: string
+        seq:
+          type: integer
+          description: 'Per-conversation, monotonic message number: order messages by it and detect gaps with it.'
+        conversation:
+          type: string
+          description: 'Ulid of the conversation.'
+        sender:
+          $ref: '#/components/schemas/MessageSender'
+        type:
+          type: string
+          enum:
+            - text
+            - image
+            - system
+          description: '`text`, `image` (attachments only) or `system` (a line such as "Sam joined the chat.").'
+        body:
+          type: string
+          description: 'Plain text (never HTML); `null` for an image-only message.'
+          nullable: true
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attachment'
+          description: 'Images in the order the sender posted them.'
+        clientMsgId:
+          type: string
+          description: 'The client-made ULID the sender attached (idempotency key), echoed back; `null` for server-made lines.'
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        deliveredAt:
+          type: string
+          format: date-time
+          description: "When the other side's client reported receiving the message."
+          nullable: true
+        seenAt:
+          type: string
+          format: date-time
+          description: 'When the other side reported reading it.'
+          nullable: true
+      example:
+        ulid: 01j9z3qa4b6c8d0e2f4g6h8jkm
+        seq: 14
+        conversation: 01j9z3q8x7m5n2k4p6r8t0v1w2
+        sender:
+          type: agent
+          name: 'Sam Rivera'
+          avatarUrl: 'https://chat.example.com/storage/avatars/sam.jpg'
+          id: 7
+        type: text
+        body: 'Hello, how can I help you today?'
+        attachments:
+          -
+            ulid: 01j0jbdbac9228nyw65ghr7fhn
+            mime: image/jpeg
+            size: 48213
+            width: 1280
+            height: 720
+            url: 'https://chat.example.com/api/v1/public/attachments/01j0ay932vvkjhp0dcv6p5r0j8?expires=1790000000&signature=4f2a9c'
+            thumbUrl: 'https://chat.example.com/api/v1/public/attachments/01j0ay932vvkjhp0dcv6p5r0j8?thumb=1&expires=1790000000&signature=7be1d3'
+        clientMsgId: 01jvyybs275eqqmdnfnjg426yb
+        createdAt: '2026-09-30T12:00:00.000Z'
+        deliveredAt: '2026-09-30T12:04:35.000Z'
+        seenAt: null
+    MessageSender:
+      type: object
+      description: 'Who wrote a message.'
+      required:
+        - type
+        - name
+        - avatarUrl
+      properties:
+        type:
+          type: string
+          enum:
+            - visitor
+            - agent
+            - system
+          description: '`visitor`, `agent` or `system`.'
+        name:
+          type: string
+          description: 'Display name; `null` for system lines.'
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+        id:
+          type: integer
+          description: 'Staff user id of an agent sender. Present in staff payloads only: for visitors the key is absent.'
+      example:
+        type: agent
+        name: 'Sam Rivera'
+        avatarUrl: 'https://chat.example.com/storage/avatars/sam.jpg'
+        id: 7
+    PreChatConfig:
+      type: object
+      description: '`config.preChat`: the form shown before a chat starts.'
+      required:
+        - fields
+        - consentText
+      properties:
+        fields:
+          $ref: '#/components/schemas/PreChatFields'
+        consentText:
+          type: string
+          nullable: true
+      example:
+        fields:
+          name:
+            enabled: true
+            required: true
+          email:
+            enabled: true
+            required: true
+          phone:
+            enabled: true
+            required: true
+        consentText: 'I agree that my messages are stored to answer my request.'
+    PreChatField:
+      type: object
+      description: 'One pre-chat form field.'
+      required:
+        - enabled
+        - required
+      properties:
+        enabled:
+          type: boolean
+        required:
+          type: boolean
+      example:
+        enabled: true
+        required: true
+    PreChatFields:
+      type: object
+      description: '`config.preChat.fields`.'
+      required:
+        - name
+        - email
+        - phone
+      properties:
+        name:
+          $ref: '#/components/schemas/PreChatField'
+        email:
+          $ref: '#/components/schemas/PreChatField'
+        phone:
+          $ref: '#/components/schemas/PreChatField'
+      example:
+        name:
+          enabled: true
+          required: true
+        email:
+          enabled: true
+          required: true
+        phone:
+          enabled: true
+          required: true
+    PublicWidgetConfig:
+      type: object
+      description: 'The part of the config visitors receive: everything except the server-side policy blocks (`routing.*`, `session.*`).'
+      required:
+        - v
+        - defaultLocale
+        - localeDetect
+        - theme
+        - launcher
+        - texts
+        - features
+        - preChat
+        - greetings
+        - hours
+      properties:
+        v:
+          type: integer
+        defaultLocale:
+          type: string
+        localeDetect:
+          type: boolean
+        theme:
+          $ref: '#/components/schemas/ThemeConfig'
+        launcher:
+          $ref: '#/components/schemas/LauncherConfig'
+        texts:
+          type: object
+          additionalProperties: true
+        features:
+          $ref: '#/components/schemas/FeaturesConfig'
+        preChat:
+          $ref: '#/components/schemas/PreChatConfig'
+        greetings:
+          $ref: '#/components/schemas/GreetingsConfig'
+        hours:
+          $ref: '#/components/schemas/HoursConfig'
+      example:
+        v: 1
+        defaultLocale: en
+        localeDetect: true
+        theme:
+          mode: auto
+          primary: '#0ea5e9'
+          primaryText: '#ffffff'
+          accent: '#f59e0b'
+          surface: '#ffffff'
+          text: '#0f172a'
+          fontFamily: 'Inter, system-ui, sans-serif'
+          fontUrl: null
+          radius: 16
+          shadow: none
+          launcherSize: sm
+          panelWidth: 380
+          panelHeight: 640
+          position: bottom-right
+          offsetX: 20
+          offsetY: 20
+          zIndex: 2147483000
+        launcher:
+          style: bubble
+          icon: chat
+          iconUrl: null
+          label: 'Chat with us'
+          avatarUrl: null
+        texts:
+          en:
+            title: 'Chat with us'
+            send: Send
+        features:
+          attachments: true
+          rating: true
+          sounds: true
+          preChat: true
+          whatsapp: true
+          offlineForm: true
+          titleBadge: true
+          endChatByVisitor: true
+          poweredBy: true
+        preChat:
+          fields:
+            name:
+              enabled: true
+              required: true
+            email:
+              enabled: true
+              required: true
+            phone:
+              enabled: true
+              required: true
+          consentText: 'I agree that my messages are stored to answer my request.'
+        greetings:
+          enabled: true
+          onPageLoad: true
+          delaySeconds: 3
+          intervalMinutes: 30
+          autoHideSeconds: 12
+          dismissPolicy: session
+          showAgent: true
+        hours:
+          mode: auto_hours
+          timezone: Europe/Berlin
+          schedule:
+            -
+              day: 1
+              start: '09:00'
+              end: '17:00'
+          holidays:
+            -
+              date: '2026-12-25'
+              label: 'Christmas Day'
+    Rating:
+      type: object
+      description: "A visitor's rating of a conversation (`conversation` is its ulid)."
+      required:
+        - conversation
+        - score
+        - comment
+        - createdAt
+      properties:
+        conversation:
+          type: string
+          description: 'Ulid of the rated conversation.'
+        score:
+          type: integer
+          description: '1 to 5.'
+        comment:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      example:
+        conversation: 01j9z3q8x7m5n2k4p6r8t0v1w2
+        score: 5
+        comment: 'Quick and helpful, thank you.'
+        createdAt: '2026-09-30T12:00:00.000Z'
+    RealtimeEndpoint:
+      type: object
+      description: 'Where the visitor panel opens its websocket (`ws` of the session answer): the public Reverb key and address, never a secret.'
+      required:
+        - key
+        - host
+        - port
+        - scheme
+      properties:
+        key:
+          type: string
+          description: 'The public Reverb app key (the Pusher `key`); never a secret.'
+        host:
+          type: string
+          description: 'Public host to connect to.'
+        port:
+          type: integer
+          description: 'Public port.'
+        scheme:
+          type: string
+          description: '`https` means `wss://`, `http` means `ws://`.'
+      example:
+        key: f1a2b3c4d5e6f7a8b9c0
+        host: chat.example.com
+        port: 443
+        scheme: https
+    ResolvedBootConfig:
+      type: object
+      description: 'What `/w/{key}.js` inlines and `GET /api/v1/public/widgets/{key}/config` returns (docs/contracts/widget-config.md): the published config plus greetings, enabled categories, availability and the `api` block.'
+      required:
+        - v
+        - key
+        - configVersion
+        - generatedAt
+        - locale
+        - api
+        - config
+        - greetings
+        - categories
+        - availability
+      properties:
+        v:
+          type: integer
+        key:
+          type: string
+        configVersion:
+          type: integer
+        generatedAt:
+          type: string
+          format: date-time
+        locale:
+          type: string
+        api:
+          $ref: '#/components/schemas/BootApi'
+        config:
+          $ref: '#/components/schemas/PublicWidgetConfig'
+        greetings:
+          type: array
+          items:
+            $ref: '#/components/schemas/BootGreeting'
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/BootCategory'
+        availability:
+          $ref: '#/components/schemas/Availability'
+      example:
+        v: 1
+        key: wk_k3j9x2m5n8p4q7r1s6t0
+        configVersion: 3
+        generatedAt: '2026-09-30T12:00:00.000Z'
+        locale: en
+        api:
+          base: 'https://chat.example.com/api/v1/public'
+          embed: 'https://chat.example.com/embed/wk_k3j9x2m5n8p4q7r1s6t0'
+          appOrigin: 'https://chat.example.com'
+        config:
+          v: 1
+          defaultLocale: en
+          localeDetect: true
+          theme:
+            mode: auto
+            primary: '#0ea5e9'
+            primaryText: '#ffffff'
+            accent: '#f59e0b'
+            surface: '#ffffff'
+            text: '#0f172a'
+            fontFamily: 'Inter, system-ui, sans-serif'
+            fontUrl: null
+            radius: 16
+            shadow: none
+            launcherSize: sm
+            panelWidth: 380
+            panelHeight: 640
+            position: bottom-right
+            offsetX: 20
+            offsetY: 20
+            zIndex: 2147483000
+          launcher:
+            style: bubble
+            icon: chat
+            iconUrl: null
+            label: 'Chat with us'
+            avatarUrl: null
+          texts:
+            en:
+              title: 'Chat with us'
+              send: Send
+          features:
+            attachments: true
+            rating: true
+            sounds: true
+            preChat: true
+            whatsapp: true
+            offlineForm: true
+            titleBadge: true
+            endChatByVisitor: true
+            poweredBy: true
+          preChat:
+            fields:
+              name:
+                enabled: true
+                required: true
+              email:
+                enabled: true
+                required: true
+              phone:
+                enabled: true
+                required: true
+            consentText: 'I agree that my messages are stored to answer my request.'
+          greetings:
+            enabled: true
+            onPageLoad: true
+            delaySeconds: 3
+            intervalMinutes: 30
+            autoHideSeconds: 12
+            dismissPolicy: session
+            showAgent: true
+          hours:
+            mode: auto_hours
+            timezone: Europe/Berlin
+            schedule:
+              -
+                day: 1
+                start: '09:00'
+                end: '17:00'
+            holidays:
+              -
+                date: '2026-12-25'
+                label: 'Christmas Day'
+        greetings:
+          -
+            id: 01j2f3fck3zr8cwg62eq61nmgp
+            body: 'Hi! Need a hand?'
+            agentName: Sam
+            agentAvatarUrl: 'https://chat.example.com/storage/avatars/sam.jpg'
+            locale: en
+            weight: 1
+        categories:
+          -
+            slug: billing
+            label: Billing
+            description: 'Questions about invoices, payments and refunds.'
+            icon: message-circle
+            color: '#0ea5e9'
+        availability:
+          online: true
+          openNow: true
+          nextOpenAt: '2026-09-30T12:00:00.000Z'
+          categories:
+            -
+              slug: billing
+              online: true
+          whatsapp:
+            enabled: true
+    ScheduleRange:
+      type: object
+      description: 'One opening range: `day` 0 = Sunday ..'
+      required:
+        - day
+        - start
+        - end
+      properties:
+        day:
+          type: integer
+        start:
+          type: string
+        end:
+          type: string
+      example:
+        day: 1
+        start: '09:00'
+        end: '17:00'
+    Session:
+      type: object
+      description: 'The answer of `POST /public/widgets/{key}/sessions` (inside `{ data }`): the plaintext token (shown once), when it expires, the open chat that was resumed (or null), the websocket endpoint (null when Reverb is not configured: the panel stays on REST) and the limits the panel checks client-side before it sends anything.'
+      required:
+        - visitorToken
+        - expiresAt
+        - conversation
+        - ws
+        - limits
+      properties:
+        visitorToken:
+          type: string
+          description: 'The visitor bearer token (`vt_` + 40 characters). Shown once; only its sha256 is stored. Keep it out of URLs and logs.'
+        expiresAt:
+          type: string
+          format: date-time
+          description: 'When the token stops working (`chat.visitor_session_ttl_days`).'
+        conversation:
+          allOf:
+            -
+              $ref: '#/components/schemas/ConversationPublic'
+          description: 'The still-open live chat that was resumed with this session, or `null`.'
+          nullable: true
+        ws:
+          allOf:
+            -
+              $ref: '#/components/schemas/RealtimeEndpoint'
+          description: 'Where to open the websocket (Reverb, Pusher protocol); `null` when realtime is not configured, then stay on REST polling.'
+          nullable: true
+        limits:
+          allOf:
+            -
+              $ref: '#/components/schemas/SessionLimits'
+          description: 'The effective limits, for client-side checks. The server enforces them all.'
+      example:
+        visitorToken: vt_eVGMONDGx1TWD1OyZpPnd7Tss5me7zn3q13vHZWb
+        expiresAt: '2026-09-30T12:30:00.000Z'
+        conversation:
+          ulid: 01j9z3q8x7m5n2k4p6r8t0v1w2
+          ticketNo: X4BWQW
+          status: active
+          type: live
+          category:
+            slug: billing
+            label: Billing
+          agent:
+            name: 'Sam Rivera'
+            avatarUrl: 'https://chat.example.com/storage/avatars/sam.jpg'
+          createdAt: '2026-09-30T12:00:00.000Z'
+          endedAt: null
+          ratingRequested: false
+          lastSeq: 14
+        ws:
+          key: f1a2b3c4d5e6f7a8b9c0
+          host: chat.example.com
+          port: 443
+          scheme: https
+        limits:
+          maxMessageLength: 4000
+          attachmentMaxBytes: 5242880
+          attachmentMaxDimension: 4096
+          attachmentMaxPerMessage: 5
+    SessionLimits:
+      type: object
+      description: 'What the visitor panel may check before it sends: the effective settings (`chat.max_message_length`, kept within the hard limit, `chat.attachment_max_bytes`, `chat.attachment_max_dimension`) and the number of images one message may carry.'
+      required:
+        - maxMessageLength
+        - attachmentMaxBytes
+        - attachmentMaxDimension
+        - attachmentMaxPerMessage
+      properties:
+        maxMessageLength:
+          type: integer
+          description: 'Characters per message.'
+        attachmentMaxBytes:
+          type: integer
+          description: 'Bytes per image.'
+        attachmentMaxDimension:
+          type: integer
+          description: 'Longest side of an image in pixels.'
+        attachmentMaxPerMessage:
+          type: integer
+          description: 'Images one message may carry.'
+      example:
+        maxMessageLength: 4000
+        attachmentMaxBytes: 5242880
+        attachmentMaxDimension: 4096
+        attachmentMaxPerMessage: 5
+    ThemeConfig:
+      type: object
+      description: '`config.theme` (docs/contracts/widget-config.md).'
+      required:
+        - mode
+        - primary
+        - primaryText
+        - accent
+        - surface
+        - text
+        - fontFamily
+        - fontUrl
+        - radius
+        - shadow
+        - launcherSize
+        - panelWidth
+        - panelHeight
+        - position
+        - offsetX
+        - offsetY
+        - zIndex
+      properties:
+        mode:
+          type: string
+          enum:
+            - auto
+            - light
+            - dark
+        primary:
+          type: string
+        primaryText:
+          type: string
+        accent:
+          type: string
+        surface:
+          type: string
+        text:
+          type: string
+        fontFamily:
+          type: string
+        fontUrl:
+          type: string
+          nullable: true
+        radius:
+          type: integer
+        shadow:
+          type: string
+          enum:
+            - none
+            - soft
+            - strong
+        launcherSize:
+          type: string
+          enum:
+            - sm
+            - md
+            - lg
+        panelWidth:
+          type: integer
+        panelHeight:
+          type: integer
+        position:
+          type: string
+          enum:
+            - bottom-right
+            - bottom-left
+        offsetX:
+          type: integer
+        offsetY:
+          type: integer
+        zIndex:
+          type: integer
+      example:
+        mode: auto
+        primary: '#0ea5e9'
+        primaryText: '#ffffff'
+        accent: '#f59e0b'
+        surface: '#ffffff'
+        text: '#0f172a'
+        fontFamily: 'Inter, system-ui, sans-serif'
+        fontUrl: null
+        radius: 16
+        shadow: none
+        launcherSize: sm
+        panelWidth: 380
+        panelHeight: 640
+        position: bottom-right
+        offsetX: 20
+        offsetY: 20
+        zIndex: 2147483000
+    WhatsappAvailability:
+      type: object
+      description: "WhatsApp hand-off availability: true when `whatsapp.enabled`, the widget's `features.whatsapp` and a `ready` linked session all hold (P6)."
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
+      example:
+        enabled: true
+    ErrorEnvelope:
+      type: object
+      description: 'The body of every error answer: a machine-readable `code`, a human `message` and, for some codes, structured `details`.'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              description: 'Branch on this, never on `message`.'
+            message:
+              type: string
+            details:
+              type: object
+              description: 'Keyed by field for `validation_failed`; structured values elsewhere.'
+    ErrorAlreadyRated:
+      type: object
+      description: 'A conversation has one rating.'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - already_rated
+            message:
+              type: string
+              example: 'This chat was already rated.'
+      example:
+        error:
+          code: already_rated
+          message: 'This chat was already rated.'
+    ErrorAttachmentQuotaExceeded:
+      type: object
+      description: "The conversation's attachment bytes reached `chat.attachment_max_total_bytes`."
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - attachment_quota_exceeded
+            message:
+              type: string
+              example: 'This chat already holds the maximum amount of images.'
+            details:
+              type: object
+              example:
+                file:
+                  - 'This chat already holds the maximum amount of images.'
+      example:
+        error:
+          code: attachment_quota_exceeded
+          message: 'This chat already holds the maximum amount of images.'
+          details:
+            file:
+              - 'This chat already holds the maximum amount of images.'
+    ErrorChannelForbidden:
+      type: object
+      description: "Realtime channel authorisation refused: not this session's conversation channel (403, never 404: a Pusher client treats any non-200 as a refusal)."
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - channel_forbidden
+            message:
+              type: string
+              example: 'You cannot join this channel.'
+      example:
+        error:
+          code: channel_forbidden
+          message: 'You cannot join this channel.'
+    ErrorConversationExists:
+      type: object
+      description: 'A visitor has at most one open live chat, across all their sessions.'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - conversation_exists
+            message:
+              type: string
+              example: 'You already have an open chat.'
+      example:
+        error:
+          code: conversation_exists
+          message: 'You already have an open chat.'
+    ErrorConversationNotActive:
+      type: object
+      description: 'The action needs an `active` live chat (a message to a queued or closed chat, typing, ending a chat that is not running).'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - conversation_not_active
+            message:
+              type: string
+              example: 'This chat is not active.'
+      example:
+        error:
+          code: conversation_not_active
+          message: 'This chat is not active.'
+    ErrorConversationNotEnded:
+      type: object
+      description: 'Rating or skipping before the chat reached `ended`.'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - conversation_not_ended
+            message:
+              type: string
+              example: 'This chat has not ended yet.'
+      example:
+        error:
+          code: conversation_not_ended
+          message: 'This chat has not ended yet.'
+    ErrorConversationNotQueued:
+      type: object
+      description: 'Cancel or claim of a chat that is not `queued` any more (an agent was first, it was missed or closed).'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - conversation_not_queued
+            message:
+              type: string
+              example: 'This chat is no longer waiting.'
+      example:
+        error:
+          code: conversation_not_queued
+          message: 'This chat is no longer waiting.'
+    ErrorFeatureDisabled:
+      type: object
+      description: 'The widget switched the feature the call needs off (`attachments`, `endChatByVisitor`, `offlineForm`, WhatsApp hand-off).'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - feature_disabled
+            message:
+              type: string
+              example: 'This chat cannot be ended by the visitor.'
+      example:
+        error:
+          code: feature_disabled
+          message: 'This chat cannot be ended by the visitor.'
+    ErrorForbidden:
+      type: object
+      description: 'The caller is authenticated but not allowed: not an administrator on an admin route, or not allowed to see this conversation.'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - forbidden
+            message:
+              type: string
+              example: 'Only administrators can do this.'
+      example:
+        error:
+          code: forbidden
+          message: 'Only administrators can do this.'
+    ErrorNoAgents:
+      type: object
+      description: 'Start chat: outside opening hours or nobody reachable serves the topic, so offer the offline form. Transfer: `details.target` (`agent`/`category`) and `details.reason` (`offline`, `at_capacity`, `no_reachable_agent`) say why; the agent keeps the chat.'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - no_agents
+            message:
+              type: string
+              example: 'No agent is available right now.'
+            details:
+              type: object
+              example:
+                target: agent
+                reason: at_capacity
+      example:
+        error:
+          code: no_agents
+          message: 'No agent is available right now.'
+          details:
+            target: agent
+            reason: at_capacity
+    ErrorNotFound:
+      type: object
+      description: "The resource does not exist, or is not the caller's: another visitor's conversation and another user's device or token are 404, never 403, so their existence is not confirmed."
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - not_found
+            message:
+              type: string
+              example: 'Not found.'
+      example:
+        error:
+          code: not_found
+          message: 'Not found.'
+    ErrorOriginNotAllowed:
+      type: object
+      description: "The browser `Origin` is not on the widget's domain list, or there is no `Origin` and the widget does not allow non-browser clients. No CORS headers are sent."
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - origin_not_allowed
+            message:
+              type: string
+              example: 'This website is not allowed to use the widget.'
+      example:
+        error:
+          code: origin_not_allowed
+          message: 'This website is not allowed to use the widget.'
+    ErrorRateLimited:
+      type: object
+      description: 'A rate limiter said stop. Wait `Retry-After` seconds (the header is always set; some answers also carry `details.retry_after`).'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - rate_limited
+            message:
+              type: string
+              example: 'Too many requests.'
+            details:
+              type: object
+              example:
+                retry_after: 12
+      example:
+        error:
+          code: rate_limited
+          message: 'Too many requests.'
+          details:
+            retry_after: 12
+    ErrorRatingWindowClosed:
+      type: object
+      description: 'Rating or skipping after `chat.rating_window_minutes`; the sweep closes the chat as `timeout`.'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - rating_window_closed
+            message:
+              type: string
+              example: 'The time to rate this chat is over.'
+      example:
+        error:
+          code: rating_window_closed
+          message: 'The time to rate this chat is over.'
+    ErrorRealtimeUnavailable:
+      type: object
+      description: 'Reverb is not the configured broadcaster: stay on REST polling (`GET .../messages?after_seq=`).'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - realtime_unavailable
+            message:
+              type: string
+              example: 'Live updates are not available right now.'
+      example:
+        error:
+          code: realtime_unavailable
+          message: 'Live updates are not available right now.'
+    ErrorSessionRevoked:
+      type: object
+      description: 'The credential was valid but has ended: a deactivated account, a role that was removed, a session the auth portal revoked, a visitor token that expired or was rotated away. Drop the stored credential and sign in (or start a session) again.'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - session_revoked
+            message:
+              type: string
+              example: 'Your session has ended. Please sign in again.'
+      example:
+        error:
+          code: session_revoked
+          message: 'Your session has ended. Please sign in again.'
+    ErrorUnauthenticated:
+      type: object
+      description: 'No credential, or one the server does not know (an unknown, deleted or expired token).'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - unauthenticated
+            message:
+              type: string
+              example: 'Authentication is required.'
+      example:
+        error:
+          code: unauthenticated
+          message: 'Authentication is required.'
+    ErrorValidationFailed:
+      type: object
+      description: 'The body or query did not pass validation. `details` is keyed by field name (nested fields use dots, `visitor.email`), each value a list of messages.'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - validation_failed
+            message:
+              type: string
+              example: 'The given data was invalid.'
+            details:
+              type: object
+              example:
+                email:
+                  - 'The email field must be a valid email address.'
+      example:
+        error:
+          code: validation_failed
+          message: 'The given data was invalid.'
+          details:
+            email:
+              - 'The email field must be a valid email address.'
+    ErrorWhatsappUnavailable:
+      type: object
+      description: 'Hand-off: no `ready` WhatsApp session is linked to the widget.'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - whatsapp_unavailable
+            message:
+              type: string
+              example: 'WhatsApp is not available right now.'
+      example:
+        error:
+          code: whatsapp_unavailable
+          message: 'WhatsApp is not available right now.'
+    ErrorWidgetNotFound:
+      type: object
+      description: "Unknown, deleted or disabled widget key (indistinguishable on purpose). Also answered by every visitor call once the token's widget was disabled or deleted."
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - widget_not_found
+            message:
+              type: string
+              example: 'This widget does not exist or is disabled.'
+      example:
+        error:
+          code: widget_not_found
+          message: 'This widget does not exist or is disabled.'
+security:
+  -
+    default: []
+paths:
+  '/api/v1/public/widgets/{key}/config':
+    get:
+      summary: 'Get the widget config'
+      operationId: publicWidgetsConfig
+      description: "The PUBLISHED config of the widget with its greetings, enabled categories, availability and the `api` block (drafts never leave the dashboard). Cacheable: `ETag` (a hash of the body without `generatedAt`; `If-None-Match` answers `304`), `Cache-Control: public, max-age=60, stale-while-revalidate=300`, `Vary: Origin`.\n\n`?locale=` is optional and ignored when it is not a locale tag; matching is exact, language, a variant of the language, else the widget default (`data.locale` says which). Only the default and the resolved text block are returned (all blocks without the parameter).\n\n**CORS.** The response carries `Access-Control-Allow-Origin: <origin>` only when the request `Origin` is on the widget's domain list (or is this installation's own origin); `OPTIONS` preflights are answered with `204` for allowed origins (`Allow-Methods: GET, OPTIONS`). Requests without an `Origin` (servers, native apps) need the widget's `allow_non_browser_clients` switch.\n\n**Access.** No credential. The browser `Origin` must be on the widget's domain list; a request without `Origin` is only accepted when the widget allows non-browser clients.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-config`: 600 calls a minute per client network across all widget keys (counted before the key is looked up; lookups of unknown keys are limited harder, 60 a minute).\n- `public-config-widget`: 300 a minute per client network and widget key, and 6000 a minute per widget and allowed origin."
+      responses:
+        200:
+          description: 'The resolved boot config.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ResolvedBootConfig'
+        304:
+          description: 'Not modified: the client already has this version (`If-None-Match`).'
+        403:
+          description: '`origin_not_allowed`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOriginNotAllowed'
+        404:
+          description: '`widget_not_found`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorWidgetNotFound'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - 'Widget config'
+      security: []
+    parameters:
+      -
+        in: path
+        name: key
+        description: "The widget's public key (`wk_` + 20 lower-case letters and digits)."
+        example: wk_k3j9x2m5n8p4q7r1s6t0
+        required: true
+        schema:
+          type: string
+  '/api/v1/public/widgets/{key}/availability':
+    get:
+      summary: 'Get the widget availability'
+      operationId: publicWidgetsAvailability
+      description: "Whether the widget can take chats right now: opening hours of the published config (in the widget's timezone) combined with agent presence. `online` counts only agents the widget's routing waves can offer a chat to, so it never promises a chat that `POST /public/conversations` then refuses with `no_agents`. Cached for 8 seconds on the server and `max-age=5` for the client; `ETag` / `304` as for the config. `whatsapp.enabled` is true only when a connected WhatsApp session is linked and enabled. Same origin rules as the config.\n\n**Access.** No credential. The browser `Origin` must be on the widget's domain list; a request without `Origin` is only accepted when the widget allows non-browser clients.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-config`: 600 calls a minute per client network across all widget keys (counted before the key is looked up; lookups of unknown keys are limited harder, 60 a minute).\n- `public-config-widget`: 300 a minute per client network and widget key, and 6000 a minute per widget and allowed origin."
+      responses:
+        200:
+          description: 'Whether a widget can take chats right now (docs/contracts/rest-shapes.md).'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Availability'
+        304:
+          description: 'Not modified (`If-None-Match`).'
+        403:
+          description: '`origin_not_allowed`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOriginNotAllowed'
+        404:
+          description: '`widget_not_found`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorWidgetNotFound'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - 'Widget config'
+      security: []
+    parameters:
+      -
+        in: path
+        name: key
+        description: "The widget's public key (`wk_` + 20 lower-case letters and digits)."
+        example: wk_k3j9x2m5n8p4q7r1s6t0
+        required: true
+        schema:
+          type: string
+  '/api/v1/public/widgets/{key}/sessions':
+    post:
+      summary: 'Create a visitor session'
+      operationId: publicSessionsStore
+      description: "Creates the visitor session and returns its bearer token `vt_...` (**shown once**; only the sha256 is stored) plus where to open the websocket and the limits to check client-side. All input is optional: an anonymous visitor sends nothing, a signed identity (`identity_token`) makes the visitor `verified` and keyed by its `sub` (one visitor across browsers; the claims are authoritative and the pre-chat form never overwrites them). A token that does not verify is refused with `422` and `details.identity_token`: it is never downgraded to anonymous.\n\nThis is the one public call that goes through the widget gate: unknown or disabled key `404 widget_not_found`, a browser `Origin` that is not on the domain list `403 origin_not_allowed` (no CORS headers), and a request without `Origin` only when the widget allows non-browser clients. A browser on another origin cannot call it: the cross-origin preflight is not answered (see the integration guide), so third-party web clients proxy through their backend and native apps call it directly.\n\n**Rotation.** Calling it again with the previous token in `Authorization: Bearer` rotates it: same visitor, a new token, and the previous token keeps working for 60 more seconds (a second tab may be mid-request) and is then `401 session_revoked`. A still-open live chat moves to the new session and is returned in `conversation`.\n\nThe answer is `Cache-Control: no-store`.\n\n**Access.** No credential. The browser `Origin` must be on the widget's domain list; a request without `Origin` is only accepted when the widget allows non-browser clients.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-config`: 600 calls a minute per client network across all widget keys (counted before the key is looked up; lookups of unknown keys are limited harder, 60 a minute).\n- `public-session`: 60 a minute per client network and 30 a minute per client network and widget key."
+      responses:
+        201:
+          description: 'The new session. Store `visitorToken`; send it as `Authorization: Bearer` from now on.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Session'
+        403:
+          description: '`origin_not_allowed`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOriginNotAllowed'
+        404:
+          description: '`widget_not_found`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorWidgetNotFound'
+        422:
+          description: '`validation_failed`: `details.identity_token` when a signed identity does not verify, or a field is invalid.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorValidationFailed'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - Sessions
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                identity_token:
+                  type: string
+                  description: "Signed visitor identity: an HS256 JWT the host website's backend mints with the widget's identity secret. It verifies the visitor and keys them by its `sub`. A token that does not verify is refused (`422`), never downgraded to anonymous. Must not be greater than 8192 characters."
+                  example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ3a19rM2o5eDJtNW44cDRxN3IxczZ0MCIsInN1YiI6IjQyIiwiZXhwIjoxNzkwMDAwMzAwfQ.c2lnbmF0dXJl
+                  nullable: true
+                visitor:
+                  type: object
+                  description: 'Unsigned visitor details. Stored as given and marked unverified.'
+                  example: null
+                  properties:
+                    name:
+                      type: string
+                      description: 'Display name. Must not be greater than 120 characters.'
+                      example: 'Ada Lovelace'
+                      nullable: true
+                    email:
+                      type: string
+                      description: 'E-mail address. Must be a valid email address. Must not be greater than 190 characters.'
+                      example: ada@example.com
+                      nullable: true
+                    phone:
+                      type: string
+                      description: 'Phone number (digits, spaces and `+ ( ) . -`, 3 to 40 characters). Must match the regex /^[0-9+().\- ]{3,40}$/D.'
+                      example: '+15551234567'
+                      nullable: true
+                    meta:
+                      type: object
+                      description: 'An object of up to 20 key/value pairs about the visitor. Keys: letters, digits, `.`, `-`, `_`, at most 64 characters. Values: number, boolean or text of at most 500 characters.'
+                      example:
+                        plan: pro
+                      properties: {}
+                      nullable: true
+                  nullable: true
+                page:
+                  type: object
+                  description: 'The page the visitor is on, as the host page reports it. Shown to agents, never trusted.'
+                  example: null
+                  properties:
+                    url:
+                      type: string
+                      description: 'Page address. Must not be greater than 2048 characters.'
+                      example: 'https://example.com/pricing'
+                      nullable: true
+                    title:
+                      type: string
+                      description: 'Page title. Must not be greater than 255 characters.'
+                      example: Pricing
+                      nullable: true
+                    referrer:
+                      type: string
+                      description: 'Where the visitor came from. Must not be greater than 2048 characters.'
+                      example: 'https://www.google.com/'
+                      nullable: true
+                  nullable: true
+                locale:
+                  type: string
+                  description: "The visitor's locale tag (`en`, `ar`, `pt-BR`). Must match the regex /^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*$/D. Must not be greater than 12 characters."
+                  example: en
+                  nullable: true
+      security: []
+    parameters:
+      -
+        in: path
+        name: key
+        description: "The widget's public key (`wk_` + 20 lower-case letters and digits)."
+        example: wk_k3j9x2m5n8p4q7r1s6t0
+        required: true
+        schema:
+          type: string
+  /api/v1/public/sessions:
+    delete:
+      summary: 'End the visit'
+      operationId: publicSessionsDestroy
+      description: "Revokes **every** active session of the visitor (a leftover token must not outlive an explicit sign-out). A chat still `queued` is cancelled with it; an active one stays (the idle timer closes it). The revocation always happens, even when an agent claims the queued chat a moment earlier.\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-network`: 600 visitor calls a minute per client network, counted before the token is looked up."
+      responses:
+        204:
+          description: Revoked.
+        401:
+          description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        404:
+          description: '`widget_not_found`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorWidgetNotFound'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - Sessions
+  /api/v1/public/conversation:
+    get:
+      summary: "Get the visitor's chat"
+      operationId: publicConversationShow
+      description: "This session's latest LIVE conversation in **any** status (so the outcome of a `missed` or `closed` chat is readable when no realtime event arrived), or `data: null`. Never a list and never offline tickets: visitors do not see history.\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-network`: 600 visitor calls a minute per client network, counted before the token is looked up.\n- `public-message`: 240 calls a minute per visitor session (**30 for message sends**) and 600 per client network; starting a chat is also limited per widget and network (3) and per widget (120)."
+      responses:
+        200:
+          description: 'The conversation, or `{ "data": null }` when the session has none.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    allOf:
+                      -
+                        $ref: '#/components/schemas/ConversationPublic'
+                    nullable: true
+        401:
+          description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        404:
+          description: '`widget_not_found`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorWidgetNotFound'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - Conversation
+  /api/v1/public/conversations:
+    post:
+      summary: 'Start a chat'
+      operationId: publicConversationsStore
+      description: "Creates a live chat in status `queued`; an optional `message` becomes message 1, and the chat is offered to every reachable agent of the category (first accept wins). The widget's pre-chat rules are enforced here: a required, enabled field must be present unless the visitor already has it, a disabled field is ignored, and a consent text needs `consent: true`.\n\n**Anti-automation.** Starting a chat fans an offer out to every reachable agent, so besides the per-minute limits there are two guards that answer `429 rate_limited` with `Retry-After` and `details.retry_after`: after a visitor cancels a queued chat they cannot start another for 10 seconds, and at most 3 live chats wait for an agent at once from one client network on one widget.\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-network`: 600 visitor calls a minute per client network, counted before the token is looked up.\n- `public-message`: 240 calls a minute per visitor session (**30 for message sends**) and 600 per client network; starting a chat is also limited per widget and network (3) and per widget (120)."
+      responses:
+        201:
+          description: 'The chat is queued.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ConversationPublic'
+        401:
+          description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        404:
+          description: '`widget_not_found`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorWidgetNotFound'
+        409:
+          description: "- `no_agents`: Outside the opening hours, or nobody reachable serves the topic: show the offline form.\n- `conversation_exists`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorNoAgents'
+                  -
+                    $ref: '#/components/schemas/ErrorConversationExists'
+        422:
+          description: '`validation_failed`: The category is unknown, inactive or not on this widget (`details.category`), or a pre-chat rule failed.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorValidationFailed'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - Conversation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                category:
+                  type: string
+                  description: "Slug of the topic the visitor picked (one of the widget's categories, see the config call). Must not be greater than 100 characters."
+                  example: billing
+                message:
+                  type: string
+                  description: 'Optional first message; it becomes message 1 of the chat. Must not be greater than 4000 characters.'
+                  example: 'Hi, I need help with my invoice.'
+                  nullable: true
+                name:
+                  type: string
+                  description: "Pre-chat answer. Whether it is required follows the widget's pre-chat setup, enforced here; a field the widget has switched off is ignored."
+                  example: 'Ada Lovelace'
+                  nullable: true
+                email:
+                  type: string
+                  description: 'Pre-chat answer (see `name`).'
+                  example: ada@example.com
+                  nullable: true
+                phone:
+                  type: string
+                  description: 'Pre-chat answer (see `name`).'
+                  example: '+15551234567'
+                  nullable: true
+                consent:
+                  type: boolean
+                  description: 'Must be `true` when the widget shows a consent text.'
+                  example: true
+                  nullable: true
+              required:
+                - category
+  '/api/v1/public/conversations/{ulid}/end':
+    post:
+      summary: 'End the chat'
+      operationId: publicConversationsEnd
+      description: "The visitor ends an active chat. `ratingRequested` becomes `true` and the rating window opens; on a widget whose `features.rating` is off the chat goes straight to `closed` (reason `skipped`).\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-network`: 600 visitor calls a minute per client network, counted before the token is looked up.\n- `public-message`: 240 calls a minute per visitor session (**30 for message sends**) and 600 per client network; starting a chat is also limited per widget and network (3) and per widget (120)."
+      responses:
+        200:
+          description: "A conversation as its visitor sees it (`ConversationPublic`, docs/contracts/realtime-events.md): the ulid, the human ticket number, status, topic and the agent's public face."
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ConversationPublic'
+        401:
+          description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        403:
+          description: '`feature_disabled`: The widget switched `endChatByVisitor` off.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorFeatureDisabled'
+        404:
+          description: "- `widget_not_found`\n- `not_found`: The id is not one of this visitor token's conversations (another visitor's is `404`, never `403`)."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorWidgetNotFound'
+                  -
+                    $ref: '#/components/schemas/ErrorNotFound'
+        409:
+          description: '`conversation_not_active`: Also for a queued chat: cancel it instead.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorConversationNotActive'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - Conversation
+    parameters:
+      -
+        in: path
+        name: ulid
+        description: "The ulid of the conversation. It must belong to the visitor token's session; another visitor's conversation is `404`."
+        example: 01j9z3q8x7m5n2k4p6r8t0v1w2
+        required: true
+        schema:
+          type: string
+  '/api/v1/public/conversations/{ulid}/cancel':
+    post:
+      summary: 'Cancel a waiting chat'
+      operationId: publicConversationsCancel
+      description: "The visitor leaves a `queued` chat: it becomes `closed` (reason `cancelled`).\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-network`: 600 visitor calls a minute per client network, counted before the token is looked up.\n- `public-message`: 240 calls a minute per visitor session (**30 for message sends**) and 600 per client network; starting a chat is also limited per widget and network (3) and per widget (120)."
+      responses:
+        200:
+          description: "A conversation as its visitor sees it (`ConversationPublic`, docs/contracts/realtime-events.md): the ulid, the human ticket number, status, topic and the agent's public face."
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ConversationPublic'
+        401:
+          description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        404:
+          description: "- `widget_not_found`\n- `not_found`: The id is not one of this visitor token's conversations (another visitor's is `404`, never `403`)."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorWidgetNotFound'
+                  -
+                    $ref: '#/components/schemas/ErrorNotFound'
+        409:
+          description: '`conversation_not_queued`: An agent was first.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorConversationNotQueued'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - Conversation
+    parameters:
+      -
+        in: path
+        name: ulid
+        description: "The ulid of the conversation. It must belong to the visitor token's session; another visitor's conversation is `404`."
+        example: 01j9z3q8x7m5n2k4p6r8t0v1w2
+        required: true
+        schema:
+          type: string
+  '/api/v1/public/attachments/{attachment}':
+    get:
+      summary: 'Download an image'
+      operationId: publicAttachmentsShow
+      description: "The target of the signed `url` / `thumbUrl` in message payloads. Do not send an `Authorization` header and never log the URL: its signature is the credential (valid `chat.attachment_url_ttl_minutes`, default 240, for exactly one attachment; `thumb=1` is part of the signature). The image is streamed from the private disk with its stored content type, `nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`, under a neutral file name.\n\n**Access.** No bearer token: the URL's signature is the credential (it names exactly one attachment and expires).\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-message`: 240 calls a minute per visitor session (**30 for message sends**) and 600 per client network; starting a chat is also limited per widget and network (3) and per widget (120)."
+      responses:
+        200:
+          description: 'The image bytes.'
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        403:
+          description: '`forbidden`: The signature is missing, altered, expired or belongs to another URL (or another `thumb` value).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorForbidden'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - 'Messages & attachments'
+      security: []
+    parameters:
+      -
+        in: path
+        name: attachment
+        description: 'The ulid of the attachment.'
+        example: 01j0ay932vvkjhp0dcv6p5r0j8
+        required: true
+        schema:
+          type: string
+  '/api/v1/public/conversations/{ulid}/attachments':
+    post:
+      summary: 'Upload an image'
+      operationId: publicAttachmentsStore
+      description: "Multipart upload of one image, then reference its `ulid` in the next message. Judged by content (`finfo`), never by name or declared type; SVG, HTML, PDF, scripts and polyglots are refused. The image is decoded and encoded again, so EXIF, XMP, comments and anything hidden in them do not survive; a 320 px thumbnail is made. An animated GIF is refused. Unreferenced uploads are deleted after 24 hours.\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-network`: 600 visitor calls a minute per client network, counted before the token is looked up.\n- `public-upload`: 10 uploads a minute per visitor session, and the 600 a minute per client network ceiling."
+      responses:
+        201:
+          description: 'An image attached to a message.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Attachment'
+        401:
+          description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        403:
+          description: '`feature_disabled`: The widget switched attachments off.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorFeatureDisabled'
+        404:
+          description: "- `widget_not_found`\n- `not_found`: The id is not one of this visitor token's conversations (another visitor's is `404`, never `403`)."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorWidgetNotFound'
+                  -
+                    $ref: '#/components/schemas/ErrorNotFound'
+        409:
+          description: '`conversation_not_active`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorConversationNotActive'
+        422:
+          description: "- `validation_failed`: Not an allowed image, an animated GIF, over the size or pixel limit, or 10 uploads already wait. The message is under `details.file`.\n- `attachment_quota_exceeded`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorValidationFailed'
+                  -
+                    $ref: '#/components/schemas/ErrorAttachmentQuotaExceeded'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - 'Messages & attachments'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 'One image: JPEG, PNG, WebP or a still GIF, within `limits.attachmentMaxBytes` (default 5 MB) and `attachmentMaxDimension` pixels. It is judged by its content, not its name or declared type; SVG, PDF, animated GIFs and anything else is refused. EXIF and other metadata do not survive (the image is re-encoded). Must be a file. Must not be greater than 5120 kilobytes.'
+              required:
+                - file
+    parameters:
+      -
+        in: path
+        name: ulid
+        description: "The ulid of the conversation. It must belong to the visitor token's session; another visitor's conversation is `404`."
+        example: 01j9z3q8x7m5n2k4p6r8t0v1w2
+        required: true
+        schema:
+          type: string
+  '/api/v1/public/conversations/{ulid}/messages':
+    get:
+      summary: 'List messages'
+      operationId: publicMessagesIndex
+      description: "Messages after `after_seq`, ascending by `seq`, at most `limit`; `meta.next_cursor` is the `after_seq` of the next page, `null` at the end. Visitor-safe: agents appear as `{ type, name, avatarUrl }`, no ids or e-mail addresses. This is also the polling fallback when no websocket is available, and the gap sync after any reconnect: pass the highest `seq` you hold.\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-network`: 600 visitor calls a minute per client network, counted before the token is looked up.\n- `public-message`: 240 calls a minute per visitor session (**30 for message sends**) and 600 per client network; starting a chat is also limited per widget and network (3) and per widget (120)."
+      parameters:
+        -
+          in: query
+          name: after_seq
+          description: 'Return the messages whose `seq` is greater than this (0 or absent: from the start). After a reconnect pass the last `seq` you hold. Must be at least 0. Must not be greater than 2147483647.'
+          example: 14
+          required: false
+          schema:
+            type: integer
+            nullable: true
+        -
+          in: query
+          name: limit
+          description: 'Page size, default 100, at most 200. Must be at least 1. Must not be greater than 200.'
+          example: 100
+          required: false
+          schema:
+            type: integer
+            nullable: true
+      responses:
+        200:
+          description: 'A page of messages.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - meta
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Message'
+                  meta:
+                    type: object
+                    required:
+                      - next_cursor
+                    properties:
+                      next_cursor:
+                        type: string
+                        nullable: true
+                        description: 'Opaque cursor of the next page: pass it as `cursor`. `null` on the last page.'
+        401:
+          description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        404:
+          description: "- `widget_not_found`\n- `not_found`: The id is not one of this visitor token's conversations (another visitor's is `404`, never `403`)."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorWidgetNotFound'
+                  -
+                    $ref: '#/components/schemas/ErrorNotFound'
+        422:
+          description: '`validation_failed`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorValidationFailed'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - 'Messages & attachments'
+    post:
+      summary: 'Send a message'
+      operationId: publicMessagesStore
+      description: "Only an `active` live chat takes messages. Send a `client_msg_id` (a ULID you make up) so a retry is safe: a repeat answers `200` with the original message, also after the chat ended.\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-network`: 600 visitor calls a minute per client network, counted before the token is looked up.\n- `public-message`: 240 calls a minute per visitor session (**30 for message sends**) and 600 per client network; starting a chat is also limited per widget and network (3) and per widget (120)."
+      responses:
+        200:
+          description: 'A repeat of a `client_msg_id` already stored: the original message.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Message'
+        201:
+          description: 'The message was stored.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Message'
+        401:
+          description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        404:
+          description: "- `widget_not_found`\n- `not_found`: The id is not one of this visitor token's conversations (another visitor's is `404`, never `403`)."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorWidgetNotFound'
+                  -
+                    $ref: '#/components/schemas/ErrorNotFound'
+        409:
+          description: '`conversation_not_active`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorConversationNotActive'
+        422:
+          description: "`validation_failed`: Neither `body` nor `attachments`, a body over the limit, more than 5 attachments, or an attachment that is not this conversation's upload."
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorValidationFailed'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - 'Messages & attachments'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                client_msg_id:
+                  type: string
+                  description: 'A ULID the client makes up. Sending the same id again returns the original message with `200` instead of storing a duplicate: retry a failed request safely.'
+                  example: 01j9z3q8x7m5n2k4p6r8t0v1w3
+                  nullable: true
+                body:
+                  type: string
+                  description: 'Plain text, at most `limits.maxMessageLength` characters (default 4000). Required unless `attachments` is given. This field is required when <code>attachments</code> is not present. Must not be greater than 4000 characters.'
+                  example: 'Are you there?'
+                  nullable: true
+                attachments:
+                  type: array
+                  description: 'Ulid of an uploaded image.'
+                  example:
+                    - 01j0ay932vvkjhp0dcv6p5r0j8
+                  items:
+                    type: string
+    parameters:
+      -
+        in: path
+        name: ulid
+        description: "The ulid of the conversation. It must belong to the visitor token's session; another visitor's conversation is `404`."
+        example: 01j9z3q8x7m5n2k4p6r8t0v1w2
+        required: true
+        schema:
+          type: string
+  '/api/v1/public/conversations/{ulid}/receipts':
+    post:
+      summary: 'Report delivery and read receipts'
+      operationId: publicReceiptsStore
+      description: "Stamps `deliveredAt` / `seenAt` on the agent's messages up to the given numbers (reading implies delivery) and announces `message.delivered` / `message.seen` on the conversation channel; repeating a receipt changes and announces nothing. Batch them (the widget sends about 300 ms after the messages are on screen).\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-network`: 600 visitor calls a minute per client network, counted before the token is looked up.\n- `public-message`: 240 calls a minute per visitor session (**30 for message sends**) and 600 per client network; starting a chat is also limited per widget and network (3) and per widget (120)."
+      responses:
+        204:
+          description: Recorded.
+        401:
+          description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        404:
+          description: "- `widget_not_found`\n- `not_found`: The id is not one of this visitor token's conversations (another visitor's is `404`, never `403`)."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorWidgetNotFound'
+                  -
+                    $ref: '#/components/schemas/ErrorNotFound'
+        422:
+          description: '`validation_failed`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorValidationFailed'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - 'Messages & attachments'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                delivered_upto:
+                  type: integer
+                  description: 'Highest message `seq` this client has received. At least one of the two fields is required. This field is required when <code>seen_upto</code> is not present. Must be at least 0. Must not be greater than 2147483647.'
+                  example: 14
+                  nullable: true
+                seen_upto:
+                  type: integer
+                  description: 'Highest message `seq` the user has actually read (reading implies delivery). This field is required when <code>delivered_upto</code> is not present. Must be at least 0. Must not be greater than 2147483647.'
+                  example: 14
+                  nullable: true
+    parameters:
+      -
+        in: path
+        name: ulid
+        description: "The ulid of the conversation. It must belong to the visitor token's session; another visitor's conversation is `404`."
+        example: 01j9z3q8x7m5n2k4p6r8t0v1w2
+        required: true
+        schema:
+          type: string
+  '/api/v1/public/conversations/{ulid}/typing':
+    post:
+      summary: 'Send a typing indicator'
+      operationId: publicTypingStore
+      description: "The REST fallback of the `client-typing` websocket whisper: validated and authorised, then published as the realtime `typing` event. Nothing is stored and it never counts as activity for the idle timer.\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-network`: 600 visitor calls a minute per client network, counted before the token is looked up.\n- `public-message`: 240 calls a minute per visitor session (**30 for message sends**) and 600 per client network; starting a chat is also limited per widget and network (3) and per widget (120)."
+      responses:
+        204:
+          description: Published.
+        401:
+          description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        404:
+          description: "- `widget_not_found`\n- `not_found`: The id is not one of this visitor token's conversations (another visitor's is `404`, never `403`)."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorWidgetNotFound'
+                  -
+                    $ref: '#/components/schemas/ErrorNotFound'
+        409:
+          description: '`conversation_not_active`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorConversationNotActive'
+        422:
+          description: '`validation_failed`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorValidationFailed'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - 'Messages & attachments'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                typing:
+                  type: boolean
+                  description: '`true` while the user is typing, `false` when they stop. Clients normally whisper over the websocket; this is the REST fallback. Nothing is stored.'
+                  example: true
+              required:
+                - typing
+    parameters:
+      -
+        in: path
+        name: ulid
+        description: "The ulid of the conversation. It must belong to the visitor token's session; another visitor's conversation is `404`."
+        example: 01j9z3q8x7m5n2k4p6r8t0v1w2
+        required: true
+        schema:
+          type: string
+  '/api/v1/public/conversations/{ulid}/rating':
+    post:
+      summary: 'Rate the chat'
+      operationId: publicRatingStore
+      description: "One rating per conversation. The chat becomes `closed` (reason `rated`).\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-network`: 600 visitor calls a minute per client network, counted before the token is looked up.\n- `public-message`: 240 calls a minute per visitor session (**30 for message sends**) and 600 per client network; starting a chat is also limited per widget and network (3) and per widget (120)."
+      responses:
+        201:
+          description: "A visitor's rating of a conversation (`conversation` is its ulid)."
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Rating'
+        401:
+          description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        404:
+          description: "- `widget_not_found`\n- `not_found`: The id is not one of this visitor token's conversations (another visitor's is `404`, never `403`)."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorWidgetNotFound'
+                  -
+                    $ref: '#/components/schemas/ErrorNotFound'
+        409:
+          description: "- `conversation_not_ended`\n- `already_rated`\n- `rating_window_closed`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorConversationNotEnded'
+                  -
+                    $ref: '#/components/schemas/ErrorAlreadyRated'
+                  -
+                    $ref: '#/components/schemas/ErrorRatingWindowClosed'
+        422:
+          description: '`validation_failed`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorValidationFailed'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - Rating
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                score:
+                  type: integer
+                  description: 'The rating, 1 to 5. Must be between 1 and 5.'
+                  example: 5
+                comment:
+                  type: string
+                  description: 'Optional comment, at most 2000 characters. Must not be greater than 2000 characters.'
+                  example: 'Quick and helpful, thank you.'
+                  nullable: true
+              required:
+                - score
+    parameters:
+      -
+        in: path
+        name: ulid
+        description: "The ulid of the conversation. It must belong to the visitor token's session; another visitor's conversation is `404`."
+        example: 01j9z3q8x7m5n2k4p6r8t0v1w2
+        required: true
+        schema:
+          type: string
+  '/api/v1/public/conversations/{ulid}/rating/skip':
+    post:
+      summary: 'Skip the rating'
+      operationId: publicRatingSkip
+      description: "Accepted for every `ended` chat inside its rating window, whatever the widget's rating flag says. The chat becomes `closed` (reason `skipped`).\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-network`: 600 visitor calls a minute per client network, counted before the token is looked up.\n- `public-message`: 240 calls a minute per visitor session (**30 for message sends**) and 600 per client network; starting a chat is also limited per widget and network (3) and per widget (120)."
+      responses:
+        200:
+          description: "A conversation as its visitor sees it (`ConversationPublic`, docs/contracts/realtime-events.md): the ulid, the human ticket number, status, topic and the agent's public face."
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ConversationPublic'
+        401:
+          description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        404:
+          description: "- `widget_not_found`\n- `not_found`: The id is not one of this visitor token's conversations (another visitor's is `404`, never `403`)."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorWidgetNotFound'
+                  -
+                    $ref: '#/components/schemas/ErrorNotFound'
+        409:
+          description: "- `conversation_not_ended`\n- `rating_window_closed`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorConversationNotEnded'
+                  -
+                    $ref: '#/components/schemas/ErrorRatingWindowClosed'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - Rating
+    parameters:
+      -
+        in: path
+        name: ulid
+        description: "The ulid of the conversation. It must belong to the visitor token's session; another visitor's conversation is `404`."
+        example: 01j9z3q8x7m5n2k4p6r8t0v1w2
+        required: true
+        schema:
+          type: string
+  /api/v1/public/offline-tickets:
+    post:
+      summary: 'Create an offline ticket'
+      operationId: publicOfflineTicketsStore
+      description: "The offline form: a separate row (`type: offline`, `status: queued`, no queue timeout) that staff answer by e-mail. Offered after `no_agents` or a `missed` chat; `missed_conversation` records which. There is no conversation to give an id for: the `409 no_agents` path creates none.\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-network`: 600 visitor calls a minute per client network, counted before the token is looked up.\n- `public-offline`: 3 offline tickets a minute per visitor session, 10 per client network, and per widget and network (3) and per widget (120)."
+      responses:
+        201:
+          description: 'The ticket.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ConversationPublic'
+        401:
+          description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        403:
+          description: '`feature_disabled`: The widget switched the offline form off.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorFeatureDisabled'
+        404:
+          description: '`widget_not_found`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorWidgetNotFound'
+        422:
+          description: '`validation_failed`: A field is invalid.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorValidationFailed'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - 'Offline tickets'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: "The visitor's name (stored as one line). Must not be greater than 120 characters."
+                  example: 'Ada Lovelace'
+                email:
+                  type: string
+                  description: 'Where the answer is e-mailed. Must be a valid email address. Must not be greater than 190 characters.'
+                  example: ada@example.com
+                message:
+                  type: string
+                  description: 'What the visitor needs. Must not be greater than 4000 characters.'
+                  example: "Nobody was online; please send me last month's invoice."
+                category:
+                  type: string
+                  description: "Topic slug. Without one the ticket takes the missed chat's topic, else the widget's first active topic. Must not be greater than 100 characters."
+                  example: billing
+                  nullable: true
+                missed_conversation:
+                  type: string
+                  description: "Ulid of the visitor's own `missed` live chat this ticket follows up (recorded on the ticket)."
+                  example: 01j9z3q8x7m5n2k4p6r8t0v1w2
+                  nullable: true
+              required:
+                - name
+                - email
+                - message
+  '/api/v1/public/widgets/{key}/whatsapp-handoff':
+    post:
+      summary: 'Hand the visitor over to WhatsApp'
+      operationId: publicWhatsappHandoff
+      description: "Creates a one-time code and a `https://wa.me/<number>?text=...` link that opens WhatsApp with it typed in; when the visitor sends it, the WhatsApp chat is linked to their widget visitor. A visitor who asks again while their code for the same topic is still live gets it back with `200` (one live ticket per visitor and topic). The code has 8 characters from `ABCDEFGHJKMNPQRSTUVWXYZ23456789` and lives `whatsapp.handoff_ttl_minutes`.\n\n`{key}` must be the token's own widget (anything else is the same `404 widget_not_found` an unknown key gets). Besides the per-visitor limits the number of LIVE codes is capped per client network and widget (30) and per widget (500); `Retry-After` is when the first of them expires.\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-config`: 600 calls a minute per client network across all widget keys (counted before the key is looked up; lookups of unknown keys are limited harder, 60 a minute).\n- `public-network`: 600 visitor calls a minute per client network, counted before the token is looked up.\n- `wa-handoff`: 6 a minute per visitor, 20 per client network, 10 per widget and network and 120 per widget (plus the live-code caps described on the endpoint)."
+      responses:
+        200:
+          description: "The visitor's live code for this topic."
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Handoff'
+        201:
+          description: 'A new code.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Handoff'
+        401:
+          description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        403:
+          description: "- `origin_not_allowed`\n- `feature_disabled`: The widget's `features.whatsapp` or the global switch is off."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorOriginNotAllowed'
+                  -
+                    $ref: '#/components/schemas/ErrorFeatureDisabled'
+        404:
+          description: '`widget_not_found`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorWidgetNotFound'
+        409:
+          description: '`whatsapp_unavailable`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorWhatsappUnavailable'
+        422:
+          description: '`validation_failed`: `details.category`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorValidationFailed'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - 'WhatsApp hand-off'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                category:
+                  type: string
+                  description: 'Slug of the topic the visitor picked (optional). One live code per visitor and topic. Must match the regex /^[a-z0-9][a-z0-9-]*$/D. Must not be greater than 100 characters.'
+                  example: billing
+                  nullable: true
+    parameters:
+      -
+        in: path
+        name: key
+        description: "The widget's public key (`wk_` + 20 lower-case letters and digits)."
+        example: wk_k3j9x2m5n8p4q7r1s6t0
+        required: true
+        schema:
+          type: string
+  /api/v1/public/broadcasting/auth:
+    post:
+      summary: 'Authorise a visitor channel'
+      operationId: publicBroadcastingAuth
+      description: "The Pusher channel authorisation of a VISITOR, exactly what `pusher-js` posts (form or JSON fields `socket_id` and `channel_name`) with the visitor bearer in `authEndpoint` headers. It signs **only** `private-conversation.{ulid}` of the conversation the session is bound to (the ulid spelled lower case, as events are published); anything else is `403 channel_forbidden`, never `404`, because a Pusher client treats any non-200 as a refusal. The signature comes from the configured broadcaster (the Reverb app secret never leaves the server); the answer is `Cache-Control: no-store` and sets no cookie.\n\nConnect to the host, port and scheme of `ws` from the session answer with the app `key`. `503 realtime_unavailable` means Reverb is not configured: stay on REST polling.\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `broadcasting-auth`: 30 a minute per token and 120 per client network."
+      responses:
+        200:
+          description: 'The signed channel authorisation: `<app key>:<signature>`.'
+          content:
+            application/json:
+              schema:
+                type: object
+                example:
+                  auth: 'f1a2b3c4d5e6f7a8b9c0:3b1f0c9e5a7d2e4f6a8b0c1d2e3f405162738495a6b7c8d9e0f1a2b3c4d5e6f7'
+                properties:
+                  auth:
+                    type: string
+                    example: 'f1a2b3c4d5e6f7a8b9c0:3b1f0c9e5a7d2e4f6a8b0c1d2e3f405162738495a6b7c8d9e0f1a2b3c4d5e6f7'
+        401:
+          description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        403:
+          description: '`channel_forbidden`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorChannelForbidden'
+        404:
+          description: '`widget_not_found`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorWidgetNotFound'
+        422:
+          description: '`validation_failed`: A malformed `socket_id` or `channel_name`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorValidationFailed'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+        503:
+          description: '`realtime_unavailable`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRealtimeUnavailable'
+      tags:
+        - Realtime
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                socket_id:
+                  type: string
+                  description: 'The socket id Reverb gave the connection (`<digits>.<digits>`).'
+                  example: '123456.7890123'
+                channel_name:
+                  type: string
+                  description: "Must be `private-conversation.` + the ulid of the session's conversation."
+                  example: private-conversation.01j9z3q8x7m5n2k4p6r8t0v1w2
+              required:
+                - socket_id
+                - channel_name
+  '/w/{key}.js':
+    get:
+      summary: 'Widget script'
+      operationId: embedScript
+      description: "`GET /w/{key}.js`: the loader bundle with the boot config inlined, for a `<script async src=...>` tag. Not under `/api`, no session and no cookies; `ETag`, `Cache-Control: public, max-age=60, stale-while-revalidate=300`, `X-Content-Type-Options: nosniff`, `Vary: Referer`. A script tag cannot be CORS-gated, so this is the one place that looks at the `Referer`: an origin that is not on the widget's domain list gets `403`, no `Referer` is served. Errors are plain text or HTML, not the JSON envelope.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-config`: 600 calls a minute per client network across all widget keys (counted before the key is looked up; lookups of unknown keys are limited harder, 60 a minute)."
+      responses:
+        200:
+          description: 'The script.'
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "/* PNE Chat loader + boot config */\n"
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - 'Widget delivery'
+      security: []
+    parameters:
+      -
+        in: path
+        name: key
+        description: "The widget's public key (`wk_` + 20 lower-case letters and digits)."
+        example: wk_k3j9x2m5n8p4q7r1s6t0
+        required: true
+        schema:
+          type: string
+  '/embed/{key}':
+    get:
+      summary: 'Chat panel page (iframe)'
+      operationId: embedFrame
+      description: "`GET /embed/{key}[?mode=inline]`: the Blade shell of the React chat panel, to be put in an iframe. `Content-Security-Policy: frame-ancestors <widget domains>` (`'none'` when the list is empty), no cookies. `?preview=1` is for signed-in administrators only (the builder preview).\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-config`: 600 calls a minute per client network across all widget keys (counted before the key is looked up; lookups of unknown keys are limited harder, 60 a minute)."
+      responses:
+        200:
+          description: 'The panel page.'
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "<!doctype html>\n<html>...</html>\n"
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - 'Widget delivery'
+      security: []
+    parameters:
+      -
+        in: path
+        name: key
+        description: "The widget's public key (`wk_` + 20 lower-case letters and digits)."
+        example: wk_k3j9x2m5n8p4q7r1s6t0
+        required: true
+        schema:
+          type: string
+  '/c/{key}':
+    get:
+      summary: 'Hosted chat page'
+      operationId: embedHosted
+      description: "`GET /c/{key}`: the panel as a standalone page; it sends `frame-ancestors 'none'`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `public-config`: 600 calls a minute per client network across all widget keys (counted before the key is looked up; lookups of unknown keys are limited harder, 60 a minute)."
+      responses:
+        200:
+          description: 'The page.'
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "<!doctype html>\n<html>...</html>\n"
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - 'Widget delivery'
+      security: []
+    parameters:
+      -
+        in: path
+        name: key
+        description: "The widget's public key (`wk_` + 20 lower-case letters and digits)."
+        example: wk_k3j9x2m5n8p4q7r1s6t0
+        required: true
+        schema:
+          type: string
+  /widget/v1/loader.js:
+    get:
+      summary: 'Generic loader script'
+      operationId: embedLoader
+      description: '`GET /widget/v1/loader.js`: one script for every widget; it reads `data-widget-key` from its own tag and fetches the config from the public API. When `public/widget/v1/loader.js` exists the web server serves that file itself.'
+      responses:
+        200:
+          description: 'The script.'
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "/* PNE Chat loader */\n"
+      tags:
+        - 'Widget delivery'
+      security: []

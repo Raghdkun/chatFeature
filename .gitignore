@@ -52,3 +52,6 @@ yarn-error.log
 
 # Built widget loader (npm run build:widget)
 /public/widget/
+
+# Generated API reference (composer docs:api); the OpenAPI files in docs/api are committed, the HTML is not
+/public/docs
