@@ -2,10 +2,12 @@
 
 namespace App\Providers;
 
+use App\Domain\Notifications\Contracts\DashboardVisibility;
 use App\Domain\Presence\AvailableAgents;
 use App\Domain\Presence\Contracts\PresenceStore;
 use App\Domain\Presence\DatabasePresenceReader;
 use App\Domain\Presence\EffectivePresence;
+use App\Domain\Presence\PresenceDashboardVisibility;
 use App\Domain\Presence\PresenceMirror;
 use App\Domain\Presence\PresencePolicy;
 use App\Domain\Presence\PresenceService;
@@ -39,6 +41,8 @@ class PresenceServiceProvider extends ServiceProvider
         $this->app->singleton(PresenceService::class);
         $this->app->singleton(PresenceSweep::class);
         $this->app->bind(PresenceReader::class, DatabasePresenceReader::class);
+        // The strict answer (a heartbeat that reported the tab visible); it wins over the notifications default.
+        $this->app->bind(DashboardVisibility::class, PresenceDashboardVisibility::class);
     }
 
     public function boot(): void

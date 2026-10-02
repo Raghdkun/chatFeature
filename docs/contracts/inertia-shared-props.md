@@ -16,6 +16,7 @@ Every Inertia page receives these props from `App\Http\Middleware\HandleInertiaR
 | `installed` | `boolean` | `false` only while the setup wizard is reachable. |
 | `sidebarOpen` | `boolean` | Existing starter-kit prop (cookie). |
 | `realtime` | `{key,host,port,scheme} \| null` | The PUBLIC Reverb address for signed-in active staff when realtime is configured (`ReverbEndpoint`), else `null` (the dashboard polls over REST). Read at runtime because the install generates the Reverb keys after the frontend bundle was built. Never the secret. |
+| `push` | `{ vapidPublicKey: string } \| null` | Web Push configuration for signed-in staff (P5); `null` when VAPID is not configured. |
 | `flash` | `{success?:string, error?:string}` | Fed from session keys `success`/`error`; `{}` when empty. The kit's toasts use Inertia v3 page-level `flash.toast` (separate, unchanged). |
 
 **Rules**
