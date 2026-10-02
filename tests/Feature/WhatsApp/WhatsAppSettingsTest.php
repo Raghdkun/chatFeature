@@ -43,8 +43,28 @@ class WhatsAppSettingsTest extends TestCase
         $this->assertSame($type, $definition->type);
         $this->assertSame($default, $definition->defaultValue());
         $this->assertSame($default, settings($key));
-        $this->assertTrue($definition->seed, 'a fresh install writes it');
         $this->assertFalse($definition->encrypted);
+
+        // The address default is loopback, which a production install may not even save (see below): it is served, not seeded.
+        $this->assertSame($key !== 'whatsapp.openwa.base_url', $definition->seed, $key);
+    }
+
+    public function test_a_fresh_install_seeds_the_defaults_even_where_the_loopback_address_would_not_validate(): void
+    {
+        config(['chat.portal_allow_private_hosts' => false]);
+        $seeded = [];
+
+        foreach (settings()->registry()->all() as $key => $definition) {
+            if ($definition->seed && str_starts_with($key, 'whatsapp.')) {
+                $this->assertTrue(settings()->seedMissing($key, $definition->defaultValue()), $key);
+                $seeded[] = $key;
+            }
+        }
+
+        $this->assertNotContains('whatsapp.openwa.base_url', $seeded);
+        $this->assertNotContains('whatsapp.openwa.api_key', $seeded);
+        $this->assertContains('whatsapp.handoff_text', $seeded);
+        $this->assertSame('http://127.0.0.1:2785', settings('whatsapp.openwa.base_url'), 'the default still applies');
     }
 
     /**

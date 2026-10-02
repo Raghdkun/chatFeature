@@ -51,10 +51,11 @@ final class DefaultSettings
             new SettingDefinition('auth.pizzasys.nats.ensure_stream', SettingGroup::Auth, SettingType::Bool, true, ['boolean']),
 
             // WhatsApp through the self-hosted OpenWA gateway (P6, docs/contracts/whatsapp-data-p6.md). Admin-only. The API key is a secret: encrypted at
-            // rest, never seeded, never returned by any API. The base URL is judged like the auth portal's (private hosts need PORTAL_ALLOW_PRIVATE_HOSTS).
+            // rest, never seeded, never returned by any API. The base URL is judged like the auth portal's (private hosts need PORTAL_ALLOW_PRIVATE_HOSTS), so
+            // its loopback default is served by the definition and NOT seeded: writing it on install would fail the validation of a production install.
             // `reply_only_to_inbound`, the send interval and the daily cap protect the number from a ban; a session may override the last two.
             new SettingDefinition('whatsapp.enabled', SettingGroup::WhatsApp, SettingType::Bool, false, ['boolean']),
-            new SettingDefinition('whatsapp.openwa.base_url', SettingGroup::WhatsApp, SettingType::String, 'http://127.0.0.1:2785', ['required', 'string', 'max:255', new OpenWaBaseUrl]),
+            new SettingDefinition('whatsapp.openwa.base_url', SettingGroup::WhatsApp, SettingType::String, 'http://127.0.0.1:2785', ['required', 'string', 'max:255', new OpenWaBaseUrl], seed: false),
             new SettingDefinition('whatsapp.openwa.api_key', SettingGroup::WhatsApp, SettingType::String, null, ['nullable', 'string', 'max:255'], encrypted: true, seed: false),
             new SettingDefinition('whatsapp.handoff_ttl_minutes', SettingGroup::WhatsApp, SettingType::Int, 1440, ['integer', 'min:5', 'max:10080']),
             new SettingDefinition('whatsapp.ignore_groups', SettingGroup::WhatsApp, SettingType::Bool, true, ['boolean']),
