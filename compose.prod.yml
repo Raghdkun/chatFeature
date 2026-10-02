@@ -7,6 +7,9 @@
 #   whatsapp   the OpenWA WhatsApp gateway
 #   nats       a NATS JetStream server (only if you do not use the one of your auth portal)
 #
+# Required variables fail fast on purpose (a missing domain, an empty database or Redis password), so `config` needs a filled .env. To validate
+# the file without one (CI):  APP_DOMAIN=x CADDY_TLS=internal DB_DATABASE=x DB_USERNAME=x DB_PASSWORD=x REDIS_PASSWORD=x docker compose -f compose.prod.yml config -q
+#
 # Only Caddy publishes ports (80, 443 tcp and 443 udp for HTTP/3). MySQL, Redis, Reverb, OpenWA and NATS never do.
 # Published ports bypass `ufw`: do not add `ports:` to any other service.
 name: pnechat
