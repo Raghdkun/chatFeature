@@ -100,7 +100,8 @@ class PresenceApiTest extends TestCase
         $this->actingAs($this->agent, 'sanctum')->getJson('/api/v1/me/presence')->assertJsonPath('data.status', 'offline');
         $this->assertSame(PresenceStatus::Online, AgentPresence::query()->sole()->status);
 
-        // A heartbeat brings them back and announces it.
+        // The minute sweep announces the silence (clients are told once); a heartbeat then brings them back and announces that.
+        $this->artisan('chat:presence-sweep')->assertSuccessful();
         Event::fake([PresenceChanged::class]);
         $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat')->assertNoContent();
         $this->actingAs($this->agent, 'sanctum')->getJson('/api/v1/me/presence')->assertJsonPath('data.status', 'online');

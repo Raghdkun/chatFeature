@@ -48,7 +48,7 @@ class ChatSchemaTest extends TestCase
             'messages' => ['id', 'ulid', 'conversation_id', 'seq', 'sender_type', 'sender_user_id', 'type', 'body', 'client_msg_id', 'delivered_at', 'seen_at', 'created_at'],
             'attachments' => ['id', 'ulid', 'conversation_id', 'message_id', 'uploader_type', 'uploader_user_id', 'disk', 'path', 'thumb_path', 'mime', 'size', 'width', 'height', 'sha256', 'original_name', 'position', 'created_at'],
             'ratings' => ['id', 'conversation_id', 'score', 'comment', 'created_at'],
-            'agent_presence' => ['id', 'user_id', 'status', 'is_manual', 'last_seen_at', 'last_heartbeat_at', 'created_at', 'updated_at'],
+            'agent_presence' => ['id', 'user_id', 'status', 'is_manual', 'last_seen_at', 'last_heartbeat_at', 'last_visible_at', 'effective_status', 'created_at', 'updated_at'],
         ];
     }
 
@@ -73,7 +73,12 @@ class ChatSchemaTest extends TestCase
 
     public function test_the_migrations_roll_back_cleanly_and_run_again(): void
     {
-        $this->artisan('migrate:rollback', ['--step' => 4, '--force' => true])->assertSuccessful();
+        // Every migration from the P4 block on (later phases add their own after it): the P4 tables must be gone, earlier phases stay.
+        $laterMigrations = count(array_filter(
+            array_map('basename', glob(database_path('migrations/*.php')) ?: []),
+            static fn (string $file): bool => $file >= '2026_11_10_000100',
+        ));
+        $this->artisan('migrate:rollback', ['--step' => $laterMigrations, '--force' => true])->assertSuccessful();
 
         foreach (array_keys(self::expectedColumns()) as $table) {
             $this->assertFalse(Schema::hasTable($table), "{$table} should be gone after the rollback");
@@ -103,7 +108,7 @@ class ChatSchemaTest extends TestCase
             'visitor_sessions' => ['token_hash', 'expires_at', 'ulid'],
             'attachments' => ['ulid', 'message_id'],
             'ratings' => ['conversation_id'],
-            'agent_presence' => ['user_id'],
+            'agent_presence' => ['user_id', 'effective_status'],
         ];
 
         foreach ($expected as $table => $indexes) {
