@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Management;
 
 use App\Data\WhatsApp\WaChatData;
 use App\Data\WhatsApp\WaChatDetailData;
+use App\Domain\WhatsApp\Actions\DeleteWaChat;
 use App\Domain\WhatsApp\Actions\MarkChatRead;
 use App\Domain\WhatsApp\Actions\SetChatArchived;
 use App\Domain\WhatsApp\Queries\WaChatCursor;
@@ -12,11 +13,13 @@ use App\Http\Requests\WhatsApp\ListChatsRequest;
 use App\Models\WaChat;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Gate;
 
 /**
  * The admin inbox: `GET /whatsapp/chats` (filters, newest activity first, cursor), `GET /whatsapp/chats/{ulid}`, `POST .../read`,
- * `POST .../archive`, `POST .../unarchive`. Administrators only; every single chat is authorised with `WhatsAppPolicy::view`.
+ * `POST .../archive`, `POST .../unarchive`, `DELETE .../{ulid}` (erase for good, idempotent). Administrators only; every single chat is
+ * authorised with `WhatsAppPolicy::view` (or `delete`).
  */
 class WhatsAppChatController extends WhatsAppController
 {
@@ -59,5 +62,13 @@ class WhatsAppChatController extends WhatsAppController
     public function unarchive(Request $request, WaChat $chat, SetChatArchived $action): JsonResponse
     {
         return $this->data(WaChatData::fromModel($action->handle($chat, false, $this->admin($request))->load(self::RELATIONS)));
+    }
+
+    /** Erases the chat, its messages and stored images; `204` whether or not it was still there (the second call of a repeated delete is no error). */
+    public function destroy(Request $request, string $chat, DeleteWaChat $action): Response
+    {
+        $action->handle($chat, $this->admin($request));
+
+        return response()->noContent();
     }
 }

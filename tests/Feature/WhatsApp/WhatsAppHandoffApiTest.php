@@ -18,7 +18,7 @@ use Tests\TestCase;
 
 /**
  * `POST /public/widgets/{key}/whatsapp-handoff`: the visitor's code and `wa.me` link, behind the same gates as starting a chat, with its own
- * limits, and nothing in the answer but `{code, waUrl, expiresAt}`.
+ * limits, and nothing in the answer but `{code, waUrl, expiresAt, ttlSeconds}`.
  */
 class WhatsAppHandoffApiTest extends TestCase
 {
@@ -59,7 +59,8 @@ class WhatsAppHandoffApiTest extends TestCase
         $response = $this->handoff(['category' => 'billing'])->assertCreated();
 
         $data = $response->json('data');
-        $this->assertSame(['code', 'waUrl', 'expiresAt'], array_keys($data));
+        $this->assertSame(['code', 'waUrl', 'expiresAt', 'ttlSeconds'], array_keys($data));
+        $this->assertEqualsWithDelta(1440 * 60, $data['ttlSeconds'], 5);
         $this->assertMatchesRegularExpression('/^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$/', $data['code']);
         $this->assertSame('https://wa.me/4915123456789?text='.rawurlencode('Hi! My support code is '.$data['code']), $data['waUrl']);
         $this->assertEqualsWithDelta(now()->addMinutes(1440)->getTimestamp(), strtotime($data['expiresAt']), 5);
@@ -285,6 +286,73 @@ class WhatsAppHandoffApiTest extends TestCase
         $this->assertSame('3600', $response->headers->get('Retry-After'));
         $this->assertSame(10, WaHandoffTicket::query()->count());
         $this->assertNotNull(Visitor::query()->find($visitorId));
+    }
+
+    /** A visitor token whose session was opened from the given client network (the HMAC the real session creation stores). */
+    private function visitorFrom(string $network, ?Widget $widget = null): IssuedVisitorToken
+    {
+        $issued = $this->visitorSession($widget ?? $this->widget);
+        $issued->session->forceFill(['network_hash' => hash('sha256', $network)])->save();
+
+        return $issued;
+    }
+
+    public function test_a_script_that_fetches_a_new_visitor_for_every_request_is_capped_per_network_and_widget(): void
+    {
+        config(['whatsapp.handoff.max_live_per_widget_network' => 3]);
+        $limits = ['whatsapp.handoff.rate_limits.per_visitor' => 50, 'whatsapp.handoff.rate_limits.per_network' => 500, 'whatsapp.handoff.rate_limits.per_widget_network' => 500, 'whatsapp.handoff.rate_limits.per_widget' => 500];
+        config($limits);
+
+        // Three different visitors, one network: three live codes.
+        foreach (range(1, 3) as $ignored) {
+            $this->handoff(token: $this->visitorFrom('198.51.100.7'))->assertCreated();
+        }
+
+        $response = $this->handoff(token: $this->visitorFrom('198.51.100.7'))->assertStatus(429)->assertJsonPath('error.code', 'rate_limited');
+        $this->assertGreaterThanOrEqual(60, (int) $response->headers->get('Retry-After'));
+        $this->assertLessThanOrEqual(3600, (int) $response->headers->get('Retry-After'));
+        $this->assertSame(3, WaHandoffTicket::query()->count());
+        $this->assertSame(hash('sha256', '198.51.100.7'), WaHandoffTicket::query()->first()?->network_hash);
+
+        // Another network is not affected, and neither is another widget on the same network.
+        $this->handoff(token: $this->visitorFrom('203.0.113.9'))->assertCreated();
+        $chatWidget = $this->enabledWidget(['customer.test'], ['offline_mode' => 'always_online'], Category::factory()->create(['slug' => 'sales']));
+        $otherWidget = $this->publishWhatsAppFeature($chatWidget);
+        $otherWidget->forceFill(['whatsapp_session_id' => $this->session->id])->save();
+        $this->handoff(token: $this->visitorFrom('198.51.100.7', $otherWidget), widget: $otherWidget)->assertCreated();
+
+        // A code that was used (or has expired) makes room again.
+        WaHandoffTicket::query()->where('network_hash', hash('sha256', '198.51.100.7'))->where('widget_id', $this->widget->id)->orderBy('id')->first()?->forceFill(['consumed_at' => now()])->save();
+        $this->handoff(token: $this->visitorFrom('198.51.100.7'))->assertCreated();
+        WaHandoffTicket::query()->where('network_hash', hash('sha256', '198.51.100.7'))->where('widget_id', $this->widget->id)->whereNull('consumed_at')->orderBy('id')->first()?->forceFill(['expires_at' => now()->subSecond()])->save();
+        $this->handoff(token: $this->visitorFrom('198.51.100.7'))->assertCreated();
+    }
+
+    public function test_a_visitor_at_the_cap_still_gets_their_own_live_code_back(): void
+    {
+        config(['whatsapp.handoff.max_live_per_widget_network' => 1, 'whatsapp.handoff.max_live_per_widget' => 1]);
+        $mine = $this->visitorFrom('198.51.100.7');
+        $first = $this->handoff(token: $mine)->assertCreated()->json('data.code');
+
+        $this->handoff(token: $mine)->assertOk()->assertJsonPath('data.code', $first);
+        $this->handoff(token: $this->visitorFrom('198.51.100.7'))->assertStatus(429);
+    }
+
+    public function test_a_widget_has_a_ceiling_of_live_codes_whatever_the_networks(): void
+    {
+        config(['whatsapp.handoff.max_live_per_widget' => 2]);
+
+        $this->handoff(token: $this->visitorFrom('198.51.100.1'))->assertCreated();
+        $this->handoff(token: $this->visitorFrom('198.51.100.2'))->assertCreated();
+        $this->handoff(token: $this->visitorFrom('198.51.100.3'))->assertStatus(429)->assertJsonPath('error.code', 'rate_limited');
+
+        $this->assertSame(2, WaHandoffTicket::query()->count());
+    }
+
+    public function test_the_defaults_leave_room_for_a_busy_office(): void
+    {
+        $this->assertSame(30, config('whatsapp.handoff.max_live_per_widget_network'));
+        $this->assertSame(500, config('whatsapp.handoff.max_live_per_widget'));
     }
 
     public function test_the_route_sets_no_cookie_and_needs_no_csrf(): void

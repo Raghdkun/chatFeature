@@ -22,6 +22,7 @@ use App\Models\User;
 use App\Models\WaChat;
 use App\Models\WaMessage;
 use App\Models\WhatsAppSession;
+use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Contracts\Queue\Job;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
@@ -31,6 +32,7 @@ use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Mockery;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Tests\Support\InteractsWithQueueOutage;
 use Tests\Support\WhatsAppFixtures;
 use Tests\Support\WidgetFixtures;
 use Tests\TestCase;
@@ -41,7 +43,7 @@ use Tests\TestCase;
  */
 class WhatsAppReplyApiTest extends TestCase
 {
-    use RefreshDatabase, WhatsAppFixtures, WidgetFixtures;
+    use InteractsWithQueueOutage, RefreshDatabase, WhatsAppFixtures, WidgetFixtures;
 
     private User $admin;
 
@@ -294,6 +296,105 @@ class WhatsAppReplyApiTest extends TestCase
         $message = WaMessage::query()->sole();
         $this->assertSame(WaMessageStatus::Failed, $message->status);
         $this->assertSame(0, app(SendCounter::class)->used($this->session));
+    }
+
+    public function test_a_queue_failure_is_announced_to_the_open_inbox_as_a_status_change(): void
+    {
+        Event::fake([WaMessageStatusChanged::class]);
+        $this->queueIsDown();
+
+        $this->reply()->assertStatus(503);
+
+        $message = WaMessage::query()->sole();
+        Event::assertDispatched(WaMessageStatusChanged::class, fn (WaMessageStatusChanged $event): bool => $event->message->is($message)
+            && $event->message->status === WaMessageStatus::Failed
+            && $event->from === WaMessageStatus::Pending);
+    }
+
+    /** The queue works again after an outage (the facade mock of the outage is dropped). */
+    private function queueWorksAgain(): void
+    {
+        Bus::clearResolvedInstance(Dispatcher::class);
+        $this->app->forgetInstance(Dispatcher::class);
+        Queue::fake();
+    }
+
+    public function test_repeating_the_request_of_a_reply_the_queue_refused_queues_it_again(): void
+    {
+        $clientMsgId = strtolower((string) Str::ulid());
+        $this->queueIsDown();
+        $this->reply('We are on it', $clientMsgId)->assertStatus(503)->assertJsonPath('error.code', 'queue_unavailable');
+        $message = WaMessage::query()->sole();
+        $this->assertSame(0, app(SendCounter::class)->used($this->session));
+
+        $this->queueWorksAgain();
+        Event::fake([WaMessageStatusChanged::class]);
+        $response = $this->reply('We are on it', $clientMsgId)->assertOk();
+
+        $response->assertJsonPath('data.ulid', $message->ulid)->assertJsonPath('data.status', 'pending');
+        $this->assertSame(1, WaMessage::query()->count(), 'the same message, not a twin');
+        $message->refresh();
+        $this->assertSame(WaMessageStatus::Pending, $message->status);
+        $this->assertNull($message->error);
+        $this->assertSame(1, app(SendCounter::class)->used($this->session), 'it takes its slot of the daily cap again');
+        Queue::assertPushed(SendWhatsAppMessage::class, fn (SendWhatsAppMessage $job): bool => $job->messageId === $message->id);
+        Event::assertDispatched(WaMessageStatusChanged::class, fn (WaMessageStatusChanged $event): bool => $event->from === WaMessageStatus::Failed && $event->message->status === WaMessageStatus::Pending);
+        $this->assertSame(1, AuditLog::query()->where('action', 'whatsapp.message.requeued')->count());
+
+        // Repeating it once more is the plain idempotent replay: no second queueing, no second slot.
+        $this->reply('We are on it', $clientMsgId)->assertOk();
+        Queue::assertPushed(SendWhatsAppMessage::class, 1);
+        $this->assertSame(1, app(SendCounter::class)->used($this->session));
+    }
+
+    public function test_a_second_repeat_only_returns_the_reply_the_first_one_already_queued_again(): void
+    {
+        $clientMsgId = strtolower((string) Str::ulid());
+        $this->queueIsDown();
+        $this->reply('We are on it', $clientMsgId)->assertStatus(503);
+        $this->queueWorksAgain();
+
+        $this->reply('We are on it', $clientMsgId)->assertOk();
+        $this->reply('We are on it', $clientMsgId)->assertOk()->assertJsonPath('data.status', 'pending');
+
+        Queue::assertPushed(SendWhatsAppMessage::class, 1);
+        $this->assertSame(1, app(SendCounter::class)->used($this->session));
+    }
+
+    public function test_a_failed_reply_that_may_have_reached_whatsapp_is_never_queued_again_by_a_repeat(): void
+    {
+        $clientMsgId = strtolower((string) Str::ulid());
+        Queue::fake();
+        $this->reply('We are on it', $clientMsgId)->assertCreated();
+        $message = WaMessage::query()->sole();
+        $message->forceFill(['status' => WaMessageStatus::Failed, 'error' => 'WhatsApp never confirmed this message. It may or may not have been delivered: check the phone before sending it again.'])->save();
+
+        $this->reply('We are on it', $clientMsgId)->assertOk()->assertJsonPath('data.status', 'failed');
+
+        $this->assertSame(WaMessageStatus::Failed, $message->refresh()->status);
+        Queue::assertPushed(SendWhatsAppMessage::class, 1);
+    }
+
+    public function test_a_repeat_after_a_queue_failure_still_obeys_the_rules_and_leaves_the_reply_failed(): void
+    {
+        $clientMsgId = strtolower((string) Str::ulid());
+        $this->queueIsDown();
+        $this->reply('We are on it', $clientMsgId)->assertStatus(503);
+        $message = WaMessage::query()->sole();
+        $this->queueWorksAgain();
+
+        // The number went down in the meantime.
+        $this->session->forceFill(['status' => SessionStatus::Disconnected])->save();
+        $this->reply('We are on it', $clientMsgId)->assertStatus(409)->assertJsonPath('error.code', 'session_not_ready');
+        $this->assertSame(WaMessageStatus::Failed, $message->refresh()->status);
+
+        // And the daily cap is full.
+        $this->session->forceFill(['status' => SessionStatus::Ready, 'settings' => ['daily_send_cap' => 1, 'send_min_interval_ms' => 0]])->save();
+        app(SendCounter::class)->reserve($this->session);
+        $this->reply('We are on it', $clientMsgId)->assertStatus(429)->assertJsonPath('error.code', 'daily_cap_reached');
+        $this->assertSame(WaMessageStatus::Failed, $message->refresh()->status);
+        $this->assertSame(1, app(SendCounter::class)->used($this->session), 'the refused repeat took no slot');
+        Queue::assertNothingPushed();
     }
 
     // ---- the job -----------------------------------------------------------------------------------------------------------

@@ -47,6 +47,7 @@ Route::middleware(['auth:sanctum', 'session.valid', 'chat.access', 'wa.admin', C
         Route::post('read', [WhatsAppChatController::class, 'read'])->name('api.whatsapp.chats.read');
         Route::post('archive', [WhatsAppChatController::class, 'archive'])->name('api.whatsapp.chats.archive');
         Route::post('unarchive', [WhatsAppChatController::class, 'unarchive'])->name('api.whatsapp.chats.unarchive');
+        Route::delete('/', [WhatsAppChatController::class, 'destroy'])->name('api.whatsapp.chats.destroy');
     });
 
     Route::get('export', [WhatsAppExportController::class, 'index'])->name('api.whatsapp.export');

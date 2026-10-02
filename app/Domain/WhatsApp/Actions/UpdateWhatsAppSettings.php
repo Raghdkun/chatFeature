@@ -29,6 +29,8 @@ final class UpdateWhatsAppSettings
         'send_min_interval_ms' => 'whatsapp.send_min_interval_ms',
         'daily_send_cap' => 'whatsapp.daily_send_cap',
         'media_max_bytes' => 'whatsapp.media_max_bytes',
+        'retention_days' => 'whatsapp.retention_days',
+        'raw_retention_days' => 'whatsapp.raw_retention_days',
     ];
 
     private const API_KEY = 'whatsapp.openwa.api_key';

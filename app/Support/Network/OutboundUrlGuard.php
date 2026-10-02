@@ -22,6 +22,9 @@ use Illuminate\Contracts\Foundation\Application;
  *    addresses, the unspecified address, multicast and link-local ranges are refused regardless;
  *  - plain `http` only in APP_ENV=local, or for localhost / 127.0.0.1 / ::1 / *.test / *.localhost.
  *
+ * Destinations an UNTRUSTED party chooses (a browser's push endpoint) use {@see self::checkPublicHost()}, which never honours the
+ * private-hosts switch.
+ *
  * A refusal is a bare "no": callers show one fixed sentence, never which rule applied or what a name resolved to.
  *
  * Residual risk (documented, not closable here): the verdict is computed from a lookup made just BEFORE the call, and

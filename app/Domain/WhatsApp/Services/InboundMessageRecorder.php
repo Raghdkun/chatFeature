@@ -217,7 +217,7 @@ final class InboundMessageRecorder
             'media_size' => $inline['size'] ?? null,
             'status' => ($fromMe ? WaMessageStatus::Sent : WaMessageStatus::Received)->value,
             'wa_timestamp' => $moment->setTimezone((string) config('app.timezone', 'UTC'))->format('Y-m-d H:i:s'),
-            'raw' => $this->raw($data),
+            'raw' => $this->rawToKeep($data, $type, $inline),
             'created_at' => $now,
             'updated_at' => $now,
         ];
@@ -328,6 +328,29 @@ final class InboundMessageRecorder
         }
 
         $this->media->queueFetch($message);
+    }
+
+    /**
+     * What is kept of the webhook's message object. It is for debugging only, and customers' data is not kept for debugging for ever:
+     * `whatsapp.raw_retention_days` = 0 keeps nothing (the scheduled prune drops it after N days otherwise). The one thing a later job
+     * needs from it is the chat id exactly as OpenWA spelled it, to fetch a large image: that alone survives for such a message.
+     *
+     * @param  array<array-key, mixed>  $data
+     * @param  array{bytes: string|null, mime: string|null, filename: string|null, size: int|null}|null  $inline
+     */
+    private function rawToKeep(array $data, WaMessageType $type, ?array $inline): ?string
+    {
+        if (settings()->int('whatsapp.raw_retention_days', 30) > 0) {
+            return $this->raw($data);
+        }
+
+        $chatId = $data['chatId'] ?? null;
+
+        if ($type->isStoredAsFile() && $inline !== null && $inline['bytes'] === null && is_string($chatId) && $chatId !== '') {
+            return json_encode(['chatId' => $chatId], JSON_UNESCAPED_SLASHES) ?: null;
+        }
+
+        return null;
     }
 
     /**

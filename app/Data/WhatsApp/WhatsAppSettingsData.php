@@ -23,6 +23,8 @@ class WhatsAppSettingsData extends Data
         public int $sendMinIntervalMs,
         public int $dailySendCap,
         public int $mediaMaxBytes,
+        public int $retentionDays,
+        public int $rawRetentionDays,
     ) {}
 
     public static function fromSettings(): self
@@ -38,6 +40,8 @@ class WhatsAppSettingsData extends Data
             sendMinIntervalMs: settings()->int('whatsapp.send_min_interval_ms', 1500),
             dailySendCap: settings()->int('whatsapp.daily_send_cap', 200),
             mediaMaxBytes: settings()->int('whatsapp.media_max_bytes', 5 * 1024 * 1024),
+            retentionDays: settings()->int('whatsapp.retention_days', 0),
+            rawRetentionDays: settings()->int('whatsapp.raw_retention_days', 30),
         );
     }
 }

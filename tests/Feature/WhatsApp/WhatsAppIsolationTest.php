@@ -4,6 +4,7 @@ namespace Tests\Feature\WhatsApp;
 
 use App\Domain\Visitors\VisitorTokenService;
 use App\Domain\WhatsApp\Actions\CreateWhatsAppSession;
+use App\Domain\WhatsApp\Actions\DeleteWaChat;
 use App\Domain\WhatsApp\Actions\DeleteWhatsAppSession;
 use App\Domain\WhatsApp\Actions\FetchSessionQr;
 use App\Domain\WhatsApp\Actions\LinkWidgetSession;
@@ -111,6 +112,7 @@ class WhatsAppIsolationTest extends TestCase
         yield 'chat read' => ['POST', '/api/v1/whatsapp/chats/{c}/read', []];
         yield 'chat archive' => ['POST', '/api/v1/whatsapp/chats/{c}/archive', []];
         yield 'chat unarchive' => ['POST', '/api/v1/whatsapp/chats/{c}/unarchive', []];
+        yield 'chat delete' => ['DELETE', '/api/v1/whatsapp/chats/{c}', []];
         yield 'export' => ['GET', '/api/v1/whatsapp/export', []];
         yield 'export chats' => ['GET', '/api/v1/whatsapp/export?resource=chats&format=json', []];
         yield 'media' => ['GET', '{m}', []];
@@ -302,6 +304,7 @@ class WhatsAppIsolationTest extends TestCase
         yield 'reply' => [fn (self $t, User $u) => app(SendReply::class)->handle($t->chat, $u, 'hello')];
         yield 'read' => [fn (self $t, User $u) => app(MarkChatRead::class)->handle($t->chat, $u)];
         yield 'archive' => [fn (self $t, User $u) => app(SetChatArchived::class)->handle($t->chat, true, $u)];
+        yield 'delete a chat' => [fn (self $t, User $u) => app(DeleteWaChat::class)->handle($t->chat->ulid, $u)];
         yield 'link a widget' => [fn (self $t, User $u) => app(LinkWidgetSession::class)->handle($t->widget, null, $u)];
     }
 
@@ -328,7 +331,7 @@ class WhatsAppIsolationTest extends TestCase
         $people = $this->whatsAppPeople();
 
         foreach (['agent', 'noRole', 'inactiveAdmin', 'inactiveAgent'] as $who) {
-            foreach (['viewAny', 'view', 'reply', 'archive', 'export'] as $ability) {
+            foreach (['viewAny', 'view', 'reply', 'archive', 'delete', 'export'] as $ability) {
                 $this->assertTrue(Gate::forUser($people[$who])->denies($ability, $this->chat), "{$who} may {$ability}");
             }
 

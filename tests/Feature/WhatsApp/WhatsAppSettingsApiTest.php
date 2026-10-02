@@ -49,6 +49,7 @@ class WhatsAppSettingsApiTest extends TestCase
             'enabled' => false, 'baseUrl' => 'http://127.0.0.1:2785', 'hasApiKey' => false, 'handoffTtlMinutes' => 1440,
             'handoffText' => 'Hi! My support code is :code', 'ignoreGroups' => true, 'replyOnlyToInbound' => true,
             'sendMinIntervalMs' => 1500, 'dailySendCap' => 200, 'mediaMaxBytes' => 5 * 1024 * 1024,
+            'retentionDays' => 0, 'rawRetentionDays' => 30,
         ]])->assertHeader('Cache-Control', 'no-store, private');
     }
 
@@ -71,9 +72,11 @@ class WhatsAppSettingsApiTest extends TestCase
         $this->api()->putJson('/api/v1/whatsapp/settings', [
             'enabled' => true, 'base_url' => 'http://openwa:2785', 'handoff_ttl_minutes' => 60, 'handoff_text' => 'Code :code', 'ignore_groups' => false,
             'reply_only_to_inbound' => false, 'send_min_interval_ms' => 0, 'daily_send_cap' => 10_000, 'media_max_bytes' => 10_240,
+            'retention_days' => 365, 'raw_retention_days' => 7,
         ])->assertOk()->assertJson(['data' => [
             'enabled' => true, 'baseUrl' => 'http://openwa:2785', 'hasApiKey' => false, 'handoffTtlMinutes' => 60, 'handoffText' => 'Code :code',
             'ignoreGroups' => false, 'replyOnlyToInbound' => false, 'sendMinIntervalMs' => 0, 'dailySendCap' => 10_000, 'mediaMaxBytes' => 10_240,
+            'retentionDays' => 365, 'rawRetentionDays' => 7,
         ]]);
     }
 
@@ -92,6 +95,9 @@ class WhatsAppSettingsApiTest extends TestCase
         yield 'a huge cap' => [['daily_send_cap' => 10_001], 'daily_send_cap'];
         yield 'a tiny media limit' => [['media_max_bytes' => 100], 'media_max_bytes'];
         yield 'a huge media limit' => [['media_max_bytes' => 26_214_401], 'media_max_bytes'];
+        yield 'a negative retention' => [['retention_days' => -1], 'retention_days'];
+        yield 'a retention over ten years' => [['retention_days' => 3651], 'retention_days'];
+        yield 'a negative raw retention' => [['raw_retention_days' => -1], 'raw_retention_days'];
         yield 'an address with a path' => [['base_url' => 'http://127.0.0.1:2785/api'], 'base_url'];
         yield 'an address with credentials' => [['base_url' => 'http://user:pass@127.0.0.1:2785'], 'base_url'];
         yield 'a metadata address' => [['base_url' => 'http://169.254.169.254'], 'base_url'];

@@ -67,6 +67,9 @@ return [
      */
     'handoff' => [
         'rate_limits' => ['per_visitor' => 6, 'per_network' => 20, 'per_widget_network' => 10, 'per_widget' => 120],
+        // Caps on LIVE (unconsumed, unexpired) tickets, which a script cannot dodge by fetching a new visitor token for every request.
+        'max_live_per_widget_network' => 30,
+        'max_live_per_widget' => 500,
     ],
 
     /* How many of a chat's first inbound messages are searched for a hand-off code (a customer rarely needs more than the first). */

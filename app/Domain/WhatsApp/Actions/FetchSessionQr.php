@@ -2,6 +2,7 @@
 
 namespace App\Domain\WhatsApp\Actions;
 
+use App\Domain\Audit\AuditLogger;
 use App\Domain\WhatsApp\Contracts\OpenWaClient;
 use App\Domain\WhatsApp\Enums\SessionStatus;
 use App\Domain\WhatsApp\Support\OpenWa\Exceptions\OpenWaRejected;
@@ -11,6 +12,7 @@ use App\Http\Exceptions\ApiProblemException;
 use App\Models\User;
 use App\Models\WhatsAppSession;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -19,15 +21,22 @@ use Illuminate\Support\Facades\Gate;
  * {@see self::FRESH_SECONDS}; otherwise (the webhook never arrived: a private callback address OpenWA refuses, for example) it is
  * fetched from OpenWA and stored. The page polls every few seconds and OpenWA's own throttler (10 requests a second per client address)
  * must never become the administrator's problem: a throttled fetch serves the last known code.
+ *
+ * Looking at a QR is audited (`whatsapp.session.qr_viewed`: who and which session, never the image), once per administrator and session
+ * per five minutes: the page polls every few seconds, and a row per poll would bury the log.
  */
 final class FetchSessionQr
 {
     /** A QR lives about 60 s at OpenWA (recorded) and the `session.qr` webhook refreshes the stored one: serve it for most of that. */
     public const FRESH_SECONDS = 45;
 
+    /** Seconds during which repeated polls of one administrator for one session are one audit entry. */
+    private const AUDIT_WINDOW_SECONDS = 300;
+
     public function __construct(
         private readonly OpenWaClient $openWa,
         private readonly ApplySessionState $state,
+        private readonly AuditLogger $audit,
     ) {}
 
     /**
@@ -42,6 +51,8 @@ final class FetchSessionQr
         if ($session->status !== SessionStatus::Qr) {
             throw new ApiProblemException(409, 'qr_not_available', __('This session is not waiting for a scan.'), ['status' => $session->status->value]);
         }
+
+        $this->auditView($session, $actor);
 
         if ($session->hasQr() && $session->last_qr_at !== null && $session->last_qr_at->gt(now()->subSeconds(self::FRESH_SECONDS))) {
             return ['qr' => (string) $session->last_qr, 'updatedAt' => $session->last_qr_at];
@@ -76,6 +87,13 @@ final class FetchSessionQr
         }
 
         return ['qr' => (string) $session->last_qr, 'updatedAt' => $session->last_qr_at ?? now()];
+    }
+
+    private function auditView(WhatsAppSession $session, User $actor): void
+    {
+        if (Cache::add('wa:qr-audit:'.$actor->id.':'.$session->id, 1, self::AUDIT_WINDOW_SECONDS)) {
+            $this->audit->record('whatsapp.session.qr_viewed', $session, [], $actor);
+        }
     }
 
     /**

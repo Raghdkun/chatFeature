@@ -150,7 +150,7 @@ class WhatsAppDataPrivacyTest extends TestCase
 
         $json = (string) json_encode(HandoffData::fromTicket($ticket->load('session'))->toArray());
 
-        $this->assertSame(['code', 'waUrl', 'expiresAt'], array_keys(HandoffData::fromTicket($ticket)->toArray()));
+        $this->assertSame(['code', 'waUrl', 'expiresAt', 'ttlSeconds'], array_keys(HandoffData::fromTicket($ticket)->toArray()));
         $this->assertStringNotContainsString(self::SECRET, $json);
         $this->assertStringNotContainsString($ticket->ulid, $json, 'not even the ticket id');
         $this->assertStringNotContainsString($ticket->session->ulid, $json);

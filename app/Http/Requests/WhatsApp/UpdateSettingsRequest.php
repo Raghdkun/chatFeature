@@ -33,6 +33,8 @@ class UpdateSettingsRequest extends FormRequest
             'send_min_interval_ms' => ['sometimes', 'integer'],
             'daily_send_cap' => ['sometimes', 'integer'],
             'media_max_bytes' => ['sometimes', 'integer'],
+            'retention_days' => ['sometimes', 'integer'],
+            'raw_retention_days' => ['sometimes', 'integer'],
         ];
     }
 

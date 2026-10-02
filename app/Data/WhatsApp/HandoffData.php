@@ -12,7 +12,10 @@ use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 /**
  * The response of the public hand-off call (`POST /api/v1/public/widgets/{key}/whatsapp-handoff`): the code the visitor sends, the
  * `https://wa.me/<number>?text=...` link that opens WhatsApp with it typed in, and when it stops working. VISITOR-FACING: exactly these
- * three keys, nothing about the session, the widget or the ticket's ids.
+ * four keys, nothing about the session, the widget or the ticket's ids.
+ *
+ * `ttlSeconds` is the whole seconds left when the payload is built, never negative (like `OfferData`): the panel counts down from ITS OWN
+ * arrival time instead of comparing `expiresAt` with the visitor's clock, which may be minutes off.
  */
 #[TypeScript]
 class HandoffData extends Data
@@ -21,6 +24,7 @@ class HandoffData extends Data
         public string $code,
         public string $waUrl,
         public string $expiresAt,
+        public int $ttlSeconds,
     ) {}
 
     /**
@@ -37,6 +41,11 @@ class HandoffData extends Data
             throw new LogicException('The WhatsApp session has no connected number to hand visitors over to.');
         }
 
-        return new self(code: $ticket->code, waUrl: $url, expiresAt: (string) Timestamps::iso($ticket->expires_at));
+        return new self(
+            code: $ticket->code,
+            waUrl: $url,
+            expiresAt: (string) Timestamps::iso($ticket->expires_at),
+            ttlSeconds: max(0, $ticket->expires_at->getTimestamp() - now()->getTimestamp()),
+        );
     }
 }

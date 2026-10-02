@@ -9,6 +9,7 @@ use App\Domain\WhatsApp\Enums\WaDirection;
 use App\Domain\WhatsApp\Enums\WaMessageStatus;
 use App\Domain\WhatsApp\Enums\WaMessageType;
 use App\Domain\WhatsApp\Events\WaMessageSent;
+use App\Domain\WhatsApp\Events\WaMessageStatusChanged;
 use App\Domain\WhatsApp\Jobs\SendWhatsAppMessage;
 use App\Domain\WhatsApp\Services\SendCounter;
 use App\Http\Exceptions\ApiProblemException;
@@ -27,7 +28,9 @@ use Throwable;
  *
  * Checked here, in this order, under guarded code (the policy says who; these say when):
  *  - the text: plain, 1 to 4096 characters after cleaning (control and bidi characters dropped);
- *  - a repeated `client_msg_id` of this chat returns the ORIGINAL (`created = false`, answered 200), never a second message;
+ *  - a repeated `client_msg_id` of this chat returns the ORIGINAL (`created = false`, answered 200), never a second message. The one
+ *    exception is an original that FAILED because the queue refused it (`503 queue_unavailable`): it never reached OpenWA, so the same
+ *    request queues it again (the rules below apply once more, and it takes its slot of the daily cap again);
  *  - the chat's session is `ready` (`409 session_not_ready`);
  *  - `whatsapp.reply_only_to_inbound`: only chats the customer started (`409 reply_not_allowed`): a number that writes to people who
  *    never wrote to it is what gets banned;
@@ -37,6 +40,9 @@ use Throwable;
 final class SendReply
 {
     public const MAX_LENGTH = 4096;
+
+    /** The reason stored on a reply the queue refused: such a reply certainly never reached OpenWA, so repeating the request may queue it again. */
+    public const QUEUE_FAILURE = 'The message could not be queued for sending.';
 
     public function __construct(
         private readonly SendCounter $counter,
@@ -61,7 +67,7 @@ final class SendReply
         }
 
         if ($clientMsgId !== null && ($existing = $this->existing($chat, $clientMsgId)) !== null) {
-            return ['message' => $existing, 'created' => false];
+            return ['message' => $this->requeueIfNeverQueued($chat, $existing, $actor), 'created' => false];
         }
 
         try {
@@ -87,27 +93,7 @@ final class SendReply
     private function store(WaChat $chat, User $actor, string $text, ?string $clientMsgId): WaMessage
     {
         $locked = WaChat::query()->with('session')->lockForUpdate()->findOrFail($chat->id);
-        $session = $locked->session;
-
-        if ($session->trashed() || $session->status !== SessionStatus::Ready || $session->openwa_session_id === null) {
-            throw new ApiProblemException(409, 'session_not_ready', __('The WhatsApp number is not connected right now.'), ['status' => $session->trashed() ? 'deleted' : $session->status->value]);
-        }
-
-        if (settings()->bool('whatsapp.reply_only_to_inbound', true) && ! $locked->inbound_initiated) {
-            throw ApiProblemException::conflict('reply_not_allowed', __('This customer has not written to you first, so you cannot message them from here.'));
-        }
-
-        if (! $this->counter->reserve($session)) {
-            $seconds = $this->counter->secondsUntilReset();
-
-            throw new ApiProblemException(
-                429,
-                'daily_cap_reached',
-                __('This WhatsApp number has reached its daily limit of :cap messages. It starts over at 00:00 UTC.', ['cap' => $session->dailySendCap()]),
-                ['cap' => $session->dailySendCap(), 'retry_after' => $seconds],
-                ['Retry-After' => (string) $seconds],
-            );
-        }
+        $this->reserveSlot($locked);
 
         $message = WaMessage::query()->create([
             'wa_chat_id' => $locked->id,
@@ -132,6 +118,81 @@ final class SendReply
         return $message;
     }
 
+    /**
+     * The checks every send has to pass, under the chat's row lock: the session is `ready`, the customer wrote first (when that rule is on)
+     * and the session's daily cap has a slot left, which is taken.
+     *
+     * @throws ApiProblemException
+     */
+    private function reserveSlot(WaChat $locked): void
+    {
+        $session = $locked->session;
+
+        if ($session->trashed() || $session->status !== SessionStatus::Ready || $session->openwa_session_id === null) {
+            throw new ApiProblemException(409, 'session_not_ready', __('The WhatsApp number is not connected right now.'), ['status' => $session->trashed() ? 'deleted' : $session->status->value]);
+        }
+
+        if (settings()->bool('whatsapp.reply_only_to_inbound', true) && ! $locked->inbound_initiated) {
+            throw ApiProblemException::conflict('reply_not_allowed', __('This customer has not written to you first, so you cannot message them from here.'));
+        }
+
+        if (! $this->counter->reserve($session)) {
+            $seconds = $this->counter->secondsUntilReset();
+
+            throw new ApiProblemException(
+                429,
+                'daily_cap_reached',
+                __('This WhatsApp number has reached its daily limit of :cap messages. It starts over at 00:00 UTC.', ['cap' => $session->dailySendCap()]),
+                ['cap' => $session->dailySendCap(), 'retry_after' => $seconds],
+                ['Retry-After' => (string) $seconds],
+            );
+        }
+    }
+
+    /**
+     * A repeat of a request whose reply the QUEUE refused (it failed with {@see self::QUEUE_FAILURE} and never got a WhatsApp id): put it
+     * back to `pending` (one repeat wins, guarded), take its slot again and queue it. Anything else that failed stays failed: a reply the
+     * administrator is told "may or may not have been delivered" must never be sent again behind their back.
+     */
+    private function requeueIfNeverQueued(WaChat $chat, WaMessage $existing, User $actor): WaMessage
+    {
+        if ($existing->status !== WaMessageStatus::Failed || $existing->wa_message_id !== null || $existing->error !== self::QUEUE_FAILURE) {
+            return $existing;
+        }
+
+        $revived = DeadlockRetry::transaction(function () use ($chat, $existing): bool {
+            $locked = WaChat::query()->with('session')->lockForUpdate()->findOrFail($chat->id);
+
+            $moved = WaMessage::query()
+                ->whereKey($existing->id)
+                ->where('status', WaMessageStatus::Failed->value)
+                ->whereNull('wa_message_id')
+                ->where('error', self::QUEUE_FAILURE)
+                ->update(['status' => WaMessageStatus::Pending->value, 'error' => null, 'created_at' => now(), 'updated_at' => now()]);
+
+            if ($moved !== 1) {
+                return false;
+            }
+
+            // Inside the transaction: a refusal (session down, daily cap) rolls the status back to `failed`.
+            $this->reserveSlot($locked);
+
+            return true;
+        });
+
+        $message = $existing->refresh();
+
+        if (! $revived) {
+            return $message;
+        }
+
+        WaMessageStatusChanged::dispatch($message, WaMessageStatus::Failed);
+        $this->audit->record('whatsapp.message.requeued', $message, ['chat' => $chat->ulid], $actor);
+        $this->queue($message->load('chat'));
+
+        return $message->refresh();
+    }
+
     /** Hand the stored reply to the worker; a queue that cannot take it fails the reply at once (and gives its slot back). */
     private function queue(WaMessage $message): void
     {
@@ -142,12 +203,14 @@ final class SendReply
 
             $failed = WaMessage::query()->whereKey($message->id)->where('status', WaMessageStatus::Pending->value)->update([
                 'status' => WaMessageStatus::Failed->value,
-                'error' => 'The message could not be queued for sending.',
+                'error' => self::QUEUE_FAILURE,
                 'updated_at' => now(),
             ]);
 
             if ($failed === 1) {
                 $this->counter->release($message->chat->session_id, $message->created_at ?? now());
+                // The open inbox shows the message as failed at once (the reply was announced as pending by `WaMessageSent`).
+                WaMessageStatusChanged::dispatch($message->refresh(), WaMessageStatus::Pending);
             }
 
             throw new ApiProblemException(503, 'queue_unavailable', __('The message could not be queued. Please try again.'));

@@ -55,6 +55,12 @@ final class WhatsAppPolicy
         return $this->admin($user);
     }
 
+    /** Delete a chat for good with its messages and stored images (erasure on request, retention). */
+    public function delete(User $user, ?WaChat $chat = null): bool
+    {
+        return $this->admin($user);
+    }
+
     /** Export a chat or the whole inbox. */
     public function export(User $user, ?WaChat $chat = null): bool
     {

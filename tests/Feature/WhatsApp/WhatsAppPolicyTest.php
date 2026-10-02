@@ -21,7 +21,7 @@ class WhatsAppPolicyTest extends TestCase
 {
     use RefreshDatabase, WhatsAppFixtures;
 
-    private const ABILITIES = ['viewAny', 'view', 'reply', 'manageSessions', 'manageSettings', 'archive', 'export'];
+    private const ABILITIES = ['viewAny', 'view', 'reply', 'manageSessions', 'manageSettings', 'archive', 'delete', 'export'];
 
     /** @var array<string, bool> who may: person => allowed */
     private const MATRIX = [
@@ -53,7 +53,7 @@ class WhatsAppPolicyTest extends TestCase
         return match ($ability) {
             'viewAny' => WaChat::class,
             'view' => WaChat::factory()->create(),
-            'reply', 'archive', 'export' => WaChat::factory()->create(),
+            'reply', 'archive', 'delete', 'export' => WaChat::factory()->create(),
             'manageSessions' => WhatsAppSession::factory()->create(),
             'manageSettings' => WhatsAppSession::class,
         };

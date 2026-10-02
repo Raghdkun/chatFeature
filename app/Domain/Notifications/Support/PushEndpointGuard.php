@@ -148,7 +148,8 @@ class PushEndpointGuard
 
         $target = $this->guard->checkPublicHost($host, $port, 'https');
 
-        if ($ttl > 0) {
+        // A name that did not resolve is not remembered: a hiccup of the resolver must not lock a legitimate push service out for a minute.
+        if ($ttl > 0 && $target->reason !== 'unresolvable') {
             try {
                 $this->cache->put($key, [
                     'ok' => $target->ok,
