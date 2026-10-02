@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { runArtisan } from '../support/chat-db';
 import { SocketGate } from '../support/realtime';
 import {
@@ -34,6 +35,21 @@ import {
 test.use({ scenario: 'p6-wa' });
 
 const SOCKET_NOISE = [/WebSocket/i];
+
+/**
+ * Moves the page's fake clock one poll interval (15 s) at a time until `assertion` holds. A jump fires each due timer once, so a poll that
+ * was still in flight when the clock moved (a loaded machine) misses that tick: the next jump gives it another.
+ */
+async function pollTick(
+    page: Page,
+    assertion: () => Promise<unknown>,
+    step = 16_000,
+): Promise<void> {
+    await expect(async () => {
+        await page.clock.fastForward(step);
+        await assertion();
+    }).toPass({ timeout: 40_000, intervals: [250, 500, 1_000] });
+}
 
 test("Reverb is cut for the administrator's browser: the page says so, polls for what it missed (messages, unread, replies keep working over REST), and goes live again", async ({
     actors,
@@ -88,16 +104,21 @@ test("Reverb is cut for the administrator's browser: the page says so, polls for
         (message) => message.body === 'Said during the outage',
     );
     await expect(inbox.bubble('Said during the outage')).toHaveCount(0);
-    await admin.page.clock.fastForward(16_000);
-    await expect(inbox.bubble('Said during the outage')).toBeVisible();
+    await pollTick(admin.page, () =>
+        expect(inbox.bubble('Said during the outage')).toBeVisible({
+            timeout: 1_500,
+        }),
+    );
 
     // Replying needs no socket: REST, and the ticks come back with the next poll.
     await openWa.sessionAcks(session.name, { mode: 'manual' });
     await inbox.reply('Replying without a socket');
 
+    // This session's call: other tests (or another run of this one) send the same words through the same mock.
+    const mock = await openWa.waitForSession(session.name);
     const sent = await openWa.waitForRequest(
         (request) =>
-            request.path.endsWith('/messages/send-text') &&
+            request.path === `/api/sessions/${mock.id}/messages/send-text` &&
             JSON.stringify(request.body).includes('without a socket'),
     );
 
@@ -117,15 +138,22 @@ test("Reverb is cut for the administrator's browser: the page says so, polls for
             message.body === 'Replying without a socket' &&
             message.status === 'read',
     );
-    await admin.page.clock.fastForward(16_000);
-    await expect(inbox.bubble('Replying without a socket')).toHaveAttribute(
-        'data-status',
-        'read',
+    await pollTick(admin.page, () =>
+        expect(inbox.bubble('Replying without a socket')).toHaveAttribute(
+            'data-status',
+            'read',
+            { timeout: 1_500 },
+        ),
     );
 
-    // The socket returns: the banner goes and the next message is live again (the page's own reconnect, no clock help).
+    // The socket returns: the page's own reconnect (its back-off timer runs on the fake clock, which is nudged along) takes the banner away,
+    // and the next message is live again.
     gate.allow();
-    await expect(banner).toHaveCount(0, { timeout: 30_000 });
+    await pollTick(
+        admin.page,
+        () => expect(banner).toHaveCount(0, { timeout: 1_500 }),
+        5_000,
+    );
     await openWa.inboundText(session.name, customer, 'Live again', {
         pushName: 'Olivia Outage',
     });

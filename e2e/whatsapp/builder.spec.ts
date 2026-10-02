@@ -415,7 +415,8 @@ test.describe('with no connected number at all', () => {
 });
 
 test.describe('hand-off and replies (Settings > WhatsApp)', () => {
-    test.use({ waMode: 'exclusive' });
+    // The preview shows the link of the first connected number: ours must be the only one.
+    test.use({ waMode: 'exclusive', waWipe: true });
 
     test("the hand-off message and a code's lifetime are validated and saved, shape the visitor's link, and show in the builder preview", async ({
         actors,
