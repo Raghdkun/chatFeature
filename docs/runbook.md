@@ -72,7 +72,7 @@ Changing the address, the service name or the NATS address always asks for the m
 
 ## Widget loader
 
-- The bundle `public/widget/v1/loader.js` is **built, not committed** (`npm run build:widget`, about 46 KB / 15.65 KB gzip, budget 16 KB: `npm run size`). The Docker image build must run it. `GET /w/{key}.js` is always served by PHP (it inlines the widget's boot config); `GET /widget/v1/loader.js` is a static file when it exists.
+- The bundle `public/widget/v1/loader.js` is **built, not committed** (`npm run build:widget`, about 49 KB / 16.4 KB gzip, budget 18 KB: `npm run size`). The Docker image build must run it. `GET /w/{key}.js` is always served by PHP (it inlines the widget's boot config); `GET /widget/v1/loader.js` is a static file when it exists.
 - Caching: PHP sends `Cache-Control: public, max-age=60, stale-while-revalidate=300` and an `ETag` that changes with the widget config and with the bundle, so a rebuild or a Publish reaches visitors within about a minute. The static file has no content hash in its name: let Caddy's `file_server` add `ETag`/`Last-Modified` and give it a short lifetime, for example `header /widget/v1/loader.js Cache-Control "public, max-age=300"` *(suggested, not yet run; settle it with the P8 Caddyfile)*. Do not cache `/w/*.js` or `/embed/*` longer in the proxy than PHP says.
 - Serve `/w/*`, `/embed/*`, `/c/*` and `/api/*` to PHP; these routes must not get session cookies (they run without the web middleware group, so they never set one).
 - If the file is missing PHP serves a stub that only logs a console warning, and the dashboard builder falls back to its static preview.
