@@ -8,12 +8,14 @@ use App\Auth\Enums\AuthMode;
 use App\Data\Auth\AuthCapabilitiesData;
 use App\Data\Auth\AuthUserData;
 use App\Data\Shared\FlashData;
+use App\Data\Shared\PushConfigData;
 use App\Data\Shared\RealtimeEndpointData;
 use App\Data\Shared\SharedAuthData;
 use App\Data\Shared\SharedPropsData;
 use App\Data\Shared\TextDirection;
 use App\Domain\Chat\Realtime\ReverbEndpoint;
 use App\Domain\Install\InstallState;
+use App\Domain\Notifications\Channels\WebPushChannel;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -70,6 +72,7 @@ class HandleInertiaRequests extends Middleware
             sidebarOpen: ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
             flash: $this->flash($request),
             realtime: $user instanceof User ? $this->realtime($user) : null,
+            push: $user instanceof User ? $this->push($user) : null,
         );
 
         $props = $shared->toArray();
@@ -92,6 +95,16 @@ class HandleInertiaRequests extends Middleware
         }
 
         return new RealtimeEndpointData(...$endpoints->forVisitors());
+    }
+
+    /** The public VAPID key for signed-in staff (null for everyone else and when the keys are not configured: the page then never offers push). */
+    private function push(User $user): ?PushConfigData
+    {
+        if (! $user->is_active || ! ($user->is_admin || $user->is_agent) || ! WebPushChannel::vapidConfigured()) {
+            return null;
+        }
+
+        return new PushConfigData((string) config('push.vapid.public_key'));
     }
 
     private function mode(): AuthMode

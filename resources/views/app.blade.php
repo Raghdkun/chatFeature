@@ -39,6 +39,10 @@
         <link rel="icon" href="/favicon.ico" sizes="any">
         <link rel="icon" href="/favicon.svg" type="image/svg+xml">
         <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+        {{-- Web app manifest (installable dashboard; iOS delivers web push only to an installed app). Not before the install: the install gate would answer it with the setup page. --}}
+        @if ($page['props']['installed'] ?? false)
+            <link rel="manifest" href="/manifest.webmanifest">
+        @endif
 
         @fonts
 
