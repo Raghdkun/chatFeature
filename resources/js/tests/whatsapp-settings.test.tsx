@@ -9,7 +9,7 @@ import type { WaSettings } from '@/lib/whatsapp-api/types';
 import { makeWaSession, resetWaFixtures } from '@/lib/whatsapp/fixtures';
 import type { WhatsAppSession } from '@/lib/whatsapp/types';
 import WhatsAppSettings from '@/pages/settings/whatsapp';
-import { body, fill } from '@/tests/dom';
+import { body, byLabelText, fill } from '@/tests/dom';
 import { fakeEcho } from '@/tests/fake-echo';
 import { click } from '@/tests/render';
 import {
@@ -89,6 +89,7 @@ const calls = (method: string, suffix: string) =>
         (call) => call.method === method && call.path.endsWith(suffix),
     );
 const input = (id: string) => byTestId(id) as HTMLInputElement;
+const dialog = () => byTestId('wa-pacing-dialog') as HTMLElement;
 
 describe('who may see it', () => {
     it('shows an administrator the whole page, ban-risk notice first', async () => {
@@ -674,6 +675,152 @@ describe('the sessions', () => {
         expect(
             byTestId(`wa-session-hint-${missing.ulid}`)?.textContent,
         ).toContain('no webhook');
+    });
+
+    it("changes one session's own sending limits, and only that session's", async () => {
+        const session = ready();
+        const other = makeWaSession({
+            ulid: fakeUlid(5012),
+            name: 'sales-line',
+            status: 'ready',
+        });
+
+        await open({ sessions: [session, other] });
+
+        expect(
+            byTestId(`wa-session-limits-${session.ulid}`)?.textContent,
+        ).toContain('At least 1.5 s between sends, 200 a day');
+
+        await click(byTestId(`wa-session-pacing-${session.ulid}`));
+
+        expect(byTestId('wa-pacing-dialog')?.textContent).toContain(
+            'Sending limits of support-main',
+        );
+        // It starts on the global limits: the fields are not editable until the switch is off.
+        expect(byTestId('wa-pacing-global')?.getAttribute('aria-checked')).toBe(
+            'true',
+        );
+        expect(
+            (byLabelText(dialog(), 'Daily limit') as HTMLInputElement).disabled,
+        ).toBe(true);
+
+        await click(byTestId('wa-pacing-global'));
+        await fill(
+            byLabelText(dialog(), 'Pause between messages') as HTMLInputElement,
+            '4000',
+        );
+        await fill(
+            byLabelText(dialog(), 'Daily limit') as HTMLInputElement,
+            '50',
+        );
+        await click(byTestId('wa-pacing-save'));
+
+        await waitFor(() =>
+            expect(calls('PATCH', `/${session.ulid}`)).toHaveLength(1),
+        );
+        expect(calls('PATCH', `/${session.ulid}`)[0].body).toEqual({
+            send_min_interval_ms: 4000,
+            daily_send_cap: 50,
+        });
+        await waitFor(() => expect(byTestId('wa-pacing-dialog')).toBeNull());
+        await waitFor(() =>
+            expect(
+                byTestId(`wa-session-limits-${session.ulid}`)?.textContent,
+            ).toContain(
+                'At least 4 s between sends, 50 a day · set for this session',
+            ),
+        );
+        expect(
+            byTestId(`wa-session-limits-${other.ulid}`)?.textContent,
+        ).not.toContain('set for this session');
+        expect(toast.success).toHaveBeenCalledWith(
+            'The limits of support-main were saved.',
+        );
+    });
+
+    it('goes back to the global limits with null for both', async () => {
+        const session = {
+            ...ready(),
+            pacingOverridden: true,
+            sendMinIntervalMs: 4000,
+            dailySendCap: 50,
+        };
+
+        await open({ sessions: [session] });
+        await click(byTestId(`wa-session-pacing-${session.ulid}`));
+
+        expect(byTestId('wa-pacing-global')?.getAttribute('aria-checked')).toBe(
+            'false',
+        );
+
+        await click(byTestId('wa-pacing-global'));
+        await click(byTestId('wa-pacing-save'));
+
+        await waitFor(() =>
+            expect(calls('PATCH', `/${session.ulid}`)).toHaveLength(1),
+        );
+        expect(calls('PATCH', `/${session.ulid}`)[0].body).toEqual({
+            send_min_interval_ms: null,
+            daily_send_cap: null,
+        });
+        await waitFor(() =>
+            expect(
+                byTestId(`wa-session-limits-${session.ulid}`)?.textContent,
+            ).toContain('At least 1.5 s between sends, 200 a day'),
+        );
+        expect(
+            byTestId(`wa-session-limits-${session.ulid}`)?.textContent,
+        ).not.toContain('set for this session');
+    });
+
+    it("puts the server's validation message under the field and keeps the dialog open", async () => {
+        const session = ready();
+
+        await open({ sessions: [session] });
+        await click(byTestId(`wa-session-pacing-${session.ulid}`));
+        await click(byTestId('wa-pacing-global'));
+
+        // The field clamps what is typed to its range, so the 422 is provoked at the server instead.
+        backend.server.use(
+            http.patch(`/api/v1/whatsapp/sessions/${session.ulid}`, () =>
+                HttpResponse.json(
+                    {
+                        error: {
+                            code: 'validation_failed',
+                            message: 'Invalid.',
+                            details: {
+                                daily_send_cap: ['The limit is too high.'],
+                            },
+                        },
+                    },
+                    { status: 422 },
+                ),
+            ),
+        );
+        await click(byTestId('wa-pacing-save'));
+
+        await waitFor(() =>
+            expect(byTestId('wa-pacing-dialog')?.textContent).toContain(
+                'The limit is too high.',
+            ),
+        );
+        expect(byTestId('wa-pacing-dialog')).not.toBeNull();
+    });
+
+    it('shows the address OpenWA has to reach, as plain left-to-right text', async () => {
+        const session = {
+            ...ready(),
+            webhookUrl: 'https://chat.example.com/webhooks/openwa/01ABC',
+        };
+
+        await open({ sessions: [session] });
+
+        const url = byTestId(`wa-session-webhook-url-${session.ulid}`);
+
+        expect(url?.textContent).toBe(
+            'https://chat.example.com/webhooks/openwa/01ABC',
+        );
+        expect(url?.getAttribute('dir')).toBe('ltr');
     });
 
     it("shows OpenWA's refusal of the webhook address as the server words it, with the host to allow", async () => {

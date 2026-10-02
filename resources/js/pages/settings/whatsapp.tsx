@@ -78,7 +78,13 @@ function WhatsAppSettingsBody({
                     privateHostsAllowed={privateHostsAllowed}
                     onSaved={setSettings}
                 />
-                <SessionsCard controller={controller} />
+                <SessionsCard
+                    controller={controller}
+                    globalPacing={{
+                        sendMinIntervalMs: settings.sendMinIntervalMs,
+                        dailySendCap: settings.dailySendCap,
+                    }}
+                />
                 <BehaviorCard
                     settings={settings}
                     sessions={controller.sessions}

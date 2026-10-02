@@ -557,6 +557,89 @@ export function createWaBackend(options: WaBackendOptions = {}) {
             );
         }),
 
+        http.patch(route(waRoutes.api.session), async ({ request, params }) => {
+            const body = await bodyOf(request);
+
+            record(request, body);
+
+            const outage = down();
+
+            if (outage) {
+                return outage;
+            }
+
+            const session = state.sessions.get(String(params.ulid));
+
+            if (!session) {
+                return notFound();
+            }
+
+            const errors: Record<string, string[]> = {};
+            const interval = body.send_min_interval_ms;
+            const cap = body.daily_send_cap;
+
+            if (
+                interval !== undefined &&
+                interval !== null &&
+                !(
+                    Number.isInteger(interval) &&
+                    (interval as number) >= 0 &&
+                    (interval as number) <= 60_000
+                )
+            ) {
+                errors.send_min_interval_ms = [
+                    'The pause must be between 0 and 60000.',
+                ];
+            }
+
+            if (
+                cap !== undefined &&
+                cap !== null &&
+                !(
+                    Number.isInteger(cap) &&
+                    (cap as number) >= 1 &&
+                    (cap as number) <= 10_000
+                )
+            ) {
+                errors.daily_send_cap = [
+                    'The limit must be between 1 and 10000.',
+                ];
+            }
+
+            if (Object.keys(errors).length > 0) {
+                return envelopeError('validation_failed', 'Invalid.', 422, {
+                    details: errors,
+                });
+            }
+
+            const next: WhatsAppSession = {
+                ...session,
+                sendMinIntervalMs:
+                    interval === undefined
+                        ? session.sendMinIntervalMs
+                        : interval === null
+                          ? state.settings.sendMinIntervalMs
+                          : (interval as number),
+                dailySendCap:
+                    cap === undefined
+                        ? session.dailySendCap
+                        : cap === null
+                          ? state.settings.dailySendCap
+                          : (cap as number),
+            };
+
+            next.pacingOverridden =
+                interval === null && cap === null
+                    ? false
+                    : session.pacingOverridden ||
+                      interval !== undefined ||
+                      cap !== undefined;
+
+            state.sessions.set(next.ulid, next);
+
+            return HttpResponse.json({ data: next });
+        }),
+
         http.delete(route(waRoutes.api.session), ({ request, params }) => {
             record(request);
 

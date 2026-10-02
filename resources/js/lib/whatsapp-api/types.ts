@@ -39,6 +39,8 @@ export const WA_LIMITS = {
     dailySendCap: { min: 1, max: 10_000 },
     mediaMaxBytes: { min: 10 * 1024, max: 25 * 1024 * 1024 },
     apiKeyMax: 255,
+    /** `?q=` of the chat list (a longer one is a `422`). */
+    searchMax: 200,
     /** The reply a message may carry (OpenWA accepts 1-4096 characters). */
     messageMax: 4096,
     /** Session names: letters, digits and hyphens, 3-50 characters (OpenWA's rule). */

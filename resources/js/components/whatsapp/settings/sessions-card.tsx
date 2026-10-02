@@ -5,6 +5,10 @@ import { describedBy, Field } from '@/components/setup/field';
 import { QrDialog } from '@/components/whatsapp/settings/qr-dialog';
 import { ConfirmDialog } from '@/components/whatsapp/settings/confirm-dialog';
 import {
+    PacingDialog,
+    type GlobalPacing,
+} from '@/components/whatsapp/settings/pacing-dialog';
+import {
     SessionRow,
     type SessionAction,
 } from '@/components/whatsapp/settings/session-row';
@@ -52,8 +56,11 @@ export function sessionNameProblem(
  */
 export function SessionsCard({
     controller,
+    globalPacing,
 }: {
     controller: WaSessionsController;
+    /** The global limits (the behaviour settings): what a session without its own limits uses. */
+    globalPacing: GlobalPacing;
 }) {
     const { t, locale } = useTrans();
     const plural = usePlural();
@@ -70,6 +77,7 @@ export function SessionsCard({
     const [qrFor, setQrFor] = useState<WhatsAppSession | null>(null);
     const [stopping, setStopping] = useState<WhatsAppSession | null>(null);
     const [rewiring, setRewiring] = useState<WhatsAppSession | null>(null);
+    const [pacing, setPacing] = useState<WhatsAppSession | null>(null);
     const [deleting, setDeleting] = useState<WhatsAppSession | null>(null);
 
     const problem = (ulid: string, message: string | null): void =>
@@ -280,6 +288,7 @@ export function SessionsCard({
                                     )
                                 }
                                 onWebhook={() => setRewiring(session)}
+                                onPacing={() => setPacing(session)}
                                 onQr={() => setQrFor(session)}
                                 onDelete={() => setDeleting(session)}
                             />
@@ -330,6 +339,13 @@ export function SessionsCard({
                         setStopping(null);
                     }
                 }}
+            />
+
+            <PacingDialog
+                session={pacing}
+                global={globalPacing}
+                onClose={() => setPacing(null)}
+                onSave={(ulid, input) => controller.updatePacing(ulid, input)}
             />
 
             <ConfirmDialog

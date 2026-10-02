@@ -1498,5 +1498,12 @@
     "whatsapp.webhook.title": "Register the webhook of :name again?",
     "whatsapp.webhook.body": "OpenWA gets a new secret for sending messages to this app and the old webhook is removed. Do this only when messages stopped arriving although the session is connected (for example after the application key changed or a database was restored).",
     "whatsapp.webhook.confirm": "Register again",
-    "whatsapp.toast.webhook_reregistered": "The webhook of :name was registered again."
+    "whatsapp.toast.webhook_reregistered": "The webhook of :name was registered again.",
+    "whatsapp.session.limits_edit": "Change",
+    "whatsapp.pacing.title": "Sending limits of :name",
+    "whatsapp.pacing.description": "Pace this number more gently than the others, for example while it is new. Limits protect the number from being flagged as spam.",
+    "whatsapp.pacing.use_global": "Use the global limits",
+    "whatsapp.pacing.use_global_hint": "At least :interval s between sends, :cap a day (Behaviour settings below).",
+    "whatsapp.pacing.save": "Save limits",
+    "whatsapp.toast.pacing_saved": "The limits of :name were saved."
 }

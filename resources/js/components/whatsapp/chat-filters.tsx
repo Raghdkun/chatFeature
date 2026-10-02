@@ -7,6 +7,7 @@ import type {
     WaWidgetRef,
     WhatsAppSession,
 } from '@/lib/whatsapp/types';
+import { WA_LIMITS } from '@/lib/whatsapp-api/types';
 import { cn } from '@/lib/utils';
 
 function Chip({
@@ -103,6 +104,7 @@ export function ChatFilters({
                 <Input
                     type="search"
                     value={filters.q}
+                    maxLength={WA_LIMITS.searchMax}
                     onChange={(event) => onChange({ q: event.target.value })}
                     placeholder={t('whatsapp.list.search')}
                     aria-label={t('whatsapp.list.search')}

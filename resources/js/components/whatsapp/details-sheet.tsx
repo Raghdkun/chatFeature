@@ -27,10 +27,13 @@ function Section({
     id,
     title,
     children,
+    empty,
 }: {
     id: string;
     title: string;
-    children: ReactNode;
+    children?: ReactNode;
+    /** Shown instead of the list when there is nothing to list (a `<dl>` may only hold terms and definitions). */
+    empty?: ReactNode;
 }) {
     return (
         <section aria-labelledby={id}>
@@ -40,7 +43,7 @@ function Section({
             >
                 {title}
             </h3>
-            <dl className="divide-y">{children}</dl>
+            {empty ?? <dl className="divide-y">{children}</dl>}
         </section>
     );
 }
@@ -139,8 +142,18 @@ export function ChatDetailsSheet({
                     <Section
                         id="wa-details-link"
                         title={t('whatsapp.details.website')}
+                        empty={
+                            chat.linked ? undefined : (
+                                <p
+                                    data-testid="wa-details-unlinked"
+                                    className="text-sm text-muted-foreground"
+                                >
+                                    {t('whatsapp.details.unlinked')}
+                                </p>
+                            )
+                        }
                     >
-                        {chat.linked ? (
+                        {chat.linked && (
                             <>
                                 {chat.widget && (
                                     <Row label={t('whatsapp.details.widget')}>
@@ -237,13 +250,6 @@ export function ChatDetailsSheet({
                                     </>
                                 )}
                             </>
-                        ) : (
-                            <p
-                                data-testid="wa-details-unlinked"
-                                className="text-sm text-muted-foreground"
-                            >
-                                {t('whatsapp.details.unlinked')}
-                            </p>
                         )}
                     </Section>
                 </div>

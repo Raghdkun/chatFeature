@@ -58,6 +58,7 @@ export function SessionRow({
     onStop,
     onSync,
     onWebhook,
+    onPacing,
     onQr,
     onDelete,
 }: {
@@ -71,6 +72,8 @@ export function SessionRow({
     onSync: () => void;
     /** Register the webhook again (a new secret): asked to be confirmed by the card. */
     onWebhook: () => void;
+    /** Edit this session's own sending limits. */
+    onPacing: () => void;
     onQr: () => void;
     onDelete: () => void;
 }) {
@@ -145,7 +148,7 @@ export function SessionRow({
                     <dt className="text-xs text-muted-foreground">
                         {t('whatsapp.session.webhook')}
                     </dt>
-                    <dd className="inline-flex items-center gap-1.5">
+                    <dd className="flex flex-wrap items-center gap-x-1.5">
                         <Webhook
                             className="size-3.5 text-muted-foreground"
                             aria-hidden
@@ -157,6 +160,15 @@ export function SessionRow({
                                 ? t('whatsapp.session.webhook_ok')
                                 : t('whatsapp.session.webhook_missing')}
                         </span>
+                        {session.webhookUrl && (
+                            <code
+                                dir="ltr"
+                                data-testid={`wa-session-webhook-url-${session.ulid}`}
+                                className="block w-full text-xs [overflow-wrap:anywhere] text-muted-foreground"
+                            >
+                                {session.webhookUrl}
+                            </code>
+                        )}
                     </dd>
                 </div>
                 <div className="grid gap-0.5">
@@ -184,7 +196,16 @@ export function SessionRow({
                             cap: session.dailySendCap.toLocaleString(locale),
                         })}
                         {session.pacingOverridden &&
-                            ` · ${t('whatsapp.session.limits_own')}`}
+                            ` · ${t('whatsapp.session.limits_own')}`}{' '}
+                        <button
+                            type="button"
+                            disabled={disabled}
+                            data-testid={`wa-session-pacing-${session.ulid}`}
+                            onClick={onPacing}
+                            className="rounded-sm text-primary underline-offset-4 hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-50"
+                        >
+                            {t('whatsapp.session.limits_edit')}
+                        </button>
                     </dd>
                 </div>
             </dl>

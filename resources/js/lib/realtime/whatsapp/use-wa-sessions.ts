@@ -12,6 +12,7 @@ import {
 } from '@/lib/realtime/whatsapp/context';
 import { POLL_INTERVAL_MS } from '@/lib/realtime/whatsapp/controller';
 import type { WaApi } from '@/lib/whatsapp-api/client';
+import type { SessionPacingInput } from '@/lib/whatsapp-api/types';
 import type { WhatsAppSession } from '@/lib/whatsapp/types';
 
 export function useWaSessions(initial: WhatsAppSession[], injectedApi?: WaApi) {
@@ -91,6 +92,8 @@ export function useWaSessions(initial: WhatsAppSession[], injectedApi?: WaApi) {
         start: async (ulid: string) => accept(await api.startSession(ulid)),
         stop: async (ulid: string) => accept(await api.stopSession(ulid)),
         sync: async (ulid: string) => accept(await api.syncSession(ulid)),
+        updatePacing: async (ulid: string, input: SessionPacingInput) =>
+            accept(await api.updateSessionPacing(ulid, input)),
         reregisterWebhook: async (ulid: string) =>
             accept(await api.reregisterWebhook(ulid)),
         remove: async (ulid: string, force = false) => {
