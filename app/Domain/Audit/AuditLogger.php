@@ -18,7 +18,10 @@ final class AuditLogger
 {
     private const REDACTED = '[redacted]';
 
-    private const SECRET_KEYS = ['password', 'secret', 'token', 'api_key', 'private_key'];
+    private const SECRET_KEYS = ['password', 'secret', 'token', 'api_key', 'private_key', 'recovery_code', 'challenge'];
+
+    /** Keys that are a secret only as a whole (`code` is a second-factor code; `error_code` is not). */
+    private const SECRET_EXACT_KEYS = ['code'];
 
     public function __construct(private readonly AuthFactory $auth) {}
 
@@ -56,7 +59,7 @@ final class AuditLogger
     private function redact(array $values): array
     {
         foreach ($values as $key => $value) {
-            if (is_string($key) && Str::contains(Str::lower($key), self::SECRET_KEYS)) {
+            if (is_string($key) && (Str::contains(Str::lower($key), self::SECRET_KEYS) || in_array(Str::lower($key), self::SECRET_EXACT_KEYS, true))) {
                 $values[$key] = self::REDACTED;
 
                 continue;

@@ -20,6 +20,16 @@ final class RequestDocs
         $category = ExampleValues::ulid('category');
 
         return [
+            'Auth\\StaffSignInRequest' => [
+                'email' => ['description' => 'The account\'s email address (case does not matter).', 'example' => 'sam@example.com'],
+                'password' => ['description' => 'The password. Sent only here, over TLS; never stored by the app. At most 1024 characters.', 'example' => 'correct-Horse-battery-9!'],
+                'device_name' => ['description' => 'A label for this device, shown in `GET /auth/tokens` (3 to 60 characters). Control and invisible characters and `<` `>` are removed and white space is collapsed before it is checked; render it as text.', 'example' => 'Sam\'s Pixel 9'],
+            ],
+            'Auth\\StaffTwoFactorRequest' => [
+                'challenge' => ['description' => 'The `challenge` the password step answered with (`tfc_` + 40 characters). Single use; valid 5 minutes.', 'example' => 'tfc_3vQnK8mZ0pXw2rLd7sYh1cTb5uAe9GjFoR6iNxMk'],
+                'code' => ['description' => 'The six-digit authenticator code. Send this or `recovery_code`, not both.', 'example' => '123456'],
+                'recovery_code' => ['description' => 'One of the account\'s recovery codes (it is replaced by a new one when used). Send this or `code`, not both.', 'example' => 'AbCdEfGhIj-KlMnOpQrSt'],
+            ],
             'Chat\\StartSessionRequest' => [
                 'identity_token' => ['description' => 'Signed visitor identity: an HS256 JWT the host website\'s backend mints with the widget\'s identity secret. It verifies the visitor and keys them by its `sub`. A token that does not verify is refused (`422`), never downgraded to anonymous.', 'example' => 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJ3a19rM2o5eDJtNW44cDRxN3IxczZ0MCIsInN1YiI6IjQyIiwiZXhwIjoxNzkwMDAwMzAwfQ.c2lnbmF0dXJl'],
                 'visitor' => ['description' => 'Unsigned visitor details. Stored as given and marked unverified.'],

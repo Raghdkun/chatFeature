@@ -10,6 +10,7 @@ use App\Auth\Support\AuthCapabilities;
 use App\Auth\Support\AuthResult;
 use App\Auth\Support\HealthReport;
 use App\Auth\Support\SessionContext;
+use App\Auth\Tokens\StaffTokens;
 use App\Domain\Settings\SettingsRepository;
 use App\Models\User;
 use Illuminate\Contracts\Auth\Authenticatable;
@@ -17,6 +18,8 @@ use Illuminate\Contracts\Auth\Factory as AuthFactory;
 use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Contracts\Auth\UserProvider;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Support\Timebox;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
@@ -27,6 +30,9 @@ use SensitiveParameter;
  */
 final class FortifyDriver implements AuthDriver
 {
+    /** A hash of a random value, made once per process with the configured hasher: what a missing account is "checked" against. */
+    private static ?string $dummyHash = null;
+
     public function __construct(
         private readonly AuthFactory $auth,
         private readonly SettingsRepository $settings,
@@ -75,7 +81,13 @@ final class FortifyDriver implements AuthDriver
             return ApiAuthResult::failed($result->outcome, $result->message, $result->user);
         }
 
-        return ApiAuthResult::ok($result->user, $result->user->createToken($deviceName, ['staff'])->plainTextToken);
+        // The password alone must never be enough for an account with a second factor: no token here, whoever calls this. The caller
+        // runs the second factor and issues the token itself (Auth\Tokens\CompleteTwoFactorSignIn).
+        if ($result->user->hasEnabledTwoFactorAuthentication()) {
+            return ApiAuthResult::failed(AuthOutcome::TwoFactorRequired, user: $result->user);
+        }
+
+        return ApiAuthResult::ok($result->user, $result->user->createToken($deviceName, StaffTokens::ABILITIES)->plainTextToken);
     }
 
     public function validateSession(Authenticatable $user, SessionContext $context): SessionVerdict
@@ -112,8 +124,17 @@ final class FortifyDriver implements AuthDriver
         // Constant-ish time so a missing account cannot be told apart from a wrong password.
         $user = (new Timebox)->call(function () use ($provider, $credentials): ?Authenticatable {
             $user = $provider->retrieveByCredentials($credentials);
+            $hashed = $user?->getAuthPassword();
 
-            if ($user === null || ! $provider->validateCredentials($user, $credentials)) {
+            // No account, or one without a password (passkey-only): spend the time a real check takes. A slow hash on a short Timebox
+            // would otherwise answer "this email exists" by the clock.
+            if ($user === null || ! is_string($hashed) || $hashed === '') {
+                $this->spendHashTime($credentials['password']);
+
+                return null;
+            }
+
+            if (! $provider->validateCredentials($user, $credentials)) {
                 return null;
             }
 
@@ -137,6 +158,13 @@ final class FortifyDriver implements AuthDriver
         }
 
         return AuthResult::ok($user);
+    }
+
+    private function spendHashTime(#[SensitiveParameter] string $password): void
+    {
+        self::$dummyHash ??= Hash::make(Str::random(40));
+
+        Hash::check($password, self::$dummyHash);
     }
 
     private function guard(): StatefulGuard

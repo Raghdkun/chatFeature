@@ -96,7 +96,7 @@ final class Catalogue
     public static function groupDescription(string $group): string
     {
         return match ($group) {
-            'Authentication' => 'Who the credential belongs to, and the caller\'s own bearer tokens (one per signed-in device). There is no password login endpoint yet: see the mobile readiness notes.',
+            'Authentication' => 'Signing in from a native client (a password, plus a second factor for accounts that have one, answered with a bearer token), who the credential belongs to, and the caller\'s own bearer tokens (one per signed-in device). The two sign-in calls are the only management endpoints that need no credential.',
             'Presence' => 'The caller\'s own availability. Routing, the public `availability` call and the roster all read the same effective status.',
             'Notifications' => 'The caller\'s own notification preferences, web push subscriptions and mobile devices.',
             'Conversations' => 'The staff inbox: lists, the queue, the atomic accept, and ending, closing and transferring a chat. Agents see only what `Conversation::visibleTo` allows; administrators see everything.',

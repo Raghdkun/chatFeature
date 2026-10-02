@@ -227,6 +227,10 @@ final class Doc
             return 'Called by the OpenWA gateway, never by a client. The only credential is the HMAC-SHA256 signature of the raw body (`X-OpenWA-Signature`); nothing is stored before it verifies.';
         }
 
+        if (str_starts_with((string) $route->getName(), 'api.auth.token.')) {
+            return 'No credential: this call creates one. It sets no cookie and no CORS headers (native clients only), every answer is `Cache-Control: no-store`, and a body over 8 KiB is `413`. Refusals never say which part of the credentials was wrong.';
+        }
+
         if (ApiRoutes::isVisitorRoute($route)) {
             return 'Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token\'s own session and conversations are reachable; anything else is `404`.';
         }

@@ -25,6 +25,7 @@ use App\Auth\Support\AuthCapabilities;
 use App\Auth\Support\AuthResult;
 use App\Auth\Support\HealthReport;
 use App\Auth\Support\SessionContext;
+use App\Auth\Tokens\StaffTokens;
 use App\Domain\Settings\SettingsRepository;
 use App\Models\ExternalSession;
 use App\Models\User;
@@ -120,7 +121,7 @@ final class PizzasysDriver implements AuthDriver
 
         // Our own Sanctum token, bound to the portal session; the upstream token never leaves the server.
         return DB::transaction(function () use ($pending, $deviceName): ApiAuthResult {
-            $token = $pending->user->createToken($deviceName, ['staff']);
+            $token = $pending->user->createToken($deviceName, StaffTokens::ABILITIES);
             $this->sessions->open($pending, request(), (int) $token->accessToken->getKey());
 
             return ApiAuthResult::ok($pending->user, $token->plainTextToken);

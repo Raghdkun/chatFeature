@@ -97,6 +97,20 @@ class AuthModeServiceProvider extends ServiceProvider
         // The portal administrator's password is typed here: five tries a minute per client.
         RateLimiter::for('setup-portal-admin', fn (Request $request): Limit => Limit::perMinute(5)->by($request->ip() ?? 'unknown'));
 
+        // The second step of a native sign-in. Counts every call, right or wrong: per client address, and per challenge (a leaked or
+        // guessed challenge is not hammered). The wrong codes of one ACCOUNT are counted separately, inside the action. Keys carry a hash,
+        // never the challenge itself.
+        RateLimiter::for('staff-two-factor', function (Request $request): array {
+            $limits = [Limit::perMinute(max(1, (int) config('staff_auth.two_factor.per_ip', 30)))->by('staff-2fa-ip|'.(string) $request->ip())];
+            $challenge = $request->input('challenge');
+
+            if (is_string($challenge) && $challenge !== '') {
+                $limits[] = Limit::perMinute(10)->by('staff-2fa-challenge|'.hash('sha256', $challenge));
+            }
+
+            return $limits;
+        });
+
         RateLimiter::for('auth-environment-test', fn (Request $request): Limit => Limit::perMinute(10)->by((string) ($request->user()?->getAuthIdentifier() ?? $request->ip())));
         RateLimiter::for('auth-environment-activate', fn (Request $request): Limit => Limit::perMinute(5)->by((string) ($request->user()?->getAuthIdentifier() ?? $request->ip())));
     }
