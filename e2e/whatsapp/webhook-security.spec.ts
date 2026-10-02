@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readAppLog } from '../support/staff-db';
 import {
     expect,
@@ -446,7 +447,9 @@ test('a signed body that is not usable is acknowledged and recorded as rejected 
     const send = async (label: string, raw: string | Buffer) => {
         const key = `evt_${label}_${Date.now()}`;
 
-        keys[label] = key;
+        // The key is never taken from a header: a body that is not a JSON object has none of its own, so its ledger key is the hash of
+        // the body ("the application reads the signed body only").
+        keys[label] = `body:${createHash('sha256').update(raw).digest('hex')}`;
 
         return hook.post(raw, { key, address: at });
     };

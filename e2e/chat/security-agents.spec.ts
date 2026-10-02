@@ -467,7 +467,8 @@ test('dashboard writes need the CSRF token (419), and an unknown conversation is
     );
 
     // With the token the dashboard itself sends it works.
-    expect((await ann.api.heartbeat()).status).toBe(204);
+    // (P5: the heartbeat answers the effective status, `200`.)
+    expect((await ann.api.heartbeat()).status).toBe(200);
 
     // The same for the dashboard's own web routes: a sign-out without the token is refused and the session lives on. (The Pusher
     // channel authorisation `/broadcasting/auth` is exempt from the token check by the framework: it only signs a channel name.)

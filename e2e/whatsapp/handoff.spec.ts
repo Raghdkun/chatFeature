@@ -484,6 +484,8 @@ test('a code that has run out is struck through and offers a new one; the old co
                 body.data.expiresAt = new Date(
                     Date.now() + 4_000,
                 ).toISOString();
+                // The panel counts down from the server's own `ttlSeconds` (never from a clock of its own against `expiresAt`).
+                body.data.ttlSeconds = 4;
             }
 
             await route.fulfill({ response, json: body });
@@ -771,6 +773,7 @@ test('a code that is past its time links nothing, and the hand-off endpoint is l
     expect(Object.keys(same.data).sort()).toEqual([
         'code',
         'expiresAt',
+        'ttlSeconds',
         'waUrl',
     ]);
 

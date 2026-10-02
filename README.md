@@ -1,10 +1,10 @@
 # PNE Chat
 
-> Status: Phases 0-4 are done (install gate, setup wizard, both auth modes, categories, agents, widgets with loader and builder, and the live chat: routing with first-accept, realtime over Reverb, the agent inbox and the visitor panel). Presence/notifications (P5), WhatsApp (P6), analytics/hardening (P7) and deployment/QA/deck (P8) are next. The roadmap below is the source of truth.
+> Status: Phases 0-7 are done (install gate, setup wizard, both auth modes, categories, agents, widgets with loader and builder, the live chat, presence and web push, WhatsApp through OpenWA, analytics, the API reference, native-app sign-in and a security sweep). Deployment, QA and the deck (P8) are next. The roadmap below is the source of truth.
 
 PNE Chat is a self-hosted, tawk.to-style live-chat platform. A website visitor clicks an embeddable bubble, picks a support topic, an agent accepts, and a live chat starts. WhatsApp (through the self-hosted [OpenWA](https://www.open-wa.org) gateway) is an optional second channel. Admins run everything from a shadcn dashboard; agents only see the chats assigned to them. "PNE Chat" is a working name and can be renamed in Settings.
 
-## Features (built through P4, the rest planned; see the roadmap)
+## Features (built through P7, deployment and the deck planned; see the roadmap)
 
 - **Embeddable widget**: tiny Shadow-DOM launcher + iframe chat panel, script/iframe/hosted-page embeds, JS API, signed visitor identity, domain whitelist.
 - **Creative greeting**: weighted-random greeting pool, 3D-flip launcher to the agent face, popup, auto-hide, reduced-motion safe.
@@ -85,23 +85,29 @@ Goal: starter kit and tooling. Exit: stock kit boots; SQLite (tests) and MySQL b
 - Gate at `v0.4.0`: `composer ci:check` green with PHPUnit **2418** (14 skip without a harness, NATS or MySQL) and Vitest **2183**; Playwright **803 specs: 787 passed, 16 skipped, 0 failed**.
 - Known gaps: see the changelog (animated GIFs refused, stale sockets after revocation until reconnect, English-only inbox strings and system lines, no captcha hook, loader at 15.8 of 16 KB).
 
-### P5 Presence + notifications (parallel with P6)
-- [ ] 5A presence service, heartbeat, sweep, availability + UI
-- [ ] 5B VAPID, `sw.js`, first-login permission flow, sound, badges, notification settings, manifest, `FcmChannel` stub
-- [ ] 5C admin history search/export, widget unseen badge + reply alert
-- Exit: presence correct across hidden/closed tab; OS notification only when the dashboard is not focused; streaming export.
+### P5 Presence + notifications (done, `v0.5.0`; developed in parallel with P6)
+- [x] 5A presence store (Redis with a database fallback), effective-status policy, heartbeat, sweep, availability, roster and inbox UI
+- [x] 5B VAPID web push, `sw.js`, first-login permission flow, sound, badges, notification settings, manifest, `FcmChannel` stub
+- [x] 5C visitor bubble: unread badge and reply alert (the admin history search/export shipped in P4)
+- [x] Review and hardening round (push endpoint guard + pinned client, deadlines, privacy of previews, quiet hours) and the P5 e2e (fake push service, real service worker, Redis store and its failover, axe/375 px/RTL/keyboard)
+- Exit met: presence correct across hidden/closed tab; OS notification only when the dashboard is not focused; delivery asserted end to end (VAPID JWT, RFC 8291 decryption, TTL/urgency/topic, 410/404 pruning).
+- Known gaps: see the changelog (a real OS notification click and a real vendor push service cannot be automated; Firefox/Safari not run).
 
-### P6 WhatsApp (parallel with P5)
-- [ ] 6A backend: OpenWA client, sessions, webhook + HMAC, dedupe, `ChatLinker`, hand-off, `SendReply`
-- [ ] 6B UI: settings page with QR, admin-only inbox, widget channel chooser + `wa.me` hand-off
-- [ ] 6C tests/ops: OpenWA mock, run against the real image to record fixtures, docs
-- Exit: signature tests; linking tests; QR to ready on the real image; agent isolation (403 everywhere); real-device round trip documented.
+### P6 WhatsApp (done, `v0.6.0`; developed in parallel with P5)
+- [x] 6A backend: OpenWA client, sessions, webhook + HMAC, delivery ledger and replay, `ChatLinker`, hand-off, `SendReply` with pacing and a daily cap
+- [x] 6B UI: settings page with QR, admin-only inbox, widget channel chooser + `wa.me` hand-off
+- [x] 6C tests/ops: OpenWA mock, the real image run to record fixtures, [operations guide](docs/whatsapp-openwa.md)
+- [x] Review and hardening round and the P6 e2e (206 tests per run on the mock)
+- Exit met: signature tests; linking tests; QR to ready on the real image; agent isolation (403 everywhere, a 217-case matrix).
+- Known gaps: the round trip through a real phone and the real image's message-level payloads are still to do (checklist in the operations guide); see the changelog.
 
-### P7 Analytics + hardening
-- [ ] 7A analytics rollups + charts
-- [ ] 7B Scribe docs, OpenAPI export, mobile-readiness review
-- [ ] 7C security sweep (CSP nonces, headers, rate-limit/CORS matrices, BOLA/IDOR, upload fuzzing, dependency audits, EXPLAIN review, k6 load test of about 1k sockets)
-- Exit: analytics reconcile with raw data; Scribe builds; security headers grade A; load results in [runbook](docs/runbook.md).
+### P7 Analytics + hardening (done, `v0.7.0`)
+- [x] 7A analytics: rollups, API, the `/analytics` page, "My performance" for agents ([analytics.md](docs/analytics.md))
+- [x] 7B API reference (Scribe/OpenAPI + a rot guard), [integration guide](docs/api-guide.md), [mobile readiness](docs/mobile-readiness.md), staff token endpoints
+- [x] 7C security sweep: stale-socket cut-off, CSP with nonces, route classification matrices, upload fuzzing, audits, retention/erasure/export, EXPLAIN review, ~1k-socket load test ([runbook](docs/runbook.md))
+- [x] 7D native-app sign-in with two-factor for both auth modes
+- Exit met: analytics reconcile with raw data; the API reference builds and is guarded against rot; load results in the [runbook](docs/runbook.md).
+- Known gaps: Reverb needs `ext-uv` above about 1000 sockets (P8 image); the CSP still needs the manual browser checklist in [testing.md](docs/testing.md); FCM push and passkey sign-in for native apps are not built.
 
 ### P8 Deploy + QA + docs + deck
 - [ ] 8A multi-stage Dockerfile + `compose.prod.yml`
@@ -139,7 +145,7 @@ Chosen once in the setup wizard, then locked.
 <script async src="https://chat.example.com/w/wk_xxxxxxxxxxxxxxxxxxxx.js" data-position="left"></script>
 ```
 
-The loader is built with `npm run build:widget` (git-ignored output; check the size budget with `npm run size`). The chat panel behind the bubble arrives in P4. See [docs/widget-embed-api.md](docs/widget-embed-api.md).
+The loader is built with `npm run build:widget` (git-ignored output; check the size budget with `npm run size`). See [docs/widget-embed-api.md](docs/widget-embed-api.md).
 
 ## Documentation
 
@@ -152,10 +158,15 @@ The loader is built with `npm run build:widget` (git-ignored output; check the s
 | [docs/rest-api.md](docs/rest-api.md) | Public + management API, conventions |
 | [docs/whatsapp-openwa.md](docs/whatsapp-openwa.md) | OpenWA facts, hand-off, isolation |
 | [docs/realtime.md](docs/realtime.md) | Channels, events, claim, sync, state machine |
-| [docs/security.md](docs/security.md) | Threat model summary, implemented controls through P3, open hardening items |
+| [docs/security.md](docs/security.md) | Threat model, implemented controls through P7 (CSP, route matrices, stale-socket cut-off, retention/erasure, native sign-in), open items |
 | [docs/testing.md](docs/testing.md) | Test layers, commands, phase gate |
 | [docs/deployment-hostinger-kvm.md](docs/deployment-hostinger-kvm.md) | Docker Compose topology and environment checklist (skeleton until P8) |
-| [docs/runbook.md](docs/runbook.md) | Operations: auth portal and NATS, break-glass, loader serving (rest is P7/P8) |
+| [docs/runbook.md](docs/runbook.md) | Operations: auth portal and NATS, presence, analytics rollups, query review, load-test results, break-glass (deployment parts are P8) |
+| [docs/analytics.md](docs/analytics.md) | Metric definitions, rollups, API, permissions |
+| [docs/notifications.md](docs/notifications.md) | Web push, quiet hours, first-login flow, privacy |
+| [docs/api-guide.md](docs/api-guide.md) | Building a custom front end or a mobile app against the API (curl flows) |
+| [docs/mobile-readiness.md](docs/mobile-readiness.md) | What a native staff app needs, with verdicts |
+| `docs/api/openapi-*.yaml` | Generated OpenAPI for the management and public API (`composer docs:api`) |
 | [docs/changelog.md](docs/changelog.md) | Keep a Changelog |
 
 `docs/contracts/*` (Inertia shared props, event payloads, REST shapes, postMessage protocol, widget config, auth) is written by the orchestrator before each phase fans out and updated to the implemented truth afterwards ([docs/contracts/README.md](docs/contracts/README.md)).

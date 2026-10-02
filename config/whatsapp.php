@@ -43,7 +43,10 @@ return [
         'session_lock_wait_seconds' => 10,
         // Per minute. `per_session`: one session's deliveries from one client network (OpenWA calls from one address for every session, so
         // the sessions must not share a budget); `per_network`: the ceiling for everything one client network sends to any session.
-        'rate_limits' => ['per_network' => 6000, 'per_session' => 3000],
+        'rate_limits' => [
+            'per_network' => (int) env('WHATSAPP_WEBHOOK_RATE_PER_NETWORK', 6000),
+            'per_session' => (int) env('WHATSAPP_WEBHOOK_RATE_PER_SESSION', 3000),
+        ],
         'redeliver_after_seconds' => 300,
         'tries' => 5,
         'backoff' => [5, 20, 60, 180],

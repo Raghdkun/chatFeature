@@ -437,7 +437,12 @@ const DEFINITIONS: Record<ScenarioName, Definition> = {
         reverbPort: 8364,
         openWaPort: 8366,
         // PORTAL_ALLOW_PRIVATE_HOSTS: the OpenWA address is a loopback one (the base-URL rule only accepts it with this switch or APP_ENV=local).
-        env: { TRUSTED_PROXIES: '*', PORTAL_ALLOW_PRIVATE_HOSTS: 'true' },
+        env: {
+            TRUSTED_PROXIES: '*',
+            PORTAL_ALLOW_PRIVATE_HOSTS: 'true',
+            // The flood spec trips the per-network webhook limit: a low one keeps it cheap (production default 6000 a minute).
+            WHATSAPP_WEBHOOK_RATE_PER_NETWORK: '600',
+        },
         perProject: {
             mobilePort: 8361,
             mobileDbSuffix: '_p6_wa_mobile',
@@ -545,7 +550,12 @@ const DEFINITIONS: Record<ScenarioName, Definition> = {
         hostPort: 8371,
         reverbPort: 8373,
         openWaPort: 8375,
-        env: { TRUSTED_PROXIES: '*', PORTAL_ALLOW_PRIVATE_HOSTS: 'true' },
+        env: {
+            TRUSTED_PROXIES: '*',
+            PORTAL_ALLOW_PRIVATE_HOSTS: 'true',
+            // The flood spec trips the per-network webhook limit: a low one keeps it cheap (production default 6000 a minute).
+            WHATSAPP_WEBHOOK_RATE_PER_NETWORK: '600',
+        },
         perProject: {
             mobilePort: 8370,
             mobileDbSuffix: '_p6_wa_rtl_mobile',

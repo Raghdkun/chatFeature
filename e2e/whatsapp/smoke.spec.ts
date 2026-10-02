@@ -123,6 +123,7 @@ test("a customer's WhatsApp message with the hand-off code is linked, answered a
     expect(Object.keys(handoff.data).sort()).toEqual([
         'code',
         'expiresAt',
+        'ttlSeconds',
         'waUrl',
     ]);
 

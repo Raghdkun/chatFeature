@@ -9,6 +9,79 @@ All notable changes are recorded here, following [Keep a Changelog](https://keep
 ### Added
 - The NATS consumer was run against a real NATS 2.11 JetStream server (Docker) for the first time: both integration tests pass (stream ensured, durable pull consumer, ack, de-duplication, malformed/unknown handling, redelivery after a nak); one assertion in the test (a stored-row count) was a wrong guess and was corrected.
 
+## [0.7.0] - 2026-10-02 (phase-7)
+
+Reporting, API documentation, native-app readiness and a security sweep. Built as four parallel tracks (analytics, API docs + mobile, hardening, native sign-in) on top of P5/P6 and merged on `integrate/phase-5`, together with the P5 and P6 e2e suites (see 0.5.0 and 0.6.0: all three phases share one gate and one commit, tagged `v0.5.0`, `v0.6.0` and `v0.7.0`).
+
+### Added
+- **Analytics** (`app/Domain/Analytics`, [analytics.md](analytics.md)): `analytics_daily` / `analytics_slots` rollups built by `analytics:rollup` (hourly for today and the two days before, nightly catch-up of 35 days, `--from/--to/--force`; days older than 3 days are sealed), one calculator for the rollup and the live "today". Metrics: started/handled/ended/closed by reason/missed/cancelled, wait, first response, handling time, resolution, ratings (1-5), messages, offers, offline tickets, peak concurrency and queue peak, per widget/topic/agent, busiest hours in the viewer's time zone, and an admin-only WhatsApp section. API `/api/v1/analytics/*` (overview, timeseries, breakdown, heatmap, ratings, whatsapp, export CSV) and the `/analytics` page (key numbers with deltas, four charts, heatmap, ratings, breakdowns, filters, presets, CSV export; each chart has a text alternative and "view as table"). **Agents see only their own numbers** (the server scopes them: `agent=<other>` is 403, no colleague names, no WhatsApp, no visitor comments). Reconciliation tests compare every stored cell with an independent reference over a generated dataset (UTC, Europe/Berlin across a DST change, Asia/Kolkata), on SQLite and on MySQL.
+- **API reference** ([rest-api.md](rest-api.md), [api-guide.md](api-guide.md)): Scribe-generated OpenAPI for the management and the public API (`composer docs:api`, `docs:api:check`; `docs/api/openapi-*.yaml` are committed, `public/docs` is built and git-ignored), examples and schemas generated from the Data classes, request fields from the Form Requests, and a rot guard (`ApiDocsGuardTest`: every `api/v1` and webhook route needs an entry, every error code a catalogue row, and the committed files must be what the code generates). A small validator runs real flows against the committed schemas.
+- **Native staff app** ([mobile-readiness.md](mobile-readiness.md)): `POST /api/v1/auth/token` and `/auth/token/two-factor` (password, then a single-use challenge for accounts with two-factor, both auth modes, one identical answer for unknown/wrong/inactive/no-role, one slow hash per refusal, shared login throttle with the web, stateless, `no-store`, size-capped, audited without secrets), `GET /auth/me`, `GET/DELETE /auth/tokens`, `POST /auth/logout` (revokes the current token only). Passkeys for native sign-in are deferred.
+- **Stale-socket cut-off** ([realtime.md](realtime.md)): every private-channel subscription is signed with an opaque principal tag; when a right ends (deactivation, demotion, role/permission change, category unassign, transfer/close/claim loss, visitor token rotation/revoke) the Reverb control API closes that principal's sockets (`SocketCutOffSubscriber`, `realtime_grants`, parked retries swept by `chat:realtime-sweep` every minute).
+- **Security headers**: a per-request-nonce Content-Security-Policy for the dashboard (`CSP_MODE=enforce|report-only|off`, enforce in production), `/csp-report` collector, Permissions-Policy, COOP, HSTS over https only; route classification and behaviour matrices over the real route table (every route classified, 401/403/404/CSRF/CORS/BOLA proven); an upload fuzz corpus (86 cases) for the image pipeline.
+- **Privacy**: `chat.retention_days` with the daily `chat:prune-conversations`, `chat:erase-visitor` and `DELETE /api/v1/visitors/{ulid}` (refused while a chat is open, audited, idempotent), `GET /api/v1/visitors/{ulid}/export` (data-subject access), `GET/PUT /api/v1/privacy/retention`.
+- **Query review and load test** ([runbook.md](runbook.md)): history search 35 s -> 0.9 s on 50 000 conversations / 498 000 messages (uncorrelated `IN` instead of correlated `EXISTS`), WhatsApp search 18.7 s -> 0.10 s, three indexes; 1000 visitor sockets + 20 agents on one Reverb: 0 failures, Reverb 18% of a core, 110 MB (see the runbook for the p50/p95/p99 and the caveats).
+
+### Changed
+- The Scribe `/docs` route is gone (the reference is static); `docs/rest-api.md` corrected (no login/profile/analytics-audit endpoints existed under the names it listed).
+- `ImageSanitizer`'s memory budget was too low (measured 11 to 13 bytes per pixel, now 14).
+- Search: `ConversationSearch` and `WaChatSearch` use uncorrelated subqueries.
+- Never flashed back into a rejected form: `code`, `recovery_code`, `challenge`.
+
+### Notes
+- Gate (the single P5-P7 gate on `integrate/phase-5`): PHPUnit 4515 (25 skip: harness, NATS, MySQL, Redis-gated groups), Vitest 3071, PHPStan L7, Pint, `vp check`, `tsc`; MySQL-gated suites green per track; Playwright: see 0.6.0. Loader 16.44 KB of 18 KB.
+- Process: each track was built in its own worktree with its own database and ports; four tracks hit the API rate limit or a stalled stream once and were resumed.
+
+### Known gaps / backlog
+- **Reverb needs `ext-uv`** above about 1000 sockets: without it Reverb (stream_select, FD_SETSIZE 1024) tops out near 1013 and then **exits with status 0 and no message**. The production image must install `ext-uv`, set `ulimits nofile 65536`, `restart: unless-stopped` (not `on-failure`), and `REVERB_APP_MAX_CONNECTIONS` where it is missing (P8).
+- Not measured: several Reverb instances behind Redis, TLS through Caddy, real browsers, a queue worker, Redis cache, php-fpm. At about 40 sends/s the application tier (not Reverb) saturated on the test laptop.
+- The public POST endpoints have no CORS support (a third-party browser front end must proxy through its backend or use the iframe).
+- Native sign-in: passkeys and a refresh endpoint are not implemented; FCM push is still a stub (a real channel needs the seven items in mobile-readiness.md); an agent whose app is in the background reads offline after 90 s.
+- Analytics: no browser/Playwright check of the charts at 320 px; one filter at a time; the first view after an upgrade needs `analytics:rollup --from=...` for days older than 35.
+- Local MySQL in the dev machine runs in the system time zone; production MySQL should run in UTC.
+- Open from the e2e: an agent gets 403 for a real WhatsApp id and 404 for a made-up one (an existence oracle, `test.fixme`); the admin WhatsApp channel has no catch-up at connect; tabs of one visitor opened in the same instant do not all settle on the live chat (`test.fixme`).
+
+## [0.6.0] - 2026-10-02 (phase-6)
+
+WhatsApp through the self-hosted OpenWA gateway: hand-off, recording and an admin-only inbox. Developed in parallel with P5.
+
+### Added
+- **Backend** (`app/Domain/WhatsApp`, `app/Infrastructure/OpenWa`): sessions (create/start/stop/delete, QR), the webhook `POST /webhooks/openwa/{session}` (raw-body HMAC `X-OpenWA-Signature: sha256=<hex>`, event/key/delivery id read from the signed body only, delivery ledger, replay command `whatsapp:replay-deliveries` every 5 minutes, events of one session applied one at a time under a lock), `ChatLinker` with 8-character hand-off codes, groups ignored, `SendReply` with pacing, a daily cap, replies only to chats the customer started, and a write that was sent but not answered is never repeated; `OpenWaHttpClient` with the shared SSRF guard (`PORTAL_ALLOW_PRIVATE_HOSTS`); media pipeline; WhatsApp retention settings.
+- **Admin UI**: Settings > WhatsApp (sessions, QR dialog, connection test, sending limits, webhook address), the admin-only inbox (list, conversation with pictures/documents/links and delivery states, linked-chat details, search, export, archive), the builder's WhatsApp tab and the widget's channel chooser with the `wa.me` hand-off screen.
+- **Admin-only everywhere** (`wa.admin`, `WhatsAppPolicy`, channel `private-whatsapp-admin`): an agent gets 403 on every route, page, action, channel and search (a 217-case isolation matrix).
+- **Tests and ops**: a stateful OpenWA mock (`e2e/support/openwa-mock.mjs`) for e2e, the real OpenWA image (0.23.7, digest pinned in `docker/compose.dev.yml`) run to record fixtures, [whatsapp-openwa.md](whatsapp-openwa.md) (the verified operations guide), `docs/reference/openwa-api.md`.
+- **P6 e2e** (`e2e/whatsapp`, scenarios `p6-wa` and the Arabic twin `p6-wa-rtl`): 206 tests per full run (103 per project), session lifecycle and QR, webhook security, inbound/outbound, hand-off, builder, isolation, resilience, axe/375 px/RTL/keyboard sweeps; the last three full runs were green; 44 deck screenshots (`docs/screenshots/p6`).
+
+### Fixed (found by the e2e)
+- A session's webhook events arriving together could leave the wrong status (now serialised per session).
+- The QR dialog's Start on a stopped session did not show the code again; Back on the hand-off screen kept the old topic on multi-topic widgets; confirmation dialogs and the archive button lost keyboard focus; export links under the 24 px target size; contrast and a 375 px overflow.
+- The first presence write by two agents deadlocked on MySQL (see 0.5.0; both e2e agents found it, one fix kept).
+
+### Known gaps
+- Message-level payloads (`message.*`, acks) of the real OpenWA image and a round trip through a real phone were never recorded (checklist in the operations guide); the 10-hand-offs-a-day cap is shadowed by the per-visitor limiter; sends are not retried by a real queue in e2e (`QUEUE_CONNECTION=sync`).
+- A chat the phone started cannot be answered from the inbox (the locked "reply only to customers who wrote first" rule); the session status can flicker qr -> starting -> qr once; the chat-list cursor carries the integer primary key (not exposed as an id).
+
+## [0.5.0] - 2026-10-02 (phase-5)
+
+Presence and notifications: who is online, who gets told, and the visitor's bubble that shows a reply. Developed in parallel with P6.
+
+### Added
+- **Presence** (`app/Domain/Presence`): a `PresenceStore` on Redis (hash + sorted set, Lua) with an automatic fallback to the database (the failure cooldown is shared across requests), a mirror row, one effective-status policy (a manual choice wins; heartbeat window 90 s; automatic away after 5 hidden minutes; Redis record lifetime 180 s), `chat:presence-sweep` every minute, a heartbeat that answers the effective status. Routing, availability, roster, transfer targets and the inbox read presence only through it. UI: presence dots on the agents page, the inbox hint with a one-click "Go online".
+- **Web push** (`laravel-notification-channels/webpush`): VAPID, `public/sw.js`, the manifest route, a first-login permission dialog (explainer first, the permission is requested on a click), Settings > Notifications (this browser, sound, kinds, quiet hours, "Show message text"), the endpoint guard (public hosts only, `push.allowed_hosts`) and `PushHttpClient` (connection pinned to the judged address, no redirects, a deadline), dismiss pushes with the same tag when another agent accepts or the chat is read, quiet hours (the same matrix in PHP and TypeScript), previews off by default (`notifications.push_include_preview` AND the member's choice). The OS notification of an open background tab goes through the service worker too. `FcmChannel` stub, `device_tokens`, `POST /me/devices`.
+- **Visitor bubble**: unread badge on the launcher and a reply alert (shake/pulse and a sound), coalesced over 8 s, synchronised across tabs of one visitor, silent while the host keeps the launcher hidden. Loader budget raised to **18 KB** (16.44 KB used).
+- **P5 e2e** (`e2e/p5`, scenarios `p5-chat`, `p5-presence-redis`, `p5-presence-failover`, `p5-notify`, `p5-notify-rtl`): 95 tests per project, with a fake push service (an HTTPS proxy for `fcm.googleapis.com`; delivery is asserted end to end: VAPID JWT, RFC 8291 decryption, TTL/urgency/topic, 410/404 pruning, 5xx keeping) and the real `sw.js` fed the server's own payloads; 26 deck screenshots.
+
+### Fixed (found by the e2e)
+- First presence write, first push subscription and first device registration deadlocked on MySQL (500 for the loser): `DeadlockRetry`.
+- The Redis failure cooldown was forgotten with every request (one warning and one Redis attempt per call).
+- A read receipt sent with a rotated-away token got 404 and was dropped (the agent never saw replies read).
+- The OS notification for a visitor message showed the previous message's words.
+
+### Known gaps
+- Clicking a real OS notification, a browser rotating its own subscription, a real vendor push service and the real permission prompt cannot be automated (they are dispatched inside the worker or stubbed); Firefox, Safari and WebKit were not run.
+- Closing any Chrome context wipes the notifications Chrome still shows, so the three display specs run under a lock and tolerate a wipe (documented in testing.md).
+- Tabs of one visitor loaded in the same instant all resume from one stored session and settle on the pre-chat form (`test.fixme`); the visitor is not harmed (starting a chat answers with the running one).
+
 ## [0.4.0] - 2026-10-01 (phase-4)
 
 The live-chat core: a visitor starts a chat from the widget, every eligible online agent is offered it, the first to accept wins, and the two talk in realtime (typing, delivered/seen, images) until the chat is ended and rated. Built as a spine (shared schema/contracts), four parallel tracks, two independent review rounds with fix rounds, and a real-stack e2e suite.

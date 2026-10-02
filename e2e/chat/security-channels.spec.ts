@@ -223,8 +223,8 @@ test('a staff member subscribes only to their own staff channel, the roster and 
         expect(forBen['private-admin']).toBe(false);
         expect(forBen[conversation]).toBe(false);
 
-        // The administrator: the admin channel and any conversation, but staff channels of others stay self-only, and the WhatsApp
-        // admin channel is not registered yet (P6): nobody, administrators included, can join it.
+        // The administrator: the admin channel, any conversation and the WhatsApp admin channel (P6, admins only: the agents above are
+        // refused it), but staff channels of others stay self-only.
         const forAdmin = await accepted(adminProbe, [
             'private-admin',
             conversation,
@@ -236,7 +236,7 @@ test('a staff member subscribes only to their own staff channel, the roster and 
             'private-admin': true,
             [conversation]: true,
             [`private-staff.${world.agents.ann.id}`]: false,
-            'private-whatsapp-admin': false,
+            'private-whatsapp-admin': true,
         });
     } finally {
         annProbe.close();

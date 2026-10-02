@@ -302,7 +302,7 @@ export function ChatDetailsSheet({
                                         type="button"
                                         variant="outline"
                                         data-testid="wa-details-delete"
-                                        className="w-fit border-destructive/50 text-destructive hover:text-destructive"
+                                        className="w-fit border-destructive/50 text-destructive hover:text-destructive dark:text-red-400 dark:hover:text-red-300"
                                         onClick={() => setConfirming(true)}
                                     >
                                         <Trash2 aria-hidden />

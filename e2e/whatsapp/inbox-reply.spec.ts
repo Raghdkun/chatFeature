@@ -518,11 +518,6 @@ test.describe('when OpenWA refuses or cannot be reached', () => {
             /no running engine for this number/i,
         ],
         [
-            'a gateway error (502)',
-            { status: 502, body: { message: 'Bad gateway' } },
-            /^OpenWA could not be reached \(OpenWA answered HTTP 502\.\)$/,
-        ],
-        [
             "the plain throttler's 429 (clears in seconds; retried on a queue, failed on the sync one)",
             {
                 status: 429,
@@ -582,6 +577,65 @@ test.describe('when OpenWA refuses or cannot be reached', () => {
             );
         });
     }
+
+    // A gateway's 502 / 504 says nothing about whether the engine behind it already sent the message: it is NOT sent again (the customer
+    // could get it twice). The reply stays pending (OpenWA's `message.sent` webhook would confirm it; the reconciliation fails it after
+    // `whatsapp.send.unconfirmed_after_minutes`), and it does not hold the replies behind it.
+    test('a gateway error (502): the reply stays unconfirmed and is never sent twice; the next reply works', async ({
+        actors,
+        openWa,
+        wa,
+    }) => {
+        const { chat, mockId } = await conversation(wa, openWa);
+        const admin = await actors.staff('admin');
+        const inbox = new WaInboxPage(admin.page);
+        const text = 'Unconfirmed: gateway';
+        const path = `/api/sessions/${mockId}/messages/send-text`;
+
+        await inbox.goto(chat.ulid);
+        await openWa.script({
+            method: 'POST',
+            path,
+            status: 502,
+            body: { message: 'Bad gateway' },
+        });
+        await inbox.reply(text);
+
+        await waitForMessage(
+            wa,
+            chat,
+            (row) => row.body === text && row.status === 'pending',
+            'the reply to wait for a confirmation',
+        );
+        await expect(inbox.bubble(text)).toHaveAttribute(
+            'data-status',
+            'pending',
+        );
+
+        // Handed over once, never again.
+        await eventually(
+            async () =>
+                (await openWa.requests({ method: 'POST', path })).length >= 1
+                    ? true
+                    : undefined,
+            'the one call to OpenWA',
+        );
+        await inbox.reply('And now it works');
+        await expect(inbox.bubble('And now it works')).toHaveAttribute(
+            'data-status',
+            /sent|delivered/,
+        );
+        const calls = await openWa.requests({ method: 'POST', path });
+
+        expect(calls).toHaveLength(2);
+        expect(
+            calls.filter((call) => JSON.stringify(call.body).includes(text)),
+        ).toHaveLength(1);
+        await expect(inbox.bubble(text)).toHaveAttribute(
+            'data-status',
+            'pending',
+        );
+    });
 });
 
 test.describe('replies to chats the customer did not start', () => {

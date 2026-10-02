@@ -624,6 +624,7 @@ test('where `new Notification()` is not allowed (Chrome on Android) the page sho
     expect(shown.options.data).toEqual({
         url: `/inbox/${ulid}`,
         tag: `offer-${ulid}`,
+        type: 'offer',
     });
 
     await visitor.dispose();

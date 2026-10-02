@@ -463,6 +463,8 @@ test("the visitor's screens: the channel choice, the topic picker, the code, an 
                 body.data.expiresAt = new Date(
                     Date.now() + 2_500,
                 ).toISOString();
+                // The panel counts down from the server's own `ttlSeconds` (never from a clock of its own against `expiresAt`).
+                body.data.ttlSeconds = 3;
             }
 
             await route.fulfill({ response, json: body });
