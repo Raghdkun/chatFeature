@@ -1056,3 +1056,66 @@ describe('timer limits', () => {
         controller.stop();
     });
 });
+
+describe('a chat transferred to this agent while a refresh is already on its way', () => {
+    it('still gets its offer card: the refresh that follows the event brings it', async () => {
+        const { store, api, controller } = rig();
+        const chat = makeConversationStaff({
+            status: 'queued',
+            type: 'live',
+            agent: null,
+            assignedAgent: null,
+            queueExpiresAt: new Date(Date.now() + 90_000).toISOString(),
+        });
+        let release: (rows: unknown[]) => void = () => undefined;
+
+        api.conversation.mockResolvedValue(chat);
+
+        // Let the start-up snapshot finish, so the slow one below is the only refresh in flight.
+        controller.start();
+        await flush();
+        await flush();
+
+        // This snapshot is slow, and was asked for before the transfer happened (it does not contain the chat) ...
+        api.queue.mockReset();
+        api.queue.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    release = resolve;
+                }),
+        );
+        // ... every later one does.
+        api.queue.mockResolvedValue([chat]);
+
+        const first = controller.sync();
+
+        // The transfer's pushes arrive while that snapshot is out: `chat.assigned` (the colleague is told) and the list refresh.
+        controller.handle('chat.assigned', { v: 1, conversation: chat.ulid });
+        await flush();
+        controller.handle('conversation.updated', { v: 1, conversation: chat });
+        release([]);
+        await first;
+        await vi.advanceTimersByTimeAsync(SYNC_DEBOUNCE_MS + 10);
+        await flush();
+
+        expect(store.getState().queue.map((item) => item.conversation)).toEqual(
+            [chat.ulid],
+        );
+        controller.stop();
+    });
+
+    it('asks nobody again for a chat the agent already has a card for, nor as an administrator', async () => {
+        const { api, controller } = rig({ ...ME, isAdmin: true });
+        const chat = makeConversationStaff({ status: 'queued', type: 'live' });
+
+        controller.start();
+        await flush();
+        api.queue.mockClear();
+
+        controller.handle('conversation.updated', { v: 1, conversation: chat });
+        await vi.advanceTimersByTimeAsync(SYNC_DEBOUNCE_MS + 10);
+
+        expect(api.queue).not.toHaveBeenCalled();
+        controller.stop();
+    });
+});

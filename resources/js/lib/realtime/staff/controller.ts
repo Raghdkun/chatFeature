@@ -211,6 +211,26 @@ export function createStaffController(deps: StaffControllerDeps) {
         }, SYNC_DEBOUNCE_MS);
     }
 
+    /**
+     * A live chat that is `queued` and that an agent holds no card for (a direct transfer made to them, an offer whose push was missed)
+     * reaches them as a plain list refresh, which places nothing in their queue but does count as newer than a snapshot that is
+     * already on its way: that snapshot's row for the chat would be thrown away and nothing would ask again. Ask once more.
+     */
+    function syncIfQueuedForNobodyHere(conversation: ConversationStaff): void {
+        if (
+            viewer.isAdmin ||
+            conversation.status !== 'queued' ||
+            conversation.type !== 'live' ||
+            store
+                .getState()
+                .queue.some((item) => item.conversation === conversation.ulid)
+        ) {
+            return;
+        }
+
+        scheduleSync();
+    }
+
     /* ---------------------------------------------------------------- */
     /* Offers: expiry and exit                                          */
     /* ---------------------------------------------------------------- */
@@ -468,6 +488,7 @@ export function createStaffController(deps: StaffControllerDeps) {
                 conversation,
                 viewer,
             });
+            syncIfQueuedForNobodyHere(conversation);
             effects.playSound('offer');
             effects.toast('info', t('inbox.toast.assigned'), {
                 description: visitorLabel(conversation.visitor.name),
@@ -535,15 +556,18 @@ export function createStaffController(deps: StaffControllerDeps) {
             case 'chat.assigned':
                 void onAssigned(payload as ChatEventPayloads['chat.assigned']);
                 break;
-            case 'conversation.updated':
+            case 'conversation.updated': {
+                const { conversation } =
+                    payload as ChatEventPayloads['conversation.updated'];
+
                 store.dispatch({
                     type: 'conversationUpdated',
-                    conversation: (
-                        payload as ChatEventPayloads['conversation.updated']
-                    ).conversation,
+                    conversation,
                     viewer,
                 });
+                syncIfQueuedForNobodyHere(conversation);
                 break;
+            }
             case 'unread.updated':
                 onUnread(payload as ChatEventPayloads['unread.updated']);
                 break;
