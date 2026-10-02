@@ -481,6 +481,50 @@ describe('pushsubscriptionchange', () => {
         });
     });
 
+    it('sends the URL-decoded XSRF token, like the API client (the cookie is percent-encoded)', async () => {
+        const worker = loadWorker({
+            cookies: { 'XSRF-TOKEN': 'abc%2Fdef%3D%3D' },
+        });
+
+        await worker.fire('pushsubscriptionchange', {
+            newSubscription: {
+                toJSON: () => ({
+                    endpoint: 'https://fcm.googleapis.com/fcm/send/new',
+                    keys: { p256dh: 'p', auth: 'a' },
+                }),
+            },
+        });
+
+        const [, init] = worker.fetchMock.mock.calls[0] as unknown as [
+            string,
+            RequestInit,
+        ];
+        expect((init.headers as Record<string, string>)['X-XSRF-TOKEN']).toBe(
+            'abc/def==',
+        );
+    });
+
+    it('sends no token header when the cookie cannot be decoded', async () => {
+        const worker = loadWorker({ cookies: { 'XSRF-TOKEN': '%E0%A4%A' } });
+
+        await worker.fire('pushsubscriptionchange', {
+            newSubscription: {
+                toJSON: () => ({
+                    endpoint: 'https://fcm.googleapis.com/fcm/send/new',
+                    keys: { p256dh: 'p', auth: 'a' },
+                }),
+            },
+        });
+
+        const [, init] = worker.fetchMock.mock.calls[0] as unknown as [
+            string,
+            RequestInit,
+        ];
+        expect(
+            (init.headers as Record<string, string>)['X-XSRF-TOKEN'],
+        ).toBeUndefined();
+    });
+
     it('uses the subscription the browser already made (newSubscription) without subscribing again', async () => {
         const worker = loadWorker();
         const newSubscription = {

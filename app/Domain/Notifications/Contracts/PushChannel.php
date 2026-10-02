@@ -23,6 +23,7 @@ interface PushChannel
     /**
      * @param  list<int>|null  $targetIds  Only these rows (subscription / token ids): a retry of what failed the first time.
      * @param  int|null  $timeoutSeconds  Per request; null = the channel's configured timeout.
+     * @param  int|null  $deadlineSeconds  For the whole call (every target together): targets not started by then come back as `retry`.
      */
-    public function deliver(int $userId, PushMessage $message, ?array $targetIds = null, ?int $timeoutSeconds = null): PushResult;
+    public function deliver(int $userId, PushMessage $message, ?array $targetIds = null, ?int $timeoutSeconds = null, ?int $deadlineSeconds = null): PushResult;
 }

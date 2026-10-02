@@ -24,6 +24,7 @@ use RuntimeException;
  * @property int|null $visitor_id
  * @property int|null $category_id
  * @property int $session_id
+ * @property string|null $network_hash
  * @property string $code
  * @property Carbon $expires_at
  * @property Carbon|null $consumed_at
@@ -36,7 +37,7 @@ use RuntimeException;
  * @property-read WhatsAppSession $session
  * @property-read WaChat|null $chat
  */
-#[Fillable(['widget_id', 'visitor_id', 'category_id', 'session_id', 'code', 'expires_at', 'consumed_at', 'wa_chat_id'])]
+#[Fillable(['widget_id', 'visitor_id', 'category_id', 'session_id', 'network_hash', 'code', 'expires_at', 'consumed_at', 'wa_chat_id'])]
 class WaHandoffTicket extends Model
 {
     /** @use HasFactory<WaHandoffTicketFactory> */

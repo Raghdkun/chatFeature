@@ -56,15 +56,18 @@ class WhatsAppServiceProvider extends ServiceProvider
      */
     private function configureRateLimiting(): void
     {
-        // In front of the signature check: a flood of unsigned requests costs one lookup and one HMAC each, so it is bounded per
-        // client network and per session (the string of the URL: the model is not bound yet when this runs).
+        // In front of the signature check: a flood of unsigned requests costs one lookup and one HMAC each, so it is bounded. OpenWA calls from
+        // ONE address for every session it hosts, so the budget is per session AND client network (a noisy session cannot starve another, and
+        // a stranger hammering a session's URL cannot use up OpenWA's own budget), with a high ceiling per client network on top. A 429 loses
+        // events (OpenWA retries only a few times), so both numbers are generous. (The string of the URL: the model is not bound yet.)
         RateLimiter::for('wa-webhook', function (Request $request): array {
             $session = $request->route('session');
             $session = is_object($session) ? (string) ($session->ulid ?? '') : (string) $session;
+            $network = ClientNetwork::bucket($request->ip());
 
             return [
-                Limit::perMinute($this->limit('webhook.rate_limits.per_network', 600))->by('wa-hook-ip:'.ClientNetwork::bucket($request->ip())),
-                Limit::perMinute($this->limit('webhook.rate_limits.per_session', 3000))->by('wa-hook:'.$session),
+                Limit::perMinute($this->limit('webhook.rate_limits.per_session', 3000))->by('wa-hook:'.$session.':'.$network),
+                Limit::perMinute($this->limit('webhook.rate_limits.per_network', 6000))->by('wa-hook-ip:'.$network),
             ];
         });
 

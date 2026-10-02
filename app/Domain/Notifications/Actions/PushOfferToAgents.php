@@ -60,9 +60,14 @@ final class PushOfferToAgents
         foreach ($this->recipients->eligible($stillOpen, PushType::Offer) as $recipient) {
             $message = $this->messages->offer($current, $recipient->user, $this->preferences->includesPreview($recipient->setting), $expiresAt);
 
+            // Noted BEFORE it is queued: a dismiss that follows at once (the chat was taken a moment later) must find the marker, and the
+            // job drops an offer that closed in the meantime ({@see PushOfferState}).
+            $this->ledger->remember($message->tag, $recipient->user->id);
+
             if ($this->push->queue([$recipient->user->id], $message) > 0) {
-                $this->ledger->remember($message->tag, $recipient->user->id);
                 $queued++;
+            } else {
+                $this->ledger->forget($message->tag, $recipient->user->id);
             }
         }
 

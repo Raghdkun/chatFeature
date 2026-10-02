@@ -203,6 +203,18 @@ async function cookie(name) {
     }
 }
 
+function decodeCookieValue(value) {
+    if (!value) {
+        return null;
+    }
+
+    try {
+        return decodeURIComponent(value);
+    } catch (error) {
+        return null;
+    }
+}
+
 /* Best effort: when the browser rotates the subscription, subscribe again with the same server key and register it. Open pages are told
    either way, and every page load re-checks the registration itself (so a missed one is repaired the next time the dashboard opens). */
 async function resubscribe(event) {
@@ -222,7 +234,8 @@ async function resubscribe(event) {
         }
 
         if (subscription) {
-            const xsrf = await cookie('XSRF-TOKEN');
+            // Laravel URL-encodes the cookie (a trailing `=` is `%3D`); the header carries the decoded token, as the API client sends it.
+            const xsrf = decodeCookieValue(await cookie('XSRF-TOKEN'));
             const headers = {
                 'Content-Type': 'application/json',
                 Accept: 'application/json',

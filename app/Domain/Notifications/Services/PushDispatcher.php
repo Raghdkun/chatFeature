@@ -69,17 +69,18 @@ class PushDispatcher
     }
 
     /**
-     * Send now to every channel; the sum of what they did. `$targetIds` restricts a retry to the rows that failed.
+     * Send now to every channel; the sum of what they did. `$targetIds` restricts a retry to the rows that failed; `$deadlineSeconds` is the
+     * time budget of the whole call per channel (targets not started in time come back as `retry`).
      *
      * @param  list<int>|null  $targetIds
      */
-    public function now(int $userId, PushMessage $message, ?array $targetIds = null, ?int $timeoutSeconds = null): PushResult
+    public function now(int $userId, PushMessage $message, ?array $targetIds = null, ?int $timeoutSeconds = null, ?int $deadlineSeconds = null): PushResult
     {
         $result = PushResult::disabled();
 
         foreach ($this->channels as $channel) {
             if ($channel->isEnabled()) {
-                $result = $result->merge($channel->deliver($userId, $message, $targetIds, $timeoutSeconds));
+                $result = $result->merge($channel->deliver($userId, $message, $targetIds, $timeoutSeconds, $deadlineSeconds));
             }
         }
 

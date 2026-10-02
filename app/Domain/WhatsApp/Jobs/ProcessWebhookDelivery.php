@@ -2,6 +2,7 @@
 
 namespace App\Domain\WhatsApp\Jobs;
 
+use App\Domain\WhatsApp\Actions\ReplayWebhookDeliveries;
 use App\Domain\WhatsApp\Enums\WebhookOutcome;
 use App\Domain\WhatsApp\Services\AckBeforeMessage;
 use App\Domain\WhatsApp\Services\WebhookProcessor;
@@ -25,7 +26,9 @@ use Throwable;
  * guarded `UPDATE ... WHERE outcome IS NULL`). A failure is recorded in `error` and the job runs again a few times with the backoff of
  * `whatsapp.webhook.backoff`; the last failure becomes the outcome `failed` and the job ENDS normally, so the message text of a customer
  * does not end up in the `failed_jobs` table. An ack that is faster than its message is retried on its own, shorter schedule.
- * The body travels in the job: a delivery whose job was lost is queued again by OpenWA's own retry (`ReceiveWebhookDelivery`).
+ * The body is read from the ledger row (`wa_webhook_deliveries.body`, written by `ReceiveWebhookDelivery`): it stays there until the
+ * delivery is dealt with (it is cleared by every outcome but `failed`), so a job the queue lost, or a delivery that ran out of tries, is
+ * queued again by `whatsapp:replay-deliveries` ({@see ReplayWebhookDeliveries}) or by OpenWA's own retry.
  */
 class ProcessWebhookDelivery implements ShouldQueue
 {
@@ -35,9 +38,12 @@ class ProcessWebhookDelivery implements ShouldQueue
 
     public int $timeout = 120;
 
+    /**
+     * @param  string|null  $body  Only for a caller that already holds it (tests); the job reads the ledger row's otherwise
+     */
     public function __construct(
         public readonly int $deliveryId,
-        public readonly string $body,
+        public readonly ?string $body = null,
     ) {
         $this->tries = max(2, (int) config('whatsapp.webhook.tries', 5)) + 1;
     }
@@ -80,8 +86,16 @@ class ProcessWebhookDelivery implements ShouldQueue
             return;
         }
 
+        $body = $this->body ?? $delivery->body;
+
+        if ($body === null) {
+            $this->finish($delivery->id, WebhookOutcome::Ignored, 'The stored body is gone (it was cleared or never kept).');
+
+            return;
+        }
+
         try {
-            $payload = json_decode($this->body, true, 64, JSON_THROW_ON_ERROR);
+            $payload = json_decode($body, true, 64, JSON_THROW_ON_ERROR);
         } catch (JsonException) {
             $this->finish($delivery->id, WebhookOutcome::Rejected, 'The body is not JSON.');
 
@@ -149,11 +163,17 @@ class ProcessWebhookDelivery implements ShouldQueue
         }
     }
 
+    /** Records the outcome; the raw body is dropped with it, except for a failure (kept so the delivery can be replayed). */
     private function finish(int $deliveryId, WebhookOutcome $outcome, ?string $note): void
     {
         WaWebhookDelivery::query()
             ->whereKey($deliveryId)
             ->whereNull('outcome')
-            ->update(['outcome' => $outcome->value, 'processed_at' => now(), 'error' => $note]);
+            ->update([
+                'outcome' => $outcome->value,
+                'processed_at' => now(),
+                'error' => $note,
+                ...($outcome === WebhookOutcome::Failed ? [] : ['body' => null]),
+            ]);
     }
 }

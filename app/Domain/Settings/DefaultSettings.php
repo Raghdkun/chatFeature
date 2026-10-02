@@ -64,6 +64,10 @@ final class DefaultSettings
             new SettingDefinition('whatsapp.daily_send_cap', SettingGroup::WhatsApp, SettingType::Int, 200, ['integer', 'min:1', 'max:10000']),
             new SettingDefinition('whatsapp.handoff_text', SettingGroup::WhatsApp, SettingType::String, 'Hi! My support code is :code', ['required', 'string', new HandoffText]),
             new SettingDefinition('whatsapp.media_max_bytes', SettingGroup::WhatsApp, SettingType::Int, 5 * 1024 * 1024, ['integer', 'min:10240', 'max:26214400']),
+            // Retention of customers' data (docs/security.md): `retention_days` deletes chats and messages (and their stored images) older than that many
+            // days, 0 keeps them for ever; `raw_retention_days` drops the raw webhook object kept for debugging after that many days, 0 never stores it.
+            new SettingDefinition('whatsapp.retention_days', SettingGroup::WhatsApp, SettingType::Int, 0, ['integer', 'min:0', 'max:3650']),
+            new SettingDefinition('whatsapp.raw_retention_days', SettingGroup::WhatsApp, SettingType::Int, 30, ['integer', 'min:0', 'max:3650']),
         ];
     }
 }

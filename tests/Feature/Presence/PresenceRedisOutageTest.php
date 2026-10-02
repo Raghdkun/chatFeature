@@ -74,7 +74,7 @@ class PresenceRedisOutageTest extends TestCase
 
         $this->actingAs($this->agent, 'sanctum')->putJson('/api/v1/me/presence', ['status' => 'online', 'automatic' => true])
             ->assertOk()->assertJsonPath('data.status', 'online')->assertJsonPath('data.isManual', false);
-        $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat', ['visible' => false])->assertNoContent();
+        $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat', ['visible' => false])->assertOk();
         $this->assertSame('online', $this->presenceStatus());
         $this->assertTrue($this->online());
         $this->artisan('chat:presence-sweep')->assertSuccessful();
@@ -83,7 +83,7 @@ class PresenceRedisOutageTest extends TestCase
         $this->assertSame(PresenceStatus::Online, AgentPresence::query()->where('user_id', $this->agent->id)->sole()->effective_status);
         foreach ([60, 120, 180, 240, 300] as $second) {
             $this->travelTo(CarbonImmutable::parse('2026-10-01 12:00:00', 'UTC')->addSeconds($second));
-            $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat', ['visible' => false])->assertNoContent();
+            $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat', ['visible' => false])->assertOk();
         }
 
         $this->assertSame('away', $this->presenceStatus());
@@ -111,7 +111,7 @@ class PresenceRedisOutageTest extends TestCase
 
         $this->assertSame('offline', $this->presenceStatus(), 'the mirror heartbeat is old: nobody has heard from the dashboard');
 
-        $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat', ['visible' => true])->assertNoContent();
+        $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat', ['visible' => true])->assertOk();
 
         $this->assertSame('online', $this->presenceStatus());
         $this->assertTrue($this->online());

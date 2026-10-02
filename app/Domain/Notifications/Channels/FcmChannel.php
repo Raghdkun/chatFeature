@@ -24,7 +24,7 @@ final class FcmChannel implements PushChannel
         return (bool) config('push.fcm.enabled', false);
     }
 
-    public function deliver(int $userId, PushMessage $message, ?array $targetIds = null, ?int $timeoutSeconds = null): PushResult
+    public function deliver(int $userId, PushMessage $message, ?array $targetIds = null, ?int $timeoutSeconds = null, ?int $deadlineSeconds = null): PushResult
     {
         if (! $this->isEnabled()) {
             return PushResult::disabled();

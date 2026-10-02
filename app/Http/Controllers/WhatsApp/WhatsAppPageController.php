@@ -77,23 +77,44 @@ class WhatsAppPageController extends Controller
     }
 
     /**
+     * The props around the chat: the list column, the sessions, the widgets and categories of the filters. Every one is a CLOSURE, which
+     * Inertia only calls when the prop is part of the response: the first visit carries all of them, but a click on a chat reloads only
+     * `selected` (`only: ['selected']`) and must not pay for the 51 chats, the unread count and the lookups it will not send.
+     *
      * @return array<string, mixed>
      */
     private function shell(WaChatListQuery $chats): array
+    {
+        $first = null;
+        // `chats` and `meta` come from one query: whichever is asked first runs it, the other reuses it.
+        $firstPage = function () use (&$first, $chats): array {
+            return $first ??= $this->firstPage($chats);
+        };
+
+        return [
+            'sessions' => fn (): array => $this->sessions(),
+            'chats' => fn (): array => $firstPage()['chats'],
+            'meta' => fn (): array => $firstPage()['meta'],
+            'widgets' => fn (): array => Widget::query()->orderBy('name')->orderBy('id')->get()->map(fn (Widget $widget): array => WidgetRefData::fromModel($widget)->toArray())->all(),
+            'categories' => fn (): array => Category::query()->orderBy('sort_order')->orderBy('name')->get()->map(fn (Category $category): array => CategoryRefData::fromModel($category)->toArray())->all(),
+            'whatsappEnabled' => fn (): bool => settings()->bool('whatsapp.enabled', false),
+        ];
+    }
+
+    /**
+     * @return array{chats: array<int, array<string, mixed>>, meta: array{next_cursor: string|null, unread_chats: int}}
+     */
+    private function firstPage(WaChatListQuery $chats): array
     {
         $rows = $chats->ordered($chats->build([]), null)->with(['session', 'widget', 'category'])->limit(self::FIRST_PAGE + 1)->get();
         $page = $rows->take(self::FIRST_PAGE)->values();
 
         return [
-            'sessions' => $this->sessions(),
             'chats' => $page->map(fn (WaChat $chat): array => WaChatData::fromModel($chat)->toArray())->all(),
             'meta' => [
                 'next_cursor' => $rows->count() > self::FIRST_PAGE && $page->isNotEmpty() ? WaChatCursor::after($page->last())->encode() : null,
                 'unread_chats' => $chats->unreadChats(),
             ],
-            'widgets' => Widget::query()->orderBy('name')->orderBy('id')->get()->map(fn (Widget $widget): array => WidgetRefData::fromModel($widget)->toArray())->all(),
-            'categories' => Category::query()->orderBy('sort_order')->orderBy('name')->get()->map(fn (Category $category): array => CategoryRefData::fromModel($category)->toArray())->all(),
-            'whatsappEnabled' => settings()->bool('whatsapp.enabled', false),
         ];
     }
 

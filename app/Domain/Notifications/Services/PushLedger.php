@@ -28,6 +28,16 @@ final class PushLedger
         }
     }
 
+    /** Takes the marker back (the push it announced could not be queued). */
+    public function forget(string $tag, int $userId): void
+    {
+        try {
+            $this->cache->forget($this->key($tag, $userId));
+        } catch (Throwable $exception) {
+            report($exception);
+        }
+    }
+
     /** Whether the user was pushed this tag; forgets the marker (it is used once, by the dismiss). */
     public function pull(string $tag, int $userId): bool
     {

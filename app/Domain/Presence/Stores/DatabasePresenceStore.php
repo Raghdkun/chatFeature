@@ -9,6 +9,7 @@ use App\Domain\Presence\PresencePolicy;
 use App\Domain\Presence\PresenceRecord;
 use App\Domain\Presence\PresenceTransition;
 use App\Models\AgentPresence;
+use App\Support\Database\DeadlockRetry;
 use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -65,6 +66,14 @@ final class DatabasePresenceStore implements PresenceStore
     {
         return $this->write($userId, $now, false, function (AgentPresence $row) use ($visible, $now): void {
             if (! $row->status->isAvailable()) {
+                // The agent chose Offline: the status rules do not change (a heartbeat never turns it on, the heartbeat time stays), but a
+                // visible tab IS somebody looking at the dashboard, and `PresenceDashboardVisibility` reads that from here.
+                $row->forceFill(['last_seen_at' => $now]);
+
+                if ($visible) {
+                    $row->forceFill(['last_visible_at' => $now]);
+                }
+
                 return;
             }
 
@@ -121,7 +130,7 @@ final class DatabasePresenceStore implements PresenceStore
     {
         for ($attempt = 1; ; $attempt++) {
             try {
-                return DB::transaction(function () use ($userId, $now, $create, $change): PresenceTransition {
+                return DeadlockRetry::transaction(function () use ($userId, $now, $create, $change): PresenceTransition {
                     $row = AgentPresence::query()->where('user_id', $userId)->lockForUpdate()->first();
 
                     if ($row === null && ! $create) {

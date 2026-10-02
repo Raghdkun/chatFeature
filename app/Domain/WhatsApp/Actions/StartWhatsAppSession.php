@@ -118,21 +118,33 @@ final class StartWhatsAppSession
 
     /**
      * Register a webhook with a NEW secret (the first one, or a replacement for one that does not verify): the old secret and the old
-     * webhook at OpenWA are dropped. Called by Start when there is none and by `POST /whatsapp/sessions/{ulid}/webhook`.
+     * webhook at OpenWA are dropped, and the session counts as "not registered" until OpenWA has accepted the new one (a refused
+     * registration leaves Start free to try again). Called by Start when there is none and by `POST /whatsapp/sessions/{ulid}/webhook`.
      *
      * @throws ApiProblemException
      */
     public function registerWebhook(WhatsAppSession $session, bool $replace = false): WhatsAppSession
     {
+        $session->webhook_secret = Str::random(self::WEBHOOK_SECRET_LENGTH);
+        // From here on the stored registration is NOT trusted: the secret is new, so the old webhook (if it still exists) can no longer be
+        // verified, and the old one is being deleted. A registration that is refused below must therefore leave the session "not
+        // registered", so that the next Start registers again (otherwise Start would skip it for good, pointing at a deleted webhook).
+        $session->webhook_registered_at = null;
+
         if ($replace && $session->openwa_webhook_id !== null && $session->openwa_session_id !== null) {
             try {
                 $this->openWa->deleteWebhook($session->openwa_session_id, $session->openwa_webhook_id);
+                $session->openwa_webhook_id = null;
+            } catch (OpenWaRejected $rejected) {
+                // Already gone: nothing left to point at. Any other refusal keeps the id, so the next attempt tries to delete it again.
+                if ($rejected->isNotFound()) {
+                    $session->openwa_webhook_id = null;
+                }
             } catch (Throwable) {
-                // Already gone, or OpenWA cannot be asked: the new registration below says which.
+                // OpenWA cannot be asked: the id stays for the next attempt; the registration below says what is wrong.
             }
         }
 
-        $session->webhook_secret = Str::random(self::WEBHOOK_SECRET_LENGTH);
         $session->save();
 
         try {

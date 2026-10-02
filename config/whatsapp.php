@@ -32,14 +32,20 @@ return [
      * - redeliver_after_seconds: a stored delivery whose job has not completed after this long is queued again when OpenWA
      *   repeats it (the queue lost the job).
      * - tries / backoff: attempts of the queued job and the seconds before each next one.
+     * - replay (`whatsapp:replay-deliveries`, every 5 minutes): a delivery OpenWA was answered for but whose job was lost (no outcome
+     *   after `stuck_after_seconds`) or that ended `failed` (retried after `failed_after_seconds` x the replays used) is queued again, at
+     *   most `max` times per delivery, `batch` per run. The raw body is kept on the ledger row for that.
      */
     'webhook' => [
         'max_body_bytes' => 1048576,
-        'rate_limits' => ['per_network' => 600, 'per_session' => 3000],
+        // Per minute. `per_session`: one session's deliveries from one client network (OpenWA calls from one address for every session, so
+        // the sessions must not share a budget); `per_network`: the ceiling for everything one client network sends to any session.
+        'rate_limits' => ['per_network' => 6000, 'per_session' => 3000],
         'redeliver_after_seconds' => 300,
         'tries' => 5,
         'backoff' => [5, 20, 60, 180],
         'ack_retry_seconds' => [5, 20],
+        'replay' => ['stuck_after_seconds' => 120, 'failed_after_seconds' => 300, 'max' => 5, 'batch' => 200],
     ],
 
     /* The events every webhook is registered for (OpenWA delivers nothing else to us). */
@@ -61,6 +67,9 @@ return [
      */
     'handoff' => [
         'rate_limits' => ['per_visitor' => 6, 'per_network' => 20, 'per_widget_network' => 10, 'per_widget' => 120],
+        // Caps on LIVE (unconsumed, unexpired) tickets, which a script cannot dodge by fetching a new visitor token for every request.
+        'max_live_per_widget_network' => 30,
+        'max_live_per_widget' => 500,
     ],
 
     /* How many of a chat's first inbound messages are searched for a hand-off code (a customer rarely needs more than the first). */

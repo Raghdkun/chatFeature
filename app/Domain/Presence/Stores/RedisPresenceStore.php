@@ -47,8 +47,10 @@ return redis.call('HGETALL', KEYS[1])
 LUA;
 
     /**
-     * KEYS: hash, alive. ARGV: user id, now, visible (0|1), ttl. A record whose life is over is removed; a stored `offline` is left alone
-     * (a heartbeat never turns it on). Returns the hash as it is afterwards (empty when there is none).
+     * KEYS: hash, alive. ARGV: user id, now, visible (0|1), ttl. A record whose life is over is removed; a stored `offline` keeps its status
+     * and its heartbeat time (a heartbeat never turns it on) but still notes that a tab is open and whether it is visible (so the
+     * dashboard-visibility check is truthful for an agent who chose Offline) and keeps the record alive. Returns the hash as it is
+     * afterwards (empty when there is none).
      */
     private const BEAT = <<<'LUA'
 local last = math.max(tonumber(redis.call('HGET', KEYS[1], 'last_heartbeat_at') or '0'), tonumber(redis.call('HGET', KEYS[1], 'last_seen_at') or '0'))
@@ -65,6 +67,12 @@ if status ~= 'offline' then
   end
   redis.call('EXPIRE', KEYS[1], ARGV[4])
   redis.call('ZADD', KEYS[2], ARGV[2], ARGV[1])
+else
+  redis.call('HSET', KEYS[1], 'last_seen_at', ARGV[2], 'visible', ARGV[3])
+  if ARGV[3] == '1' then
+    redis.call('HSET', KEYS[1], 'last_visible_at', ARGV[2])
+  end
+  redis.call('EXPIRE', KEYS[1], ARGV[4])
 end
 return redis.call('HGETALL', KEYS[1])
 LUA;

@@ -4,6 +4,7 @@ namespace App\Domain\WhatsApp\Jobs;
 
 use App\Domain\WhatsApp\Contracts\OpenWaClient;
 use App\Domain\WhatsApp\Enums\SessionStatus;
+use App\Domain\WhatsApp\Enums\WaDirection;
 use App\Domain\WhatsApp\Enums\WaMessageStatus;
 use App\Domain\WhatsApp\Events\WaMessageStatusChanged;
 use App\Domain\WhatsApp\Services\SendCounter;
@@ -24,7 +25,9 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Jobs\SyncJob;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -40,9 +43,14 @@ use Throwable;
  *    both are retried; an OpenWA that cannot be reached is retried with backoff for `whatsapp.send.retry_for_minutes`, then the message
  *    fails; a `400` "session is not active" (OpenWA has no engine) fails it with that reason and reconciles the session; any other
  *    refusal fails it at once with OpenWA's reason;
- *  - a request that was sent but never answered ({@see OpenWaRequestNotConfirmed}) is NOT repeated (the customer could get the message
- *    twice): the row stays `pending` and OpenWA's `message.sent` webhook confirms it; the reconciliation fails it after
- *    `whatsapp.send.unconfirmed_after_minutes` if nothing ever does.
+ *  - a request that MAY have reached WhatsApp is NOT repeated (the customer could get the message twice): the row stays `pending` and
+ *    OpenWA's `message.sent` webhook confirms it; the reconciliation fails it after `whatsapp.send.unconfirmed_after_minutes` if nothing
+ *    ever does. That is every {@see OpenWaRequestNotConfirmed}: a request sent but never answered, a `5xx` (a proxy's 502 / 504) or a
+ *    `2xx` without a usable message id, and a failure of our own bookkeeping after OpenWA said `201`. Only what certainly did NOT reach
+ *    WhatsApp is retried: a connection that never got through, `409` (not connected) and the plain throttler `429`;
+ *  - replies to one customer go out in the order they were written: while an older reply of the same chat is still `pending` (waiting for
+ *    its slot or being retried) this one waits too ({@see self::waitsForAnOlderReply()}). A reply that was handed over but never
+ *    confirmed does not hold the ones behind it;
  *
  * A message that did not reach WhatsApp gives its daily-cap slot back. The job never throws for a failure it handled.
  */
@@ -54,6 +62,11 @@ class SendWhatsAppMessage implements ShouldQueue
     public int $tries = 0;
 
     public int $timeout = 90;
+
+    /** The cache marker of a reply that was handed to OpenWA but not confirmed (it must not hold back the replies behind it). */
+    private const UNCONFIRMED_PREFIX = 'wa:unconfirmed:';
+
+    private const UNCONFIRMED_TTL_SECONDS = 7200;
 
     private readonly int $deadline;
 
@@ -83,6 +96,10 @@ class SendWhatsAppMessage implements ShouldQueue
             return;
         }
 
+        if ($this->waitsForAnOlderReply($message)) {
+            return;
+        }
+
         if (! $this->takeSlot($pacer, $session)) {
             return;
         }
@@ -98,6 +115,8 @@ class SendWhatsAppMessage implements ShouldQueue
 
             return;
         } catch (OpenWaRequestNotConfirmed) {
+            $this->unconfirmed($message);
+
             return;
         } catch (OpenWaUnavailable $unavailable) {
             $this->unavailable($message, $counter, $unavailable);
@@ -146,7 +165,22 @@ class SendWhatsAppMessage implements ShouldQueue
         return false;
     }
 
+    /**
+     * OpenWA accepted the message: store its id and move the row on. Whatever goes wrong HERE (the database, a listener) is OURS, and the
+     * message is on its way: the failure is logged and the row stays `pending`, never retried (the `message.sent` webhook or the
+     * reconciliation settles it), because repeating the send would deliver it twice.
+     */
     private function accepted(WaMessage $message, OpenWaSendResult $result): void
+    {
+        try {
+            $this->store($message, $result);
+        } catch (Throwable $exception) {
+            report($exception);
+            $this->unconfirmed($message);
+        }
+    }
+
+    private function store(WaMessage $message, OpenWaSendResult $result): void
     {
         try {
             $updated = WaMessage::query()
@@ -164,6 +198,45 @@ class SendWhatsAppMessage implements ShouldQueue
         if ($updated === 1) {
             WaMessageStatusChanged::dispatch($message->refresh(), WaMessageStatus::Pending);
         }
+    }
+
+    /**
+     * The message may have reached WhatsApp (or certainly did, and only our bookkeeping failed): it is left `pending`, never sent again,
+     * and no longer holds back the replies queued behind it.
+     */
+    private function unconfirmed(WaMessage $message): void
+    {
+        Cache::put(self::UNCONFIRMED_PREFIX.$message->id, true, self::UNCONFIRMED_TTL_SECONDS);
+        Log::warning('A WhatsApp reply may have been sent but is not confirmed; it stays pending and is not sent again.', ['message' => $message->ulid]);
+    }
+
+    /**
+     * Replies of one chat go out in the order they were written: an older reply that is still `pending` (waiting for its pacing slot, or
+     * being retried) is sent first, so a reply that happened to wake up earlier cannot overtake it. The job is released for a moment and
+     * looks again. A reply that was handed over but never confirmed ({@see self::unconfirmed()}) does not count, and the `sync` queue
+     * (where a job runs inline, in order, and cannot be released) never waits.
+     */
+    private function waitsForAnOlderReply(WaMessage $message): bool
+    {
+        if (! $this->canRelease()) {
+            return false;
+        }
+
+        $older = WaMessage::query()
+            ->where('wa_chat_id', $message->wa_chat_id)
+            ->where('direction', WaDirection::Out->value)
+            ->where('status', WaMessageStatus::Pending->value)
+            ->whereNull('wa_message_id')
+            ->where('id', '<', $message->id)
+            ->pluck('id');
+
+        if (! $older->contains(fn (mixed $id): bool => ! Cache::has(self::UNCONFIRMED_PREFIX.$id))) {
+            return false;
+        }
+
+        $this->release(2);
+
+        return true;
     }
 
     private function mergeEcho(WaMessage $message, string $waMessageId): void

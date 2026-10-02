@@ -34,6 +34,9 @@ use Illuminate\Support\Str;
  *    transaction as the row, `last_message_*` only forward in time.
  *  - An image is stored (inline data, or fetched later by a job); the first inbound messages of an unlinked chat are searched for a
  *    hand-off code (`ChatLinker`). Realtime events fire after all of it, so the first broadcast already shows the link.
+ *  - Everything after the insert is idempotent and finished by a RETRY: a delivery that stored its row but failed afterwards (the queue
+ *    refused the media job, the linker was a deadlock victim) hits the existing row on its next run, and because the row is not marked
+ *    `announced_at` yet, that run does the media, the link and the events again. A repeat of a finished message is a plain `duplicate`.
  */
 final class InboundMessageRecorder
 {
@@ -114,7 +117,8 @@ final class InboundMessageRecorder
             throw new \RuntimeException('The message could not be stored.');
         }
 
-        if (! $stored) {
+        // The same message again, and everything was done the first time: nothing to do. (A stored row that was NOT finished falls through.)
+        if (! $stored && $message->announced_at !== null) {
             return WebhookResult::duplicate();
         }
 
@@ -126,6 +130,8 @@ final class InboundMessageRecorder
         } else {
             WaMessageSent::dispatch($message->load('chat'));
         }
+
+        WaMessage::query()->whereKey($message->id)->whereNull('announced_at')->update(['announced_at' => now()]);
 
         return WebhookResult::processed();
     }
@@ -211,7 +217,7 @@ final class InboundMessageRecorder
             'media_size' => $inline['size'] ?? null,
             'status' => ($fromMe ? WaMessageStatus::Sent : WaMessageStatus::Received)->value,
             'wa_timestamp' => $moment->setTimezone((string) config('app.timezone', 'UTC'))->format('Y-m-d H:i:s'),
-            'raw' => $this->raw($data),
+            'raw' => $this->rawToKeep($data, $type, $inline),
             'created_at' => $now,
             'updated_at' => $now,
         ];
@@ -308,7 +314,8 @@ final class InboundMessageRecorder
      */
     private function storeMedia(WaMessage $message, WaMessageType $type, ?array $inline, array $data): void
     {
-        if (! $type->isStoredAsFile() || $inline === null) {
+        // Not an image, or its file is already there (a retried delivery): nothing to store or fetch.
+        if (! $type->isStoredAsFile() || $inline === null || $message->hasStoredMedia()) {
             return;
         }
 
@@ -321,6 +328,29 @@ final class InboundMessageRecorder
         }
 
         $this->media->queueFetch($message);
+    }
+
+    /**
+     * What is kept of the webhook's message object. It is for debugging only, and customers' data is not kept for debugging for ever:
+     * `whatsapp.raw_retention_days` = 0 keeps nothing (the scheduled prune drops it after N days otherwise). The one thing a later job
+     * needs from it is the chat id exactly as OpenWA spelled it, to fetch a large image: that alone survives for such a message.
+     *
+     * @param  array<array-key, mixed>  $data
+     * @param  array{bytes: string|null, mime: string|null, filename: string|null, size: int|null}|null  $inline
+     */
+    private function rawToKeep(array $data, WaMessageType $type, ?array $inline): ?string
+    {
+        if (settings()->int('whatsapp.raw_retention_days', 30) > 0) {
+            return $this->raw($data);
+        }
+
+        $chatId = $data['chatId'] ?? null;
+
+        if ($type->isStoredAsFile() && $inline !== null && $inline['bytes'] === null && is_string($chatId) && $chatId !== '') {
+            return json_encode(['chatId' => $chatId], JSON_UNESCAPED_SLASHES) ?: null;
+        }
+
+        return null;
     }
 
     /**

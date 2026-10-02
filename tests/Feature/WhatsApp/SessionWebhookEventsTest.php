@@ -231,14 +231,41 @@ class SessionWebhookEventsTest extends TestCase
         $this->assertSame(SessionStatus::Ready, $session->refresh()->status);
     }
 
-    public function test_the_event_name_of_the_header_is_used_when_the_body_has_none(): void
+    public function test_a_signed_body_without_an_event_is_refused_whatever_the_unsigned_header_says(): void
     {
         $session = $this->webhookSession(state: 'qr');
         $body = $this->envelope('session.status', ['status' => 'ready']);
         unset($body['event']);
 
-        $this->deliver($session, $body, headers: ['X-OpenWA-Event' => 'session.status'])->assertOk();
+        // The headers are not covered by the signature: `X-OpenWA-Event` is never trusted.
+        $this->deliver($session, $body, headers: ['X-OpenWA-Event' => 'session.status'])->assertStatus(400)->assertJsonPath('error.code', 'invalid_webhook');
 
+        $this->assertSame(SessionStatus::Qr, $session->refresh()->status);
+        $this->assertSame(0, WaWebhookDelivery::query()->count());
+    }
+
+    public function test_an_unusable_event_name_in_the_body_is_refused(): void
+    {
+        $session = $this->webhookSession(state: 'qr');
+
+        foreach ([null, '', 42, ['session.status'], str_repeat('a', 49), 'session status', "session.status\nX", '.hidden'] as $event) {
+            $body = $this->envelope('session.status', ['status' => 'ready']);
+            $body['event'] = $event;
+
+            $this->deliver($session, $body, headers: ['X-OpenWA-Event' => 'session.status'])->assertStatus(400);
+        }
+
+        $this->assertSame(SessionStatus::Qr, $session->refresh()->status);
+        $this->assertSame(0, WaWebhookDelivery::query()->count());
+    }
+
+    public function test_the_event_is_read_from_the_body_even_when_the_header_names_another_one(): void
+    {
+        $session = $this->webhookSession(state: 'qr');
+
+        $this->deliver($session, $this->envelope('session.status', ['status' => 'ready']), headers: ['X-OpenWA-Event' => 'message.received'])->assertOk();
+
+        $this->assertSame('session.status', WaWebhookDelivery::query()->sole()->event);
         $this->assertSame(SessionStatus::Ready, $session->refresh()->status);
     }
 

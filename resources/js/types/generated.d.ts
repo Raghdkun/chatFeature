@@ -492,6 +492,7 @@ export type HandoffData = {
 code: string,
 waUrl: string,
 expiresAt: string,
+ttlSeconds: number,
 };
 export type WaChatData = {
 ulid: string,
@@ -595,6 +596,8 @@ replyOnlyToInbound: boolean,
 sendMinIntervalMs: number,
 dailySendCap: number,
 mediaMaxBytes: number,
+retentionDays: number,
+rawRetentionDays: number,
 };
 export type WidgetWhatsAppLinkData = {
 widget: App.Data.Chat.WidgetRefData,

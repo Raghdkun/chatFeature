@@ -6,7 +6,7 @@ use App\Domain\WhatsApp\Events\WaChatLinked;
 use App\Models\WaChat;
 use App\Models\WaHandoffTicket;
 use App\Models\WaMessage;
-use Illuminate\Support\Facades\DB;
+use App\Support\Database\DeadlockRetry;
 
 /**
  * Links a recorded WhatsApp chat to the widget, visitor and topic it came from (decision P6-D3). The visitor's hand-off gave them an
@@ -19,6 +19,8 @@ use Illuminate\Support\Facades\DB;
  *  - One ticket links one chat and one chat takes one ticket: the ticket is claimed with a guarded `UPDATE ... WHERE consumed_at IS NULL`
  *    inside a transaction that holds the chat's row lock, so two messages (or two deliveries) racing for the same code link it once.
  *  - A chat stays recorded when nothing matches (it is simply unlinked), and a chat that is already linked is never re-linked.
+ *  - The claim runs in `DeadlockRetry`: the chat row lock and the ticket update can make MySQL pick this transaction as a deadlock victim
+ *    when two deliveries hit the same chat or ticket, and the second run finds the work done or does it.
  */
 final class ChatLinker
 {
@@ -51,7 +53,7 @@ final class ChatLinker
             return false;
         }
 
-        $linked = DB::transaction(function () use ($chat, $ticket): bool {
+        $linked = DeadlockRetry::transaction(function () use ($chat, $ticket): bool {
             $locked = WaChat::query()->whereKey($chat->id)->lockForUpdate()->first();
 
             if ($locked === null || $locked->handoff_ticket_id !== null) {

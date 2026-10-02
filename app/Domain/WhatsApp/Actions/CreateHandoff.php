@@ -7,7 +7,9 @@ use App\Http\Exceptions\ApiProblemException;
 use App\Models\Category;
 use App\Models\VisitorSession;
 use App\Models\WaHandoffTicket;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -19,7 +21,10 @@ use Illuminate\Validation\ValidationException;
  * (`403 feature_disabled`) and a `ready` session with a number is linked to the widget (`409 whatsapp_unavailable`). The topic, when
  * given, must be an active category of the widget (`422`). A visitor who asks again while a ticket for the same session and topic is
  * still live gets THAT ticket back (so refreshing the panel, a double click or a script cannot mint codes), and one visitor can create at
- * most {@see self::MAX_TICKETS_PER_DAY} tickets a day. The number is never returned except inside the link.
+ * most {@see self::MAX_TICKETS_PER_DAY} tickets a day. A visitor is only a bearer token, and a script gets a new one for free, so the
+ * per-visitor cap alone is no bound: the number of LIVE, unconsumed tickets is capped per client network and widget
+ * (`whatsapp.handoff.max_live_per_widget_network`, 30) and per widget (`whatsapp.handoff.max_live_per_widget`, 500), `429` beyond.
+ * The number is never returned except inside the link.
  */
 final class CreateHandoff
 {
@@ -65,6 +70,8 @@ final class CreateHandoff
             throw ApiProblemException::rateLimited(__('Too many codes were requested. Please try again later.'), 3600);
         }
 
+        $this->guardLiveTickets($widget->id, $session->network_hash);
+
         $ttl = max(5, settings()->int('whatsapp.handoff_ttl_minutes', 1440));
 
         for ($attempt = 1; ; $attempt++) {
@@ -74,6 +81,7 @@ final class CreateHandoff
                     'visitor_id' => $session->visitor_id,
                     'category_id' => $category?->id,
                     'session_id' => $whatsApp->id,
+                    'network_hash' => $session->network_hash,
                     'expires_at' => now()->addMinutes($ttl),
                 ]);
 
@@ -85,6 +93,38 @@ final class CreateHandoff
                 }
             }
         }
+    }
+
+    /**
+     * The caps on live (not consumed, not expired) tickets: per client network within the widget, and per widget. An expired or consumed
+     * ticket frees its place.
+     *
+     * @throws ApiProblemException
+     */
+    private function guardLiveTickets(int $widgetId, ?string $networkHash): void
+    {
+        $live = fn () => WaHandoffTicket::query()->live()->where('widget_id', $widgetId);
+
+        if ($networkHash !== null && $live()->where('network_hash', $networkHash)->count() >= max(1, (int) config('whatsapp.handoff.max_live_per_widget_network', 30))) {
+            throw ApiProblemException::rateLimited(__('Too many codes were requested. Please try again later.'), $this->retryAfter($live()->where('network_hash', $networkHash)));
+        }
+
+        if ($live()->count() >= max(1, (int) config('whatsapp.handoff.max_live_per_widget', 500))) {
+            throw ApiProblemException::rateLimited(__('Too many codes were requested. Please try again later.'), $this->retryAfter($live()));
+        }
+    }
+
+    /**
+     * Seconds until the first of these tickets expires and makes room (at least a minute, at most an hour).
+     *
+     * @param  Builder<WaHandoffTicket>  $tickets
+     */
+    private function retryAfter(Builder $tickets): int
+    {
+        $first = $tickets->min('expires_at');
+        $seconds = $first === null ? 3600 : (int) now()->diffInSeconds(Carbon::parse($first), false);
+
+        return max(60, min(3600, $seconds));
     }
 
     /**

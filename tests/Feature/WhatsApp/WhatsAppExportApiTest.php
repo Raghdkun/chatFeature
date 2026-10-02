@@ -145,7 +145,8 @@ class WhatsAppExportApiTest extends TestCase
         $this->assertSame($this->admin->id, $audit->actor_id);
         $this->assertSame('json', $audit->changes['format']);
         $this->assertSame('chats', $audit->changes['resource']);
-        $this->assertSame(['status' => 'open', 'q' => 'secret'], $audit->changes['filters']);
+        // (MySQL's JSON type reorders keys: compare without the order.)
+        $this->assertEquals(['status' => 'open', 'q' => 'secret'], $audit->changes['filters']);
         $this->assertStringNotContainsString('secret customer text', json_encode($audit->changes));
     }
 

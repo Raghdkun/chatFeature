@@ -173,9 +173,14 @@ class ConcurrencyMySqlTest extends TestCase
         $this->assertSame(1, WaMessage::query()->whereIn('wa_chat_id', WaChat::query()->where('session_id', $session->id)->select('id'))->count());
         $chat = WaChat::query()->where('session_id', $session->id)->sole();
         $this->assertSame(1, $chat->unread_by_admin, 'counted once');
-        $this->assertSame(1, WaWebhookDelivery::query()->where('session_id', $session->id)->where('outcome', 'processed')->count());
-        $this->assertSame(self::WORKERS - 1, WaWebhookDelivery::query()->where('session_id', $session->id)->where('outcome', 'duplicate')->count());
+        // A loser that arrives while the winner is still finishing the message (media, link, events: all idempotent) finishes it too and
+        // is `processed`; one that arrives later is a plain `duplicate`. Either way the message is stored and counted once.
+        $processed = WaWebhookDelivery::query()->where('session_id', $session->id)->where('outcome', 'processed')->count();
+        $duplicates = WaWebhookDelivery::query()->where('session_id', $session->id)->where('outcome', 'duplicate')->count();
+        $this->assertGreaterThanOrEqual(1, $processed);
+        $this->assertSame(self::WORKERS, $processed + $duplicates, 'no delivery failed');
         $this->assertSame(0, WaWebhookDelivery::query()->where('session_id', $session->id)->whereNull('outcome')->count(), 'nothing left waiting');
+        $this->assertNotNull(WaMessage::query()->where('wa_chat_id', $chat->id)->sole()->announced_at);
     }
 
     public function test_many_new_messages_of_one_new_customer_make_one_chat_and_an_exact_unread_count(): void
@@ -225,6 +230,33 @@ class ConcurrencyMySqlTest extends TestCase
         $ticket->refresh();
         $this->assertNotNull($ticket->consumed_at);
         $this->assertSame($linked->first()->id, $ticket->wa_chat_id);
+    }
+
+    public function test_the_same_code_in_many_messages_of_one_chat_links_it_once_and_no_delivery_fails(): void
+    {
+        // The recorder (counters of the chat) and the linker (the chat's row lock, the ticket claim) race on the same chat and the same
+        // ticket: a deadlock victim is retried inside the transaction and nothing ends `failed`.
+        $session = $this->newSession();
+        $widget = Widget::factory()->create();
+        $this->widgetIds[] = $widget->id;
+        $visitor = Visitor::factory()->create(['widget_id' => $widget->id]);
+        $ticket = WaHandoffTicket::factory()->create(['widget_id' => $widget->id, 'visitor_id' => $visitor->id, 'session_id' => $session->id, 'code' => 'K7M2QX4P', 'expires_at' => now()->addHour()]);
+        $jobs = [];
+
+        foreach (range(1, self::WORKERS) as $index) {
+            $body = $this->messageReceived(['id' => 'false_4915123456789@c.us_SAME'.$index, 'body' => 'my code is K7M2QX4P ('.$index.')'], key: 'msg_same_'.$index);
+            $jobs[] = [$session->ulid, $this->encoded($session, $body), 'msg_same_'.$index];
+        }
+
+        $results = $this->runWorkers('deliver', $jobs);
+
+        $this->assertSame(self::WORKERS, $this->tally($results, 'status', 'accepted'), json_encode($results));
+        $chat = WaChat::query()->where('session_id', $session->id)->sole();
+        $this->assertSame($ticket->id, $chat->handoff_ticket_id);
+        $this->assertSame(self::WORKERS, WaMessage::query()->where('wa_chat_id', $chat->id)->count());
+        $this->assertSame(self::WORKERS, $chat->unread_by_admin);
+        $this->assertSame(self::WORKERS, WaWebhookDelivery::query()->where('session_id', $session->id)->where('outcome', 'processed')->count(), 'no delivery failed');
+        $this->assertSame(self::WORKERS, WaMessage::query()->where('wa_chat_id', $chat->id)->whereNotNull('announced_at')->count(), 'every message was finished');
     }
 
     public function test_parallel_replies_never_exceed_the_daily_cap(): void

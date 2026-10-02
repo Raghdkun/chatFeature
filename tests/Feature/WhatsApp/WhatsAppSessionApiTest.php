@@ -525,6 +525,42 @@ class WhatsAppSessionApiTest extends TestCase
         $this->openWa()->assertNothingCalled();
     }
 
+    public function test_looking_at_the_qr_is_audited_once_per_five_minutes_without_the_image(): void
+    {
+        $session = WhatsAppSession::factory()->qr()->create();
+
+        // The page polls every few seconds: one entry, not one per poll.
+        foreach (range(1, 5) as $ignored) {
+            $this->api()->getJson('/api/v1/whatsapp/sessions/'.$session->ulid.'/qr')->assertOk();
+        }
+
+        $entry = AuditLog::query()->where('action', 'whatsapp.session.qr_viewed')->sole();
+        $this->assertSame($this->admin->id, $entry->actor_id);
+        $this->assertSame((string) $session->id, $entry->subject_id);
+        $this->assertNull($entry->changes);
+        $this->assertStringNotContainsString(WhatsAppSessionFactory::FAKE_QR, (string) json_encode($entry->toArray()));
+
+        $this->travel(6)->minutes();
+        $session->forceFill(['last_qr_at' => now()])->save();
+        $this->api()->getJson('/api/v1/whatsapp/sessions/'.$session->ulid.'/qr')->assertOk();
+        $this->assertSame(2, AuditLog::query()->where('action', 'whatsapp.session.qr_viewed')->count());
+    }
+
+    public function test_a_qr_that_was_refused_is_not_audited_and_another_administrator_has_their_own_window(): void
+    {
+        $waiting = WhatsAppSession::factory()->qr()->create();
+        $ready = WhatsAppSession::factory()->ready()->create();
+
+        $this->api()->getJson('/api/v1/whatsapp/sessions/'.$ready->ulid.'/qr')->assertStatus(409);
+        $this->assertSame(0, AuditLog::query()->where('action', 'whatsapp.session.qr_viewed')->count(), 'nothing was shown');
+
+        $this->api()->getJson('/api/v1/whatsapp/sessions/'.$waiting->ulid.'/qr')->assertOk();
+        $second = User::factory()->admin()->create();
+        $this->actingAs($second, 'sanctum')->getJson('/api/v1/whatsapp/sessions/'.$waiting->ulid.'/qr')->assertOk();
+
+        $this->assertSame([$this->admin->id, $second->id], AuditLog::query()->where('action', 'whatsapp.session.qr_viewed')->orderBy('id')->pluck('actor_id')->all());
+    }
+
     public function test_a_stale_qr_is_fetched_from_openwa_and_stored(): void
     {
         $openWa = $this->openWa();

@@ -9,6 +9,7 @@ use App\Models\WaMessage;
 use App\Models\WhatsAppSession;
 use App\Models\Widget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Support\WhatsAppFixtures;
 use Tests\Support\WidgetFixtures;
@@ -49,6 +50,42 @@ class WhatsAppPagesTest extends TestCase
             ->where('meta.unread_chats', 1)
             ->has('widgets', 1, fn (Assert $row) => $row->where('name', 'Main site')->etc())
             ->has('categories', 1, fn (Assert $row) => $row->where('slug', 'billing')->where('label', 'Billing')));
+    }
+
+    public function test_clicking_a_chat_reloads_only_the_selection_and_does_not_run_the_queries_of_the_other_props(): void
+    {
+        $session = WhatsAppSession::factory()->ready()->create(['name' => 'support-main']);
+        $chat = WaChat::factory()->for($session, 'session')->create(['last_message_at' => now(), 'unread_by_admin' => 2]);
+        WaChat::factory()->count(5)->for($session, 'session')->create(['last_message_at' => now()]);
+        WaMessage::factory()->count(3)->for($chat, 'chat')->inbound()->create();
+        Widget::factory()->create();
+        Category::factory()->create(['slug' => 'billing']);
+        $admin = $this->whatsAppPeople()['admin'];
+        $touched = fn (array $log, string $table): int => count(array_filter($log, fn (array $entry): bool => str_contains(str_replace(['"', '`'], '', (string) $entry['query']), 'from '.$table)));
+
+        // The first visit carries everything (and runs everything).
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->actingAs($admin)->get('/whatsapp/chats/'.$chat->ulid)->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->has('chats', 6)->has('sessions', 1)->has('widgets', 1)->has('categories', 1)->where('meta.unread_chats', 1)->where('whatsappEnabled', false)
+            ->has('selected.messages', 3));
+        $full = DB::getQueryLog();
+        $this->assertGreaterThan(0, $touched($full, 'widgets'));
+        $this->assertGreaterThan(0, $touched($full, 'categories'));
+
+        // The click: `only: ['selected']`. The page answers with the selection and nothing else, and the lists are never queried.
+        $this->actingAs($admin)->get('/whatsapp/chats/'.$chat->ulid)->assertInertia(function (Assert $page) use (&$partial): void {
+            DB::flushQueryLog();
+            $page->reloadOnly('selected', fn (Assert $reloaded) => $reloaded
+                ->has('selected.messages', 3)
+                ->missing('chats')->missing('sessions')->missing('widgets')->missing('categories')->missing('meta')->missing('whatsappEnabled'));
+            $partial = DB::getQueryLog();
+        });
+
+        $this->assertSame(0, $touched($partial, 'widgets'), 'the widget list was not queried');
+        $this->assertSame(0, $touched($partial, 'categories'), 'the category list was not queried');
+        $this->assertSame([], array_values(array_filter($partial, fn (array $entry): bool => str_contains((string) $entry['query'], 'count(*)') || str_contains((string) $entry['query'], 'last_message_at'))), 'neither the list of chats nor the unread count was queried');
+        $this->assertLessThan(count($full) / 2, count($partial), 'a partial reload costs a fraction of the first visit: '.count($partial).' vs '.count($full).' queries');
     }
 
     public function test_the_first_page_of_the_inbox_is_bounded_and_carries_a_cursor(): void

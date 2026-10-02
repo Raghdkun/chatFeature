@@ -39,7 +39,8 @@ use Throwable;
  *    that was re-pointed at the internal network after it was saved cannot steer the key there. Redirects are never followed.
  *  - Writes are never repeated blindly. A GET is repeated once when the connection itself failed. A write that was sent but never
  *    answered is an {@see OpenWaRequestNotConfirmed} (it may have been carried out), a write that never connected a plain
- *    {@see OpenWaUnavailable}.
+ *    {@see OpenWaUnavailable}. A SEND is stricter still: a `5xx` (a proxy's 502 / 504 included) or a `2xx` whose body has no usable
+ *    message id are {@see OpenWaRequestNotConfirmed} as well.
  *  - Answers are validated, not trusted: 2xx bodies must be what the API documents (a QR is a base64 PNG data URL of a sane size,
  *    media is bounded by `whatsapp.media_max_bytes`), a 4xx becomes {@see OpenWaRejected} (`429 SEND_PACING_LIMITED` its
  *    {@see OpenWaPacingLimited}), anything else {@see OpenWaUnavailable}.
@@ -108,10 +109,17 @@ final class OpenWaHttpClient implements OpenWaClient
 
     public function sendText(string $sessionId, string $chatId, string $text): OpenWaSendResult
     {
-        return OpenWaSendResult::fromArray($this->object($this->send('POST', $this->session($sessionId).'/messages/send-text', [
+        $response = $this->send('POST', $this->session($sessionId).'/messages/send-text', [
             'chatId' => $chatId,
             'text' => $text,
-        ], timeout: 'send_timeout')));
+        ], timeout: 'send_timeout', mayHaveBeenCarriedOut: true);
+
+        // A `2xx` whose body is not what the API documents: the message was probably sent, only the answer is unusable.
+        try {
+            return OpenWaSendResult::fromArray($this->object($response));
+        } catch (OpenWaUnavailable) {
+            throw new OpenWaRequestNotConfirmed('OpenWA answered the send, but not with a usable message id: it may have been carried out.');
+        }
     }
 
     public function downloadMedia(string $sessionId, string $chatId, string $messageId): ?OpenWaMedia
@@ -149,10 +157,13 @@ final class OpenWaHttpClient implements OpenWaClient
      *
      * @param  array<string, mixed>|null  $json
      * @param  string  $timeout  A key of `config('whatsapp.http')`
+     * @param  bool  $mayHaveBeenCarriedOut  The call is a write that must never be repeated blindly (a message to a customer): a `5xx` is
+     *                                       then {@see OpenWaRequestNotConfirmed} (a proxy's 502 / 504 says nothing about whether the
+     *                                       gateway behind it already did the work), not a plain, retryable {@see OpenWaUnavailable}
      *
      * @throws OpenWaUnavailable|OpenWaRejected
      */
-    private function send(string $method, string $path, ?array $json = null, string $timeout = 'timeout', bool $stream = false): Response
+    private function send(string $method, string $path, ?array $json = null, string $timeout = 'timeout', bool $stream = false, bool $mayHaveBeenCarriedOut = false): Response
     {
         $endpoint = $this->endpoint();
         $request = $this->pending($endpoint, $this->seconds($timeout), retry: $method === 'GET', stream: $stream);
@@ -167,7 +178,7 @@ final class OpenWaHttpClient implements OpenWaClient
             throw $this->transportFailure($exception, write: $method !== 'GET');
         }
 
-        return $this->checked($response);
+        return $this->checked($response, $mayHaveBeenCarriedOut);
     }
 
     private function pending(OpenWaEndpoint $endpoint, int $timeout, bool $retry, bool $stream): PendingRequest
@@ -272,7 +283,7 @@ final class OpenWaHttpClient implements OpenWaClient
      *
      * @throws OpenWaUnavailable|OpenWaRejected
      */
-    private function checked(Response $response): Response
+    private function checked(Response $response, bool $mayHaveBeenCarriedOut = false): Response
     {
         $status = $response->status();
 
@@ -284,6 +295,10 @@ final class OpenWaHttpClient implements OpenWaClient
             $retryAfter = $response->header('Retry-After');
 
             throw OpenWaRejected::fromResponse($status, $this->errorBody($response), is_numeric($retryAfter) ? (int) $retryAfter : null);
+        }
+
+        if ($mayHaveBeenCarriedOut) {
+            throw new OpenWaRequestNotConfirmed('OpenWA answered HTTP '.$status.' to a write: it may or may not have been carried out.');
         }
 
         throw new OpenWaUnavailable('OpenWA answered HTTP '.$status.'.');

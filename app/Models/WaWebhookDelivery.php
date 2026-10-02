@@ -12,7 +12,9 @@ use Illuminate\Support\Carbon;
 
 /**
  * The idempotency ledger of the OpenWA webhook: one row per accepted delivery, unique per `(session_id, idempotency_key)`. NULL
- * `outcome` = accepted and waiting for the queue; the job completes it. Never exposed to a client.
+ * `outcome` = accepted and waiting for the queue; the job completes it. `body` is the raw signed body, kept until the delivery is
+ * processed (and for a failed one, until `whatsapp:replay-deliveries` gives up or the retention window ends) so a lost job can be replayed;
+ * `replays` is the retry budget used. Never exposed to a client.
  *
  * @property int $id
  * @property int $session_id
@@ -23,9 +25,11 @@ use Illuminate\Support\Carbon;
  * @property Carbon $received_at
  * @property Carbon|null $processed_at
  * @property string|null $error
+ * @property string|null $body
+ * @property int $replays
  * @property-read WhatsAppSession $session
  */
-#[Fillable(['session_id', 'idempotency_key', 'delivery_id', 'event', 'outcome', 'received_at', 'processed_at', 'error'])]
+#[Fillable(['session_id', 'idempotency_key', 'delivery_id', 'event', 'outcome', 'received_at', 'processed_at', 'error', 'body', 'replays'])]
 class WaWebhookDelivery extends Model
 {
     /** @use HasFactory<WaWebhookDeliveryFactory> */
@@ -46,6 +50,7 @@ class WaWebhookDelivery extends Model
             'outcome' => WebhookOutcome::class,
             'received_at' => 'datetime',
             'processed_at' => 'datetime',
+            'replays' => 'integer',
         ];
     }
 

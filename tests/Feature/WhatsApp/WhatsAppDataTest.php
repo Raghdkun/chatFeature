@@ -246,17 +246,34 @@ class WhatsAppDataTest extends TestCase
         $this->assertNull($media->url);
     }
 
-    public function test_the_handoff_response_has_exactly_three_keys(): void
+    public function test_the_handoff_response_has_exactly_four_keys(): void
     {
+        $this->freezeTime();
         $session = WhatsAppSession::factory()->ready('+4915123456789')->create();
-        $ticket = WaHandoffTicket::factory()->create(['session_id' => $session->id, 'code' => 'K7M2QX3P']);
+        $ticket = WaHandoffTicket::factory()->create(['session_id' => $session->id, 'code' => 'K7M2QX3P', 'expires_at' => now()->addMinutes(90)]);
 
         $json = $this->payload(HandoffData::fromTicket($ticket->load('session')));
 
-        $this->assertKeys(['code', 'waUrl', 'expiresAt'], $json);
+        $this->assertKeys(['code', 'waUrl', 'expiresAt', 'ttlSeconds'], $json);
+        $this->assertSame(5400, $json['ttlSeconds'], 'whole seconds left when the payload is built');
         $this->assertSame('K7M2QX3P', $json['code']);
         $this->assertSame('https://wa.me/4915123456789?text=Hi%21%20My%20support%20code%20is%20K7M2QX3P', $json['waUrl']);
         $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/', $json['expiresAt']);
+    }
+
+    public function test_the_handoff_ttl_counts_down_from_now_and_never_goes_negative(): void
+    {
+        $this->freezeTime();
+        $session = WhatsAppSession::factory()->ready('+4915123456789')->create();
+        $ticket = WaHandoffTicket::factory()->create(['session_id' => $session->id, 'expires_at' => now()->addSeconds(100)])->load('session');
+
+        $this->assertSame(100, HandoffData::fromTicket($ticket)->ttlSeconds);
+
+        $this->travel(40)->seconds();
+        $this->assertSame(60, HandoffData::fromTicket($ticket)->ttlSeconds);
+
+        $this->travel(2)->hours();
+        $this->assertSame(0, HandoffData::fromTicket($ticket)->ttlSeconds, 'an expired code says 0, not a negative number');
     }
 
     public function test_the_handoff_text_is_the_setting_unless_a_template_is_given(): void

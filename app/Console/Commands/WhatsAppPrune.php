@@ -6,8 +6,9 @@ use App\Domain\WhatsApp\Actions\PruneWhatsApp;
 use Illuminate\Console\Command;
 
 /**
- * Housekeeping: webhook ledger rows past their retention, hand-off tickets that expired unused, and stored images no message references.
- * Chats and messages are never deleted. Scheduled daily.
+ * Housekeeping: webhook ledger rows past their retention, hand-off tickets that expired unused, stored images no message references, the
+ * raw webhook objects past `whatsapp.raw_retention_days` and, when `whatsapp.retention_days` is set, the messages and chats older than that.
+ * Without that setting chats and messages are never deleted. Scheduled daily.
  */
 class WhatsAppPrune extends Command
 {
@@ -16,7 +17,7 @@ class WhatsAppPrune extends Command
         {--tickets-days= : How long an expired, unused hand-off ticket is kept}
         {--media-hours= : How long an unreferenced stored image is kept}';
 
-    protected $description = 'Delete old webhook deliveries, expired unused hand-off tickets and orphan WhatsApp media';
+    protected $description = 'Delete old webhook deliveries, expired unused hand-off tickets, orphan WhatsApp media and what the retention settings expire';
 
     public function handle(PruneWhatsApp $prune): int
     {
@@ -27,6 +28,8 @@ class WhatsAppPrune extends Command
         );
 
         $this->components->info("Deleted {$result['deliveries']} webhook delivery(ies), {$result['tickets']} expired ticket(s) and {$result['media']} orphan file(s).");
+        $this->components->info("Retention: raw object dropped from {$result['raw']} message(s), body from {$result['bodies']} delivery(ies).");
+        $this->components->info("Retention: deleted {$result['messages']} message(s) and {$result['chats']} chat(s).");
 
         return self::SUCCESS;
     }

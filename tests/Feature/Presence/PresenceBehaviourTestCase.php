@@ -78,7 +78,7 @@ abstract class PresenceBehaviourTestCase extends TestCase
 
     protected function beat(User $agent, ?bool $visible = null): void
     {
-        $this->actingAs($agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat', $visible === null ? [] : ['visible' => $visible])->assertNoContent();
+        $this->actingAs($agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat', $visible === null ? [] : ['visible' => $visible])->assertOk()->assertJsonStructure(['data' => ['status', 'isManual']]);
     }
 
     protected function statusOf(User $agent): string
@@ -119,7 +119,7 @@ abstract class PresenceBehaviourTestCase extends TestCase
         }
 
         foreach ([[], ['visible' => true], ['visible' => false], ['visible' => 1], ['visible' => 0], ['visible' => '0'], ['visible' => null]] as $body) {
-            $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat', $body)->assertNoContent();
+            $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat', $body)->assertOk();
         }
     }
 

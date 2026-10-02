@@ -12,7 +12,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 /**
  * `POST /webhooks/openwa/{session}` (bearer-only `widget` group: no session, no cookies, no CSRF). The signature was verified by
  * `VerifyOpenWaSignature` before this runs; the delivery is stored and handed to the queue, and OpenWA is answered at once:
- * `200 {status: accepted | duplicate | rejected}`.
+ * `200 {status: accepted | duplicate | rejected}`, or `400 invalid_webhook` for a signed body without a usable event name.
  */
 class OpenWaWebhookController extends Controller
 {
@@ -24,13 +24,8 @@ class OpenWaWebhookController extends Controller
             throw new NotFoundHttpException;
         }
 
-        $status = $action->handle(
-            $session,
-            $request->getContent(),
-            $request->headers->get('X-OpenWA-Idempotency-Key'),
-            $request->headers->get('X-OpenWA-Event'),
-            $request->headers->get('X-OpenWA-Delivery-Id'),
-        );
+        // Only the signed body counts: the `X-OpenWA-*` headers are not covered by the signature and are not read.
+        $status = $action->handle($session, $request->getContent());
 
         return response()->json(['status' => $status])->header('Cache-Control', 'no-store');
     }

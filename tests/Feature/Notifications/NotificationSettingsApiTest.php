@@ -104,6 +104,29 @@ class NotificationSettingsApiTest extends TestCase
         $this->assertSame(0, NotificationSetting::query()->count());
     }
 
+    public function test_equal_start_and_end_are_refused_against_the_merged_window_not_only_within_one_request(): void
+    {
+        // Saved: a window 22:00 - 07:00 that is switched on.
+        $this->actingAs($this->agent, 'sanctum')->putJson(self::URL, ['quiet_hours' => ['enabled' => true, 'start' => '22:00', 'end' => '07:00']])->assertOk();
+
+        // Only the start is sent, and it equals the saved end.
+        $this->actingAs($this->agent, 'sanctum')->putJson(self::URL, ['quiet_hours' => ['start' => '07:00']])
+            ->assertStatus(422)
+            ->assertJsonStructure(['error' => ['details' => ['quiet_hours.start']]]);
+        // Only the end is sent, and it equals the saved start.
+        $this->actingAs($this->agent, 'sanctum')->putJson(self::URL, ['quiet_hours' => ['end' => '22:00']])
+            ->assertStatus(422)
+            ->assertJsonStructure(['error' => ['details' => ['quiet_hours.end']]]);
+        $this->assertEquals(['enabled' => true, 'start' => '22:00', 'end' => '07:00'], collect(NotificationSetting::query()->sole()->quiet_hours)->only(['enabled', 'start', 'end'])->all());
+
+        // Switching the window on over saved equal times (an empty window) is refused too; switched off, equal times are harmless.
+        $this->actingAs($this->agent, 'sanctum')->putJson(self::URL, ['quiet_hours' => ['enabled' => false, 'start' => '09:00', 'end' => '09:00']])->assertOk();
+        $this->actingAs($this->agent, 'sanctum')->putJson(self::URL, ['quiet_hours' => ['enabled' => true]])
+            ->assertStatus(422)
+            ->assertJsonStructure(['error' => ['details' => ['quiet_hours.enabled']]]);
+        $this->actingAs($this->agent, 'sanctum')->putJson(self::URL, ['quiet_hours' => ['enabled' => true, 'end' => '10:00']])->assertOk();
+    }
+
     public function test_flags_must_be_booleans(): void
     {
         $this->actingAs($this->agent, 'sanctum')->putJson(self::URL, ['sound' => 'loud'])->assertStatus(422);
