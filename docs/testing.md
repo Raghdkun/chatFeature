@@ -327,6 +327,7 @@ Everything runs on a real Laravel server, a real Reverb, Chrome and the real wid
 - The unread badge and the title count MESSAGES, not chats; the page marks a chat read after a 400 ms dwell, so leaving a chat early leaves it unread; the unread summary preloads at most 100 chats.
 - A session's status can flicker `qr` to `starting` and back to `qr` while the engine's first webhooks arrive (see below): poll for the QR, not for the status.
 - The admin channel has no catch-up at connect: an event raised between the page's initial props and the subscription is lost for the open page (a reload shows it). Specs that flip a session wait until the API reports the change, then open the page.
+- Three or more digits anywhere in the inbox search text also match phone numbers (a probe for `100%` finds every number containing 100): keep digits out of text probes.
 - Reasons a composer is disabled: a chat the customer never started (`not_inbound`) wins over a disconnected number (`session_not_ready`).
 - A fake page clock jump fires each due timer once: wait for the poll with `pollTick` (resilience.spec.ts), not with one `fastForward`.
 - Axe, 375 / 320 px and keyboard checks use the P4 helpers (`scanDashboard`, `scanPanel`, `settlePanel`, `expectInsideViewportWidth`); sheets and dialogs animate in, so measure them with `insideScreen` (waits until the box stops moving).

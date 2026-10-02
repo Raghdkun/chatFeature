@@ -203,46 +203,37 @@ test('search finds a chat by number in any spelling, by name, by message text an
     await expect(admin.page.getByTestId('wa-list-no-match')).toHaveCount(0);
     await expect(inbox.row(one.ulid)).toBeVisible();
 
-    // The API treats `%`, `_` and `!` as the characters they are, never as wildcards.
+    // The API treats `%`, `_` and `!` as the characters they are, never as wildcards. (No digits in these words: three or more digits in the
+    // search box also match phone numbers, so a "100%" would find every number that has 100 in it.)
+    const percyPhone = uniquePhone();
+
     await openWa.inboundText(
         session.name,
-        uniquePhone(),
-        '100% sure about snake_case!',
+        percyPhone,
+        'Ten% sure about snake_case!',
         { pushName: 'Percy' },
     );
+
+    const percy = await waitForChat(wa, session, percyPhone);
+    const find = async (text: string): Promise<string[]> =>
+        data<WaChat[]>(
+            await wa.chats({ session: session.ulid, q: text, status: 'all' }),
+            'search',
+        ).map((row) => row.ulid);
+
     await eventually(
-        async () =>
-            data<WaChat[]>(
-                await wa.chats({ session: session.ulid, q: '100%' }),
-                'search',
-            ).length === 1 || undefined,
+        async () => (await find('Ten%')).length === 1 || undefined,
         'the literal percent sign to match',
     );
-
-    for (const wildcard of ['%', '_', '!', '%%', '_%_']) {
-        const found = data<WaChat[]>(
-            await wa.chats({
-                session: session.ulid,
-                q: wildcard,
-                status: 'all',
-            }),
-            'search',
-        );
-
-        expect(found.length, wildcard).toBeLessThan(4);
-        expect(
-            found.every((row) =>
-                [wildcard].some(
-                    (w) =>
-                        JSON.stringify(row).includes(w) ||
-                        w === '!' ||
-                        w === '_%_' ||
-                        w === '%%',
-                ),
-            ),
-            wildcard,
-        ).toBe(true);
-    }
+    expect(await find('Ten%')).toEqual([percy.ulid]);
+    expect(await find('%')).toEqual([percy.ulid]);
+    expect(await find('snake_c')).toEqual([percy.ulid]);
+    expect(await find('_')).toContain(percy.ulid);
+    expect(await find('!')).toContain(percy.ulid);
+    // As wildcards these would match every chat of the session.
+    expect(await find('%%')).toEqual([]);
+    expect(await find('_%_')).toEqual([]);
+    expect(await find('Te%n')).toEqual([]);
 
     expect((await wa.chats({ q: 'x'.repeat(201) })).status).toBe(422);
 });

@@ -81,8 +81,13 @@ test('the inbox with the keyboard alone: filters, opening a chat, the composer, 
         'false',
     );
 
-    // A row is a link: Tab to it, Enter opens the chat, and the reply box has the focus (a keyboard device lands in it).
-    await tabTo(page, `wa-chat-row-${inbox.main.ulid}`, 80);
+    // A row is a link: Tab to it, Enter opens the chat, and the reply box has the focus (a keyboard device lands in it). The inbox is shared
+    // with the other specs and holds hundreds of chats: narrow it to this one first, as a person would.
+    await page.getByTestId('wa-search').fill(inbox.main.customer.slice(-8));
+    await expect(view.row(inbox.main.ulid)).toBeVisible();
+    await expect(view.row(inbox.unread.ulid)).toHaveCount(0);
+    await page.getByTestId('wa-search').focus();
+    await tabTo(page, `wa-chat-row-${inbox.main.ulid}`, 40);
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('wa-chat-view')).toBeVisible();
     await expect(view.composer).toBeFocused();
@@ -128,6 +133,12 @@ test('the inbox with the keyboard alone: filters, opening a chat, the composer, 
     await page.getByTestId('wa-archive').focus();
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('wa-chat-archived')).toBeVisible();
+    // The button keeps the focus while it works (and ignores a press until it is done), so the next Enter lands on "Move back to inbox".
+    await expect(page.getByTestId('wa-archive')).toBeFocused();
+    await expect(page.getByTestId('wa-archive')).not.toHaveAttribute(
+        'aria-disabled',
+        'true',
+    );
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('wa-chat-archived')).toHaveCount(0);
 });

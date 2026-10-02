@@ -152,7 +152,9 @@ test('Settings > WhatsApp, its limits dialog and the builder tab are mirrored, a
         'dir',
         'ltr',
     );
-    await scanDashboard(page, testInfo, 'wa-rtl-builder');
+    await scanDashboard(page, testInfo, 'wa-rtl-builder', {
+        exclude: ['iframe'],
+    });
 });
 
 test("the visitor's choice and code screens follow the visitor's language: Arabic, right to left, the code and the link left to right", async ({

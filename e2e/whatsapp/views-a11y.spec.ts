@@ -24,6 +24,21 @@ import { data, eventually, type WaSession } from '../support/whatsapp';
  */
 test.use({ scenario: 'p6-wa' });
 
+/**
+ * No transitions and animations on the dashboard pages: axe measures a colour in the middle of a fade (a dialog's overlay, a button's colour
+ * change after the theme switch) as a contrast failure, and a scan that lands on such a frame fails by chance. Applies to every page the
+ * administrator loads after this (the init script runs before the page's own).
+ */
+const NO_MOTION = () => {
+    const style = document.createElement('style');
+
+    style.textContent =
+        '*, *::before, *::after { transition: none !important; animation: none !important; }';
+    document.addEventListener('DOMContentLoaded', () =>
+        document.head.append(style),
+    );
+};
+
 const settleFonts = async (page: Page) => {
     await page.evaluate(() => document.fonts.ready);
 };
@@ -39,6 +54,7 @@ test('the inbox: the list, an open chat with a picture, ticks, a failed reply an
 
     const inbox = await seedInbox(adminApi, wa, openWa, instance);
     const admin = await actors.staff('admin');
+    await admin.context.addInitScript(NO_MOTION);
     const page = admin.page;
     const view = new WaInboxPage(page);
     const phone = testInfo.project.name === 'mobile';
@@ -142,6 +158,7 @@ test.describe('an inbox with nothing in it', () => {
         wa,
     }, testInfo) => {
         const admin = await actors.staff('admin');
+        await admin.context.addInitScript(NO_MOTION);
         const view = new WaInboxPage(admin.page);
 
         await view.goto();
@@ -204,6 +221,8 @@ test('Settings > WhatsApp in every state: a session of each status, the QR dialo
     });
 
     const admin = await actors.staff('admin');
+
+    await admin.context.addInitScript(NO_MOTION);
     const settings = new WaSettingsPage(admin.page);
 
     await settings.goto();
@@ -280,6 +299,7 @@ test.describe('the connection test failing', () => {
         wa,
     }, testInfo) => {
         const admin = await actors.staff('admin');
+        await admin.context.addInitScript(NO_MOTION);
         const settings = new WaSettingsPage(admin.page);
 
         try {
@@ -341,12 +361,15 @@ test("the widget builder's WhatsApp tab: nothing chosen, serving, and a number t
     openWa,
     wa,
 }, testInfo) => {
+    test.slow();
+
     const session = await readySession(wa, openWa);
     const world = await createWorld(adminApi, instance, {
         agents: {},
         config: { features: { whatsapp: false } },
     });
     const admin = await actors.staff('admin');
+    await admin.context.addInitScript(NO_MOTION);
     const page = admin.page;
     const open = async () => {
         await page.goto(`/widgets/${world.widget.ulid}`);
@@ -358,7 +381,9 @@ test("the widget builder's WhatsApp tab: nothing chosen, serving, and a number t
     };
 
     await open();
-    await scanDashboard(page, testInfo, 'wa-builder-nothing');
+    await scanDashboard(page, testInfo, 'wa-builder-nothing', {
+        exclude: ['iframe'],
+    });
 
     await page
         .getByTestId('builder-whatsapp-session')
@@ -376,7 +401,9 @@ test("the widget builder's WhatsApp tab: nothing chosen, serving, and a number t
         'data-serving',
         'true',
     );
-    await scanDashboard(page, testInfo, 'wa-builder-serving');
+    await scanDashboard(page, testInfo, 'wa-builder-serving', {
+        exclude: ['iframe'],
+    });
 
     await openWa.setStatus(session.name, 'disconnected', { reason: 'LOGOUT' });
     await eventually(
@@ -390,7 +417,9 @@ test("the widget builder's WhatsApp tab: nothing chosen, serving, and a number t
         'data-serving',
         'false',
     );
-    await scanDashboard(page, testInfo, 'wa-builder-disconnected');
+    await scanDashboard(page, testInfo, 'wa-builder-disconnected', {
+        exclude: ['iframe'],
+    });
 });
 
 test("the visitor's screens: the channel choice, the topic picker, the code, an expired code, the offline choice and the closing note", async ({

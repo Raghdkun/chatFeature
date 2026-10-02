@@ -875,13 +875,20 @@ export async function scanDashboard(
     page: Page,
     testInfo: TestInfo,
     label: string,
+    options: { exclude?: string[] } = {},
 ): Promise<void> {
+    // `exclude`: more selectors to leave out (the builder's live-preview iframe: the panel has its own scans, and a frame that is still loading
+    // makes axe wait for its 30 s timeout).
+    const exclude = ['[data-sonner-toaster]', ...(options.exclude ?? [])].join(
+        ', ',
+    );
+
     for (const theme of ['light', 'dark'] as const) {
         await setTheme(page, theme);
         await reportAxe(
             testInfo,
             `${label}-${theme}`,
-            await runAxe(page, { exclude: '[data-sonner-toaster]' }),
+            await runAxe(page, { exclude }),
         );
     }
 
