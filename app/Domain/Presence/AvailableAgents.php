@@ -12,12 +12,15 @@ use Illuminate\Support\Facades\DB;
  * Which agents can take a new chat right now: the one definition routing (offers), the claim action and the public
  * availability endpoint share, so "online" means the same thing everywhere.
  *
- * An agent is available when the account is active and takes chats (`is_agent`), serves the category, has a presence status
- * in the asked set with a heartbeat younger than `PresenceService::HEARTBEAT_TTL_SECONDS`, and has fewer active LIVE chats than
- * `max_concurrent_chats` (offline tickets do not occupy a slot).
+ * An agent is available when the account is active and takes chats (`is_agent`), serves the category, has an EFFECTIVE presence status
+ * in the asked set (the presence store through `EffectivePresence`: silence and auto-away included, so an auto-away agent is `away` here
+ * exactly as `GET /me/presence` says), and has fewer active LIVE chats than `max_concurrent_chats` (offline tickets do not occupy a slot).
+ * SQL picks the candidates (account, category, capacity); one batch read of the store decides who of them has the asked status.
  */
 final class AvailableAgents
 {
+    public function __construct(private readonly EffectivePresence $presence) {}
+
     /**
      * @param  list<PresenceStatus>  $statuses
      * @param  list<int>  $excludeUserIds
@@ -29,7 +32,7 @@ final class AvailableAgents
             return [];
         }
 
-        $query = $this->base($statuses)->select('users.id')->distinct();
+        $query = $this->candidates()->select('users.id')->distinct();
 
         if ($categoryId !== null) {
             $query->join('category_user', 'category_user.user_id', '=', 'users.id')->where('category_user.category_id', $categoryId);
@@ -39,7 +42,7 @@ final class AvailableAgents
             $query->whereNotIn('users.id', $excludeUserIds);
         }
 
-        return array_values(array_map(intval(...), $query->orderBy('users.id')->pluck('users.id')->all()));
+        return $this->withStatus(array_values(array_map(intval(...), $query->orderBy('users.id')->pluck('users.id')->all())), $statuses);
     }
 
     /**
@@ -69,7 +72,7 @@ final class AvailableAgents
             return [];
         }
 
-        $query = $this->base($statuses)
+        $query = $this->candidates()
             ->join('category_user', 'category_user.user_id', '=', 'users.id')
             ->whereIn('category_user.category_id', $categoryIds);
 
@@ -77,15 +80,14 @@ final class AvailableAgents
             $query->whereNotIn('users.id', $excludeUserIds);
         }
 
-        $rows = $query
-            ->groupBy('category_user.category_id')
-            ->selectRaw('category_user.category_id as category_id, count(distinct users.id) as agents')
-            ->get();
-
+        $rows = $query->select('category_user.category_id as category_id', 'users.id as user_id')->distinct()->get();
+        $reachable = array_flip($this->withStatus(array_values(array_unique(array_map(static fn (object $row): int => (int) $row->user_id, $rows->all()))), $statuses));
         $counts = [];
 
         foreach ($rows as $row) {
-            $counts[(int) $row->category_id] = (int) $row->agents;
+            if (isset($reachable[(int) $row->user_id])) {
+                $counts[(int) $row->category_id] = ($counts[(int) $row->category_id] ?? 0) + 1;
+            }
         }
 
         return $counts;
@@ -105,7 +107,7 @@ final class AvailableAgents
             return [];
         }
 
-        return array_values(array_map(intval(...), $this->base($statuses)->whereIn('users.id', $userIds)->orderBy('users.id')->pluck('users.id')->all()));
+        return $this->withStatus(array_values(array_map(intval(...), $this->candidates()->whereIn('users.id', $userIds)->orderBy('users.id')->pluck('users.id')->all())), $statuses);
     }
 
     /**
@@ -144,20 +146,33 @@ final class AvailableAgents
     }
 
     /**
+     * Those of `$userIds` (order kept) whose effective status is one of `$statuses`.
+     *
+     * @param  list<int>  $userIds
      * @param  list<PresenceStatus>  $statuses
+     * @return list<int>
+     */
+    private function withStatus(array $userIds, array $statuses): array
+    {
+        if ($userIds === []) {
+            return [];
+        }
+
+        $effective = $this->presence->many($userIds);
+
+        return array_values(array_filter($userIds, static fn (int $userId): bool => in_array($effective[$userId], $statuses, true)));
+    }
+
+    /**
+     * Active agents with a free slot (presence is decided separately, from the store).
+     *
      * @return Builder
      */
-    private function base(array $statuses)
+    private function candidates()
     {
-        $statusValues = array_map(static fn (PresenceStatus $status): string => $status->value, $statuses);
-        $fresh = now()->subSeconds(PresenceService::HEARTBEAT_TTL_SECONDS);
-
         return DB::table('users')
-            ->join('agent_presence', 'agent_presence.user_id', '=', 'users.id')
             ->where('users.is_active', true)
             ->where('users.is_agent', true)
-            ->whereIn('agent_presence.status', $statusValues)
-            ->where('agent_presence.last_heartbeat_at', '>=', $fresh)
             ->whereRaw('(select count(*) from conversations where conversations.assigned_agent_id = users.id and conversations.status = ? and conversations.type = ?) < users.max_concurrent_chats', [
                 ConversationStatus::Active->value,
                 ConversationType::Live->value,

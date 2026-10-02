@@ -23,17 +23,19 @@ class AgentPresenceFactory extends Factory
             'is_manual' => false,
             'last_seen_at' => null,
             'last_heartbeat_at' => null,
+            'last_visible_at' => null,
+            'effective_status' => null,
         ];
     }
 
     public function online(): static
     {
-        return $this->state(fn (): array => ['status' => PresenceStatus::Online, 'last_seen_at' => now(), 'last_heartbeat_at' => now()]);
+        return $this->state(fn (): array => ['status' => PresenceStatus::Online, 'effective_status' => PresenceStatus::Online, 'last_seen_at' => now(), 'last_heartbeat_at' => now(), 'last_visible_at' => now()]);
     }
 
     public function away(): static
     {
-        return $this->state(fn (): array => ['status' => PresenceStatus::Away, 'last_seen_at' => now(), 'last_heartbeat_at' => now()]);
+        return $this->state(fn (): array => ['status' => PresenceStatus::Away, 'effective_status' => PresenceStatus::Away, 'last_seen_at' => now(), 'last_heartbeat_at' => now(), 'last_visible_at' => now()]);
     }
 
     /** The agent chose the status themselves. */

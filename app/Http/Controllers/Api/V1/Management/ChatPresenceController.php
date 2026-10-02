@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Management;
 use App\Data\Chat\PresenceData;
 use App\Domain\Presence\PresenceService;
 use App\Domain\Widgets\Support\Timestamps;
+use App\Http\Requests\Chat\HeartbeatRequest;
 use App\Http\Requests\Chat\SetPresenceRequest;
 use App\Models\AgentPresence;
 use Illuminate\Http\JsonResponse;
@@ -12,8 +13,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
 /**
- * `GET/PUT /me/presence` and `POST /me/presence/heartbeat`: the caller's own presence. `GET` / `PUT` report the effective status
- * (a stored `online` whose heartbeat is older than 90 s reads as `offline`, exactly as routing treats it); clients beat every 30 s.
+ * `GET/PUT /me/presence` and `POST /me/presence/heartbeat {visible?}`: the caller's own presence. `GET` / `PUT` report the effective
+ * status (silence and auto-away included, exactly as routing treats it); clients beat every 30 s and say whether their tab is visible.
  */
 class ChatPresenceController extends ChatStaffController
 {
@@ -24,12 +25,12 @@ class ChatPresenceController extends ChatStaffController
 
     public function update(SetPresenceRequest $request, PresenceService $presence): JsonResponse
     {
-        return $this->present($presence, $presence->set($this->staff($request), $request->status()));
+        return $this->present($presence, $presence->set($this->staff($request), $request->status(), $request->automatic()));
     }
 
-    public function heartbeat(Request $request, PresenceService $presence): Response
+    public function heartbeat(HeartbeatRequest $request, PresenceService $presence): Response
     {
-        $presence->heartbeat($this->staff($request));
+        $presence->heartbeat($this->staff($request), $request->visible());
 
         return response()->noContent();
     }

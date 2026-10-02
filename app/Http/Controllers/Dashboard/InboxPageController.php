@@ -8,6 +8,7 @@ use App\Data\Chat\MessageData;
 use App\Domain\Catalog\Support\CategoryQuery;
 use App\Domain\Chat\Enums\ConversationStatus;
 use App\Domain\Chat\Enums\ConversationType;
+use App\Domain\Presence\PresenceService;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Dashboard\Concerns\PresentsConversations;
 use App\Models\Category;
@@ -62,7 +63,8 @@ class InboxPageController extends Controller
         return [
             'queue' => $this->queue($user),
             'mine' => $this->mine($user),
-            'presence' => ['status' => $user->presence?->status->value ?? 'offline'],
+            // What the agent chose while the presence store still holds it: a reload revives it with the first heartbeat.
+            'presence' => ['status' => app(PresenceService::class)->chosenStatus($user)->value],
             'categories' => $categories->all(onlyActive: ! $user->is_admin)
                 ->map(fn (Category $category): array => CategoryData::fromCategory($category)->toArray())
                 ->values()

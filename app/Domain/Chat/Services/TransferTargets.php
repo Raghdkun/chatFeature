@@ -11,7 +11,6 @@ use App\Domain\Chat\Enums\PresenceStatus;
 use App\Domain\Presence\AvailableAgents;
 use App\Domain\Presence\PresenceService;
 use App\Http\Exceptions\ApiProblemException;
-use App\Models\AgentPresence;
 use App\Models\Category;
 use App\Models\Conversation;
 use App\Models\User;
@@ -41,8 +40,7 @@ final class TransferTargets
             return;
         }
 
-        $status = $this->presence->effectiveStatus(AgentPresence::query()->where('user_id', $agent->id)->first());
-        $reason = $status === PresenceStatus::Offline ? 'offline' : 'at_capacity';
+        $reason = $this->presence->statusOf($agent) === PresenceStatus::Offline ? 'offline' : 'at_capacity';
         $message = $reason === 'offline'
             ? __('That agent is offline. Choose a colleague who is available.')
             : __('That agent is already handling the maximum number of chats.');
@@ -92,13 +90,13 @@ final class TransferTargets
             ->get();
 
         $ids = array_values($candidates->pluck('id')->map(intval(...))->all());
-        $presence = AgentPresence::query()->whereIn('user_id', $ids)->get()->keyBy('user_id');
+        $statuses = $this->presence->statusesOf($ids);
         $loads = $this->agents->activeChatCounts($ids);
         $reachable = array_flip($this->agents->availableAmong($ids, $this->directStatuses()));
 
         $agents = array_values($candidates->map(fn (User $agent): TransferAgentData => TransferAgentData::fromModel(
             $agent,
-            $this->presence->effectiveStatus($presence->get($agent->id)),
+            $statuses[$agent->id],
             $loads[$agent->id] ?? 0,
             isset($reachable[$agent->id]),
         ))->all());
