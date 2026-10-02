@@ -200,7 +200,7 @@ final class FieldDocs
                 'expiresAt' => 'When the code stops linking a chat.',
                 'ttlSeconds' => 'Whole seconds left when the answer was built. Count down from your own arrival time with this instead of comparing `expiresAt` with the visitor\'s clock.',
             ],
-        ];
+        ] + AnalyticsFieldDocs::fields();
     }
 
     public static function describe(string $class, string $property): string

@@ -112,7 +112,11 @@ final class DataSchema
     {
         $schema = match ($property['kind']) {
             'data' => $property['class'] === null ? ['type' => 'object'] : $this->reference($property['class'], $components),
-            'list' => ['type' => 'array', 'items' => $property['class'] !== null ? $this->reference($property['class'], $components) : $this->scalar((string) $property['item'], $property['name'])],
+            'list' => ['type' => 'array', 'items' => match (true) {
+                $property['class'] !== null => $this->reference($property['class'], $components),
+                str_ends_with((string) $property['item'], '[]') => ['type' => 'array', 'items' => $this->scalar(substr((string) $property['item'], 0, -2), $property['name'])],
+                default => $this->scalar((string) $property['item'], $property['name']),
+            }],
             'map' => ['type' => 'object', 'additionalProperties' => in_array($property['item'], ['string', 'int', 'bool', 'float'], true) ? $this->scalar((string) $property['item'], $property['name']) : true],
             'enum' => ['type' => $property['type'] === 'int' ? 'integer' : 'string', 'enum' => $property['values']],
             default => $this->scalar($property['type'], $property['name']),

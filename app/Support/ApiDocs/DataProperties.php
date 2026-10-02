@@ -199,6 +199,11 @@ final class DataProperties
      */
     private static function itemType(string $documented, string $owner): ?string
     {
+        // A list of lists of scalars (`list<list<int>>`, a heatmap matrix): the item is `int[]`.
+        if (preg_match('/^(?:array|list)<\s*(?:[\w|]+\s*,\s*)?(?:array|list)<\s*(?:[\w|]+\s*,\s*)?(int|string|bool|float)\s*>\s*>$/', $documented, $nested) === 1) {
+            return $nested[1].'[]';
+        }
+
         if (preg_match('/^(?:array|list)<\s*(?:[\w|]+\s*,\s*)?([\\\\\w]+)\s*(?:\|null)?\s*>$/', $documented, $matches) === 1) {
             $item = $matches[1];
         } elseif (preg_match('/^([\\\\\w]+)\[\]$/', $documented, $matches) === 1) {
