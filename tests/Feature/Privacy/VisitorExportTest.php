@@ -93,7 +93,8 @@ class VisitorExportTest extends TestCase
 
         $entry = AuditLog::query()->where('action', 'privacy.visitor.exported')->sole();
         $this->assertSame($this->admin->id, $entry->actor_id);
-        $this->assertSame(['visitor' => $jane['visitor']->ulid, 'conversations' => 3, 'messages' => 7], $entry->changes);
+        // MySQL JSON columns reorder object keys: compare the decoded arrays, not their order
+        $this->assertEquals(['visitor' => $jane['visitor']->ulid, 'conversations' => 3, 'messages' => 7], $entry->changes);
     }
 
     public function test_an_unknown_visitor_is_a_404_and_only_administrators_may_export(): void

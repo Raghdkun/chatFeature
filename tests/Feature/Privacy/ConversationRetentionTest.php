@@ -232,7 +232,7 @@ class ConversationRetentionTest extends TestCase
         $this->app['auth']->forgetGuards();
         $this->actingAs($admin, 'sanctum')->putJson('/api/v1/privacy/retention', ['days' => 90])->assertOk()->assertJsonPath('data.days', 90);
         $this->assertSame(90, settings()->int('chat.retention_days', 0));
-        $this->assertSame(['old' => 0, 'new' => 90], AuditLog::query()->where('action', 'settings.updated')->latest('id')->first()->changes['chat.retention_days']);
+        $this->assertEquals(['old' => 0, 'new' => 90], AuditLog::query()->where('action', 'settings.updated')->latest('id')->first()->changes['chat.retention_days']);
 
         foreach ([['days' => 5000], ['days' => -1], ['days' => 'x'], []] as $bad) {
             $this->app['auth']->forgetGuards();

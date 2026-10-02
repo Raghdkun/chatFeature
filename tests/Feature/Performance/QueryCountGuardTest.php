@@ -102,6 +102,7 @@ class QueryCountGuardTest extends TestCase
     {
         [$widget, $category] = $this->chatWidget();
         $admin = User::factory()->admin()->create();
+        // The word is in the visitor's name: MySQL's full-text index (message bodies) only sees committed rows and a RefreshDatabase test never commits.
         $grow = function (int $rows) use ($widget, $category): void {
             for ($i = 0; $i < $rows; $i++) {
                 $token = $this->visitorSession($widget, ['name' => 'Searchable '.$i]);
@@ -111,7 +112,7 @@ class QueryCountGuardTest extends TestCase
         };
 
         $this->assertConstant([
-            'GET /conversations?q=' => fn () => $this->actingAs($admin, 'sanctum')->getJson('/api/v1/conversations?q=invoice&limit=100')->assertOk()->assertJsonCount(Conversation::query()->count(), 'data'),
+            'GET /conversations?q=' => fn () => $this->actingAs($admin, 'sanctum')->getJson('/api/v1/conversations?q=Searchable&limit=100')->assertOk()->assertJsonCount(Conversation::query()->count(), 'data'),
             'GET /conversations/export' => fn () => $this->actingAs($admin, 'sanctum')->getJson('/api/v1/conversations/export?format=json')->assertOk(),
         ], $grow);
     }

@@ -93,7 +93,10 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 function assertSafeDatabase() {
     const env = readFileSync(join(ROOT, '.env'), 'utf8');
     const match = /^DB_DATABASE=(.*)$/m.exec(env);
-    const name = (process.env.DB_DATABASE ?? match?.[1] ?? '').replaceAll('"', '');
+    const name = (process.env.DB_DATABASE ?? match?.[1] ?? '').replaceAll(
+        '"',
+        '',
+    );
 
     if (!/^chatfeature_(p7_|p4_|rt|e2e)/.test(name)) {
         throw new Error(
@@ -231,7 +234,10 @@ async function connect(auth, label) {
                 })
                     .then(async (response) => {
                         if (!response.ok) {
-                            callback(new Error(`auth ${response.status}`), null);
+                            callback(
+                                new Error(`auth ${response.status}`),
+                                null,
+                            );
 
                             return;
                         }
@@ -251,7 +257,10 @@ async function connect(auth, label) {
     );
 
     await new Promise((done, fail) => {
-        const timer = setTimeout(() => fail(new Error('connect timeout')), 8000);
+        const timer = setTimeout(
+            () => fail(new Error('connect timeout')),
+            8000,
+        );
 
         pusher.connection.bind('connected', () => {
             clearTimeout(timer);
@@ -266,7 +275,12 @@ async function connect(auth, label) {
 function closedAt(pusher, timeoutMs = 8000) {
     return new Promise((done, fail) => {
         const timer = setTimeout(
-            () => fail(new Error(`${pusher.label}: socket was NOT closed within ${timeoutMs} ms`)),
+            () =>
+                fail(
+                    new Error(
+                        `${pusher.label}: socket was NOT closed within ${timeoutMs} ms`,
+                    ),
+                ),
             timeoutMs,
         );
         const onChange = ({ previous }) => {
@@ -307,15 +321,23 @@ function subscribe(pusher, name, expectRefusal = false) {
 
         channel.bind('pusher:subscription_succeeded', () => {
             clearTimeout(timer);
-            expectRefusal
-                ? fail(new Error(`${name} was NOT refused`))
-                : done(channel);
+            if (expectRefusal) {
+                fail(new Error(`${name} was NOT refused`));
+            } else {
+                done(channel);
+            }
         });
         channel.bind('pusher:subscription_error', (error) => {
             clearTimeout(timer);
-            expectRefusal
-                ? done(error?.status ?? error)
-                : fail(new Error(`subscribe ${name}: refused (${error?.status ?? JSON.stringify(error)})`));
+            if (expectRefusal) {
+                done(error?.status ?? error);
+            } else {
+                fail(
+                    new Error(
+                        `subscribe ${name}: refused (${error?.status ?? JSON.stringify(error)})`,
+                    ),
+                );
+            }
         });
     });
 }
@@ -334,7 +356,10 @@ function inbox(channel) {
 
         for (const waiter of waiters.filter((entry) => entry.event === event)) {
             waiters.splice(waiters.indexOf(waiter), 1);
-            received.splice(received.findIndex((entry) => entry.event === event), 1);
+            received.splice(
+                received.findIndex((entry) => entry.event === event),
+                1,
+            );
             waiter.done(data);
         }
     });
@@ -342,7 +367,9 @@ function inbox(channel) {
     return {
         received,
         next(event, timeoutMs = 6000) {
-            const earlier = received.findIndex((entry) => entry.event === event);
+            const earlier = received.findIndex(
+                (entry) => entry.event === event,
+            );
 
             if (earlier >= 0) {
                 return Promise.resolve(received.splice(earlier, 1)[0].data);
@@ -433,11 +460,23 @@ echo 'JSON:'.json_encode(['t0' => $t0, 'done' => microtime(true) * 1000]);
 async function run() {
     console.log(`database ${assertSafeDatabase()}, run ${RUN}`);
 
-    start('reverb', 'php', ['artisan', 'reverb:start', '--host=127.0.0.1', `--port=${REVERB_PORT}`]);
+    start('reverb', 'php', [
+        'artisan',
+        'reverb:start',
+        '--host=127.0.0.1',
+        `--port=${REVERB_PORT}`,
+    ]);
     start(
         'web',
         'php',
-        ['-S', `127.0.0.1:${WEB_PORT}`, join(ROOT, 'vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php')],
+        [
+            '-S',
+            `127.0.0.1:${WEB_PORT}`,
+            join(
+                ROOT,
+                'vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php',
+            ),
+        ],
         { cwd: join(ROOT, 'public') },
     );
     await Promise.all([waitForPort(REVERB_PORT), waitForPort(WEB_PORT)]);
@@ -457,9 +496,18 @@ async function run() {
 async function scenarios(fx, data) {
     const tokens = { v1: fx.v1, v2: fx.v2, v3: fx.v3 };
 
-    const visitor1 = await connect(visitorAuth(() => tokens.v1), 'visitor 1');
-    const visitor2 = await connect(visitorAuth(() => tokens.v2), 'visitor 2');
-    const visitor3 = await connect(visitorAuth(() => tokens.v3), 'visitor 3');
+    const visitor1 = await connect(
+        visitorAuth(() => tokens.v1),
+        'visitor 1',
+    );
+    const visitor2 = await connect(
+        visitorAuth(() => tokens.v2),
+        'visitor 2',
+    );
+    const visitor3 = await connect(
+        visitorAuth(() => tokens.v3),
+        'visitor 3',
+    );
     const agent = await connect(staffAuth(fx.agentToken), 'agent A');
     const colleague = await connect(staffAuth(fx.colleagueToken), 'agent B');
     const admin = await connect(staffAuth(fx.adminToken), 'admin+agent');
@@ -473,7 +521,10 @@ async function scenarios(fx, data) {
         ch.agentRoster = await subscribe(agent, 'presence-staff');
         ch.agentC1 = await subscribe(agent, `private-conversation.${fx.c1}`);
         ch.agentC2 = await subscribe(agent, `private-conversation.${fx.c2}`);
-        ch.colleagueStaff = await subscribe(colleague, `private-staff.${fx.colleagueId}`);
+        ch.colleagueStaff = await subscribe(
+            colleague,
+            `private-staff.${fx.colleagueId}`,
+        );
         ch.adminStaff = await subscribe(admin, `private-staff.${fx.adminId}`);
         ch.adminChannel = await subscribe(admin, 'private-admin');
         ch.adminWhatsApp = await subscribe(admin, 'private-whatsapp-admin');
@@ -484,220 +535,392 @@ async function scenarios(fx, data) {
     const agentC1Inbox = inbox(ch.agentC1);
     const adminInbox = inbox(ch.adminChannel);
     const colleagueInbox = inbox(ch.colleagueStaff);
-    const agentStaffInbox = inbox(ch.agentStaff);
 
-    await check('whispers carry an opaque tag, never an integer id', async () => {
-        // The raw frame carries the `user_id` Reverb adds to a whisper (the one signed into the sender's subscription); pusher-js only
-        // surfaces it for presence channels, so read it where every client's devtools can: the connection's message stream.
-        const whisperTo = (client, channelName) =>
-            new Promise((done, fail) => {
-                const timer = setTimeout(() => fail(new Error('no whisper')), 6000);
-                const onMessage = (frame) => {
-                    if (frame.event === 'client-typing' && frame.channel === channelName) {
-                        clearTimeout(timer);
-                        client.connection.unbind('message', onMessage);
-                        done({ payload: frame.data, userId: frame.user_id });
-                    }
-                };
+    await check(
+        'whispers carry an opaque tag, never an integer id',
+        async () => {
+            // The raw frame carries the `user_id` Reverb adds to a whisper (the one signed into the sender's subscription); pusher-js only
+            // surfaces it for presence channels, so read it where every client's devtools can: the connection's message stream.
+            const whisperTo = (client, channelName) =>
+                new Promise((done, fail) => {
+                    const timer = setTimeout(
+                        () => fail(new Error('no whisper')),
+                        6000,
+                    );
+                    const onMessage = (frame) => {
+                        if (
+                            frame.event === 'client-typing' &&
+                            frame.channel === channelName
+                        ) {
+                            clearTimeout(timer);
+                            client.connection.unbind('message', onMessage);
+                            done({
+                                payload: frame.data,
+                                userId: frame.user_id,
+                            });
+                        }
+                    };
 
-                client.connection.bind('message', onMessage);
+                    client.connection.bind('message', onMessage);
+                });
+            const atVisitor = whisperTo(
+                visitor1,
+                `private-conversation.${fx.c1}`,
+            );
+            const atAgent = whisperTo(agent, `private-conversation.${fx.c1}`);
+
+            ch.agentC1.trigger('client-typing', {
+                actor: 'agent',
+                typing: true,
             });
-        const atVisitor = whisperTo(visitor1, `private-conversation.${fx.c1}`);
-        const atAgent = whisperTo(agent, `private-conversation.${fx.c1}`);
+            ch.v1.trigger('client-typing', { actor: 'visitor', typing: true });
+            const toVisitor = await atVisitor;
+            const toAgent = await atAgent;
 
-        ch.agentC1.trigger('client-typing', { actor: 'agent', typing: true });
-        ch.v1.trigger('client-typing', { actor: 'visitor', typing: true });
-        const toVisitor = await atVisitor;
-        const toAgent = await atAgent;
+            expect(toVisitor.payload.actor === 'agent', 'payload');
+            expect(
+                /^s_[0-9a-f]{24}$/.test(String(toVisitor.userId)),
+                `the visitor saw user_id=${toVisitor.userId}`,
+            );
+            expect(
+                toVisitor.userId !== String(fx.agentId),
+                'agent id leaked to the visitor',
+            );
+            expect(
+                /^v_[0-9a-f]{24}$/.test(String(toAgent.userId)),
+                `the agent saw user_id=${toAgent.userId}`,
+            );
 
-        expect(toVisitor.payload.actor === 'agent', 'payload');
-        expect(/^s_[0-9a-f]{24}$/.test(String(toVisitor.userId)), `the visitor saw user_id=${toVisitor.userId}`);
-        expect(toVisitor.userId !== String(fx.agentId), 'agent id leaked to the visitor');
-        expect(/^v_[0-9a-f]{24}$/.test(String(toAgent.userId)), `the agent saw user_id=${toAgent.userId}`);
+            return `${toVisitor.userId} / ${toAgent.userId}`;
+        },
+    );
 
-        return `${toVisitor.userId} / ${toAgent.userId}`;
-    });
+    await check(
+        'baseline: the administrator hears the admin channel',
+        async () => {
+            await php(WITH('QueueChanged::dispatch();'), data);
+            const payload = await adminInbox.next('queue.updated');
 
-    await check('baseline: the administrator hears the admin channel', async () => {
-        await php(WITH('QueueChanged::dispatch();'), data);
-        const payload = await adminInbox.next('queue.updated');
-
-        expect(typeof payload.queued === 'number', 'payload');
-    });
+            expect(typeof payload.queued === 'number', 'payload');
+        },
+    );
 
     // ---- 1. an administrator who is demoted --------------------------------------------------
-    await check('a demoted administrator: socket closed, reconnects, admin channels refused, own channels kept', async () => {
-        const before = admin.connection.socket_id;
-        const closed = closedAt(admin);
+    await check(
+        'a demoted administrator: socket closed, reconnects, admin channels refused, own channels kept',
+        async () => {
+            const before = admin.connection.socket_id;
+            const closed = closedAt(admin);
 
-        const ran = await php(WITH('$adminAgent->forceFill(["is_admin" => false])->save();'), data);
-        const ms = Math.round((await closed) - ran.t0);
-        timings.push(['demoted administrator: socket closed after the change started', ms]);
-        await connectedAgain(admin);
-        expect(admin.connection.socket_id !== before, 'same socket id: it was not reconnected');
-        await sleep(2500);
+            const ran = await php(
+                WITH('$adminAgent->forceFill(["is_admin" => false])->save();'),
+                data,
+            );
+            const ms = Math.round((await closed) - ran.t0);
+            timings.push([
+                'demoted administrator: socket closed after the change started',
+                ms,
+            ]);
+            await connectedAgain(admin);
+            expect(
+                admin.connection.socket_id !== before,
+                'same socket id: it was not reconnected',
+            );
+            await sleep(2500);
 
-        expect(!ch.adminChannel.subscribed, 'private-admin is still subscribed after the demotion');
-        expect(!ch.adminWhatsApp.subscribed, 'private-whatsapp-admin is still subscribed after the demotion');
-        expect(ch.adminStaff.subscribed, 'the member lost private-staff.{id}, which they still may have');
-        expect(ch.adminRoster.subscribed, 'the member lost presence-staff, which they still may have');
+            expect(
+                !ch.adminChannel.subscribed,
+                'private-admin is still subscribed after the demotion',
+            );
+            expect(
+                !ch.adminWhatsApp.subscribed,
+                'private-whatsapp-admin is still subscribed after the demotion',
+            );
+            expect(
+                ch.adminStaff.subscribed,
+                'the member lost private-staff.{id}, which they still may have',
+            );
+            expect(
+                ch.adminRoster.subscribed,
+                'the member lost presence-staff, which they still may have',
+            );
 
-        adminInbox.received.length = 0;
-        await php(WITH('QueueChanged::dispatch();'), data);
-        await sleep(800);
-        expect(!adminInbox.has('queue.updated'), 'the demoted member still receives admin events');
+            adminInbox.received.length = 0;
+            await php(WITH('QueueChanged::dispatch();'), data);
+            await sleep(800);
+            expect(
+                !adminInbox.has('queue.updated'),
+                'the demoted member still receives admin events',
+            );
 
-        return `closed after ${ms} ms`;
-    });
+            return `closed after ${ms} ms`;
+        },
+    );
 
     // ---- 2. an agent a chat is transferred away from -----------------------------------------
-    await check('a transfer closes the previous agent socket only; the visitor and the colleague are not disturbed', async () => {
-        const visitorSocket = visitor1.connection.socket_id;
-        const colleagueSocket = colleague.connection.socket_id;
-        const closed = closedAt(agent);
+    await check(
+        'a transfer closes the previous agent socket only; the visitor and the colleague are not disturbed',
+        async () => {
+            const visitorSocket = visitor1.connection.socket_id;
+            const colleagueSocket = colleague.connection.socket_id;
+            const closed = closedAt(agent);
 
-        const ran = await php(WITH('app(TransferConversation::class)->handle($c1, $agent, $colleague, null);'), data);
-        const ms = Math.round((await closed) - ran.t0);
-        timings.push(['transferred-away agent: socket closed after', ms]);
-        await connectedAgain(agent);
-        await sleep(2500);
+            const ran = await php(
+                WITH(
+                    'app(TransferConversation::class)->handle($c1, $agent, $colleague, null);',
+                ),
+                data,
+            );
+            const ms = Math.round((await closed) - ran.t0);
+            timings.push(['transferred-away agent: socket closed after', ms]);
+            await connectedAgain(agent);
+            await sleep(2500);
 
-        expect(!ch.agentC1.subscribed, 'the agent is still subscribed to the conversation they lost');
-        expect(ch.agentStaff.subscribed && ch.agentRoster.subscribed, 'the agent lost their own channels');
-        expect(ch.agentC2.subscribed, 'the agent lost another conversation they still hold');
-        expect(visitor1.connection.socket_id === visitorSocket && visitor1.connection.state === 'connected', 'the visitor socket was disturbed');
-        expect(colleague.connection.socket_id === colleagueSocket && colleague.connection.state === 'connected', 'the colleague socket was disturbed');
+            expect(
+                !ch.agentC1.subscribed,
+                'the agent is still subscribed to the conversation they lost',
+            );
+            expect(
+                ch.agentStaff.subscribed && ch.agentRoster.subscribed,
+                'the agent lost their own channels',
+            );
+            expect(
+                ch.agentC2.subscribed,
+                'the agent lost another conversation they still hold',
+            );
+            expect(
+                visitor1.connection.socket_id === visitorSocket &&
+                    visitor1.connection.state === 'connected',
+                'the visitor socket was disturbed',
+            );
+            expect(
+                colleague.connection.socket_id === colleagueSocket &&
+                    colleague.connection.state === 'connected',
+                'the colleague socket was disturbed',
+            );
 
-        // what the old agent can no longer hear
-        agentC1Inbox.received.length = 0;
-        await php(WITH('$m = Message::factory()->for($c1)->create(["body" => "after the transfer"]); MessageCreated::dispatch($m);'), data);
-        await visitor1Inbox.next('message.created');
-        await sleep(600);
-        expect(!agentC1Inbox.has('message.created'), 'the previous agent still receives the conversation');
+            // what the old agent can no longer hear
+            agentC1Inbox.received.length = 0;
+            await php(
+                WITH(
+                    '$m = Message::factory()->for($c1)->create(["body" => "after the transfer"]); MessageCreated::dispatch($m);',
+                ),
+                data,
+            );
+            await visitor1Inbox.next('message.created');
+            await sleep(600);
+            expect(
+                !agentC1Inbox.has('message.created'),
+                'the previous agent still receives the conversation',
+            );
 
-        return `closed after ${ms} ms`;
-    });
+            return `closed after ${ms} ms`;
+        },
+    );
 
     // ---- 3. session.revoked, then the socket closes -------------------------------------------
-    await check('a revoked staff session hears session.revoked and then loses the socket', async () => {
-        const closed = closedAt(colleague);
+    await check(
+        'a revoked staff session hears session.revoked and then loses the socket',
+        async () => {
+            const closed = closedAt(colleague);
 
-        const ran = await php(WITH('StaffSessionRevoked::dispatch($colleague->id, SessionRevokeReason::AuthRevoked);'), data);
-        const revoked = await colleagueInbox.next('session.revoked').catch(() => null);
-        const ms = Math.round((await closed) - ran.t0);
-        timings.push(['revoked staff session: socket closed after', ms]);
+            const ran = await php(
+                WITH(
+                    'StaffSessionRevoked::dispatch($colleague->id, SessionRevokeReason::AuthRevoked);',
+                ),
+                data,
+            );
+            const revoked = await colleagueInbox
+                .next('session.revoked')
+                .catch(() => null);
+            const ms = Math.round((await closed) - ran.t0);
+            timings.push(['revoked staff session: socket closed after', ms]);
 
-        expect(revoked !== null && revoked.reason === 'auth_revoked', 'the session.revoked frame did not arrive before the close');
+            expect(
+                revoked !== null && revoked.reason === 'auth_revoked',
+                'the session.revoked frame did not arrive before the close',
+            );
 
-        return `frame delivered, closed after ${ms} ms`;
-    });
+            return `frame delivered, closed after ${ms} ms`;
+        },
+    );
 
     // ---- 4. deactivation ----------------------------------------------------------------------
-    await check('a deactivated agent is closed and cannot authorise again', async () => {
-        const closed = closedAt(agent);
+    await check(
+        'a deactivated agent is closed and cannot authorise again',
+        async () => {
+            const closed = closedAt(agent);
 
-        const ran = await php(WITH('$agent->forceFill(["is_active" => false])->save();'), data);
-        const ms = Math.round((await closed) - ran.t0);
-        timings.push(['deactivated agent: socket closed after', ms]);
-        await connectedAgain(agent).catch(() => null);
-        await sleep(2500);
+            const ran = await php(
+                WITH('$agent->forceFill(["is_active" => false])->save();'),
+                data,
+            );
+            const ms = Math.round((await closed) - ran.t0);
+            timings.push(['deactivated agent: socket closed after', ms]);
+            await connectedAgain(agent).catch(() => null);
+            await sleep(2500);
 
-        expect(!ch.agentStaff.subscribed && !ch.agentRoster.subscribed && !ch.agentC2.subscribed, 'a deactivated agent is still subscribed');
+            expect(
+                !ch.agentStaff.subscribed &&
+                    !ch.agentRoster.subscribed &&
+                    !ch.agentC2.subscribed,
+                'a deactivated agent is still subscribed',
+            );
 
-        return `closed after ${ms} ms`;
-    });
+            return `closed after ${ms} ms`;
+        },
+    );
 
     // ---- 5. visitor tokens --------------------------------------------------------------------
-    await check('a revoked visitor token: socket closed, reconnect refused (401), the other visitors untouched', async () => {
-        const others = [visitor2.connection.socket_id, visitor3.connection.socket_id];
-        const closed = closedAt(visitor1);
+    await check(
+        'a revoked visitor token: socket closed, reconnect refused (401), the other visitors untouched',
+        async () => {
+            const others = [
+                visitor2.connection.socket_id,
+                visitor3.connection.socket_id,
+            ];
+            const closed = closedAt(visitor1);
 
-        const t0 = Date.now();
-        const response = await fetch(`${WEB}/api/v1/public/sessions`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${tokens.v1}`, Accept: 'application/json' },
-        });
+            const t0 = Date.now();
+            const response = await fetch(`${WEB}/api/v1/public/sessions`, {
+                method: 'DELETE',
+                headers: {
+                    Authorization: `Bearer ${tokens.v1}`,
+                    Accept: 'application/json',
+                },
+            });
 
-        expect(response.status === 204, `DELETE /public/sessions answered ${response.status}`);
-        const ms = Math.round((await closed) - t0);
-        timings.push(['revoked visitor token: socket closed after', ms]);
-        await connectedAgain(visitor1);
-        await sleep(1500);
+            expect(
+                response.status === 204,
+                `DELETE /public/sessions answered ${response.status}`,
+            );
+            const ms = Math.round((await closed) - t0);
+            timings.push(['revoked visitor token: socket closed after', ms]);
+            await connectedAgain(visitor1);
+            await sleep(1500);
 
-        expect(!ch.v1.subscribed, 'the revoked token is subscribed again');
-        expect([visitor2.connection.socket_id, visitor3.connection.socket_id].join() === others.join(), 'another visitor was disturbed');
+            expect(!ch.v1.subscribed, 'the revoked token is subscribed again');
+            expect(
+                [
+                    visitor2.connection.socket_id,
+                    visitor3.connection.socket_id,
+                ].join() === others.join(),
+                'another visitor was disturbed',
+            );
 
-        return `closed after ${ms} ms`;
-    });
+            return `closed after ${ms} ms`;
+        },
+    );
 
-    await check('a rotated token: the previous token loses its socket, the new token subscribes seamlessly', async () => {
-        const closed = closedAt(visitor2);
+    await check(
+        'a rotated token: the previous token loses its socket, the new token subscribes seamlessly',
+        async () => {
+            const closed = closedAt(visitor2);
 
-        const t0 = Date.now();
-        const response = await fetch(`${WEB}/api/v1/public/widgets/${fx.widgetKey}/sessions`, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${tokens.v2}`,
-                Origin: 'https://smoke.test',
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-            },
-            body: '{}',
-        });
-        const body = await response.json();
+            const t0 = Date.now();
+            const response = await fetch(
+                `${WEB}/api/v1/public/widgets/${fx.widgetKey}/sessions`,
+                {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${tokens.v2}`,
+                        Origin: 'https://smoke.test',
+                        Accept: 'application/json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: '{}',
+                },
+            );
+            const body = await response.json();
 
-        expect(response.status === 201, `sessions answered ${response.status}`);
-        tokens.v2 = body.data.visitorToken; // the panel adopts the new token; its reconnect authorises with it
-        const ms = Math.round((await closed) - t0);
-        timings.push(['rotated visitor token: previous socket closed after', ms]);
-        await connectedAgain(visitor2);
-        await sleep(2000);
+            expect(
+                response.status === 201,
+                `sessions answered ${response.status}`,
+            );
+            tokens.v2 = body.data.visitorToken; // the panel adopts the new token; its reconnect authorises with it
+            const ms = Math.round((await closed) - t0);
+            timings.push([
+                'rotated visitor token: previous socket closed after',
+                ms,
+            ]);
+            await connectedAgain(visitor2);
+            await sleep(2000);
 
-        expect(ch.v2.subscribed, 'the panel did not get its conversation back with the new token');
+            expect(
+                ch.v2.subscribed,
+                'the panel did not get its conversation back with the new token',
+            );
 
-        return `closed after ${ms} ms, resubscribed with the new token`;
-    });
+            return `closed after ${ms} ms, resubscribed with the new token`;
+        },
+    );
 
     await check('an expired visitor token is closed by the sweep', async () => {
         const closed = closedAt(visitor3);
 
-        await php(WITH('VisitorSession::query()->whereKey($d["s3"])->update(["expires_at" => now()->subMinute()]);'), data);
+        await php(
+            WITH(
+                'VisitorSession::query()->whereKey($d["s3"])->update(["expires_at" => now()->subMinute()]);',
+            ),
+            data,
+        );
         const t0 = Date.now();
         const summary = await artisan('chat:realtime-sweep');
         const ms = Math.round((await closed) - t0);
-        timings.push(['expired visitor token: socket closed by the sweep after', ms]);
+        timings.push([
+            'expired visitor token: socket closed by the sweep after',
+            ms,
+        ]);
 
         return `${summary.split('\n').pop()} (closed after ${ms} ms)`;
     });
 
     // ---- 6. Reverb unreachable --------------------------------------------------------------
-    await check('a cut that cannot reach Reverb is parked, never fails, and is worked off later', async () => {
-        process.kill(-children[0].pid, 'SIGTERM');
-        await sleep(1200);
+    await check(
+        'a cut that cannot reach Reverb is parked, never fails, and is worked off later',
+        async () => {
+            process.kill(-children[0].pid, 'SIGTERM');
+            await sleep(1200);
 
-        const started = Date.now();
-        await php(WITH('$colleague->forceFill(["is_active" => false])->save();'), data);
-        const took = Date.now() - started;
-        const parked = await php(
-            'echo "JSON:".\\App\\Models\\PendingSocketCut::query()->where("attempts", ">", 0)->count();',
-        );
+            const started = Date.now();
+            await php(
+                WITH('$colleague->forceFill(["is_active" => false])->save();'),
+                data,
+            );
+            const took = Date.now() - started;
+            const parked = await php(
+                'echo "JSON:".\\App\\Models\\PendingSocketCut::query()->where("attempts", ">", 0)->count();',
+            );
 
-        expect(parked >= 1, `nothing was parked (${parked})`);
+            expect(parked >= 1, `nothing was parked (${parked})`);
 
-        start('reverb', 'php', ['artisan', 'reverb:start', '--host=127.0.0.1', `--port=${REVERB_PORT}`]);
-        await waitForPort(REVERB_PORT);
-        await sleep(6500);
-        const summary = await artisan('chat:realtime-sweep');
-        const left = await php(
-            'echo "JSON:".\\App\\Models\\PendingSocketCut::query()->where("attempts", ">", 0)->count();',
-        );
+            start('reverb', 'php', [
+                'artisan',
+                'reverb:start',
+                '--host=127.0.0.1',
+                `--port=${REVERB_PORT}`,
+            ]);
+            await waitForPort(REVERB_PORT);
+            await sleep(6500);
+            const summary = await artisan('chat:realtime-sweep');
+            const left = await php(
+                'echo "JSON:".\\App\\Models\\PendingSocketCut::query()->where("attempts", ">", 0)->count();',
+            );
 
-        expect(left === 0, `${left} retries are still parked: ${summary}`);
+            expect(left === 0, `${left} retries are still parked: ${summary}`);
 
-        return `${parked} parked while Reverb was down (the change itself took ${took} ms), then worked off`;
-    });
+            return `${parked} parked while Reverb was down (the change itself took ${took} ms), then worked off`;
+        },
+    );
 
-    for (const client of [visitor1, visitor2, visitor3, agent, colleague, admin]) {
+    for (const client of [
+        visitor1,
+        visitor2,
+        visitor3,
+        agent,
+        colleague,
+        admin,
+    ]) {
         client.disconnect();
     }
 }
@@ -705,14 +928,20 @@ async function scenarios(fx, data) {
 try {
     await run();
 } catch (error) {
-    record('run', false, error instanceof Error ? error.message : String(error));
+    record(
+        'run',
+        false,
+        error instanceof Error ? error.message : String(error),
+    );
 } finally {
     stopAll();
 }
 
 const failed = results.filter((entry) => !entry.ok);
 
-console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
+console.log(
+    `\n${results.length - failed.length}/${results.length} checks passed`,
+);
 
 for (const [what, ms] of timings) {
     console.log(`  ${what} ${ms} ms`);
