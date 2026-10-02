@@ -91,6 +91,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'environments.production.nats_token',
             'environments.testing.service_token',
             'environments.testing.nats_token',
+            // WhatsApp settings (P6): the OpenWA API key; never flashed back into a rejected form.
+            'api_key',
+            'webhook_secret',
         ]);
 
         // `api/*` errors use the documented envelope {error:{code,message,details?}} (docs/contracts/rest-shapes.md).
