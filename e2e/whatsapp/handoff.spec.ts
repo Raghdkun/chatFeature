@@ -613,9 +613,11 @@ test('which messages link a chat: the code in a sentence, in lower case, with pu
         'an underscore around': (code: string) => `_${code}_`,
         'two letters swapped': (code: string) => {
             // The first two neighbours that differ (swapping equal letters would give the same code back).
-            const at = [...code].findIndex(
-                (letter, index) => letter !== code[index + 1] && index < 7,
-            );
+            const at = code
+                .split('')
+                .findIndex(
+                    (letter, index) => letter !== code[index + 1] && index < 7,
+                );
 
             return `${code.slice(0, at)}${code[at + 1]}${code[at]}${code.slice(at + 2)}`;
         },
