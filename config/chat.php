@@ -92,6 +92,21 @@ return [
     'max_queued_per_network' => 3,
 
     /*
+     * Browser security headers of the dashboard pages (docs/security.md, "Content-Security-Policy").
+     * - csp_mode: `enforce` (production default), `report-only` (every other environment by default: violations are reported, nothing is
+     *   blocked) or `off` (framing policy only). Set CSP_MODE=report-only to trial a change in production.
+     * - csp_report_uri: where browsers send violation reports (a same-origin path; `/csp-report` is built in, empty = no reporting).
+     * - hsts_max_age: seconds of `Strict-Transport-Security`, sent only on a request that came in over https (0 = never);
+     *   hsts_include_subdomains adds `includeSubDomains` (only when every sub-domain of the host is https).
+     */
+    'security' => [
+        'csp_mode' => env('CSP_MODE') ?: (env('APP_ENV') === 'production' ? 'enforce' : 'report-only'),
+        'csp_report_uri' => env('CSP_REPORT_URI', '/csp-report'),
+        'hsts_max_age' => (int) env('SECURITY_HSTS_MAX_AGE', 31_536_000),
+        'hsts_include_subdomains' => (bool) env('SECURITY_HSTS_INCLUDE_SUBDOMAINS', false),
+    ],
+
+    /*
      * Realtime cut-off (docs/realtime.md, "Cutting a socket off"). grant_ttl_days: how long a record that a staff member was handed a
      * signed conversation subscription is kept (a socket older than that has reconnected and been granted again).
      */

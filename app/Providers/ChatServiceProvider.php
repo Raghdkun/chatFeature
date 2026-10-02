@@ -10,6 +10,7 @@ use App\Domain\Chat\Policies\ConversationPolicy;
 use App\Domain\Chat\Support\ConversationCategoryUsageChecker;
 use App\Domain\Chat\Support\SignedAttachmentUrls;
 use App\Domain\Widgets\Support\ClientNetwork;
+use App\Http\Controllers\Security\CspReportController;
 use App\Models\Conversation;
 use App\Models\VisitorSession;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -90,6 +91,12 @@ class ChatServiceProvider extends ServiceProvider
         // In front of the `visitor` middleware: unknown bearer tokens must not each cost a lookup.
         RateLimiter::for('public-network', fn (Request $request): Limit => Limit::perMinute($this->limit('public_visitor_ip', 600))
             ->by('chat-visitor-ip:'.ClientNetwork::bucket($request->ip())));
+
+        // Public and unauthenticated by nature (a browser reports a Content-Security-Policy violation without credentials): small, per network.
+        RateLimiter::for(CspReportController::LIMITER, fn (Request $request): array => [
+            Limit::perMinute(20)->by('csp-report-ip:'.ClientNetwork::bucket($request->ip())),
+            Limit::perMinute(300)->by('csp-report-all'),
+        ]);
 
         RateLimiter::for('staff-api', fn (Request $request): Limit => Limit::perMinute($this->limit('staff_api_user', 600))
             ->by('chat-staff:'.($request->user()?->getAuthIdentifier() ?? ClientNetwork::bucket($request->ip()))));

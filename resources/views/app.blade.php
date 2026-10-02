@@ -10,8 +10,8 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="color-scheme" content="light dark">
 
-        {{-- Inline script to detect system dark mode preference and apply it immediately --}}
-        <script>
+        {{-- Inline script to detect system dark mode preference and apply it immediately. It carries the per-request CSP nonce (SecurityHeaders): the dashboard's script policy has no 'unsafe-inline'. --}}
+        <script nonce="{{ \Illuminate\Support\Facades\Vite::cspNonce() }}">
             (function() {
                 const appearance = '{{ $appearance ?? "system" }}';
 
