@@ -27,9 +27,10 @@ class NotificationsProviderTest extends TestCase
         $this->assertSame(['web', 'fcm'], array_map(fn ($channel): string => $channel->name(), app(PushDispatcher::class)->channels()));
     }
 
-    public function test_the_default_dashboard_visibility_is_the_presence_based_one(): void
+    public function test_presence_answers_the_dashboard_visibility_question(): void
     {
-        $this->assertInstanceOf(PresenceDashboardVisibility::class, app(DashboardVisibility::class));
+        // The presence context binds the strict answer (a heartbeat that reported the tab visible); it wins over this context's fallback.
+        $this->assertInstanceOf(\App\Domain\Presence\PresenceDashboardVisibility::class, app(DashboardVisibility::class));
     }
 
     public function test_a_binding_made_by_another_provider_while_registering_wins_over_the_default(): void
@@ -43,9 +44,10 @@ class NotificationsProviderTest extends TestCase
         $this->assertSame($fake, app(DashboardVisibility::class));
     }
 
-    public function test_the_default_visibility_reads_the_presence_heartbeat(): void
+    public function test_the_fallback_visibility_reads_the_presence_heartbeat(): void
     {
-        $visibility = app(DashboardVisibility::class);
+        // The fallback this context keeps for an application without the presence context's binding.
+        $visibility = app(PresenceDashboardVisibility::class);
         $online = User::factory()->agent()->create();
         $stale = User::factory()->agent()->create();
         $away = User::factory()->agent()->create();
