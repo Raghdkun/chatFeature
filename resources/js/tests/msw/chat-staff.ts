@@ -435,7 +435,12 @@ export function createStaffBackend(options: StaffBackendOptions = {}) {
                 down() ??
                 (state.heartbeatAnswersStatus
                     ? HttpResponse.json({
-                          data: { status: state.presence, isManual: false },
+                          data: {
+                              userId: me.id,
+                              status: state.presence,
+                              isManual: false,
+                              lastSeenAt: null,
+                          },
                       })
                     : new HttpResponse(null, { status: 204 }))
             );

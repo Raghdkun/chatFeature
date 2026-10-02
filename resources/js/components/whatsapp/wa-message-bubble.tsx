@@ -32,6 +32,7 @@ const FAILURE_KEY = {
     daily_cap: 'whatsapp.message.failed.daily_cap',
     pacing: 'whatsapp.message.failed.pacing',
     rate_limited: 'whatsapp.message.failed.rate_limited',
+    queue_unavailable: 'whatsapp.message.failed.queue_unavailable',
     not_inbound: 'whatsapp.message.failed.not_inbound',
     too_long: 'whatsapp.message.failed.too_long',
     rejected: 'whatsapp.message.failed.rejected',

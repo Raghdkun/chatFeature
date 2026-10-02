@@ -403,7 +403,7 @@ describe('sending', () => {
         )[0].body as { client_msg_id: string; body: string };
 
         expect(sent.body).toBe('Found it, one moment');
-        expect(sent.client_msg_id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+        expect(sent.client_msg_id).toMatch(/^[0-9a-hjkmnp-tv-z]{26}$/);
         await waitFor(() =>
             expect(
                 view.container.querySelector(

@@ -79,10 +79,15 @@ export type SendMessageInput = {
 /** Where a chat goes on transfer: a colleague (user id) or a category (slug). */
 export type TransferTarget = { agentId: number } | { category: string };
 
-/** What a heartbeat may answer: the status the server holds after it. Absent (`204`) on older backends. */
+/**
+ * What a heartbeat answers: the same shape as `GET /me/presence` (the status the server holds after the beat; only `status` is read).
+ * Absent (`204`) on older backends.
+ */
 export type HeartbeatAnswer = {
     status: PresenceStatus;
     isManual: boolean;
+    userId?: number;
+    lastSeenAt?: string | null;
 };
 
 /** A colleague a chat could be handed to, as `GET .../transfer-targets` describes them. */

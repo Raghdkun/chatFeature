@@ -368,7 +368,7 @@ describe('sending a reply', () => {
         const sent = posts()[0].body as { body: string; client_msg_id: string };
 
         expect(sent.body).toBe('On my way');
-        expect(sent.client_msg_id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+        expect(sent.client_msg_id).toMatch(/^[0-9a-hjkmnp-tv-z]{26}$/);
 
         await waitFor(() =>
             expect(bubbles()[1].dataset.testid).not.toBe(
@@ -636,6 +636,12 @@ describe('a reply that does not go out', () => {
             true,
         ],
         [
+            'the server cannot queue the message',
+            { status: 503, code: 'queue_unavailable' },
+            'could not queue it',
+            true,
+        ],
+        [
             'the customer never wrote first',
             { status: 409, code: 'reply_only_to_inbound' },
             'this customer has not written first',
@@ -670,6 +676,112 @@ describe('a reply that does not go out', () => {
         expect(byTestId(`wa-message-retry-${id}`) !== null).toBe(retryable);
         // Discard is always there.
         expect(byTestId(`wa-message-discard-${id}`)).not.toBeNull();
+    });
+
+    describe('when the server cannot queue it (503 queue_unavailable)', () => {
+        const failures = () =>
+            Array.from(
+                document.body.querySelectorAll<HTMLElement>(
+                    '[data-testid^="wa-message-failure-"]',
+                ),
+            );
+
+        it('shows the stored row as failed (never "sending"), offers Retry, and the retry puts the SAME reply back in the queue', async () => {
+            backend.current.state.queueDown = 1;
+            await open({ messages: [inbound('Hi', 1)] });
+
+            await type('queue me');
+            await enter();
+
+            await waitFor(() => expect(failures()).toHaveLength(1));
+
+            // One bubble, failed, with the stored row's state, not a pending optimistic one.
+            const mine = bubbles().filter((b) =>
+                b.textContent?.includes('queue me'),
+            );
+
+            expect(mine).toHaveLength(1);
+            expect(mine[0].dataset.status).toBe('failed');
+            expect(failures()[0].textContent).toContain('could not queue it');
+
+            const retry = document.body.querySelector(
+                '[data-testid^="wa-message-retry-"]',
+            ) as HTMLElement;
+            const clientId = retry.dataset.testid?.replace(
+                'wa-message-retry-',
+                '',
+            );
+
+            await click(retry);
+            await waitFor(() => expect(failures()).toHaveLength(0));
+
+            expect(
+                posts().map(
+                    (call) =>
+                        (call.body as { client_msg_id: string }).client_msg_id,
+                ),
+            ).toEqual([clientId, clientId]);
+            await waitFor(() =>
+                expect(
+                    bubbles().find((b) => b.textContent?.includes('queue me'))
+                        ?.dataset.status,
+                ).toBe('pending'),
+            );
+            expect(
+                bubbles().filter((b) => b.textContent?.includes('queue me')),
+            ).toHaveLength(1);
+        });
+
+        it('follows the failed status event as well (no second read needed)', async () => {
+            backend.current.state.queueDown = 1;
+            await open({ messages: [inbound('Hi', 1)] });
+
+            await type('event first');
+            await enter();
+            await waitFor(() => expect(failures()).toHaveLength(1));
+
+            const stored = backend.current.state.messages
+                .get(CHAT_ULID)
+                ?.find((m) => m.body === 'event first') as WaMessage;
+
+            await act(async () =>
+                fakeEcho.emitServer('whatsapp-admin', 'wa.message.updated', {
+                    v: 1,
+                    message: { ...stored, status: 'failed' },
+                }),
+            );
+
+            expect(
+                bubbles().find((b) => b.textContent?.includes('event first'))
+                    ?.dataset.status,
+            ).toBe('failed');
+        });
+
+        it('with the first backend (it replays the failed row), Retry ends with the failed row and its reason, not an endless "sending"', async () => {
+            backend.current.state.retryRequeuesFailed = false;
+            backend.current.state.queueDown = 1;
+            await open({ messages: [inbound('Hi', 1)] });
+
+            await type('old backend');
+            await enter();
+            await waitFor(() => expect(failures()).toHaveLength(1));
+
+            await click(
+                document.body.querySelector(
+                    '[data-testid^="wa-message-retry-"]',
+                ),
+            );
+            await waitFor(() =>
+                expect(
+                    bubbles().find((b) =>
+                        b.textContent?.includes('old backend'),
+                    )?.dataset.status,
+                ).toBe('failed'),
+            );
+            expect(
+                bubbles().filter((b) => b.textContent?.includes('old backend')),
+            ).toHaveLength(1);
+        });
     });
 
     it('pauses the box for as long as the server asked ("Retry-After") and then lets the next reply go', async () => {

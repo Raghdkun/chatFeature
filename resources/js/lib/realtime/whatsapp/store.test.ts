@@ -233,6 +233,65 @@ describe('transcripts', () => {
     });
 });
 
+describe('a failed reply that the server put back in its queue', () => {
+    const chat = fakeUlid(6001);
+    const failedReply = () =>
+        makeWaReply({ chat, status: 'failed', error: 'not queued' });
+    const opened = (messages = [failedReply()]) =>
+        run(EMPTY_WA_STATE, { type: 'messagesLoaded', chat, messages });
+
+    it('steps back from failed to pending for the answer to a retry, and then moves forward again as usual', () => {
+        const failed = failedReply();
+        const state = opened([failed]);
+
+        // An EVENT never moves a failed message (the status is final for events) ...
+        expect(
+            waLiveReducer(state, {
+                type: 'messageChanged',
+                message: { ...failed, status: 'pending', error: null },
+            }).messages[chat][0].status,
+        ).toBe('failed');
+
+        // ... only the answer to our own retry does.
+        const queued = waLiveReducer(state, {
+            type: 'messageRequeued',
+            message: { ...failed, status: 'pending', error: null },
+        });
+
+        expect(queued.messages[chat][0]).toMatchObject({
+            status: 'pending',
+            error: null,
+        });
+
+        const sent = waLiveReducer(queued, {
+            type: 'messageChanged',
+            message: { ...failed, status: 'sent', error: null },
+        });
+
+        expect(sent.messages[chat][0].status).toBe('sent');
+    });
+
+    it('does nothing for anything else: an unknown message, one that is not failed, a customer message, a non-pending answer', () => {
+        const failed = failedReply();
+        const sent = makeWaReply({ chat, status: 'sent' });
+        const incoming = makeWaMessage({ chat });
+        const state = opened([failed, sent, incoming]);
+        const requeue = (message: ReturnType<typeof makeWaReply>) =>
+            waLiveReducer(state, { type: 'messageRequeued', message });
+
+        expect(requeue(makeWaReply({ chat, status: 'pending' }))).toBe(state);
+        expect(requeue({ ...sent, status: 'pending' })).toBe(state);
+        expect(requeue({ ...incoming, status: 'pending' })).toBe(state);
+        expect(requeue({ ...failed, status: 'sent' })).toBe(state);
+        expect(
+            waLiveReducer(EMPTY_WA_STATE, {
+                type: 'messageRequeued',
+                message: { ...failed, status: 'pending' },
+            }),
+        ).toBe(EMPTY_WA_STATE);
+    });
+});
+
 describe('sessions', () => {
     it('lists, changes and removes sessions; a full list is the truth', () => {
         const a = makeWaSession({ status: 'starting' });

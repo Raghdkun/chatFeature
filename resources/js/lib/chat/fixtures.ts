@@ -31,7 +31,7 @@ function next(): number {
     return counter;
 }
 
-/** A 26-character ULID-shaped id that is stable for the n-th call after `resetFixtures()`. */
+/** A 26-character ULID-shaped id that is stable for the n-th call after `resetFixtures()`. Lower case, like every id the backend sends (and sorts as). */
 export function fakeUlid(n: number = next()): string {
     let rest = n;
     let tail = '';
@@ -41,7 +41,7 @@ export function fakeUlid(n: number = next()): string {
         rest = Math.floor(rest / 32);
     }
 
-    return `01JFAKE000000000${tail}`;
+    return `01jfake000000000${tail.toLowerCase()}`;
 }
 
 /** ISO-8601 UTC with milliseconds, `seconds` after the fixed base time (2026-11-20T10:00:00.000Z). */

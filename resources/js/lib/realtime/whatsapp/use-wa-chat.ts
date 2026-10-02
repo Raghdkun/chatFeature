@@ -351,6 +351,8 @@ export function useWaChat({
                     );
 
                     store.dispatch({ type: 'messageChanged', message });
+                    // A retried reply the server put back in its queue: the one step back from `failed` (a no-op for anything else).
+                    store.dispatch({ type: 'messageRequeued', message });
                     dispatch({
                         type: 'acked',
                         clientMsgId,
@@ -368,6 +370,12 @@ export function useWaChat({
                         retryAfter,
                     });
 
+                    if (failure === 'queue_unavailable') {
+                        // The server stored the reply and marked it failed: read it back so the transcript shows the stored row's
+                        // real state (the status event may not come), not a bubble that still says "sending".
+                        void catchUp();
+                    }
+
                     if (
                         retryAfter !== null &&
                         (failure === 'pacing' ||
@@ -384,7 +392,7 @@ export function useWaChat({
 
             return next;
         },
-        [api, ulid, store],
+        [api, ulid, store, catchUp],
     );
 
     const send = useCallback(

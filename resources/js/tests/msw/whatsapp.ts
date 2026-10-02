@@ -101,6 +101,8 @@ export function createWaBackend(options: WaBackendOptions = {}) {
         qr: new Map<string, string | null>(),
         /** Session ulids whose QR poll answers `ready` (the scan happened). */
         scanned: new Set<string>(),
+        /** ulid -> reads a just-started session answers `409 qr_not_available` (status `starting`) before its code exists. Default 0. */
+        qrWarmupReads: new Map<string, number>(),
         /** The next N reply sends answer this error. */
         failSends: [] as {
             status: number;
@@ -108,6 +110,16 @@ export function createWaBackend(options: WaBackendOptions = {}) {
             message?: string;
             retryAfter?: number;
         }[],
+        /**
+         * The next N reply sends are STORED (as `failed`, like the real backend) and answered `503 queue_unavailable`: the job queue could
+         * not take the message.
+         */
+        queueDown: 0,
+        /**
+         * A repeated `client_msg_id` of a `failed`, never-sent reply puts it back in the queue (`pending`) instead of replaying the failed row
+         * (the backend fix of the P5/P6 audit; `false` = the first backend, which replays the failed row unchanged).
+         */
+        retryRequeuesFailed: true,
         /** Every reply send is stored at once but answered this long afterwards (to observe the optimistic bubble, and the race with the websocket). */
         sendDelayMs: 0,
         /** The next N reply sends are STORED by the server but the answer never reaches the browser (a dropped connection). */
@@ -538,11 +550,25 @@ export function createWaBackend(options: WaBackendOptions = {}) {
                 state.qr.delete(ulid);
             }
 
+            // A session that was just started needs a moment to produce its code (`qrWarmupReads` reads), then waits for a scan.
+            const starting = state.sessions.get(ulid) as WhatsAppSession;
+
+            if (starting.status === 'starting' && state.qr.has(ulid)) {
+                const left = state.qrWarmupReads.get(ulid) ?? 0;
+
+                if (left > 0) {
+                    state.qrWarmupReads.set(ulid, left - 1);
+                } else {
+                    state.sessions.set(ulid, { ...starting, status: 'qr' });
+                }
+            }
+
             const current = state.sessions.get(ulid) as WhatsAppSession;
             const image = state.qr.get(ulid) ?? null;
 
-            // Only while the session waits for a scan: any other status is a 409 that names the status (docs/rest-api.md).
-            if (image === null) {
+            // The real endpoint serves a picture ONLY while the session waits for a scan (`status === 'qr'`); any other status is a 409 that
+            // names the status (docs/rest-api.md).
+            if (image === null || current.status !== 'qr') {
                 return envelopeError(
                     'qr_not_available',
                     'There is no QR code to scan.',
@@ -849,6 +875,29 @@ export function createWaBackend(options: WaBackendOptions = {}) {
                 );
 
                 if (replay) {
+                    if (
+                        replay.status === 'failed' &&
+                        state.retryRequeuesFailed
+                    ) {
+                        const requeued: WaMessage = {
+                            ...replay,
+                            status: 'pending',
+                            error: null,
+                        };
+
+                        state.messages.set(
+                            ulid,
+                            messagesOf(ulid).map((m) =>
+                                m.ulid === replay.ulid ? requeued : m,
+                            ),
+                        );
+
+                        return HttpResponse.json(
+                            { data: requeued },
+                            { status: 200 },
+                        );
+                    }
+
                     return HttpResponse.json({ data: replay }, { status: 200 });
                 }
 
@@ -866,12 +915,27 @@ export function createWaBackend(options: WaBackendOptions = {}) {
                     clientMsgId: clientId,
                 };
 
+                if (state.queueDown > 0) {
+                    state.queueDown -= 1;
+                    message.status = 'failed';
+                    message.error =
+                        'The message could not be queued for sending.';
+                }
+
                 state.messages.set(ulid, [...messagesOf(ulid), message]);
                 state.chats.set(ulid, {
                     ...chat,
                     lastMessagePreview: text,
                     lastMessageAt: message.createdAt,
                 });
+
+                if (message.status === 'failed') {
+                    return envelopeError(
+                        'queue_unavailable',
+                        'The message could not be queued. Please try again.',
+                        503,
+                    );
+                }
 
                 if (state.loseAnswers > 0) {
                     state.loseAnswers -= 1;

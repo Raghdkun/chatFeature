@@ -539,6 +539,7 @@ export type WaErrorKind =
     | 'name_taken'
     | 'teardown_pending'
     | 'session_busy'
+    | 'queue_unavailable'
     | 'not_found'
     | 'rate_limited'
     | 'forbidden'
@@ -583,6 +584,7 @@ const CODES: Record<string, WaErrorKind> = {
     session_name_teardown_pending: 'teardown_pending',
     session_busy: 'session_busy',
     session_in_use: 'session_busy',
+    queue_unavailable: 'queue_unavailable',
     not_found: 'not_found',
     forbidden: 'forbidden',
     rate_limited: 'rate_limited',
@@ -718,6 +720,8 @@ export function describeWaError(
             return t('whatsapp.error.teardown_pending');
         case 'session_busy':
             return t('whatsapp.error.session_busy');
+        case 'queue_unavailable':
+            return t('whatsapp.error.queue_unavailable');
         case 'not_found':
             return t('whatsapp.error.not_found');
     }

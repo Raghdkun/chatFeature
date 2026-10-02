@@ -617,6 +617,9 @@ describe('errors', () => {
         expect(classifyWaError(error('openwa_unauthorized', 502))).toBe(
             'unauthorized_key',
         );
+        expect(classifyWaError(error('queue_unavailable', 503))).toBe(
+            'queue_unavailable',
+        );
         expect(classifyWaError(error('whatever', 429))).toBe('rate_limited');
         expect(classifyWaError(error('whatever', 403))).toBe('forbidden');
         expect(classifyWaError(error('whatever', 500))).toBe('other');
@@ -635,6 +638,9 @@ describe('errors', () => {
         ).toMatch(/2 hours/);
         expect(describeWaError(error('send_pacing_limited', 429), t)).toMatch(
             /too fast/i,
+        );
+        expect(describeWaError(error('queue_unavailable', 503), t)).toMatch(
+            /queue/i,
         );
         expect(describeWaError(error('openwa_unavailable', 503), t)).toMatch(
             /reach/i,

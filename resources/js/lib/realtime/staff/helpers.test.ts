@@ -16,7 +16,7 @@ import { bindSoundUnlock, createSoundPlayer } from '@/lib/realtime/staff/sound';
 
 describe('newClientMsgId', () => {
     it('is a 26-character Crockford-base32 ULID', () => {
-        expect(newClientMsgId()).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+        expect(newClientMsgId()).toMatch(/^[0-9a-hjkmnp-tv-z]{26}$/);
     });
 
     it('encodes the time in the first ten characters so ids sort by creation', () => {

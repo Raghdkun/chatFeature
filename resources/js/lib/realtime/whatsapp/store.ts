@@ -56,6 +56,11 @@ export type WaLiveAction =
     | { type: 'chatRead'; ulid: string }
     | { type: 'messagesLoaded'; chat: string; messages: WaMessage[] }
     | { type: 'messageChanged'; message: WaMessage }
+    /**
+     * The server answered a retry of a reply it had marked `failed` (it never reached WhatsApp) by putting it back in its queue: the one
+     * step backwards a message makes (`failed` is final for events). Applies only to a held `failed` outbound row and a `pending` answer.
+     */
+    | { type: 'messageRequeued'; message: WaMessage }
     | { type: 'sessionsLoaded'; sessions: WhatsAppSession[]; since?: number }
     | { type: 'sessionChanged'; session: WhatsAppSession }
     | { type: 'sessionRemoved'; ulid: string }
@@ -183,6 +188,33 @@ export function waLiveReducer(
                           [action.message.chat]: merged,
                       },
                   };
+        }
+
+        case 'messageRequeued': {
+            const held = state.messages[action.message.chat];
+            const known = held?.find(
+                (message) => message.ulid === action.message.ulid,
+            );
+
+            if (
+                held === undefined ||
+                known === undefined ||
+                known.direction !== 'out' ||
+                known.status !== 'failed' ||
+                action.message.status !== 'pending'
+            ) {
+                return state;
+            }
+
+            return {
+                ...state,
+                messages: {
+                    ...state.messages,
+                    [action.message.chat]: held.map((message) =>
+                        message.ulid === known.ulid ? action.message : message,
+                    ),
+                },
+            };
         }
 
         case 'sessionsLoaded': {

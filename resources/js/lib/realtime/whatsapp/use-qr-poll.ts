@@ -28,11 +28,18 @@ export function useQrPoll({
     open,
     api,
     onReady,
+    status,
 }: {
     ulid: string | null;
     open: boolean;
     api: WaApi;
     onReady: () => void;
+    /**
+     * The session's status as the page knows it (the store, which the start answer and the websocket events update). The poll STOPS when
+     * the session is not running; a change of status (it was started again from the dialog, or by another admin) is what starts it
+     * again, so the code appears without closing and reopening the dialog.
+     */
+    status?: SessionStatus;
 }): { view: QrView; refresh: () => void } {
     const [view, setView] = useState<QrView>({ kind: 'loading' });
     const [nudge, setNudge] = useState(0);
@@ -126,7 +133,7 @@ export function useQrPoll({
             controller.abort();
             clearTimeout(timer);
         };
-    }, [open, ulid, api, nudge]);
+    }, [open, ulid, api, nudge, status]);
 
     return { view, refresh: useCallback(() => setNudge((n) => n + 1), []) };
 }
