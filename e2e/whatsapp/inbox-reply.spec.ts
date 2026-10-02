@@ -11,12 +11,7 @@ import {
 } from '../support/wa-test';
 import type { OpenWaMock } from '../support/openwa';
 import { WaInboxPage } from '../support/wa-ui';
-import {
-    data,
-    eventually,
-    type WaChat,
-    type WaMessage,
-} from '../support/whatsapp';
+import { data, eventually, type WaChat } from '../support/whatsapp';
 
 /**
  * Replying from the dashboard, end to end: the composer, the optimistic bubble, the call the app makes at OpenWA (the mock's request log), the

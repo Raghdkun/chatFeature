@@ -3,7 +3,6 @@ import { tinker } from '../support/artisan';
 import { createWorld } from '../support/world';
 import { openCustomerSite } from '../support/panel';
 import {
-    linkedChat,
     requestHandoff,
     whatsappWidget,
     handoffRefusal,
@@ -188,7 +187,9 @@ test("Continue on WhatsApp on a one-topic widget: a code, the wa.me link and the
     ).toBeVisible();
     await expect(panel.frame.getByText('hi there')).toHaveCount(0);
     expect(
-        await visitor.page.evaluate(() => JSON.stringify({ ...localStorage })),
+        await visitor.page.evaluate(() =>
+            JSON.stringify(Object.entries(localStorage)),
+        ),
     ).not.toContain('hi there');
 
     const api = (await import('../support/chat-api')).VisitorApi;
