@@ -6,11 +6,15 @@ use App\Domain\WhatsApp\Contracts\OpenWaClient;
 use App\Domain\WhatsApp\Contracts\WaMediaUrls;
 use App\Domain\WhatsApp\Policies\WhatsAppPolicy;
 use App\Domain\WhatsApp\Support\SignedWaMediaUrls;
+use App\Domain\Widgets\Support\ClientNetwork;
 use App\Infrastructure\OpenWa\OpenWaHttpClient;
 use App\Models\WaChat;
 use App\Models\WaMessage;
 use App\Models\WhatsAppSession;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -34,5 +38,30 @@ class WhatsAppServiceProvider extends ServiceProvider
         foreach ([WaChat::class, WaMessage::class, WhatsAppSession::class] as $model) {
             Gate::policy($model, WhatsAppPolicy::class);
         }
+
+        $this->configureRateLimiting();
+    }
+
+    /**
+     * The named limiters of the WhatsApp surface (numbers in `config/whatsapp.php`), all per minute.
+     */
+    private function configureRateLimiting(): void
+    {
+        // In front of the signature check: a flood of unsigned requests costs one lookup and one HMAC each, so it is bounded per
+        // client network and per session (the string of the URL: the model is not bound yet when this runs).
+        RateLimiter::for('wa-webhook', function (Request $request): array {
+            $session = $request->route('session');
+            $session = is_object($session) ? (string) ($session->ulid ?? '') : (string) $session;
+
+            return [
+                Limit::perMinute($this->limit('webhook.rate_limits.per_network', 600))->by('wa-hook-ip:'.ClientNetwork::bucket($request->ip())),
+                Limit::perMinute($this->limit('webhook.rate_limits.per_session', 3000))->by('wa-hook:'.$session),
+            ];
+        });
+    }
+
+    private function limit(string $key, int $default): int
+    {
+        return max(1, (int) config('whatsapp.'.$key, $default));
     }
 }
