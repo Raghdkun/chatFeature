@@ -118,6 +118,8 @@ class WhatsAppIsolationTest extends TestCase
         yield 'media' => ['GET', '{m}', []];
         yield 'widget link show' => ['GET', '/api/v1/widgets/{w}/whatsapp', []];
         yield 'widget link update' => ['PUT', '/api/v1/widgets/{w}/whatsapp', ['session' => null]];
+        // P7: the WhatsApp numbers of the analytics API are WhatsApp data too: same rule, same middleware.
+        yield 'analytics whatsapp' => ['GET', '/api/v1/analytics/whatsapp', []];
         yield 'page inbox' => ['GET', '/whatsapp', []];
         yield 'page chat' => ['GET', '/whatsapp/chats/{c}', []];
         yield 'page settings' => ['GET', '/settings/whatsapp', []];

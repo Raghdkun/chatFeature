@@ -20,7 +20,8 @@ Route::middleware(['auth:sanctum', 'session.valid', 'chat.access', ChatThrottle:
 
     Route::middleware('admin')->group(function () {
         Route::get('breakdown', [AnalyticsController::class, 'breakdown'])->name('api.analytics.breakdown');
-        Route::get('whatsapp', [AnalyticsController::class, 'whatsapp'])->name('api.analytics.whatsapp');
+        // A WhatsApp surface: the P6 rule (`wa.admin`, WhatsAppPolicy) applies to it as to every other one.
+        Route::get('whatsapp', [AnalyticsController::class, 'whatsapp'])->middleware('wa.admin')->name('api.analytics.whatsapp');
         Route::get('export', [AnalyticsController::class, 'export'])->name('api.analytics.export');
     });
 });

@@ -36,7 +36,7 @@ class AnalyticsPageTest extends TestCase
 
     public function test_an_administrator_gets_the_scope_the_defaults_and_the_filter_menus(): void
     {
-        $admin = User::factory()->admin()->create();
+        $admin = User::factory()->admin()->create(['name' => 'Zed Admin']);
         $widget = Widget::factory()->create(['name' => 'Main site']);
         $gone = Widget::factory()->create(['name' => 'Old shop']);
         $gone->delete();
@@ -53,7 +53,8 @@ class AnalyticsPageTest extends TestCase
             ->where('options.categories', [['key' => $category->ulid, 'label' => 'Billing', 'deleted' => false]])
             ->has('options.agents', 2)
             ->where('options.agents.0.label', 'Ann')
-            ->where('options.agents.0.key', (string) $agent->id));
+            ->where('options.agents.0.key', (string) $agent->id)
+            ->where('options.agents.1.label', 'Zed Admin'));
     }
 
     public function test_the_filters_of_the_link_are_kept_and_nonsense_is_dropped(): void

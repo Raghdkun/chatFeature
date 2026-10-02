@@ -82,7 +82,10 @@ class WhatsAppSchemaTest extends TestCase
 
     public function test_the_migrations_roll_back_cleanly_and_run_again(): void
     {
-        $this->artisan('migrate:rollback', ['--step' => 7, '--force' => true])->assertSuccessful();
+        // Back to the state before the first WhatsApp migration, whatever later phases (P7: analytics, ...) added after it.
+        $steps = DB::table('migrations')->where('migration', '>=', '2026_11_25_000100_create_whatsapp_sessions_table')->count();
+        $this->assertGreaterThanOrEqual(7, $steps);
+        $this->artisan('migrate:rollback', ['--step' => $steps, '--force' => true])->assertSuccessful();
 
         foreach (array_keys(self::expectedColumns()) as $table) {
             $this->assertFalse(Schema::hasTable($table), "{$table} should be gone after the rollback");
