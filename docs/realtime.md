@@ -1,6 +1,6 @@
 # Realtime
 
-> Status: **implemented in P4 (track 4B)**: channels and their authorisation, the visitor authorisation endpoint, every server event of [contracts/realtime-events.md](contracts/realtime-events.md), failure isolation, the Reverb configuration and the `StaffSessionRevoked` hooks. Presence storage, auto-away and push (P5) and the WhatsApp admin channel (P6) extend it. Load numbers (about 1k sockets) arrive with the P7 k6 test.
+> Status: **implemented in P4 (track 4B)**: channels and their authorisation, the visitor authorisation endpoint, every server event of [contracts/realtime-events.md](contracts/realtime-events.md), failure isolation, the Reverb configuration and the `StaffSessionRevoked` hooks. Presence storage, auto-away and the sweep are documented in "Presence" below (P5, track 5A); push (P5, track 5B) and the WhatsApp admin channel (P6) extend it. Load numbers (about 1k sockets) arrive with the P7 k6 test.
 > Contracts: [contracts/realtime-events.md](contracts/realtime-events.md) (channels, events, payloads), [contracts/chat-data-p4.md](contracts/chat-data-p4.md) (domain events and payload classes), [contracts/chat-tracks-p4.md](contracts/chat-tracks-p4.md) (who owns what).
 
 Laravel **Reverb** 1.12 (Pusher protocol, self-hosted) with `laravel-echo` / `pusher-js` on the clients. The **widget opens no websocket until the visitor starts a chat.** Realtime is an add-on to REST: every event also exists as a REST read, clients resync with `GET …/messages?after_seq=N`, and **nothing in the HTTP request that stores a message depends on Reverb being up**.
@@ -154,6 +154,44 @@ node e2e/support/realtime-smoke.mjs                      # the real-socket smoke
 | `ExternalIdentityInvalidator::deactivateExternalId` (NATS `user.deleted`) | `deactivated`, once per identity even when no session is open |
 
 A mode 1 deactivation seen by `EnsureSessionIsValid` needs no hook of its own: it already went through `UpdateAgent`. The event is delivered to **all** open tabs of that person (the payload names no session), so a client that gets it checks with REST (`401` means signed out) before dropping everything.
+
+## Presence (P5, track 5A)
+
+An agent's status is `online`, `away` or `offline`. Routing (who is offered a chat, and in which wave), the public `availability.online`, `GET /me/presence`, the `presence-staff` roster, the transfer dialog and the agents page all read ONE store through `EffectivePresence` / `PresenceService`, so they cannot disagree. Code: `app/Domain/Presence/**`, `config/presence.php`; decisions P5-D1..D3 in [contracts/presence-notifications-p5.md](contracts/presence-notifications-p5.md).
+
+### The effective status (`PresencePolicy`)
+
+| Situation | Effective status |
+|---|---|
+| no record, or the agent chose `offline` | `offline` (a heartbeat never turns it on; only `PUT /me/presence` does) |
+| no heartbeat for **90 s** (`presence.heartbeat_window_seconds`; a heartbeat exactly 90 s old still counts) | `offline`: a closed tab, a sleeping laptop |
+| a status the agent **pinned** (`PUT {status: away}` or `{status: online}` without `automatic`, `isManual: true`) | that status, while heartbeats keep coming, visible or not |
+| **automatic** `online` (`PUT {status: online, automatic: true}`, what the dashboard sends; `isManual: false`), a visible tab beat within `presence.auto_away_minutes` (default **5**; exactly 5:00 already counts) | `online` |
+| automatic `online`, every heartbeat of every tab has said `visible: false` for 5 minutes | `away`: routing offers chats to `away` agents from the second wave on |
+| the next heartbeat with `visible: true` (any tab), or the agent choosing `online` again | `online` again |
+
+The staff dashboard beats every 30 s (`POST /me/presence/heartbeat {visible}`, `visible` = `document.visibilityState === 'visible'`) and at once when a tab comes back to the foreground; browsers throttle a background tab to about once a minute, which fits the window. A heartbeat from an older client without `visible` counts as visible. With several tabs, one visible tab keeps the agent `online`. Setting `PRESENCE_AUTO_AWAY_MINUTES=0` turns auto-away off.
+
+### Storage (`PresenceStore`)
+
+| `presence.store` | Where the state lives | Cost of a heartbeat |
+|---|---|---|
+| `redis` (default when `CACHE_STORE`, `QUEUE_CONNECTION` or `SESSION_DRIVER` is `redis`; phpredis client) | one hash `presence:{userId}` (`status`, `manual`, `visible`, `last_heartbeat_at`, `last_visible_at`, `last_seen_at`, `announced`) with a TTL of **2 x the window** (180 s), and one sorted set `presence:alive` scored by the last heartbeat. Prefix `PRESENCE_REDIS_PREFIX`, connection `PRESENCE_REDIS_CONNECTION` (a `database.redis.*` entry) | **one Lua call, O(1), no SQL**. The `agent_presence` row is only a MIRROR, written when the effective status changes (or an agent chooses a status) |
+| `database` (default otherwise) | the `agent_presence` row itself (P4 behaviour; never forgets a row) | one UPDATE of the user's row |
+
+The Lua scripts are atomic per user: the heartbeat refreshes the hash and the set, the effective status is computed from what the script returns, and only when it differs from `announced` (the status clients were last told) a second tiny script claims the change, so concurrent heartbeats and the sweep never announce the same change twice. A record that has been silent for 180 s is forgotten: a late heartbeat does not revive it (the agent has to choose a status again; the dashboard shows the "Go online" notice). Everything outside the store stays store-agnostic: `PresenceService::set()` / `heartbeat()` / `reconcile()` end in one `announce()` that dispatches `PresenceChanged` (`presence.changed` on `presence-staff`) and drops the cached public availability of the widgets the agent serves, whatever the change was.
+
+### The sweep (`chat:presence-sweep`, every minute)
+
+Time alone changes an agent's status (silence, auto-away), so the scheduler re-evaluates them: users whose heartbeat is older than the window (the sorted set's range query, in batches of `presence.sweep_batch_size` = 200) and everybody last announced as `online` / `away` (the mirror rows, by id, in batches): each is re-checked, a change is announced once, the mirror is updated. A second run finds nothing to do; `withoutOverlapping(5)` + `onOneServer()` (needs a shared cache: Redis). With the sweep stopped nothing breaks, statuses just change at the next heartbeat or read instead of within a minute (reads always compute the effective status at the time they are asked). The output says what it did: `Checked 5 agent(s): 3 change(s) (3 offline, 0 away, 0 online).`
+
+### When Redis is down
+
+`RedisPresenceStore` throws `PresenceStoreUnavailable` for any Redis failure; `FailoverPresenceStore` answers the call with the database store instead, logs ONE warning (`Presence: Redis is unavailable, the database store answers instead.`) and leaves Redis alone for `presence.failure_cooldown_seconds` (15 s, per PHP process), so no presence call is ever a 500 and a dead host costs one slow connection attempt per cooldown, not one per heartbeat. Meanwhile the table is the truth, with the same rules (heartbeats are one UPDATE each; auto-away and the sweep work on the rows). What agents see: the mirror still holds what each agent chose and the last announced status, so each agent comes back with their next heartbeat (within 30 s); until then a stale mirror row reads `offline`. After Redis returns its records are cold or old: agents who were last seen there long ago read `offline` until they choose a status again, and the next sweep announces it (it walks the mirror, so an agent Redis lost is not left `online` for ever). The mirror write failing (the database down) is logged and does not fail a heartbeat. Redis itself restarting or being flushed has the same effect as the recovery: everybody reads `offline` within a minute and picks `Online` again (one click). Tests: `tests/Feature/Presence/PresenceRedisOutageTest.php`, `PresenceFailoverTest.php`.
+
+### Dashboard
+
+The host sends `visible` with every beat and, after a gap longer than 90 s (a sleeping laptop, a long hidden tab, suspended timers), re-reads `GET /me/presence` once the beat is out, so the selector never keeps saying "Online" for an agent the server already considers offline (the events sent while the socket was down are not replayed). `presence.changed` for anybody is also remembered in the staff store (`seenPresence`, with the time it was heard): the agents page uses it for its status dots and its "N online" figure, whether or not the person is on the roster. With no websocket (polling mode) the dots and the agent's own selector follow the next page load.
 
 ## Known limits
 
