@@ -49,15 +49,46 @@ export class WaSettingsPage {
 
 /** The WhatsApp inbox: list column, filters, the open chat with its transcript and composer. */
 export class WaInboxPage {
-    constructor(readonly page: Page) {}
+    private subscribed = false;
 
-    /** `/whatsapp`, or one chat (`/whatsapp/chats/{ulid}`). */
-    async goto(chat?: string): Promise<void> {
+    constructor(readonly page: Page) {
+        // The page's own Reverb socket tells when the admin channel is joined (the frame Pusher sends): events published before that moment are not
+        // heard, and the page catches up at connection time, not at subscription time (see docs/testing.md, "P6 specs"). Specs that inject a
+        // message right after loading wait for it through `goto()`.
+        page.on('websocket', (socket) =>
+            socket.on('framereceived', (frame) => {
+                const payload = String(frame.payload);
+
+                if (
+                    payload.includes('subscription_succeeded') &&
+                    payload.includes('private-whatsapp-admin')
+                ) {
+                    this.subscribed = true;
+                }
+            }),
+        );
+    }
+
+    /**
+     * `/whatsapp`, or one chat (`/whatsapp/chats/{ulid}`). Returns once the admin channel is joined, so what a spec injects next arrives live
+     * (`live: false` for a browser whose socket is cut on purpose).
+     */
+    async goto(chat?: string, options: { live?: boolean } = {}): Promise<void> {
+        this.subscribed = false;
         await this.page.goto(chat ? `/whatsapp/chats/${chat}` : '/whatsapp');
         await expect(this.page.getByTestId('wa-inbox')).toBeVisible();
 
         if (chat) {
             await expect(this.page.getByTestId('wa-chat-view')).toBeVisible();
+        }
+
+        if (options.live !== false) {
+            await expect
+                .poll(() => this.subscribed, {
+                    message: 'the page to join private-whatsapp-admin',
+                    timeout: 20_000,
+                })
+                .toBe(true);
         }
     }
 
