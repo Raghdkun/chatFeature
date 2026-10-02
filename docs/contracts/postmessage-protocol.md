@@ -117,3 +117,10 @@ and forwards `visualViewport` changes as `viewport` messages so the panel can ke
 5. `init.visitor` is sanitised to the server's limits: `email` kept only when valid and <= 190 characters, `phone` only when it matches `^[0-9+().\- ]{3,40}$`, `name` cut to 120.
 6. **Panel-side trust**: in launcher mode the panel ignores `init.boot.api.*` and the font origin unless they name the inlined `window.__PNE_EMBED__.appOrigin`; the API base and font origin are derived from the inlined value, so a hostile script on a whitelisted page cannot redirect the visitor's token or PII.
 7. A visitor session rotation (the panel adopts the new token returned by `POST /public/widgets/{key}/sessions`) re-emits `session { token, expiresAt }` to the loader; the previous token stays valid for 60 s only.
+
+## P5 implemented additions (launcher unread badge and reply alert)
+
+No new message types or fields; the protocol stays at v1. Behaviour pinned in P5:
+1. `unread` and `state.unread` are zero unless the chat is `queued` or `active`; the loader forces 0 on a non-live `state` (`ended`, `closed`, `offline`, `idle`, `prechat`).
+2. The panel counts only agent messages without `seen_at` and newer than its acknowledged `seq`, while the bubble is closed; closing the panel acknowledges what was on screen so the count never comes back; the count is rebuilt from the server's receipts at boot and receipts catch-up (poll, reconnect, tab visible) also lowers it when another tab read the messages.
+3. Host storage gains `chatfeature:<publicKey>:alert` = `{ "at": <ms>, "n": <count> }` (best-effort cross-tab/page de-duplication of the closed-bubble alert; entries older than 5 minutes are ignored; cleared at 0 and on shutdown).

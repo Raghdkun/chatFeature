@@ -184,7 +184,7 @@ The verifier exists and is tested in P3; the endpoint that consumes it (`POST /p
 The loader finds its widget key from `data-widget-key`, else the `/w/<key>.js` URL (`[A-Za-z0-9_-]{3,64}`), reads `window.__PNE_CHAT_BOOT__[key]`, and falls back to
 `GET {scriptOrigin}/api/v1/public/widgets/{key}/config?locale=…` when absent or rejected (generic `/widget/v1/loader.js` + `data-widget-key`; failed loads retry after 2 s, 8 s, 30 s, and on `online`/a later `init`).
 The bundle is built by `npm run build:widget` into `public/widget/v1/loader.js` (**git-ignored; the Docker build must run it**; first line `/*! pne-chat-loader v1 */`, which the builder's "is the bundle built?" probe looks for).
-**Budget: 16 KB gzip** (`npm run size`, size-limit; was 15 KB; the P3 build is 15.65 KB). If the file is missing (dev), `/w/{key}.js` serves the prelude plus a console warning instead of failing and `/widget/v1/loader.js` a stub.
+**Budget: 18 KB gzip** (`npm run size`, size-limit; was 15 KB in P3 and 16 KB in P3-P4; raised to 18 KB in P5 for the launcher alert; the P5 build is 16.44 KB). If the file is missing (dev), `/w/{key}.js` serves the prelude plus a console warning instead of failing and `/widget/v1/loader.js` a stub.
 When the file exists, a web server that serves `public/` statically answers `/widget/v1/loader.js` itself (the Laravel route is only the fallback).
 
 **Boot trust rules** (`window.__PNE_CHAT_BOOT__` is writable by any script on the host page): the loader accepts a boot object only when `key` equals the widget key, `api.appOrigin` is a bare origin
