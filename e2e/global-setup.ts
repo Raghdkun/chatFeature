@@ -7,6 +7,8 @@
  *   4. per kind: nothing (`fresh`), stored wizard answers (`seeded`), or a real
  *      `chat:install --mode=local` plus the extra test accounts and saved logins (`installed`).
  *
+ * P6 (`openWaPort`): the app is configured to use the instance's OpenWA mock (`seedWhatsApp`); the mock is a `webServer` like the Reverb servers.
+ *
  * Mode-2 scenarios (`auth: 'pizzasys'`) additionally need the local pizzasys harness
  * (e2e/support/harness.ts): it is started first (and stopped again in the teardown), `seeded` ones get
  * mode-2 wizard answers, `installed` ones a real `chat:install --mode=pizzasys` against it.
@@ -202,7 +204,31 @@ async function prepare(instance: Instance): Promise<void> {
         } else if (instance.seed !== null) {
             await seedStaff(instance);
         }
+
+        if (instance.openWa !== null) {
+            await seedWhatsApp(instance, instance.openWa);
+        }
     }
+}
+
+/**
+ * P6 (`openWaPort`): WhatsApp is switched on and the app is pointed at the instance's OpenWA mock (a loopback address: the
+ * `OpenWaBaseUrl` rule accepts it because the scenario sets `PORTAL_ALLOW_PRIVATE_HOSTS=true`). The key is the mock's test key.
+ */
+const SEED_WHATSAPP = `
+settings()->set('whatsapp.enabled', true);
+settings()->set('whatsapp.openwa.base_url', (string) getenv('E2E_OPENWA_URL'));
+settings()->set('whatsapp.openwa.api_key', (string) getenv('E2E_OPENWA_KEY'));
+`;
+
+async function seedWhatsApp(
+    instance: Instance,
+    openWa: NonNullable<Instance['openWa']>,
+): Promise<void> {
+    await tinker(instance, SEED_WHATSAPP, {
+        E2E_OPENWA_URL: openWa.url,
+        E2E_OPENWA_KEY: openWa.apiKey,
+    });
 }
 
 /** P3 test data (`seed: 'staff'`): staff accounts, more categories, who serves what. */

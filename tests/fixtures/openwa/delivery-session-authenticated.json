@@ -1,0 +1,29 @@
+{
+    "source": "documented",
+    "documentedIn": "docs/reference/openwa-api.md 6.6 Webhook Events (event catalog, idempotency keys)",
+    "description": "session.authenticated: the session paired (a phone scanned the QR) and is ready.",
+    "verified": false,
+    "delivery": {
+        "headers": {
+            "Content-Type": "application/json",
+            "User-Agent": "OpenWA-Webhook/1.0.0",
+            "X-OpenWA-Event": "session.authenticated",
+            "X-OpenWA-Idempotency-Key": "auth_4c242668-d340-4a4d-ae15-f36f9809f8d7_a1b2c3d4e5f6_2026-10-02T09:15:30.123Z_e92982ab-d2cf-4273-a54b-b29d5bbe6562",
+            "X-OpenWA-Delivery-Id": "dlv_6f1d8a52-3b0c-4e57-9a31-0c8f5b7d2e14",
+            "X-OpenWA-Retry-Count": "0",
+            "X-OpenWA-Signature": "sha256=<HMAC-SHA256 hex of the raw body with the webhook secret>"
+        },
+        "payload": {
+            "event": "session.authenticated",
+            "timestamp": "2026-10-02T09:15:30.123Z",
+            "sessionId": "4c242668-d340-4a4d-ae15-f36f9809f8d7",
+            "idempotencyKey": "auth_4c242668-d340-4a4d-ae15-f36f9809f8d7_a1b2c3d4e5f6_2026-10-02T09:15:30.123Z_e92982ab-d2cf-4273-a54b-b29d5bbe6562",
+            "deliveryId": "dlv_6f1d8a52-3b0c-4e57-9a31-0c8f5b7d2e14",
+            "data": {
+                "sessionId": "4c242668-d340-4a4d-ae15-f36f9809f8d7",
+                "phone": "4915100000000",
+                "pushName": "PNE Support"
+            }
+        }
+    }
+}

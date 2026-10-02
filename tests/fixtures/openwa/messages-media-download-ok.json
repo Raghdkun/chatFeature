@@ -1,0 +1,22 @@
+{
+    "source": "documented",
+    "documentedIn": "docs/reference/openwa-api.md 6.4",
+    "description": "GET .../messages/{chatId}/{messageId}/media: the raw bytes as an ATTACHMENT; Content-Type is only a conservative inert type, anything else is application/octet-stream.",
+    "verified": false,
+    "request": {
+        "method": "GET",
+        "path": "/api/sessions/{sessionId}/messages/{chatId}/{messageId}/media"
+    },
+    "response": {
+        "status": 200,
+        "headers": {
+            "content-type": "image/png",
+            "content-disposition": "attachment",
+            "x-content-type-options": "nosniff"
+        },
+        "body": "<binary: the media bytes>"
+    },
+    "notes": [
+        "The chat id goes in the path (percent-encode the `@`), the route is 3 segments deep."
+    ]
+}

@@ -1,0 +1,34 @@
+{
+    "source": "documented",
+    "documentedIn": "docs/reference/openwa-api.md 6.6 Webhook Events (event catalog, idempotency keys)",
+    "description": "message.ack (read): a receipt advances an outbound message. Payload {id, messageId, status, ack}; there is NO chat id.",
+    "verified": false,
+    "delivery": {
+        "headers": {
+            "Content-Type": "application/json",
+            "User-Agent": "OpenWA-Webhook/1.0.0",
+            "X-OpenWA-Event": "message.ack",
+            "X-OpenWA-Idempotency-Key": "ack_4c242668-d340-4a4d-ae15-f36f9809f8d7_true_4915112345678@c.us_3EB0AB12CD34_read_e92982ab-d2cf-4273-a54b-b29d5bbe6562",
+            "X-OpenWA-Delivery-Id": "dlv_6f1d8a52-3b0c-4e57-9a31-0c8f5b7d2e14",
+            "X-OpenWA-Retry-Count": "0",
+            "X-OpenWA-Signature": "sha256=<HMAC-SHA256 hex of the raw body with the webhook secret>"
+        },
+        "payload": {
+            "event": "message.ack",
+            "timestamp": "2026-10-02T09:15:30.123Z",
+            "sessionId": "4c242668-d340-4a4d-ae15-f36f9809f8d7",
+            "idempotencyKey": "ack_4c242668-d340-4a4d-ae15-f36f9809f8d7_true_4915112345678@c.us_3EB0AB12CD34_read_e92982ab-d2cf-4273-a54b-b29d5bbe6562",
+            "deliveryId": "dlv_6f1d8a52-3b0c-4e57-9a31-0c8f5b7d2e14",
+            "data": {
+                "id": "true_4915112345678@c.us_3EB0AB12CD34",
+                "messageId": "true_4915112345678@c.us_3EB0AB12CD34",
+                "status": "read",
+                "ack": 3
+            }
+        }
+    },
+    "notes": [
+        "`status` is canonical (pending|sent|delivered|read|failed); `ack` is the deprecated legacy integer (1 sent, 2 delivered, 3 read).",
+        "UNVERIFIED: whether `id` and `messageId` are the same value (the reference only lists both). Look the row up by `messageId`, falling back to `id`."
+    ]
+}

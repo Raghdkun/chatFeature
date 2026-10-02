@@ -1,0 +1,24 @@
+{
+    "source": "documented",
+    "documentedIn": "docs/reference/openwa-api.md 6.4.1 POST /start",
+    "description": "POST .../start when the engine does not come up within its timeout: 504 (retryable once the cause is fixed).",
+    "verified": false,
+    "request": {
+        "method": "POST",
+        "path": "/api/sessions/{sessionId}/start"
+    },
+    "response": {
+        "status": 504,
+        "headers": {
+            "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+            "statusCode": 504,
+            "error": "Gateway Timeout",
+            "message": "Session engine did not finish starting in time"
+        }
+    },
+    "notes": [
+        "The wording is illustrative: only the status is documented (an unreachable `proxyUrl`, a stalled browser, a memory limit)."
+    ]
+}

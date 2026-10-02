@@ -101,7 +101,7 @@ The install wizard locks itself after the last step, so tests cannot share one s
 | `p4-staff` | 8264 / 8274 (mobile) | `chatfeature_e2e_p4_staff` / `_mobile` | installed, `chat` seed, host page server 8284 / 8289, **Reverb 8344 / 8348**, `TRUSTED_PROXIES=*`; shared by every `staff-*`, `security-*` and `realtime-outage` spec (they run in parallel: each test works in its own "world", see below) | `chat/staff-*.spec.ts`, `chat/security-*.spec.ts`, `chat/realtime-outage.spec.ts` |
 | `p4-poll` | 8265 / 8275 (mobile) | `chatfeature_e2e_p4_poll` / `_mobile` | installed, `chat` seed, host page server **8291 / 8296**, **no Reverb** (`BROADCAST_CONNECTION=null`: no websocket server at all), `TRUSTED_PROXIES=*` | `chat/realtime-poll.spec.ts` |
 
-Ports 8110-8129, 8230-8249 and the P4 ranges (web 8260-8279, customer sites 8280-8289, Reverb 8340-8359) and all `chatfeature_e2e*` databases belong to the suite. Stateful scenarios (`fresh-*`) get one instance per project (`instanceFor()` picks it from the project name), read-only ones are shared.
+Ports 8110-8129, 8230-8249 and the P4 ranges (web 8260-8279, customer sites 8280-8289, Reverb 8340-8359), the P6 range 8360-8379 and all `chatfeature_e2e*` databases belong to the suite. Stateful scenarios (`fresh-*`) get one instance per project (`instanceFor()` picks it from the project name), read-only ones are shared.
 
 ### P3 scenarios: seeds, the API fixture and the cross-origin host page
 
@@ -257,6 +257,37 @@ E2E_ONLY=p4-chat E2E_SKIP_PIZZASYS=1 npx playwright test e2e/chat --project=desk
 E2E_ONLY=p4-chat,p4-chat-views,p4-chat-views-rtl E2E_SKIP_PIZZASYS=1 npx playwright test e2e/chat --project=desktop --project=mobile   # with the read-only view scenarios
 lsof -nP -iTCP -sTCP:LISTEN | grep -E ':(82[6-9][0-9]|83[4-5][0-9])'   # nothing may be left afterwards (apps, customer sites, Reverb)
 ```
+
+### P6 WhatsApp: the OpenWA mock, the `p6-wa` scenario and the recorded fixtures
+
+The WhatsApp specs never need a phone or a real OpenWA. They run against a stateful **mock** (`e2e/support/openwa-mock.mjs`, plain `node:http`) that reproduces what the real image does (shapes recorded from OpenWA 0.23.7, see [whatsapp-openwa.md](whatsapp-openwa.md)): the API subset the app uses, the NestJS error bodies, key roles, the global throttler and `SEND_PACING_LIMITED`, **signed webhook deliveries** (`X-OpenWA-Signature: sha256=<hex>` over the raw body with the secret the app registered, the idempotency / delivery / event / retry headers, back-off retries), and a control API under `/__mock/*` to play the phone.
+
+| Scenario | Ports (desktop / mobile) | Databases | What it is | Specs |
+|---|---|---|---|---|
+| `p6-wa` | web 8360 / 8361, customer site 8362 / 8363, Reverb 8364 / 8365, **mock OpenWA 8366 / 8367** | `chatfeature_e2e_p6_wa` / `_mobile` | installed, `chat` seed, `TRUSTED_PROXIES=*`, `PORTAL_ALLOW_PRIVATE_HOSTS=true` (the OpenWA address is loopback); the seed switches `whatsapp.enabled` on and points `whatsapp.openwa.base_url` / `whatsapp.openwa.api_key` at the instance's mock | `whatsapp/boot.spec.ts` (passes today), `whatsapp/smoke.spec.ts` (`test.fixme('needs 6A+6B merged')`) |
+
+Ports 8368-8379 belong to this track too (`scripts/openwa-record.mjs`'s receiver 8368, the mock's own test 8377-8379). The mock is a Playwright `webServer` like Reverb (readiness on `/__mock/health`, SIGTERM at the end, retry back-off `--retry-base-ms=300`), so nothing is left behind.
+
+```ts
+test.use({ scenario: 'p6-wa' });
+test.beforeEach(async ({ openWa }) => openWa.reset());          // `openWa` = e2e/support/openwa.ts
+test('...', async ({ openWa, adminApi }) => {
+    const session = await openWa.waitForSession('support-main');          // the app created it through the OpenWA API
+    await openWa.connect(session.id, '4915100000000');                    // session.status + session.authenticated, signed
+    await openWa.inboundText(session.id, '4915112345678', 'Hi! My support code is K7M2QX4P');
+    const send = await openWa.waitForRequest((call) => call.path.endsWith('/send-text'));   // what the app called (key, body, answer)
+    await openWa.ack(session.id, (send.response as { messageId: string }).messageId, 'read');
+    await openWa.replay(delivery.n);                                      // same idempotency key, new delivery id
+    await openWa.deliver({ session: session.id, event: 'message.received', data: {}, signature: 'bad' });   // the app must answer 401
+});
+```
+
+Control API (all `POST` unless noted; no key, the mock listens on 127.0.0.1): `reset`, `config` (`startDelayMs`, `retryBaseMs`, `ssrf: strict`, `validationDetail`, `teardownPendingMs`, `acks`, `pacing`, `resolveLid`, `mediaInlineMaxBytes`), `script` (the next matching call answers a status: a 502, a 504, a 429 `SEND_PACING_LIMITED`), `throttle` (the plain 429), `keys` (viewer / operator / scoped), `sessions` (create in any state), `sessions/:ref/status`, `sessions/:ref/qr`, `sessions/:ref/inbound` (text, image inline or `omitted`, group, `@lid`, `fromMe`, a story), `sessions/:ref/ack`, `replay`, `deliver` (valid, bad, wrong-secret, tampered or missing signature); `GET requests` (what the app called, with its key and the mock's answer), `GET deliveries` (every delivery attempt with the status the app answered), `GET state`.
+
+- The mock has its own test, no browser needed: `node --test e2e/support/openwa-mock.test.mjs` (31 tests: status codes and bodies against the recorded fixtures, delivery headers / signature / idempotency keys / retries, the documented message shapes, the control API, the CLI lifecycle).
+- Boot check: `E2E_ONLY=p6-wa E2E_SKIP_PIZZASYS=1 npx playwright test e2e/whatsapp`. In a git worktree the pizzasys specs are still LOADED (they read the harness secrets at import time): set `E2E_HARNESS_DIR=<path of the main checkout>/../chatFeature.harness` even when you skip them.
+- Fixtures: `tests/fixtures/openwa/*.json` (`index.json` lists them: `source: recorded` = captured from the real image by `scripts/openwa-record.mjs`, `source: documented` = built from the reference where a paired phone would be needed). `openWaFixture(name)` in `e2e/support/openwa.ts` reads one. `scripts/openwa-smoke.mjs` checks any real OpenWA from the command line.
+- `e2e/support/whatsapp.ts` holds the paths and shapes of the WhatsApp management API (6A) in one place (`WaAdminApi`): when a route changes, that is the one file to touch.
 
 ### P4 visitor flows and the conversation lifecycle (`chat/lifecycle-*.spec.ts`, `chat/visitor-*.spec.ts`)
 

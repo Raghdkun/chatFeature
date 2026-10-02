@@ -1,0 +1,27 @@
+{
+    "source": "documented",
+    "documentedIn": "docs/reference/openwa-api.md 6.4",
+    "description": "POST .../messages/send-text on a ready session: 201 = ACCEPTED, not delivered.",
+    "verified": false,
+    "request": {
+        "method": "POST",
+        "path": "/api/sessions/{sessionId}/messages/send-text",
+        "body": {
+            "chatId": "4915112345678@c.us",
+            "text": "Hi Vera, I am looking at it now."
+        }
+    },
+    "response": {
+        "status": 201,
+        "headers": {
+            "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+            "messageId": "true_4915112345678@c.us_3EB0AB12CD34",
+            "timestamp": 1790932560
+        }
+    },
+    "notes": [
+        "`timestamp` is epoch SECONDS. By default OpenWA types for 500 ms + 45 ms per character (SIMULATE_TYPING, max 5 s) before the send, so the call can take several seconds."
+    ]
+}
