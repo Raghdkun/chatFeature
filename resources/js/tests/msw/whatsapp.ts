@@ -63,6 +63,21 @@ function envelopeError(
     );
 }
 
+const encodeCursor = (chat: WaChat): string =>
+    `wc1_${btoa(`${chat.lastMessageAt ?? ''}|${chat.ulid}`).replace(/=+$/, '')}`;
+
+/** The index of the first row after the one a cursor names (the rows are in list order); a malformed cursor starts over, like a 422 would. */
+function afterCursor(rows: WaChat[], cursor: string): number {
+    try {
+        const [, ulid] = atob(cursor.replace(/^wc1_/, '')).split('|');
+        const index = rows.findIndex((row) => row.ulid === ulid);
+
+        return index === -1 ? 0 : index + 1;
+    } catch {
+        return 0;
+    }
+}
+
 export function createWaBackend(options: WaBackendOptions = {}) {
     const me = options.me ?? { id: 1, name: 'Ada' };
     const state = {
@@ -729,10 +744,13 @@ export function createWaBackend(options: WaBackendOptions = {}) {
             );
 
             const size = Number(limit ?? 50);
-            const start = cursor ? Number(cursor) : 0;
+            // An OPAQUE keyset cursor like the real one (`WaChatCursor::encode()`): where the last row of the previous page sorts. Clients
+            // must hand it back untouched; this one is neither a number nor a ulid.
+            const start = cursor ? afterCursor(rows, cursor) : 0;
             const page = rows.slice(start, start + size);
+            const last = page.at(-1);
             const nextCursor =
-                start + size < rows.length ? String(start + size) : null;
+                start + size < rows.length && last ? encodeCursor(last) : null;
 
             return HttpResponse.json({
                 data: page,
