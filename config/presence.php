@@ -40,8 +40,13 @@ return [
         'prefix' => env('PRESENCE_REDIS_PREFIX', 'presence:'),
     ],
 
-    /* After a Redis failure the database store serves everything for this long before Redis is tried again (per PHP process). */
+    /*
+     * After a Redis failure the database store serves everything for this long before Redis is tried again. Every request boots a fresh
+     * application (PHP-FPM, `artisan serve`), so the cooldown is remembered in this cache store, which must not depend on Redis: the file
+     * store by default (the processes of one server share its disk).
+     */
     'failure_cooldown_seconds' => 15,
+    'failure_store' => env('PRESENCE_FAILURE_STORE', 'file'),
 
     /* How many users `chat:presence-sweep` looks at per step. */
     'sweep_batch_size' => 200,
