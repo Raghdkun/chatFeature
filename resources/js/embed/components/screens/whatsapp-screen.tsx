@@ -80,7 +80,7 @@ export function WhatsAppScreen() {
                     dir="ltr"
                     data-testid="whatsapp-code"
                     aria-label={`${t('embed.chat.whatsapp.code_label')}: ${handoff.code.split('').join(' ')}`}
-                    className={`text-[32px] leading-tight font-semibold tracking-[0.12em] [overflow-wrap:anywhere] tabular-nums select-all ${expired ? 'line-through opacity-40' : ''}`}
+                    className={`text-[32px] leading-tight font-semibold tracking-[0.12em] [overflow-wrap:anywhere] tabular-nums select-all ${expired ? 'text-subtle line-through' : ''}`}
                 >
                     {spacedCode(handoff.code)}
                 </p>

@@ -101,7 +101,7 @@ export function ChannelChooser({
                     <span className="text-[15px] font-semibold">
                         {t('embed.chat.whatsapp.choose_chat')}
                     </span>
-                    <span className="text-[13px] leading-snug opacity-85">
+                    <span className="text-[13px] leading-snug">
                         {t('embed.chat.whatsapp.choose_chat_hint')}
                     </span>
                 </span>
