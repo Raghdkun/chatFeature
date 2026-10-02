@@ -363,6 +363,48 @@ unseen: number,
 };
 }
 }
+namespace Notifications {
+export type DeviceTokenData = {
+id: string,
+platform: string,
+lastSeenAt: string | null,
+};
+export type NotificationSettingsData = {
+sound: boolean,
+pushOffers: boolean,
+pushMessages: boolean,
+includePreview: boolean,
+quietHours: App.Data.Notifications.QuietHoursData,
+promptState: App.Domain.Notifications.Enums.PromptState,
+promptedAt: string | null,
+snoozedUntil: string | null,
+previewsAllowed: boolean,
+pushAvailable: boolean,
+snoozeDays: number,
+};
+export type PushSubscriptionData = {
+id: string,
+label: string,
+userAgent: string | null,
+host: string,
+endpointHash: string,
+createdAt: string | null,
+lastUsedAt: string | null,
+expiresAt: string | null,
+};
+export type PushTestResultData = {
+devices: number,
+sent: number,
+failed: number,
+removed: number,
+};
+export type QuietHoursData = {
+enabled: boolean,
+start: string,
+end: string,
+timezone: string,
+};
+}
 namespace Setup {
 export type SetupAdminData = {
 name: string,
@@ -418,6 +460,9 @@ export type FlashData = {
 success?: string,
 error?: string,
 };
+export type PushConfigData = {
+vapidPublicKey: string,
+};
 export type RealtimeEndpointData = {
 key: string,
 host: string,
@@ -438,6 +483,7 @@ installed: boolean,
 sidebarOpen: boolean,
 flash: App.Data.Shared.FlashData,
 realtime: App.Data.Shared.RealtimeEndpointData | null,
+push: App.Data.Shared.PushConfigData | null,
 };
 export type TextDirection = 'ltr' | 'rtl';
 }
@@ -631,6 +677,12 @@ export type SessionRevokeReason = 'role_removed' | 'deactivated' | 'auth_revoked
 }
 namespace Realtime {
 export type RealtimeEvent = 'chat.offered' | 'chat.taken' | 'chat.assigned' | 'chat.claimed' | 'conversation.updated' | 'unread.updated' | 'queue.updated' | 'session.revoked' | 'presence.changed' | 'message.created' | 'message.delivered' | 'message.seen' | 'conversation.ended' | 'conversation.closed' | 'conversation.missed' | 'conversation.transferred' | 'offline-ticket.created' | 'conversation.rated' | 'typing';
+}
+}
+namespace Notifications {
+namespace Enums {
+export type PromptState = 'never' | 'granted' | 'denied' | 'snoozed';
+export type PushType = 'offer' | 'message' | 'dismiss' | 'test';
 }
 }
 namespace Settings {
