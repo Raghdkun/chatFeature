@@ -79,6 +79,12 @@
         "types:check": [
             "phpstan analyse"
         ],
+        "docs:api": [
+            "@php artisan docs:api"
+        ],
+        "docs:api:check": [
+            "@php artisan docs:api --check"
+        ],
         "test": [
             "@php artisan config:clear --ansi",
             "@lint:check",
