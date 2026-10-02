@@ -208,10 +208,11 @@ for (const size of SIZES) {
             adminApi,
             instance,
         }) => {
+            // (The chat is started at the usual size and the page is made narrow afterwards: clicks inside the panel's iframe were not delivered
+            // in a desktop browser whose page was narrow from the start, under load.)
             const { launcher, chat, panel } = await launcherWithBadge(
                 { actors, adminApi, instance },
                 12,
-                { width: size.width },
             );
             const page = panel.page;
 

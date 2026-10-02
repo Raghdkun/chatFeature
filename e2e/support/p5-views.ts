@@ -255,7 +255,6 @@ export async function inboxIn(
 export async function launcherWithBadge(
     rig: Rig,
     count: number,
-    options: { width?: number } = {},
 ): Promise<{
     panel: Panel;
     launcher: Launcher;
@@ -272,14 +271,6 @@ export async function launcherWithBadge(
     const chat = await startChat(rig, {
         world,
         visitorName: 'Una Unread',
-        prepareVisitor: async (visitor) => {
-            if (options.width !== undefined) {
-                await visitor.page.setViewportSize({
-                    width: options.width,
-                    height: 700,
-                });
-            }
-        },
     });
     const launcher = new Launcher(chat.panel.page);
 

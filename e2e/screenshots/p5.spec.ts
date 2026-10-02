@@ -132,9 +132,7 @@ test.describe('the launcher alert', () => {
             instance,
         }) => {
             const rig: Rig = { actors, adminApi, instance };
-            const { launcher, panel } = await launcherWithBadge(rig, 1, {
-                width: name === 'mobile' ? 375 : 1280,
-            });
+            const { launcher, panel } = await launcherWithBadge(rig, 1);
             const page: Page = panel.page;
 
             await page.setViewportSize(
