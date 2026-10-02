@@ -497,12 +497,13 @@ const report = {
 
 const visitors = [];
 const agents = [];
-const counters = { visitorsConnected: 0, visitorsFailed: 0, agentsConnected: 0, unexpectedDisconnects: 0, messagesSent: 0, messagesAnswered: 0, repliesSent: 0, eventsReceived: 0, eventsLate: 0, claimOk: 0, claimLost: 0, claimErrors: 0, offersSeen: 0, takenSeen: 0, queueUpdatesSeen: 0, errors: [] };
+const counters = { visitorsConnected: 0, visitorsFailed: 0, agentsConnected: 0, unexpectedDisconnects: 0, messagesSent: 0, repliesSent: 0, eventsReceived: 0, eventsLate: 0, claimOk: 0, claimLost: 0, claimErrors: 0, offersSeen: 0, takenSeen: 0, queueUpdatesSeen: 0, errors: [] };
 const latency = { visitorMessage: [], agentReply: [], http: { sessions: [], start: [], send: [], reply: [] } };
 const connectMs = [];
 const subscribeMs = [];
 const failures = [];
 let steady = false;
+let running = true;
 
 function noteError(message) {
     if (counters.errors.length < 25) {
@@ -529,6 +530,7 @@ async function main() {
     } finally {
         sampling = false;
         steady = false;
+        running = false;
 
         for (const visitor of visitors) {
             visitor.pusher?.disconnect();
@@ -550,7 +552,7 @@ async function scenario(fx) {
 
         agents.push(entry);
         pusher.connection.bind('state_change', ({ previous, current }) => {
-            if (steady && previous === 'connected' && current !== 'connected') {
+            if (running && previous === 'connected' && current !== 'connected') {
                 counters.unexpectedDisconnects++;
             }
         });
@@ -669,7 +671,7 @@ async function joinVisitor(n, fx) {
 
     visitor.pusher = pusher;
     pusher.connection.bind('state_change', ({ previous, current }) => {
-        if (visitor.ready && previous === 'connected' && current !== 'connected') {
+        if (running && visitor.ready && previous === 'connected' && current !== 'connected') {
             counters.unexpectedDisconnects++;
         }
     });

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Management;
 
+use App\Data\Privacy\VisitorErasureData;
 use App\Domain\Privacy\Actions\EraseVisitor;
 use App\Domain\Privacy\Actions\ExportVisitorData;
 use App\Http\Exceptions\ApiProblemException;
@@ -42,10 +43,12 @@ class PrivacyVisitorController extends ManagementController
         $visitor = $this->find($ulid);
 
         if ($visitor === null) {
-            return $this->data(['visitor' => strtolower($ulid), 'erased' => false]);
+            return $this->data(VisitorErasureData::fromReport(strtolower($ulid), false));
         }
 
-        return $this->data(['visitor' => $visitor->ulid, ...$erase->handle($visitor, $this->requireActor($request))->toArray()]);
+        $report = $erase->handle($visitor, $this->requireActor($request));
+
+        return $this->data(VisitorErasureData::fromReport($visitor->ulid, $report->erased, $report->counts));
     }
 
     private function find(string $ulid): ?Visitor
