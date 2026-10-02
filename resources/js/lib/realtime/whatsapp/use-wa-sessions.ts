@@ -91,6 +91,8 @@ export function useWaSessions(initial: WhatsAppSession[], injectedApi?: WaApi) {
         start: async (ulid: string) => accept(await api.startSession(ulid)),
         stop: async (ulid: string) => accept(await api.stopSession(ulid)),
         sync: async (ulid: string) => accept(await api.syncSession(ulid)),
+        reregisterWebhook: async (ulid: string) =>
+            accept(await api.reregisterWebhook(ulid)),
         remove: async (ulid: string, force = false) => {
             await api.deleteSession(ulid, force);
             store.dispatch({ type: 'sessionRemoved', ulid });

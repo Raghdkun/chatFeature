@@ -69,6 +69,7 @@ export function SessionsCard({
     const [problems, setProblems] = useState<Record<string, string>>({});
     const [qrFor, setQrFor] = useState<WhatsAppSession | null>(null);
     const [stopping, setStopping] = useState<WhatsAppSession | null>(null);
+    const [rewiring, setRewiring] = useState<WhatsAppSession | null>(null);
     const [deleting, setDeleting] = useState<WhatsAppSession | null>(null);
 
     const problem = (ulid: string, message: string | null): void =>
@@ -278,6 +279,7 @@ export function SessionsCard({
                                             ),
                                     )
                                 }
+                                onWebhook={() => setRewiring(session)}
                                 onQr={() => setQrFor(session)}
                                 onDelete={() => setDeleting(session)}
                             />
@@ -326,6 +328,30 @@ export function SessionsCard({
                             }),
                         );
                         setStopping(null);
+                    }
+                }}
+            />
+
+            <ConfirmDialog
+                open={rewiring !== null}
+                testId="wa-webhook-dialog"
+                title={t('whatsapp.webhook.title', {
+                    name: rewiring?.name ?? '',
+                })}
+                body={t('whatsapp.webhook.body')}
+                confirm={t('whatsapp.webhook.confirm')}
+                cancel={t('whatsapp.cancel')}
+                error={(failure) => describeWaError(failure, t, locale)}
+                onClose={() => setRewiring(null)}
+                onConfirm={async () => {
+                    if (rewiring) {
+                        await controller.reregisterWebhook(rewiring.ulid);
+                        toast.success(
+                            t('whatsapp.toast.webhook_reregistered', {
+                                name: rewiring.name,
+                            }),
+                        );
+                        setRewiring(null);
                     }
                 }}
             />

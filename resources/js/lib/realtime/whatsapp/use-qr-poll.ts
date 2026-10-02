@@ -3,10 +3,12 @@
  * picture while the session waits for a scan, and otherwise the session's status (`409 qr_not_available` becomes `{status, image: null}`
  * in the client): `starting` means the engine is still warming up, `ready` means the scan happened (the dialog closes), and
  * `created` / `disconnected` / `failed` mean the session is not running at all (polling stops: only starting it again helps).
- * A failed read (OpenWA unreachable) is shown and the poll goes on: it is not the end of the dialog.
+ * A failed read (OpenWA unreachable) is shown and the poll goes on: it is not the end of the dialog. A `429` (`wa-qr` limiter, or OpenWA's
+ * own throttle with no code stored yet) is only "try again shortly": the picture on screen stays and the next read waits `Retry-After`.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { WaApi } from '@/lib/whatsapp-api/client';
+import { isApiError } from '@/lib/api-client';
+import { classifyWaError, type WaApi } from '@/lib/whatsapp-api/client';
 import type { SessionStatus } from '@/lib/whatsapp/types';
 
 export const QR_POLL_MS = 2_500;
@@ -52,7 +54,11 @@ export function useQrPoll({
         // eslint-disable-next-line react-hooks/set-state-in-effect -- a fresh dialog (or a manual refresh) starts from "loading"
         setView((held) => (held.kind === 'qr' ? held : { kind: 'loading' }));
 
+        let wait = QR_POLL_MS;
+
         const tick = async (): Promise<void> => {
+            wait = QR_POLL_MS;
+
             try {
                 const result = await api.qr(ulid, controller.signal);
 
@@ -89,10 +95,28 @@ export function useQrPoll({
                     return;
                 }
 
-                setView({ kind: 'error', error });
+                if (classifyWaError(error) === 'rate_limited') {
+                    // OpenWA's throttle (`429`, nothing stored yet): not a failure. Keep what is on screen and try again shortly.
+                    wait = Math.min(
+                        15_000,
+                        Math.max(
+                            QR_POLL_MS,
+                            isApiError(error) && error.retryAfter !== null
+                                ? error.retryAfter * 1000
+                                : 0,
+                        ),
+                    );
+                    setView((held) =>
+                        held.kind === 'qr' || held.kind === 'waiting'
+                            ? held
+                            : { kind: 'waiting', status: 'starting' },
+                    );
+                } else {
+                    setView({ kind: 'error', error });
+                }
             }
 
-            timer = setTimeout(() => void tick(), QR_POLL_MS);
+            timer = setTimeout(() => void tick(), wait);
         };
 
         void tick();

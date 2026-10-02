@@ -16,7 +16,7 @@ import { usePlural } from '@/components/widgets/page-chrome';
 import { useTrans } from '@/hooks/use-trans';
 import type { WhatsAppSession } from '@/lib/whatsapp/types';
 
-export type SessionAction = 'start' | 'stop' | 'sync' | 'delete';
+export type SessionAction = 'start' | 'stop' | 'sync' | 'webhook' | 'delete';
 
 /** What a person can try for a failed session, from what the last error says (never a guess dressed up as a diagnosis: the log is named too). */
 export function troubleshootingKey(session: WhatsAppSession): string | null {
@@ -57,6 +57,7 @@ export function SessionRow({
     onStart,
     onStop,
     onSync,
+    onWebhook,
     onQr,
     onDelete,
 }: {
@@ -68,6 +69,8 @@ export function SessionRow({
     onStart: () => void;
     onStop: () => void;
     onSync: () => void;
+    /** Register the webhook again (a new secret): asked to be confirmed by the card. */
+    onWebhook: () => void;
     onQr: () => void;
     onDelete: () => void;
 }) {
@@ -275,6 +278,23 @@ export function SessionRow({
                     {busy === 'sync' ? <Busy /> : <RefreshCw aria-hidden />}
                     {t('whatsapp.session.sync')}
                 </Button>
+                {session.status !== 'created' && (
+                    <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={disabled}
+                        data-testid={`wa-session-webhook-reregister-${session.ulid}`}
+                        onClick={onWebhook}
+                    >
+                        {busy === 'webhook' ? (
+                            <Busy />
+                        ) : (
+                            <Webhook aria-hidden />
+                        )}
+                        {t('whatsapp.session.webhook_reregister')}
+                    </Button>
+                )}
                 <Button
                     type="button"
                     size="sm"

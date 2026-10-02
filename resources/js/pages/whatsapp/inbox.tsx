@@ -9,6 +9,7 @@ import {
     EmptyConversation,
     WaInboxShell,
 } from '@/components/whatsapp/inbox-shell';
+import { useReplyOnlyToInbound } from '@/components/whatsapp/use-reply-policy';
 import { useTrans } from '@/hooks/use-trans';
 import type { WaInboxPageProps } from '@/types/whatsapp';
 
@@ -24,13 +25,17 @@ export default function WhatsAppInbox({
     widgets,
     categories,
     whatsappEnabled,
-    replyOnlyToInbound,
     selected,
 }: WaInboxPageProps) {
     const { t } = useTrans();
     const { auth } = usePage().props;
+    const isAdmin = auth.user?.is_admin === true;
+    // Not in the page props: asked once, when a chat is open (an agent's stale tab never asks).
+    const replyOnlyToInbound = useReplyOnlyToInbound(
+        isAdmin && selected !== null,
+    );
 
-    if (!auth.user?.is_admin) {
+    if (!isAdmin) {
         return <WhatsAppForbidden />;
     }
 
@@ -51,7 +56,7 @@ export default function WhatsAppInbox({
             <WaInboxShell
                 chats={chats}
                 cursor={meta.next_cursor}
-                hasMore={meta.has_more ?? meta.next_cursor !== null}
+                hasMore={meta.next_cursor !== null}
                 sessions={sessions}
                 widgets={widgets}
                 categories={categories}

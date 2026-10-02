@@ -64,6 +64,9 @@ describe('routes', () => {
         expect(waRoutes.api.sessionSync('s1')).toBe(
             '/api/v1/whatsapp/sessions/s1/sync',
         );
+        expect(waRoutes.api.sessionWebhook('s1')).toBe(
+            '/api/v1/whatsapp/sessions/s1/webhook',
+        );
         expect(waRoutes.api.chatMessages('01ABC')).toBe(
             '/api/v1/whatsapp/chats/01ABC/messages',
         );
@@ -277,21 +280,33 @@ describe('QR', () => {
 });
 
 describe('sessions', () => {
-    it('creates, starts, stops and syncs through their own endpoints', async () => {
+    it('creates, starts, stops, syncs and re-registers the webhook through their own endpoints', async () => {
         const { api, calls } = clientWith(() => json({ data: { ulid: 's1' } }));
 
         await api.createSession('support-main');
         await api.startSession('s1');
         await api.stopSession('s1');
         await api.syncSession('s1');
+        await api.reregisterWebhook('s1');
 
         expect(calls.map((c) => `${c.init.method} ${c.url}`)).toEqual([
             'POST /api/v1/whatsapp/sessions',
             'POST /api/v1/whatsapp/sessions/s1/start',
             'POST /api/v1/whatsapp/sessions/s1/stop',
             'POST /api/v1/whatsapp/sessions/s1/sync',
+            'POST /api/v1/whatsapp/sessions/s1/webhook',
         ]);
         expect(bodyOf(calls[0])).toEqual({ name: 'support-main' });
+    });
+
+    it('reads the 202 of a start (the engine is started by a queued job) like any success', async () => {
+        const { api } = clientWith(() =>
+            json({ data: { ulid: 's1', status: 'starting' } }, 202),
+        );
+
+        await expect(api.startSession('s1')).resolves.toMatchObject({
+            status: 'starting',
+        });
     });
 
     it('deletes, and only deletes locally (force) when asked to', async () => {
@@ -537,6 +552,15 @@ describe('errors', () => {
         expect(classifyWaError(error('session_not_startable', 409))).toBe(
             'session_state',
         );
+        expect(classifyWaError(error('webhook_limit_reached', 409))).toBe(
+            'webhook_limit',
+        );
+        expect(classifyWaError(error('openwa_not_configured', 409))).toBe(
+            'not_configured',
+        );
+        expect(classifyWaError(error('openwa_unauthorized', 502))).toBe(
+            'unauthorized_key',
+        );
         expect(classifyWaError(error('whatever', 429))).toBe('rate_limited');
         expect(classifyWaError(error('whatever', 403))).toBe('forbidden');
         expect(classifyWaError(error('whatever', 500))).toBe('other');
@@ -559,8 +583,25 @@ describe('errors', () => {
         expect(describeWaError(error('openwa_unavailable', 503), t)).toMatch(
             /reach/i,
         );
-        expect(describeWaError(error('webhook_rejected', 422), t)).toContain(
-            'SSRF_ALLOWED_HOSTS',
+        // The server's sentence names the address and the host to allow at OpenWA: it is shown as it is.
+        expect(describeWaError(error('webhook_rejected', 422), t)).toBe(
+            'server text',
+        );
+        expect(
+            describeWaError(
+                new ApiError({
+                    status: 422,
+                    code: 'webhook_rejected',
+                    message: '',
+                }),
+                t,
+            ),
+        ).toContain('SSRF_ALLOWED_HOSTS');
+        expect(describeWaError(error('webhook_limit_reached', 409), t)).toMatch(
+            /used up its webhooks/i,
+        );
+        expect(describeWaError(error('openwa_not_configured', 409), t)).toMatch(
+            /not set up/i,
         );
         expect(
             describeWaError(error('session_name_teardown_pending', 409), t),

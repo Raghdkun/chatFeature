@@ -153,6 +153,60 @@ describe('the QR poll', () => {
         expect(shows('qr')).toBe(true);
     });
 
+    it('treats a 429 as "try again shortly": no error, the picture stays, the next read waits for Retry-After', async () => {
+        const { qr, Probe } = setup([
+            { status: 'qr', image: PNG, updatedAt: null },
+            new ApiError({
+                status: 429,
+                code: 'rate_limited',
+                message: 'slow down',
+                retryAfter: 6,
+            }),
+            { status: 'qr', image: PNG, updatedAt: null },
+        ]);
+
+        await render(<Probe open ulid="s1" />);
+        expect(shows('qr')).toBe(true);
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(QR_POLL_MS);
+        });
+        expect(qr).toHaveBeenCalledTimes(2);
+        expect(shows('qr')).toBe(true);
+
+        // Retry-After (6 s) is longer than the normal pace: nothing happens at 2.5 s ...
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(QR_POLL_MS);
+        });
+        expect(qr).toHaveBeenCalledTimes(2);
+
+        // ... and the next read comes after it.
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(4_000);
+        });
+        expect(qr).toHaveBeenCalledTimes(3);
+        expect(shows('qr')).toBe(true);
+    });
+
+    it('shows "waiting", not an error, when the very first read is throttled', async () => {
+        const { Probe } = setup([
+            new ApiError({
+                status: 429,
+                code: 'rate_limited',
+                message: 'slow down',
+            }),
+            { status: 'qr', image: PNG, updatedAt: null },
+        ]);
+
+        await render(<Probe open ulid="s1" />);
+        expect(shows('waiting')).toBe(true);
+
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(QR_POLL_MS);
+        });
+        expect(shows('qr')).toBe(true);
+    });
+
     it('does not read while closed, stops when it closes, and aborts the read in flight', async () => {
         const { qr, Probe } = setup([
             { status: 'qr', image: PNG, updatedAt: null },

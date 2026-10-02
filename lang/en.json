@@ -1491,5 +1491,12 @@
     "whatsapp.builder.check_global": "WhatsApp is switched on for visitors (Settings > WhatsApp)",
     "whatsapp.builder.check_feature": "WhatsApp is switched on in this widget's published design",
     "whatsapp.builder.check_session": "A connected session is chosen for this widget",
-    "whatsapp.builder.unpublished": "Your draft differs from what is published: publish to apply the switch above."
+    "whatsapp.builder.unpublished": "Your draft differs from what is published: publish to apply the switch above.",
+    "whatsapp.error.webhook_limit": "OpenWA has used up its webhooks for this session. Remove an old webhook of the session at OpenWA, then try again.",
+    "whatsapp.error.not_configured": "OpenWA is not set up yet. Save its address and an API key under Connection first.",
+    "whatsapp.session.webhook_reregister": "Re-register webhook",
+    "whatsapp.webhook.title": "Register the webhook of :name again?",
+    "whatsapp.webhook.body": "OpenWA gets a new secret for sending messages to this app and the old webhook is removed. Do this only when messages stopped arriving although the session is connected (for example after the application key changed or a database was restored).",
+    "whatsapp.webhook.confirm": "Register again",
+    "whatsapp.toast.webhook_reregistered": "The webhook of :name was registered again."
 }

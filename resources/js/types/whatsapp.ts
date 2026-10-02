@@ -4,7 +4,7 @@
  * `whatsapp.conformance.ts` fails `npm run types:check` when they drift. Keys that are not Data classes (`meta`) are snake_case, like the
  * API's own `meta`.
  */
-import type { WaSettings } from '@/lib/whatsapp-api/types';
+import type { WaSettings, WidgetWhatsAppLink } from '@/lib/whatsapp-api/types';
 import type {
     WaCategoryRef,
     WaChat,
@@ -20,10 +20,8 @@ export type WaInboxPageProps = {
     /** The first page of the open chats, most recent activity first (the filters and "load more" go through the API). */
     chats: WaChat[];
     meta: {
-        /** The API's opaque cursor of the second page, when the server knows it; otherwise `has_more` says there is one. */
+        /** The API's opaque cursor of the second page (`null`: the first page is everything). */
         next_cursor: string | null;
-        /** A page-controller addition: there are more chats than the first page (the list reads page 1 once to learn the cursor). */
-        has_more?: boolean;
         /** Open chats with something unread, over every session. */
         unread_chats: number;
     };
@@ -32,8 +30,6 @@ export type WaInboxPageProps = {
     categories: WaCategoryRef[];
     /** `whatsapp.enabled`: the visitor-facing side (hand-off, availability) is on. Sessions work and chats are recorded either way. */
     whatsappEnabled: boolean;
-    /** `whatsapp.reply_only_to_inbound` (a page-controller addition): absent = the composer does not decide early, the API still does. */
-    replyOnlyToInbound?: boolean;
     selected: null | {
         detail: WaChatDetail;
         /** The newest messages of the chat, oldest first. */
@@ -50,6 +46,11 @@ export type WaInboxPageProps = {
 export type WaSettingsPageProps = {
     sessions: WhatsAppSession[];
     settings: WaSettings;
+    /** Every widget with the session it hands visitors to (`GET /widgets/{ulid}/whatsapp` for all of them at once). */
+    widgets: WaWidgetLink[];
     /** `PORTAL_ALLOW_PRIVATE_HOSTS` (or local development): OpenWA on a loopback / private address needs it. */
-    privateHostsAllowed?: boolean;
+    privateHostsAllowed: boolean;
 };
+
+/** `WidgetWhatsAppLinkData`: the link of one widget plus the widget it belongs to. */
+export type WaWidgetLink = WidgetWhatsAppLink & { widget: WaWidgetRef };

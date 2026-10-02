@@ -118,6 +118,20 @@ export function createWaBackend(options: WaBackendOptions = {}) {
         forbidden: false,
         /** The next create-session call answers this error. */
         createError: null as { status: number; code: string } | null,
+        /** The next start-session call answers this error (`422 webhook_rejected` with its hint, `409 webhook_limit_reached`, ...). */
+        startError: null as {
+            status: number;
+            code: string;
+            message: string;
+        } | null,
+        /** The next webhook re-registration answers this error. */
+        webhookError: null as {
+            status: number;
+            code: string;
+            message: string;
+        } | null,
+        /** The next N QR reads answer `429 rate_limited` (the `wa-qr` limiter, or OpenWA's throttle with nothing stored yet). */
+        qrThrottled: 0,
         calls: [] as RecordedWaCall[],
         nextSession: 0,
     };
@@ -397,10 +411,52 @@ export function createWaBackend(options: WaBackendOptions = {}) {
                 return notFound();
             }
 
+            if (state.startError) {
+                const { status, code, message } = state.startError;
+
+                state.startError = null;
+
+                return envelopeError(code, message, status);
+            }
+
             const next: WhatsAppSession = {
                 ...session,
                 status: 'starting',
                 lastError: null,
+                webhookRegistered: true,
+            };
+
+            state.sessions.set(next.ulid, next);
+
+            // 202: the engine is started by a queued job; the QR and `ready` arrive as events and on the QR endpoint.
+            return HttpResponse.json({ data: next }, { status: 202 });
+        }),
+
+        http.post(route(waRoutes.api.sessionWebhook), ({ request, params }) => {
+            record(request);
+
+            const outage = down();
+
+            if (outage) {
+                return outage;
+            }
+
+            const session = state.sessions.get(String(params.ulid));
+
+            if (!session) {
+                return notFound();
+            }
+
+            if (state.webhookError) {
+                const { status, code, message } = state.webhookError;
+
+                state.webhookError = null;
+
+                return envelopeError(code, message, status);
+            }
+
+            const next: WhatsAppSession = {
+                ...session,
                 webhookRegistered: true,
             };
 
@@ -462,6 +518,19 @@ export function createWaBackend(options: WaBackendOptions = {}) {
 
             if (!session) {
                 return notFound();
+            }
+
+            if (state.qrThrottled > 0) {
+                state.qrThrottled -= 1;
+
+                return envelopeError(
+                    'rate_limited',
+                    'Too many requests.',
+                    429,
+                    {
+                        headers: { 'Retry-After': '1' },
+                    },
+                );
             }
 
             if (state.scanned.has(ulid)) {

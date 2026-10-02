@@ -115,7 +115,7 @@ export function settingsFromWire(raw: unknown): WaSettings {
     };
 }
 
-/** The wire body of `PATCH /whatsapp/settings` (snake_case, like every request body of the management API). */
+/** The wire body of `PUT /whatsapp/settings` (snake_case, like every request body of the management API). */
 export function settingsBody(input: WaSettingsInput): Record<string, unknown> {
     const body: Record<string, unknown> = {};
     const map: [keyof WaSettingsInput, string][] = [
@@ -321,6 +321,13 @@ export function createWaApi(client: ApiClient = api) {
         syncSession: (ulid: string) =>
             client.post<WhatsAppSession>(waRoutes.api.sessionSync(ulid)),
 
+        /**
+         * Register the webhook again with a new secret and remove the old one at OpenWA: the recovery for a webhook that does not verify
+         * any more (the app key changed, a restored database, the webhook edited at OpenWA). Normal use never needs it.
+         */
+        reregisterWebhook: (ulid: string) =>
+            client.post<WhatsAppSession>(waRoutes.api.sessionWebhook(ulid)),
+
         updateSessionPacing: (ulid: string, input: SessionPacingInput) =>
             client.patch<WhatsAppSession>(waRoutes.api.session(ulid), {
                 ...(input.sendMinIntervalMs !== undefined
@@ -477,6 +484,8 @@ export type WaErrorKind =
     | 'unreachable'
     | 'unauthorized_key'
     | 'webhook_rejected'
+    | 'webhook_limit'
+    | 'not_configured'
     | 'openwa_rejected'
     | 'session_state'
     | 'qr_not_available'
@@ -507,7 +516,8 @@ const CODES: Record<string, WaErrorKind> = {
     openwa_unavailable: 'unreachable',
     openwa_unreachable: 'unreachable',
     gateway_unavailable: 'unreachable',
-    openwa_not_configured: 'unreachable',
+    openwa_not_configured: 'not_configured',
+    whatsapp_not_configured: 'not_configured',
     openwa_rejected: 'openwa_rejected',
     session_not_startable: 'session_state',
     session_not_stoppable: 'session_state',
@@ -518,6 +528,7 @@ const CODES: Record<string, WaErrorKind> = {
     webhook_rejected: 'webhook_rejected',
     webhook_url_rejected: 'webhook_rejected',
     webhook_registration_failed: 'webhook_rejected',
+    webhook_limit_reached: 'webhook_limit',
     session_name_taken: 'name_taken',
     session_name_conflict: 'name_taken',
     session_exists: 'name_taken',
@@ -640,7 +651,14 @@ export function describeWaError(
         case 'unauthorized_key':
             return t('whatsapp.error.unauthorized_key');
         case 'webhook_rejected':
-            return t('whatsapp.error.webhook_rejected');
+            // The server's sentence names the address and the exact host to allow at OpenWA: it is the useful part, so it wins.
+            return isApiError(error) && error.message.trim() !== ''
+                ? error.message.trim()
+                : t('whatsapp.error.webhook_rejected');
+        case 'webhook_limit':
+            return t('whatsapp.error.webhook_limit');
+        case 'not_configured':
+            return t('whatsapp.error.not_configured');
         case 'openwa_rejected':
             return t('whatsapp.error.openwa_rejected');
         case 'session_state':

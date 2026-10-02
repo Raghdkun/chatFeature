@@ -47,7 +47,7 @@ export default function WhatsAppSettings(props: WaSettingsPageProps) {
 function WhatsAppSettingsBody({
     sessions,
     settings: initial,
-    privateHostsAllowed = false,
+    privateHostsAllowed,
 }: WaSettingsPageProps) {
     const { t } = useTrans();
     const [settings, setSettings] = useState(initial);

@@ -77,6 +77,7 @@ async function open(
         <WhatsAppSettings
             sessions={sessions}
             settings={current}
+            widgets={[]}
             privateHostsAllowed={options.privateHostsAllowed ?? false}
         />,
         { viewer: options.viewer, sockets: options.sockets },
@@ -673,6 +674,140 @@ describe('the sessions', () => {
         expect(
             byTestId(`wa-session-hint-${missing.ulid}`)?.textContent,
         ).toContain('no webhook');
+    });
+
+    it("shows OpenWA's refusal of the webhook address as the server words it, with the host to allow", async () => {
+        const session = makeWaSession({
+            ulid: fakeUlid(5008),
+            name: 'new-line',
+            status: 'created',
+            phone: null,
+            maskedPhone: null,
+        });
+        const hint =
+            'OpenWA refused http://app.test/webhooks/openwa/x. Put the host app.test into SSRF_ALLOWED_HOSTS on the OpenWA container.';
+
+        await open({ sessions: [session] });
+        backend.current.state.startError = {
+            status: 422,
+            code: 'webhook_rejected',
+            message: hint,
+        };
+        await click(byTestId(`wa-session-start-${session.ulid}`));
+
+        await waitFor(() =>
+            expect(
+                byTestId(`wa-session-problem-${session.ulid}`)?.textContent,
+            ).toBe(hint),
+        );
+        // The QR dialog does not open for a session that did not start.
+        expect(byTestId('wa-qr-dialog')).toBeNull();
+        expect(byTestId(`wa-session-status-${session.ulid}`)?.textContent).toBe(
+            'Not started',
+        );
+    });
+
+    it('says when OpenWA has no webhook left for the session', async () => {
+        const session = makeWaSession({
+            ulid: fakeUlid(5009),
+            status: 'created',
+        });
+
+        await open({ sessions: [session] });
+        backend.current.state.startError = {
+            status: 409,
+            code: 'webhook_limit_reached',
+            message: 'Limit.',
+        };
+        await click(byTestId(`wa-session-start-${session.ulid}`));
+
+        await waitFor(() =>
+            expect(
+                byTestId(`wa-session-problem-${session.ulid}`)?.textContent,
+            ).toContain('used up its webhooks'),
+        );
+    });
+
+    it('re-registers the webhook only after a confirmation, and says it did', async () => {
+        const session = ready();
+
+        await open({ sessions: [session] });
+        await click(byTestId(`wa-session-webhook-reregister-${session.ulid}`));
+
+        expect(byTestId('wa-webhook-dialog')?.textContent).toContain(
+            'Register the webhook of support-main again?',
+        );
+        expect(byTestId('wa-webhook-dialog')?.textContent).toContain(
+            'new secret',
+        );
+        expect(calls('POST', `/${session.ulid}/webhook`)).toHaveLength(0);
+
+        await click(byTestId('wa-webhook-dialog-confirm'));
+        await waitFor(() =>
+            expect(calls('POST', `/${session.ulid}/webhook`)).toHaveLength(1),
+        );
+        await waitFor(() => expect(byTestId('wa-webhook-dialog')).toBeNull());
+        expect(toast.success).toHaveBeenCalledWith(
+            'The webhook of support-main was registered again.',
+        );
+    });
+
+    it('keeps the confirmation open with the reason when the re-registration fails', async () => {
+        const session = ready();
+
+        await open({ sessions: [session] });
+        backend.current.state.webhookError = {
+            status: 409,
+            code: 'webhook_limit_reached',
+            message: 'Limit.',
+        };
+        await click(byTestId(`wa-session-webhook-reregister-${session.ulid}`));
+        await click(byTestId('wa-webhook-dialog-confirm'));
+
+        await waitFor(() =>
+            expect(byTestId('wa-webhook-dialog')?.textContent).toContain(
+                'used up its webhooks',
+            ),
+        );
+    });
+
+    it('offers no webhook re-registration for a session that was never started', async () => {
+        const session = makeWaSession({
+            ulid: fakeUlid(5010),
+            status: 'created',
+        });
+
+        await open({ sessions: [session] });
+
+        expect(
+            byTestId(`wa-session-webhook-reregister-${session.ulid}`),
+        ).toBeNull();
+    });
+
+    it('keeps showing the code when the QR read is throttled (429), and says nothing is wrong', async () => {
+        const session = makeWaSession({
+            ulid: fakeUlid(5011),
+            name: 'new-line',
+            status: 'created',
+            phone: null,
+            maskedPhone: null,
+        });
+
+        await open({ sessions: [session] });
+        backend.current.state.qr.set(session.ulid, PNG);
+        await click(byTestId(`wa-session-start-${session.ulid}`));
+        await waitFor(() => expect(byTestId('wa-qr-image')).not.toBeNull());
+
+        backend.current.state.qrThrottled = 1;
+        await click(byTestId('wa-qr-refresh'));
+
+        await waitFor(() =>
+            expect(
+                calls('GET', `/${session.ulid}/qr`).length,
+            ).toBeGreaterThanOrEqual(2),
+        );
+        expect(byTestId('wa-qr-image')?.getAttribute('src')).toBe(PNG);
+        expect(byTestId('wa-qr-error')).toBeNull();
     });
 
     it('shows a failed action under the session it belongs to', async () => {
