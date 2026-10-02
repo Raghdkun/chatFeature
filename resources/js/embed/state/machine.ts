@@ -12,12 +12,15 @@
  * outcomes back as actions, with times passed in. A transition that is not in `TRANSITIONS` is ignored (the same state object
  * comes back), so a late realtime event can never drag the panel backwards.
  *
- * Unread is not stored: it is the number of agent messages the visitor has not seen, while the panel is closed (`selectUnread`).
+ * Unread is not stored: it is the number of agent messages the visitor has not seen, while the panel is closed and the chat is live
+ * (`selectUnread`). Closing the panel acknowledges everything that arrived while it was open (`acknowledgedSeq`), so closing never
+ * brings a count back for messages the visitor had the chance to read.
  */
 import {
     applyDelivered,
     applySeen,
     highestSeq,
+    highestSeqFrom,
     mergeMessages,
     setPendingStatus,
 } from '@/lib/chat/messages';
@@ -161,6 +164,11 @@ export type MachineState = {
         email?: string;
     };
     closedReason: ClosedReason | null;
+    /**
+     * Agent messages up to this `seq` were on screen while the panel was open: the launcher never counts them as unread, whether or
+     * not the visitor scrolled to them (the receipts stay honest, they only follow what was really seen).
+     */
+    acknowledgedSeq: number;
 };
 
 export function createInitialState(open = false): MachineState {
@@ -182,6 +190,7 @@ export function createInitialState(open = false): MachineState {
         transferred: false,
         offline: { reason: 'no_agents', missed: null, ticket: null },
         closedReason: null,
+        acknowledgedSeq: 0,
     };
 }
 
@@ -324,6 +333,7 @@ function cleared(state: MachineState): MachineState {
         fieldErrors: {},
         offline: { reason: 'no_agents', missed: null, ticket: null },
         closedReason: null,
+        acknowledgedSeq: 0,
     };
 }
 
@@ -451,7 +461,13 @@ export function reduce(state: MachineState, action: Action): MachineState {
             return state.open ? state : { ...state, open: true };
 
         case 'HOST_CLOSE':
-            return state.open ? { ...state, open: false } : state;
+            return state.open
+                ? {
+                      ...state,
+                      open: false,
+                      acknowledgedSeq: highestSeqFrom(state.messages, 'agent'),
+                  }
+                : state;
 
         case 'PRESET': {
             // `setCategory` / `startChat` from the host: remembered for the first step that needs them.
@@ -958,35 +974,32 @@ export function hostStatus(phase: Phase): HostStatus | null {
     }
 }
 
-/** Agent messages the visitor has not seen, while the panel is closed. */
-export function selectUnread(state: MachineState): number {
-    if (state.open) {
-        return 0;
+/**
+ * The agent messages the launcher counts as unread: not yet seen (`seenAt`, which a resumed chat gets from the server's receipts),
+ * newer than what was on screen when the panel was last open, and only while the panel is closed and the chat is live. The
+ * visitor's own messages and system lines ("agent joined") never count, and nothing is unread in a chat that is over.
+ */
+function unreadMessages(state: MachineState): LocalMessage[] {
+    if (state.open || !isLiveChat(state)) {
+        return [];
     }
 
     return state.messages.filter(
         (message) =>
             message.sender.type === 'agent' &&
             message.seq !== null &&
+            message.seq > state.acknowledgedSeq &&
             message.seenAt === null,
-    ).length;
+    );
+}
+
+export function selectUnread(state: MachineState): number {
+    return unreadMessages(state).length;
 }
 
 /** The newest unseen agent message text, for the launcher's preview (capped by the caller). */
 export function selectUnreadPreview(state: MachineState): string | null {
-    for (let index = state.messages.length - 1; index >= 0; index--) {
-        const message = state.messages[index];
-
-        if (
-            message.sender.type === 'agent' &&
-            message.seq !== null &&
-            message.seenAt === null
-        ) {
-            return message.body ?? null;
-        }
-    }
-
-    return null;
+    return unreadMessages(state).at(-1)?.body ?? null;
 }
 
 /** What the loader's `state` message carries, or `null` while booting. */
