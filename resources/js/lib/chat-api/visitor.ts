@@ -679,11 +679,18 @@ export function createVisitorApi(options: VisitorApiOptions) {
                 code: value.code,
                 waUrl: value.waUrl,
                 expiresAt: value.expiresAt,
-                // The server's own countdown (newer than the first backend): the screen counts from the answer's arrival.
-                ...(typeof value.ttlSeconds === 'number' &&
-                Number.isFinite(value.ttlSeconds)
-                    ? { ttlSeconds: value.ttlSeconds }
-                    : {}),
+                // The server's own countdown (the screen counts from the answer's arrival); an older server sends none: derive it.
+                ttlSeconds:
+                    typeof value.ttlSeconds === 'number' &&
+                    Number.isFinite(value.ttlSeconds)
+                        ? value.ttlSeconds
+                        : Math.max(
+                              0,
+                              Math.ceil(
+                                  (Date.parse(value.expiresAt) - Date.now()) /
+                                      1000,
+                              ),
+                          ),
             };
         },
 

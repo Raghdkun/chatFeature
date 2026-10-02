@@ -24,6 +24,8 @@ export type WaSettings = {
     sendMinIntervalMs: number;
     dailySendCap: number;
     mediaMaxBytes: number;
+    retentionDays: number;
+    rawRetentionDays: number;
 };
 
 /** What `PATCH /whatsapp/settings` takes: only the keys that changed. A blank `apiKey` is never sent (the stored one stays). */
@@ -38,6 +40,8 @@ export const WA_LIMITS = {
     sendMinIntervalMs: { min: 0, max: 60_000 },
     dailySendCap: { min: 1, max: 10_000 },
     mediaMaxBytes: { min: 10 * 1024, max: 25 * 1024 * 1024 },
+    retentionDays: { min: 0, max: 3650 },
+    rawRetentionDays: { min: 0, max: 3650 },
     apiKeyMax: 255,
     /** `?q=` of the chat list (a longer one is a `422`). */
     searchMax: 200,

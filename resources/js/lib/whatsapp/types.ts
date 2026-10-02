@@ -20,9 +20,7 @@ export type WaMedia = App.Data.WhatsApp.WaMediaData;
  * The response of the public hand-off call: the only WhatsApp shape a visitor ever gets. `ttlSeconds` (how long the code still works,
  * counted by the SERVER from the moment it answered: no clock of the visitor's is involved) is newer than the first backend: absent there.
  */
-export type HandoffResponse = App.Data.WhatsApp.HandoffData & {
-    ttlSeconds?: number;
-};
+export type HandoffResponse = App.Data.WhatsApp.HandoffData;
 
 export type SessionStatus = App.Domain.WhatsApp.Enums.SessionStatus;
 export type WaChatStatus = App.Domain.WhatsApp.Enums.WaChatStatus;

@@ -71,6 +71,8 @@ export const WA_SETTINGS_DEFAULTS: WaSettings = {
     sendMinIntervalMs: 1500,
     dailySendCap: 200,
     mediaMaxBytes: 5 * 1024 * 1024,
+    retentionDays: 0,
+    rawRetentionDays: 30,
 };
 
 export function settingsFromWire(raw: unknown): WaSettings {
@@ -111,6 +113,14 @@ export function settingsFromWire(raw: unknown): WaSettings {
         mediaMaxBytes: whole(
             pick(source, 'media_max_bytes', 'mediaMaxBytes'),
             d.mediaMaxBytes,
+        ),
+        retentionDays: whole(
+            pick(source, 'retention_days', 'retentionDays'),
+            d.retentionDays,
+        ),
+        rawRetentionDays: whole(
+            pick(source, 'raw_retention_days', 'rawRetentionDays'),
+            d.rawRetentionDays,
         ),
     };
 }
@@ -175,6 +185,8 @@ export function settingsBody(input: WaSettingsInput): Record<string, unknown> {
         ['sendMinIntervalMs', 'send_min_interval_ms'],
         ['dailySendCap', 'daily_send_cap'],
         ['mediaMaxBytes', 'media_max_bytes'],
+        ['retentionDays', 'retention_days'],
+        ['rawRetentionDays', 'raw_retention_days'],
     ];
 
     for (const [key, wire] of map) {

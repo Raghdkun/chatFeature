@@ -44,6 +44,8 @@ type Form = Pick<
     | 'replyOnlyToInbound'
     | 'sendMinIntervalMs'
     | 'dailySendCap'
+    | 'retentionDays'
+    | 'rawRetentionDays'
 > & { mediaMb: number };
 
 const formOf = (settings: WaSettings): Form => ({
@@ -54,6 +56,8 @@ const formOf = (settings: WaSettings): Form => ({
     replyOnlyToInbound: settings.replyOnlyToInbound,
     sendMinIntervalMs: settings.sendMinIntervalMs,
     dailySendCap: settings.dailySendCap,
+    retentionDays: settings.retentionDays,
+    rawRetentionDays: settings.rawRetentionDays,
     mediaMb: Math.max(1, Math.round(settings.mediaMaxBytes / MB)),
 });
 
@@ -66,6 +70,8 @@ const WIRE: Record<keyof Form, string> = {
     replyOnlyToInbound: 'reply_only_to_inbound',
     sendMinIntervalMs: 'send_min_interval_ms',
     dailySendCap: 'daily_send_cap',
+    retentionDays: 'retention_days',
+    rawRetentionDays: 'raw_retention_days',
     mediaMb: 'media_max_bytes',
 };
 
@@ -319,6 +325,34 @@ export function BehaviorCard({
                             error={errors[WIRE.mediaMb]}
                             disabled={saving}
                             onValueChange={(value) => set('mediaMb', value)}
+                        />
+                        <NumberField
+                            id={`${uid}-retention`}
+                            label={t('whatsapp.behavior.retention')}
+                            value={form.retentionDays}
+                            min={WA_LIMITS.retentionDays.min}
+                            max={WA_LIMITS.retentionDays.max}
+                            suffix={t('whatsapp.behavior.days')}
+                            hint={t('whatsapp.behavior.retention_hint')}
+                            error={errors[WIRE.retentionDays]}
+                            disabled={saving}
+                            onValueChange={(value) =>
+                                set('retentionDays', value)
+                            }
+                        />
+                        <NumberField
+                            id={`${uid}-raw-retention`}
+                            label={t('whatsapp.behavior.raw_retention')}
+                            value={form.rawRetentionDays}
+                            min={WA_LIMITS.rawRetentionDays.min}
+                            max={WA_LIMITS.rawRetentionDays.max}
+                            suffix={t('whatsapp.behavior.days')}
+                            hint={t('whatsapp.behavior.raw_retention_hint')}
+                            error={errors[WIRE.rawRetentionDays]}
+                            disabled={saving}
+                            onValueChange={(value) =>
+                                set('rawRetentionDays', value)
+                            }
                         />
                     </div>
 

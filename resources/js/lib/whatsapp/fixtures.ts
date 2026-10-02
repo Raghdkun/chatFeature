@@ -170,6 +170,7 @@ export function makeHandoff(
         code: 'K7M2QX4P',
         waUrl: 'https://wa.me/491701234567?text=Hi%21%20My%20support%20code%20is%20K7M2QX4P',
         expiresAt: fakeTime(24 * 3600),
+        ttlSeconds: 24 * 3600,
         ...overrides,
     };
 }

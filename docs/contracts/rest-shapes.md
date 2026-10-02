@@ -148,3 +148,8 @@ A visitor token is bound to **one** visitor session and at most one open convers
 | `GET /conversations/{ulid}/transfer-targets` | `200 { data: { agents: [{ id, name, avatarUrl, status, activeChats, maxConcurrentChats, reachable }], categories: [{ slug, label }] } }` for the transfer dialog: agents serving the chat's category (caller and current agent excluded; `reachable` is exactly what `transfer` accepts), categories enabled on the widget with someone reachable. Live chats only (`409 conversation_not_live` for offline tickets). |
 | `GET /conversations/export` | admin only; streamed CSV/JSON, queued for large ranges. |
 | `GET /me/presence` · `PUT /me/presence {status, automatic?: bool}` · `POST /me/presence/heartbeat {visible?: bool}` | status `online\|away\|offline`; heartbeat every 30 s with the tab's visibility (absent = visible); `automatic:true` (only with `online`) lets heartbeats move the agent between online and away (P5); otherwise the choice is pinned. |
+
+## P5/P6 additions
+
+- `POST /me/presence/heartbeat {visible?}` -> `200 {data: PresenceData}` (the effective status after the beat).
+- `DELETE /api/v1/whatsapp/chats/{ulid}` (admin) -> `204` (idempotent: an unknown ulid is also 204); `400 invalid_webhook` on the OpenWA webhook when the signed body has no usable event; `503 queue_unavailable` on a WhatsApp reply when the queue refused it.

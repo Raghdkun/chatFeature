@@ -77,6 +77,7 @@ const HANDOFF: HandoffResponse = {
     code: 'K7M2QX4P',
     waUrl: 'https://wa.me/491701234567?text=Hi%21%20My%20support%20code%20is%20K7M2QX4P',
     expiresAt: '2026-11-21T10:00:00.000Z',
+    ttlSeconds: 86_400,
 };
 
 /** A widget that offers WhatsApp, the visitor on the hand-off screen. */
@@ -1298,16 +1299,21 @@ describe('the WhatsApp hand-off (P6)', () => {
         const asked = run(booted({ whatsapp: true }), {
             type: 'WHATSAPP_START',
         });
+        // An older server answers without a countdown: the machine falls back to the clock-based expiry.
+        const NO_TTL = {
+            ...HANDOFF,
+            ttlSeconds: undefined,
+        } as unknown as HandoffResponse;
 
         expect(
-            run(asked, { type: 'WHATSAPP_OK', handoff: HANDOFF, now: NOW })
+            run(asked, { type: 'WHATSAPP_OK', handoff: NO_TTL, now: NOW })
                 .whatsapp.deadline,
         ).toBe(Date.parse(HANDOFF.expiresAt));
         // A fresh code that is already past on this clock: the visitor's clock is ahead, so there is no expiry to show.
         expect(
             run(asked, {
                 type: 'WHATSAPP_OK',
-                handoff: HANDOFF,
+                handoff: NO_TTL,
                 now: Date.parse(HANDOFF.expiresAt) + 3_600_000,
             }).whatsapp.deadline,
         ).toBeNull();

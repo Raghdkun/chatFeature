@@ -27,9 +27,7 @@ type Call = [verb: Verb, path: string];
  * Calls the client already makes that the backend fix of the P5/P6 audit adds (`fix/p56-backend`). Remove the entry when that branch is
  * merged: once the route exists this test FAILS on purpose (a list that tolerates both would never notice the route going missing).
  */
-const PENDING_BACKEND_FIX = new Set<string>([
-    'DELETE /api/v1/whatsapp/chats/{}',
-]);
+const PENDING_BACKEND_FIX = new Set<string>([]);
 
 function expectRouted(calls: Call[]): void {
     const missing: string[] = [];

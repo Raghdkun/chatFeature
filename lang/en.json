@@ -1606,5 +1606,10 @@
     "whatsapp.export.messages_json": "Messages as JSON",
     "whatsapp.export.chats_csv": "Chats as CSV",
     "whatsapp.export.hint": "Uses the filters above. The file contains phone numbers and message texts: keep it safe.",
-    "whatsapp.builder.preview_option": "Continue on WhatsApp"
+    "whatsapp.builder.preview_option": "Continue on WhatsApp",
+    "whatsapp.behavior.retention": "Keep chats for",
+    "whatsapp.behavior.retention_hint": "Chats, messages and stored images older than this are deleted every day. 0 keeps them for ever.",
+    "whatsapp.behavior.raw_retention": "Keep raw gateway data for",
+    "whatsapp.behavior.raw_retention_hint": "The raw webhook object is kept only for debugging and dropped after this many days. 0 never stores it.",
+    "whatsapp.behavior.days": "days"
 }
