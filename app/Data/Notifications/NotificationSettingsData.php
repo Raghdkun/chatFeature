@@ -14,7 +14,7 @@ use Spatie\TypeScriptTransformer\Attributes\TypeScript;
  * A member of staff's notification preferences (`GET/PUT /me/notification-settings`) and where they are in the first-login dialog.
  * `previewsAllowed` is the administrator's switch (`notifications.push_include_preview`): off, a push never carries visitor text
  * whatever `includePreview` says. `pushAvailable` is false when the VAPID keys are not configured (the page explains and the
- * dialog never opens).
+ * dialog never opens). `snoozeDays` is how long "Not now" hides the first-login dialog.
  */
 #[TypeScript]
 class NotificationSettingsData extends Data
@@ -30,6 +30,7 @@ class NotificationSettingsData extends Data
         public ?string $snoozedUntil,
         public bool $previewsAllowed,
         public bool $pushAvailable,
+        public int $snoozeDays,
     ) {}
 
     public static function fromModel(NotificationSetting $setting, User $user, NotificationPreferences $preferences, bool $pushAvailable): self
@@ -45,6 +46,7 @@ class NotificationSettingsData extends Data
             snoozedUntil: Timestamps::iso($setting->snoozed_until),
             previewsAllowed: settings()->bool('notifications.push_include_preview', true),
             pushAvailable: $pushAvailable,
+            snoozeDays: max(1, (int) config('push.snooze_days', 7)),
         );
     }
 }

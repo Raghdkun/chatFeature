@@ -65,7 +65,8 @@ function readPayload(event) {
 
 async function handlePush(event) {
     const payload = readPayload(event);
-    const data = payload.data && typeof payload.data === 'object' ? payload.data : {};
+    const data =
+        payload.data && typeof payload.data === 'object' ? payload.data : {};
 
     if (data.type === 'dismiss') {
         return dismiss(typeof data.tag === 'string' ? data.tag : '');
@@ -75,7 +76,8 @@ async function handlePush(event) {
 }
 
 function show(payload, data) {
-    const tag = typeof data.tag === 'string' && data.tag !== '' ? data.tag : undefined;
+    const tag =
+        typeof data.tag === 'string' && data.tag !== '' ? data.tag : undefined;
     const title =
         typeof payload.title === 'string' && payload.title !== ''
             ? payload.title
@@ -114,14 +116,19 @@ async function dismiss(tag) {
         open.forEach((notification) => notification.close());
     }
 
-    await self.registration.showNotification(self.location.hostname || 'PNE Chat', {
-        tag: TRANSIENT_TAG,
-        silent: true,
-        icon: ICON,
-        badge: BADGE,
-    });
+    await self.registration.showNotification(
+        self.location.hostname || 'PNE Chat',
+        {
+            tag: TRANSIENT_TAG,
+            silent: true,
+            icon: ICON,
+            badge: BADGE,
+        },
+    );
 
-    const transient = await self.registration.getNotifications({ tag: TRANSIENT_TAG });
+    const transient = await self.registration.getNotifications({
+        tag: TRANSIENT_TAG,
+    });
 
     transient.forEach((notification) => notification.close());
 }
@@ -186,7 +193,9 @@ async function openDashboard(path) {
 
 async function cookie(name) {
     try {
-        const entry = self.cookieStore ? await self.cookieStore.get(name) : null;
+        const entry = self.cookieStore
+            ? await self.cookieStore.get(name)
+            : null;
 
         return entry ? entry.value : null;
     } catch (error) {
