@@ -542,6 +542,74 @@ describe('the sessions', () => {
         expect(byTestId('wa-qr-restart')).not.toBeNull();
     });
 
+    it('starts a stopped session from the QR dialog and then shows its code (the poll resumes)', async () => {
+        const session = makeWaSession({
+            ulid: fakeUlid(5012),
+            name: 'idle-line',
+            status: 'starting',
+            phone: null,
+            maskedPhone: null,
+        });
+
+        await open({ sessions: [session] });
+        // The server says it is not running (the page props were older): the dialog finds that out on its first read.
+        backend.current.state.sessions.set(session.ulid, {
+            ...session,
+            status: 'disconnected',
+        });
+        await click(byTestId(`wa-session-qr-${session.ulid}`));
+        await waitFor(() => expect(byTestId('wa-qr-stopped')).not.toBeNull());
+
+        const readsBefore = calls('GET', `/${session.ulid}/qr`).length;
+
+        // Engine warms up: one read answers `starting`, the next has the code.
+        backend.current.state.qr.set(session.ulid, PNG);
+        backend.current.state.qrWarmupReads.set(session.ulid, 0);
+        await click(byTestId('wa-qr-restart'));
+
+        await waitFor(() =>
+            expect(calls('POST', `/${session.ulid}/start`)).toHaveLength(1),
+        );
+        // The dialog stays open, stops saying "not running" and shows the code.
+        await waitFor(() => expect(byTestId('wa-qr-image')).not.toBeNull());
+        expect(byTestId('wa-qr-stopped')).toBeNull();
+        expect(byTestId('wa-qr-dialog')).not.toBeNull();
+        expect(byTestId('wa-qr-image')?.getAttribute('src')).toBe(PNG);
+        expect(calls('GET', `/${session.ulid}/qr`).length).toBeGreaterThan(
+            readsBefore,
+        );
+    });
+
+    it('keeps polling through the warm-up after a start from the dialog: "starting" first, then the code', async () => {
+        const session = makeWaSession({
+            ulid: fakeUlid(5013),
+            name: 'warm-line',
+            status: 'starting',
+            phone: null,
+            maskedPhone: null,
+        });
+
+        await open({ sessions: [session] });
+        backend.current.state.sessions.set(session.ulid, {
+            ...session,
+            status: 'failed',
+        });
+        await click(byTestId(`wa-session-qr-${session.ulid}`));
+        await waitFor(() => expect(byTestId('wa-qr-stopped')).not.toBeNull());
+
+        backend.current.state.qr.set(session.ulid, PNG);
+        backend.current.state.qrWarmupReads.set(session.ulid, 1);
+        await click(byTestId('wa-qr-restart'));
+
+        await waitFor(() => expect(byTestId('wa-qr-waiting')).not.toBeNull());
+        expect(byTestId('wa-qr-stopped')).toBeNull();
+        // The second read (one poll later) has the code.
+        await waitFor(
+            () => expect(byTestId('wa-qr-image')).not.toBeNull(),
+            8000,
+        );
+    });
+
     it('stops a session only after a confirmation', async () => {
         const session = ready();
 

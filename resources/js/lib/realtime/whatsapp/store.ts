@@ -54,8 +54,15 @@ export type WaLiveAction =
     | { type: 'chatChanged'; chat: WaChat }
     /** The admin opened the chat: its unread count is zero (the server is told separately). */
     | { type: 'chatRead'; ulid: string }
+    /** The chat was deleted (here): it and its transcript leave the live state (and a snapshot older than this must not bring it back). */
+    | { type: 'chatRemoved'; ulid: string }
     | { type: 'messagesLoaded'; chat: string; messages: WaMessage[] }
     | { type: 'messageChanged'; message: WaMessage }
+    /**
+     * The server answered a retry of a reply it had marked `failed` (it never reached WhatsApp) by putting it back in its queue: the one
+     * step backwards a message makes (`failed` is final for events). Applies only to a held `failed` outbound row and a `pending` answer.
+     */
+    | { type: 'messageRequeued'; message: WaMessage }
     | { type: 'sessionsLoaded'; sessions: WhatsAppSession[]; since?: number }
     | { type: 'sessionChanged'; session: WhatsAppSession }
     | { type: 'sessionRemoved'; ulid: string }
@@ -136,6 +143,23 @@ export function waLiveReducer(
             };
         }
 
+        case 'chatRemoved': {
+            if (
+                !(action.ulid in state.chats) &&
+                !(action.ulid in state.messages)
+            ) {
+                return state;
+            }
+
+            const chats = { ...state.chats };
+            const messages = { ...state.messages };
+
+            delete chats[action.ulid];
+            delete messages[action.ulid];
+
+            return { ...state, chats, messages, ...touch(state, action.ulid) };
+        }
+
         case 'chatRead': {
             const known = state.chats[action.ulid];
 
@@ -183,6 +207,33 @@ export function waLiveReducer(
                           [action.message.chat]: merged,
                       },
                   };
+        }
+
+        case 'messageRequeued': {
+            const held = state.messages[action.message.chat];
+            const known = held?.find(
+                (message) => message.ulid === action.message.ulid,
+            );
+
+            if (
+                held === undefined ||
+                known === undefined ||
+                known.direction !== 'out' ||
+                known.status !== 'failed' ||
+                action.message.status !== 'pending'
+            ) {
+                return state;
+            }
+
+            return {
+                ...state,
+                messages: {
+                    ...state.messages,
+                    [action.message.chat]: held.map((message) =>
+                        message.ulid === known.ulid ? action.message : message,
+                    ),
+                },
+            };
         }
 
         case 'sessionsLoaded': {
@@ -264,38 +315,12 @@ export function waLiveReducer(
     }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Selectors                                                                  */
-/* -------------------------------------------------------------------------- */
-
-/** Unread messages across the open chats (an archived chat is out of sight and out of the count): the badge and the title. */
-export function selectUnreadTotal(state: WaLiveState): number {
-    let total = 0;
-
-    for (const chat of Object.values(state.chats)) {
-        if (chat.status === 'open' && chat.unreadByAdmin > 0) {
-            total += chat.unreadByAdmin;
-        }
-    }
-
-    return total;
-}
-
-/** How many open chats have something unread. */
-export function selectUnreadChats(state: WaLiveState): number {
-    return Object.values(state.chats).filter(
-        (chat) => chat.status === 'open' && chat.unreadByAdmin > 0,
-    ).length;
-}
-
-/** Newest first: the time of the last message, then the id (a ULID is time-ordered). */
-export function byRecency(a: WaChat, b: WaChat): number {
-    return (
-        (b.lastMessageAt ?? b.createdAt).localeCompare(
-            a.lastMessageAt ?? a.createdAt,
-        ) || b.ulid.localeCompare(a.ulid)
-    );
-}
+/* Selectors live in ./selectors (a tiny module the dashboard's initial bundle can import without this store); re-exported for the rest. */
+export {
+    byRecency,
+    selectUnreadChats,
+    selectUnreadTotal,
+} from '@/lib/realtime/whatsapp/selectors';
 
 /* -------------------------------------------------------------------------- */
 /* The store                                                                  */

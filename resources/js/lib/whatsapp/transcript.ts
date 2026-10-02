@@ -20,6 +20,8 @@ export type WaSendFailure =
     | 'daily_cap'
     | 'pacing'
     | 'rate_limited'
+    /** `503 queue_unavailable`: the server stored the reply but could not queue it (it is a FAILED row there); a retry re-queues it. */
+    | 'queue_unavailable'
     | 'not_inbound'
     | 'too_long'
     | 'rejected'
@@ -63,6 +65,7 @@ export function sendFailureOf(error: unknown): WaSendFailure {
         case 'not_found':
         case 'network':
         case 'rate_limited':
+        case 'queue_unavailable':
             return kind;
     }
 
@@ -178,16 +181,18 @@ export function highestUlid(messages: readonly WaMessage[]): string | null {
 }
 
 /**
- * The outbox entries the server's copy has NOT replaced yet, in the order they were typed. An entry is matched to one server message
- * at most, and a server message answers at most one entry (two identical replies in a row stay two bubbles).
+ * Matches the outbox to the server's messages. `open`: the entries the server's copy has NOT replaced yet, in the order they were typed;
+ * `matched`: the server message each of the others stands for. An entry is matched to one server message at most, and a server message
+ * answers at most one entry (two identical replies in a row stay two bubbles).
  */
-export function pendingOutbox(
+export function matchOutbox(
     server: readonly WaMessage[],
     outbox: readonly OutboxEntry[],
     me: number,
-): OutboxEntry[] {
+): { open: OutboxEntry[]; matched: Map<OutboxEntry, WaMessage> } {
     const used = new Set<string>();
     const open: OutboxEntry[] = [];
+    const matched = new Map<OutboxEntry, WaMessage>();
 
     for (const entry of outbox) {
         const direct =
@@ -197,6 +202,7 @@ export function pendingOutbox(
 
         if (direct) {
             used.add(direct.ulid);
+            matched.set(entry, direct);
 
             continue;
         }
@@ -213,6 +219,7 @@ export function pendingOutbox(
 
         if (twin) {
             used.add(twin.ulid);
+            matched.set(entry, twin);
 
             continue;
         }
@@ -220,7 +227,16 @@ export function pendingOutbox(
         open.push(entry);
     }
 
-    return open;
+    return { open, matched };
+}
+
+/** The outbox entries the server's copy has NOT replaced yet (see {@link matchOutbox}). */
+export function pendingOutbox(
+    server: readonly WaMessage[],
+    outbox: readonly OutboxEntry[],
+    me: number,
+): OutboxEntry[] {
+    return matchOutbox(server, outbox, me).open;
 }
 
 /** A message as the transcript lists it: the server's, or an outbox entry dressed as one (`local`, with the way it failed). */
@@ -258,18 +274,42 @@ export function outboxAsMessage(
     };
 }
 
-/** The transcript to draw: the server's messages, then the replies still waiting for theirs (always at the end: they are the newest). */
+/**
+ * The transcript to draw: the server's messages, then the replies still waiting for theirs (always at the end: they are the newest).
+ *
+ * A reply the server stored but could not queue (`503 queue_unavailable`) is a FAILED row there: that row is the bubble, and it keeps the
+ * outbox entry's `local` marker so its Retry / Discard stay reachable (the retry re-queues the same stored row).
+ */
 export function displayMessages(
     server: readonly WaMessage[],
     outbox: readonly OutboxEntry[],
     chat: string,
     me: { id: number; name: string },
 ): DisplayMessage[] {
+    const { open, matched } = matchOutbox(server, outbox, me.id);
+    const adopted = new Map<string, NonNullable<DisplayMessage['local']>>();
+
+    for (const [entry, twin] of matched) {
+        if (
+            entry.state === 'failed' &&
+            entry.failure === 'queue_unavailable' &&
+            twin.status === 'failed'
+        ) {
+            adopted.set(twin.ulid, {
+                clientMsgId: entry.clientMsgId,
+                failure: entry.failure,
+                retryAfter: entry.retryAfter,
+            });
+        }
+    }
+
     return [
-        ...server,
-        ...pendingOutbox(server, outbox, me.id).map((entry) =>
-            outboxAsMessage(entry, chat, me),
-        ),
+        ...server.map((message) => {
+            const local = adopted.get(message.ulid);
+
+            return local ? { ...message, local } : message;
+        }),
+        ...open.map((entry) => outboxAsMessage(entry, chat, me)),
     ];
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useWaApi } from '@/lib/realtime/whatsapp/context';
+import { useWaApi } from '@/lib/realtime/whatsapp/use-wa-api';
 
 /**
  * `whatsapp.reply_only_to_inbound`, which the inbox page does not carry: read once, the first time a chat is open, so the composer can

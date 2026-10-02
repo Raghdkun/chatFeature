@@ -97,7 +97,9 @@ export function Transcript({
         }
 
         const news = added.filter((message) => message.ulid > before);
-        const own = news.some((message) => message.local !== undefined);
+        // The administrator's own reply always comes into view, whatever its id sorts like (a client id is made by this browser's
+        // clock, which may be behind the server's: it can sort before messages that are older than it).
+        const own = added.some((message) => message.local !== undefined);
 
         if (pinned.current || own) {
             pinned.current = true;

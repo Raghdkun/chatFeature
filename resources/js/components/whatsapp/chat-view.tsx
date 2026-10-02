@@ -1,3 +1,4 @@
+import { router } from '@inertiajs/react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { ConnectionBanner } from '@/components/inbox/connection-banner';
@@ -9,11 +10,12 @@ import { Transcript } from '@/components/whatsapp/transcript';
 import { useTrans } from '@/hooks/use-trans';
 import { useWaChat } from '@/lib/realtime/whatsapp/use-wa-chat';
 import { describeWaError } from '@/lib/whatsapp-api/client';
+import { waRoutes } from '@/lib/whatsapp-api/routes';
 import type { WaChatDetail, WaMessage } from '@/lib/whatsapp/types';
 
 /**
  * The open chat: header, transcript, reply box and the details sheet. All state lives in `useWaChat` (the live copy, the transcript, the
- * reply pipeline, catch-up, mark-read); this component only draws it and runs the archive action.
+ * reply pipeline, catch-up, mark-read); this component only draws it and runs the archive and delete actions.
  */
 export function ChatView({
     detail,
@@ -108,6 +110,11 @@ export function ChatView({
                 onOpenChange={setDetails}
                 detail={detail}
                 chat={chat.chat}
+                onDelete={async () => {
+                    await chat.deleteChat();
+                    toast.success(t('whatsapp.toast.chat_deleted'));
+                    router.visit(waRoutes.pages.inbox());
+                }}
             />
         </section>
     );

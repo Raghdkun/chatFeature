@@ -7,6 +7,7 @@ import { inNavGroup, navFor } from '@/nav';
 import AgentsIndex from '@/pages/agents/index';
 import CategoriesIndex from '@/pages/categories/index';
 import AuthSettings from '@/pages/settings/auth';
+import NotificationSettings from '@/pages/settings/notifications';
 import SupportCategories from '@/pages/settings/support-categories';
 import WidgetBuilder from '@/pages/widgets/builder';
 import WidgetsIndex from '@/pages/widgets/index';
@@ -242,6 +243,27 @@ describe('page layouts (breadcrumbs)', () => {
             view.container.querySelector('nav[aria-label="breadcrumb"]')
                 ?.textContent,
         ).toContain(en['settings.auth.title']);
+    });
+
+    it('translates the Settings > Notifications breadcrumb (no literal English) and keeps the settings menu around the page', async () => {
+        expect(NotificationSettings.layout).toHaveLength(2);
+        expect(NotificationSettings.layout[1]).toBe(SettingsLayout);
+
+        const Layout = NotificationSettings.layout[0] as React.ComponentType<{
+            children: React.ReactNode;
+        }>;
+        const view = await render(
+            <TooltipProvider>
+                <Layout>
+                    <p>content</p>
+                </Layout>
+            </TooltipProvider>,
+        );
+
+        expect(
+            view.container.querySelector('nav[aria-label="breadcrumb"]')
+                ?.textContent,
+        ).toContain(en['notifications.settings.title']);
     });
 
     it('puts support categories inside the settings layout', () => {

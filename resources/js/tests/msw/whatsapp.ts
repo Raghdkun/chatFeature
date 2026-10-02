@@ -63,6 +63,21 @@ function envelopeError(
     );
 }
 
+const encodeCursor = (chat: WaChat): string =>
+    `wc1_${btoa(`${chat.lastMessageAt ?? ''}|${chat.ulid}`).replace(/=+$/, '')}`;
+
+/** The index of the first row after the one a cursor names (the rows are in list order); a malformed cursor starts over, like a 422 would. */
+function afterCursor(rows: WaChat[], cursor: string): number {
+    try {
+        const [, ulid] = atob(cursor.replace(/^wc1_/, '')).split('|');
+        const index = rows.findIndex((row) => row.ulid === ulid);
+
+        return index === -1 ? 0 : index + 1;
+    } catch {
+        return 0;
+    }
+}
+
 export function createWaBackend(options: WaBackendOptions = {}) {
     const me = options.me ?? { id: 1, name: 'Ada' };
     const state = {
@@ -101,6 +116,8 @@ export function createWaBackend(options: WaBackendOptions = {}) {
         qr: new Map<string, string | null>(),
         /** Session ulids whose QR poll answers `ready` (the scan happened). */
         scanned: new Set<string>(),
+        /** ulid -> reads a just-started session answers `409 qr_not_available` (status `starting`) before its code exists. Default 0. */
+        qrWarmupReads: new Map<string, number>(),
         /** The next N reply sends answer this error. */
         failSends: [] as {
             status: number;
@@ -108,6 +125,16 @@ export function createWaBackend(options: WaBackendOptions = {}) {
             message?: string;
             retryAfter?: number;
         }[],
+        /**
+         * The next N reply sends are STORED (as `failed`, like the real backend) and answered `503 queue_unavailable`: the job queue could
+         * not take the message.
+         */
+        queueDown: 0,
+        /**
+         * A repeated `client_msg_id` of a `failed`, never-sent reply puts it back in the queue (`pending`) instead of replaying the failed row
+         * (the backend fix of the P5/P6 audit; `false` = the first backend, which replays the failed row unchanged).
+         */
+        retryRequeuesFailed: true,
         /** Every reply send is stored at once but answered this long afterwards (to observe the optimistic bubble, and the race with the websocket). */
         sendDelayMs: 0,
         /** The next N reply sends are STORED by the server but the answer never reaches the browser (a dropped connection). */
@@ -130,6 +157,8 @@ export function createWaBackend(options: WaBackendOptions = {}) {
             code: string;
             message: string;
         } | null,
+        /** The next chat delete answers this error (`DELETE /whatsapp/chats/{ulid}`, the admin hard delete of the backend fix). */
+        deleteChatError: null as { status: number; code: string } | null,
         /** The next N QR reads answer `429 rate_limited` (the `wa-qr` limiter, or OpenWA's throttle with nothing stored yet). */
         qrThrottled: 0,
         calls: [] as RecordedWaCall[],
@@ -538,11 +567,25 @@ export function createWaBackend(options: WaBackendOptions = {}) {
                 state.qr.delete(ulid);
             }
 
+            // A session that was just started needs a moment to produce its code (`qrWarmupReads` reads), then waits for a scan.
+            const starting = state.sessions.get(ulid) as WhatsAppSession;
+
+            if (starting.status === 'starting' && state.qr.has(ulid)) {
+                const left = state.qrWarmupReads.get(ulid) ?? 0;
+
+                if (left > 0) {
+                    state.qrWarmupReads.set(ulid, left - 1);
+                } else {
+                    state.sessions.set(ulid, { ...starting, status: 'qr' });
+                }
+            }
+
             const current = state.sessions.get(ulid) as WhatsAppSession;
             const image = state.qr.get(ulid) ?? null;
 
-            // Only while the session waits for a scan: any other status is a 409 that names the status (docs/rest-api.md).
-            if (image === null) {
+            // The real endpoint serves a picture ONLY while the session waits for a scan (`status === 'qr'`); any other status is a 409 that
+            // names the status (docs/rest-api.md).
+            if (image === null || current.status !== 'qr') {
                 return envelopeError(
                     'qr_not_available',
                     'There is no QR code to scan.',
@@ -701,10 +744,13 @@ export function createWaBackend(options: WaBackendOptions = {}) {
             );
 
             const size = Number(limit ?? 50);
-            const start = cursor ? Number(cursor) : 0;
+            // An OPAQUE keyset cursor like the real one (`WaChatCursor::encode()`): where the last row of the previous page sorts. Clients
+            // must hand it back untouched; this one is neither a number nor a ulid.
+            const start = cursor ? afterCursor(rows, cursor) : 0;
             const page = rows.slice(start, start + size);
+            const last = page.at(-1);
             const nextCursor =
-                start + size < rows.length ? String(start + size) : null;
+                start + size < rows.length && last ? encodeCursor(last) : null;
 
             return HttpResponse.json({
                 data: page,
@@ -737,6 +783,40 @@ export function createWaBackend(options: WaBackendOptions = {}) {
                     : null);
 
             return detail ? HttpResponse.json({ data: detail }) : notFound();
+        }),
+
+        http.delete(route(waRoutes.api.chat), ({ request, params }) => {
+            record(request);
+
+            const outage = down();
+
+            if (outage) {
+                return outage;
+            }
+
+            const ulid = String(params.ulid);
+
+            if (state.deleteChatError) {
+                const { status, code } = state.deleteChatError;
+
+                state.deleteChatError = null;
+
+                return envelopeError(
+                    code,
+                    'Could not delete the chat.',
+                    status,
+                );
+            }
+
+            if (!state.chats.has(ulid)) {
+                return notFound();
+            }
+
+            state.chats.delete(ulid);
+            state.messages.delete(ulid);
+            state.details.delete(ulid);
+
+            return new HttpResponse(null, { status: 204 });
         }),
 
         http.get(route(waRoutes.api.chatMessages), ({ request, params }) => {
@@ -849,6 +929,29 @@ export function createWaBackend(options: WaBackendOptions = {}) {
                 );
 
                 if (replay) {
+                    if (
+                        replay.status === 'failed' &&
+                        state.retryRequeuesFailed
+                    ) {
+                        const requeued: WaMessage = {
+                            ...replay,
+                            status: 'pending',
+                            error: null,
+                        };
+
+                        state.messages.set(
+                            ulid,
+                            messagesOf(ulid).map((m) =>
+                                m.ulid === replay.ulid ? requeued : m,
+                            ),
+                        );
+
+                        return HttpResponse.json(
+                            { data: requeued },
+                            { status: 200 },
+                        );
+                    }
+
                     return HttpResponse.json({ data: replay }, { status: 200 });
                 }
 
@@ -866,12 +969,27 @@ export function createWaBackend(options: WaBackendOptions = {}) {
                     clientMsgId: clientId,
                 };
 
+                if (state.queueDown > 0) {
+                    state.queueDown -= 1;
+                    message.status = 'failed';
+                    message.error =
+                        'The message could not be queued for sending.';
+                }
+
                 state.messages.set(ulid, [...messagesOf(ulid), message]);
                 state.chats.set(ulid, {
                     ...chat,
                     lastMessagePreview: text,
                     lastMessageAt: message.createdAt,
                 });
+
+                if (message.status === 'failed') {
+                    return envelopeError(
+                        'queue_unavailable',
+                        'The message could not be queued. Please try again.',
+                        503,
+                    );
+                }
 
                 if (state.loseAnswers > 0) {
                     state.loseAnswers -= 1;

@@ -398,6 +398,96 @@ describe('lifecycle', () => {
         );
     });
 
+    it('re-reads the lists and the status when the network returns while the tab is in the background (the server forgot this agent)', async () => {
+        backend.current.state.presence = 'online';
+        await render(
+            <StaffRealtimeHost
+                initialPage={page(staffUser)}
+                sockets
+                sound={fakeSound()}
+            >
+                <Probe />
+            </StaffRealtimeHost>,
+        );
+
+        const calls = (method: string, path: string) =>
+            backend.current.calls(method, path).length;
+
+        await waitFor(() =>
+            expect(calls('POST', '/api/v1/me/presence/heartbeat')).toBe(1),
+        );
+        Object.defineProperty(document, 'visibilityState', {
+            value: 'hidden',
+            configurable: true,
+        });
+        await act(async () =>
+            document.dispatchEvent(new Event('visibilitychange')),
+        );
+
+        const lists = calls('GET', '/api/v1/conversations/queue');
+        const reads = calls('GET', '/api/v1/me/presence');
+
+        // While the network was away the server forgot the agent.
+        backend.current.state.presence = 'offline';
+        await act(async () => window.dispatchEvent(new Event('online')));
+
+        await waitFor(() =>
+            expect(calls('GET', '/api/v1/conversations/queue')).toBe(lists + 1),
+        );
+        await waitFor(() =>
+            expect(calls('GET', '/api/v1/me/presence')).toBe(reads + 1),
+        );
+        expect(
+            backend.current.calls('POST', '/api/v1/me/presence/heartbeat')[1]
+                .body,
+        ).toEqual({ visible: false });
+
+        Object.defineProperty(document, 'visibilityState', {
+            value: 'visible',
+            configurable: true,
+        });
+    });
+
+    it('follows the status a heartbeat answers (200) at once, without a second request', async () => {
+        backend.current.state.presence = 'online';
+        backend.current.state.heartbeatAnswersStatus = true;
+
+        let store:
+            | NonNullable<ReturnType<typeof useStaffRealtimeOptional>>['store']
+            | null = null;
+
+        function Grab() {
+            store = useStaffRealtimeOptional()?.store ?? null;
+
+            return null;
+        }
+
+        await render(
+            <StaffRealtimeHost
+                initialPage={page(staffUser)}
+                sockets
+                sound={fakeSound()}
+            >
+                <Grab />
+            </StaffRealtimeHost>,
+        );
+
+        const beats = () =>
+            backend.current.calls('POST', '/api/v1/me/presence/heartbeat');
+        const reads = () => backend.current.calls('GET', '/api/v1/me/presence');
+
+        await waitFor(() => expect(beats().length).toBe(1));
+        await waitFor(() => expect(store?.getState().presence).toBe('online'));
+
+        // The server forgot the agent while the network was away.
+        backend.current.state.presence = 'offline';
+        const before = reads().length;
+        await act(async () => window.dispatchEvent(new Event('online')));
+
+        await waitFor(() => expect(store?.getState().presence).toBe('offline'));
+        expect(reads().length).toBe(before);
+    });
+
     it('says its tab is visible with the first heartbeat and beats again at once when the tab comes back to the foreground', async () => {
         backend.current.state.presence = 'online';
         await render(

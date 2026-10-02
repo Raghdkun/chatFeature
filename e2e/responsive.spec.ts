@@ -147,9 +147,7 @@ test.describe('dashboards at 375px', () => {
             await expect(
                 page.getByTestId('dashboard-agent-waiting'),
             ).toBeVisible();
-            await expect(
-                page.getByTestId('dashboard-availability-switch'),
-            ).toBeVisible();
+            await expect(page.getByTestId('presence-select')).toBeVisible();
 
             await expectNoHorizontalScroll(page);
         });

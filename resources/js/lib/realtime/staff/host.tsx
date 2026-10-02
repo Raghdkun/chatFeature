@@ -49,8 +49,8 @@ import {
 } from '@/lib/realtime/staff/store';
 import { StaffRealtimeBindings } from '@/lib/realtime/staff/use-staff-realtime';
 import { useWaStateOptional } from '@/lib/realtime/whatsapp/context';
-import { WhatsAppRealtimeProvider } from '@/lib/realtime/whatsapp/provider';
-import { selectUnreadTotal } from '@/lib/realtime/whatsapp/store';
+import { WhatsAppRealtimeGate } from '@/lib/realtime/whatsapp/gate';
+import { selectUnreadTotal } from '@/lib/realtime/whatsapp/selectors';
 
 type Translate = (
     key: string,
@@ -127,7 +127,7 @@ function browserEffects(
             toast.dismiss(id);
         },
         notify: (options) => {
-            showOsNotification(options);
+            void showOsNotification(options);
         },
         closeNotification: (tag) => closeOsNotification(tag),
         signOut,
@@ -307,14 +307,17 @@ export function StaffRealtimeHost({
             }
         };
 
+        // The network coming back is its own event (the tab may be hidden then; `wake` would only put it to sleep).
+        const online = (): void => session.controller.online();
+
         document.addEventListener('visibilitychange', wake);
-        window.addEventListener('online', wake);
+        window.addEventListener('online', online);
 
         const unbindSound = bindSoundUnlock(session.sound);
 
         return () => {
             document.removeEventListener('visibilitychange', wake);
-            window.removeEventListener('online', wake);
+            window.removeEventListener('online', online);
             unbindSound();
             session.controller.stop();
         };
@@ -330,14 +333,14 @@ export function StaffRealtimeHost({
                     isAdmin={session.viewer.isAdmin}
                 />
             ) : null}
-            {/* Administrators only (P6): the WhatsApp live data. Everybody else gets no WhatsApp context at all. */}
-            <WhatsAppRealtimeProvider
+            {/* Administrators only (P6): the WhatsApp live data, loaded on demand. Everybody else gets no WhatsApp context at all. */}
+            <WhatsAppRealtimeGate
                 admin={session?.viewer.isAdmin === true}
                 sockets={session?.sockets === true}
             >
                 {session ? <AttentionTitle /> : null}
                 {children}
-            </WhatsAppRealtimeProvider>
+            </WhatsAppRealtimeGate>
         </StaffRealtimeContext.Provider>
     );
 }

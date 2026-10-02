@@ -158,7 +158,7 @@ describe('fixture builders', () => {
     });
 
     it('make ULID-shaped ids and ISO times', () => {
-        expect(fakeUlid(5)).toMatch(/^[0-9A-Z]{26}$/);
+        expect(fakeUlid(5)).toMatch(/^[0-9a-z]{26}$/);
         expect(fakeUlid(5)).not.toBe(fakeUlid(6));
         expect(fakeTime(0)).toBe('2026-11-20T10:00:00.000Z');
         expect(fakeTime(90)).toBe('2026-11-20T10:01:30.000Z');

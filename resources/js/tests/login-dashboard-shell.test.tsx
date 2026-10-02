@@ -4,7 +4,7 @@ import AppLayout from '@/layouts/app-layout';
 import Login from '@/pages/auth/login';
 import Dashboard from '@/pages/dashboard';
 import { inertiaState, resetInertiaMock } from '@/tests/inertia-mock';
-import { click, render } from '@/tests/render';
+import { render } from '@/tests/render';
 import type { Auth, AuthCapabilities } from '@/types';
 
 // `use-mobile` calls window.matchMedia at import time, which jsdom lacks.
@@ -251,7 +251,7 @@ describe('dashboard', () => {
         expect(view.byTestId('dashboard-agent-waiting')).toBeNull();
     });
 
-    it('gives agents a waiting state with an availability switch', async () => {
+    it('gives agents a waiting state with the availability control (the real status select, no placeholder switch)', async () => {
         resetInertiaMock({
             auth: {
                 user: user(),
@@ -266,24 +266,24 @@ describe('dashboard', () => {
             'Waiting for chats',
         );
         expect(view.byTestId('dashboard-admin-setup')).toBeNull();
-
-        const toggle = view.byTestId('dashboard-availability-switch');
-
-        expect(toggle?.getAttribute('role')).toBe('switch');
-        expect(toggle?.getAttribute('aria-checked')).toBe('false');
         expect(view.byTestId('dashboard-availability')?.textContent).toContain(
-            'You are away',
+            'Available for new chats',
         );
 
-        await click(toggle);
+        // The placeholder switch and its "presence is not connected yet" note are gone.
+        expect(view.byTestId('dashboard-availability-switch')).toBeNull();
+        expect(
+            view.byTestId('dashboard-availability')?.textContent,
+        ).not.toMatch(/not connected yet|previews the control/i);
 
-        expect(toggle?.getAttribute('aria-checked')).toBe('true');
-        expect(view.byTestId('dashboard-availability')?.textContent).toContain(
-            'You are available',
-        );
+        // Without a staff session (this bare render has none) the status is unknown: the select is there but waits.
+        const select = view.byTestId('presence-select') as HTMLSelectElement;
+
+        expect(select.tagName).toBe('SELECT');
+        expect(select.disabled).toBe(true);
     });
 
-    it('labels the switch and links its helper text for assistive tech', async () => {
+    it('labels the status select for assistive tech', async () => {
         resetInertiaMock({
             auth: {
                 user: user(),
@@ -293,18 +293,22 @@ describe('dashboard', () => {
         });
 
         const view = await render(<Dashboard />);
-        const toggle = view.byTestId('dashboard-availability-switch');
+        const select = view.byTestId('presence-select');
         const label = view.container.querySelector(
-            'label[for="dashboard-availability-switch"]',
+            `label[for="${select?.id}"]`,
         );
 
-        expect(label?.textContent).toBe('Available for new chats');
-        expect(toggle?.getAttribute('aria-describedby')).toBe(
-            'dashboard-availability-note',
-        );
+        expect(select?.id).not.toBe('');
+        expect(label?.textContent).toBe('Your status');
         expect(
-            view.container.querySelector('#dashboard-availability-note'),
-        ).not.toBeNull();
+            view.container.querySelector('#dashboard-availability-title')
+                ?.textContent,
+        ).toBe('Available for new chats');
+        expect(
+            view
+                .byTestId('dashboard-availability')
+                ?.getAttribute('aria-labelledby'),
+        ).toBe('dashboard-availability-title');
     });
 });
 

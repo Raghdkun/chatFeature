@@ -19,6 +19,7 @@ import {
 import type { WaChat, WaMessage } from '@/lib/whatsapp/types';
 import { body, fill, keyDown } from '@/tests/dom';
 import { fakeEcho } from '@/tests/fake-echo';
+import { routerMock } from '@/tests/inertia-mock';
 import { click } from '@/tests/render';
 import {
     ADMIN,
@@ -55,6 +56,7 @@ beforeEach(() => {
     resetWaFixtures();
     vi.mocked(toast.success).mockClear();
     vi.mocked(toast.error).mockClear();
+    routerMock.visit.mockClear();
 });
 
 const chat = (overrides: Partial<WaChat> = {}) =>
@@ -368,7 +370,7 @@ describe('sending a reply', () => {
         const sent = posts()[0].body as { body: string; client_msg_id: string };
 
         expect(sent.body).toBe('On my way');
-        expect(sent.client_msg_id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+        expect(sent.client_msg_id).toMatch(/^[0-9a-hjkmnp-tv-z]{26}$/);
 
         await waitFor(() =>
             expect(bubbles()[1].dataset.testid).not.toBe(
@@ -636,6 +638,12 @@ describe('a reply that does not go out', () => {
             true,
         ],
         [
+            'the server cannot queue the message',
+            { status: 503, code: 'queue_unavailable' },
+            'could not queue it',
+            true,
+        ],
+        [
             'the customer never wrote first',
             { status: 409, code: 'reply_only_to_inbound' },
             'this customer has not written first',
@@ -670,6 +678,112 @@ describe('a reply that does not go out', () => {
         expect(byTestId(`wa-message-retry-${id}`) !== null).toBe(retryable);
         // Discard is always there.
         expect(byTestId(`wa-message-discard-${id}`)).not.toBeNull();
+    });
+
+    describe('when the server cannot queue it (503 queue_unavailable)', () => {
+        const failures = () =>
+            Array.from(
+                document.body.querySelectorAll<HTMLElement>(
+                    '[data-testid^="wa-message-failure-"]',
+                ),
+            );
+
+        it('shows the stored row as failed (never "sending"), offers Retry, and the retry puts the SAME reply back in the queue', async () => {
+            backend.current.state.queueDown = 1;
+            await open({ messages: [inbound('Hi', 1)] });
+
+            await type('queue me');
+            await enter();
+
+            await waitFor(() => expect(failures()).toHaveLength(1));
+
+            // One bubble, failed, with the stored row's state, not a pending optimistic one.
+            const mine = bubbles().filter((b) =>
+                b.textContent?.includes('queue me'),
+            );
+
+            expect(mine).toHaveLength(1);
+            expect(mine[0].dataset.status).toBe('failed');
+            expect(failures()[0].textContent).toContain('could not queue it');
+
+            const retry = document.body.querySelector(
+                '[data-testid^="wa-message-retry-"]',
+            ) as HTMLElement;
+            const clientId = retry.dataset.testid?.replace(
+                'wa-message-retry-',
+                '',
+            );
+
+            await click(retry);
+            await waitFor(() => expect(failures()).toHaveLength(0));
+
+            expect(
+                posts().map(
+                    (call) =>
+                        (call.body as { client_msg_id: string }).client_msg_id,
+                ),
+            ).toEqual([clientId, clientId]);
+            await waitFor(() =>
+                expect(
+                    bubbles().find((b) => b.textContent?.includes('queue me'))
+                        ?.dataset.status,
+                ).toBe('pending'),
+            );
+            expect(
+                bubbles().filter((b) => b.textContent?.includes('queue me')),
+            ).toHaveLength(1);
+        });
+
+        it('follows the failed status event as well (no second read needed)', async () => {
+            backend.current.state.queueDown = 1;
+            await open({ messages: [inbound('Hi', 1)] });
+
+            await type('event first');
+            await enter();
+            await waitFor(() => expect(failures()).toHaveLength(1));
+
+            const stored = backend.current.state.messages
+                .get(CHAT_ULID)
+                ?.find((m) => m.body === 'event first') as WaMessage;
+
+            await act(async () =>
+                fakeEcho.emitServer('whatsapp-admin', 'wa.message.updated', {
+                    v: 1,
+                    message: { ...stored, status: 'failed' },
+                }),
+            );
+
+            expect(
+                bubbles().find((b) => b.textContent?.includes('event first'))
+                    ?.dataset.status,
+            ).toBe('failed');
+        });
+
+        it('with the first backend (it replays the failed row), Retry ends with the failed row and its reason, not an endless "sending"', async () => {
+            backend.current.state.retryRequeuesFailed = false;
+            backend.current.state.queueDown = 1;
+            await open({ messages: [inbound('Hi', 1)] });
+
+            await type('old backend');
+            await enter();
+            await waitFor(() => expect(failures()).toHaveLength(1));
+
+            await click(
+                document.body.querySelector(
+                    '[data-testid^="wa-message-retry-"]',
+                ),
+            );
+            await waitFor(() =>
+                expect(
+                    bubbles().find((b) =>
+                        b.textContent?.includes('old backend'),
+                    )?.dataset.status,
+                ).toBe('failed'),
+            );
+            expect(
+                bubbles().filter((b) => b.textContent?.includes('old backend')),
+            ).toHaveLength(1);
+        });
     });
 
     it('pauses the box for as long as the server asked ("Retry-After") and then lets the next reply go', async () => {
@@ -965,11 +1079,145 @@ describe('the header and the details', () => {
         expect(sheet.textContent).toContain('The customer');
     });
 
+    it('says the link is made by a code and is NOT verified (a hand-off code is a first-writer-wins secret), above the widget, topic and visitor', async () => {
+        const linked = makeLinkedWaChat({
+            ulid: CHAT_ULID,
+            session: { ulid: SESSION.ulid, name: SESSION.name },
+        });
+        const detail = makeWaChatDetail({
+            chat: linked,
+            visitor: {
+                ulid: fakeUlid(301),
+                name: 'Vera V.',
+                email: null,
+                phone: null,
+                verified: false,
+            },
+        });
+
+        await open({ chat: linked, detail });
+        await click(byTestId('wa-chat-info'));
+
+        const note = byTestId('wa-details-unverified') as HTMLElement;
+        const sheet = byTestId('wa-details') as HTMLElement;
+
+        expect(note.textContent).toContain('Linked by code (unverified)');
+        expect(note.textContent).toContain('not proof of who is writing');
+        // Before the facts it qualifies, not after them.
+        const facts = sheet.querySelector('#wa-details-link ~ dl') as Node;
+
+        expect(
+            note.compareDocumentPosition(facts) &
+                Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+        expect(sheet.textContent).toContain('Main site');
+    });
+
+    it('does not claim anything about an unlinked chat', async () => {
+        await open();
+        await click(byTestId('wa-chat-info'));
+
+        expect(byTestId('wa-details-unverified')).toBeNull();
+    });
+
     it('says that an unlinked chat matched no code', async () => {
         await open();
         await click(byTestId('wa-chat-info'));
 
         expect(byTestId('wa-details-unlinked')).not.toBeNull();
+    });
+});
+
+describe('deleting a chat (administrators only, irreversible)', () => {
+    const openSheet = async () => {
+        const rendered = await open({
+            messages: [inbound('Hello', 1), reply('Hi there', 2)],
+        });
+
+        await click(byTestId('wa-chat-info'));
+
+        return rendered;
+    };
+    const dialogError = () => byTestId('wa-delete-chat-dialog-error');
+    const deletes = () =>
+        backend.current.state.calls.filter(
+            (call) =>
+                call.method === 'DELETE' &&
+                call.path === `/api/v1/whatsapp/chats/${CHAT_ULID}`,
+        );
+
+    it('asks first, names the chat, and sends nothing until confirmed', async () => {
+        await openSheet();
+
+        await click(byTestId('wa-details-delete'));
+
+        expect(byTestId('wa-delete-chat-dialog')?.textContent).toContain(
+            'Vera Visitor',
+        );
+        expect(byTestId('wa-delete-chat-dialog')?.textContent).toContain(
+            'cannot be undone',
+        );
+        expect(deletes()).toHaveLength(0);
+    });
+
+    it('deletes the chat, takes it out of the live state, says so and goes back to the inbox', async () => {
+        const { session } = await openSheet();
+
+        await click(byTestId('wa-details-delete'));
+        await click(byTestId('wa-delete-chat-dialog-confirm'));
+
+        await waitFor(() => expect(deletes()).toHaveLength(1));
+        await waitFor(() =>
+            expect(routerMock.visit).toHaveBeenCalledWith('/whatsapp'),
+        );
+
+        expect(toast.success).toHaveBeenCalledWith('Chat deleted.');
+        expect(session.store.getState().chats[CHAT_ULID]).toBeUndefined();
+        expect(session.store.getState().messages[CHAT_ULID]).toBeUndefined();
+        expect(backend.current.state.chats.has(CHAT_ULID)).toBe(false);
+    });
+
+    it('treats "already gone" (404) as done', async () => {
+        await openSheet();
+        backend.current.state.chats.delete(CHAT_ULID);
+
+        await click(byTestId('wa-details-delete'));
+        await click(byTestId('wa-delete-chat-dialog-confirm'));
+
+        await waitFor(() =>
+            expect(routerMock.visit).toHaveBeenCalledWith('/whatsapp'),
+        );
+    });
+
+    it('stays on the chat and says why when the server refuses (403) or fails (500), so it can be tried again', async () => {
+        const { session } = await openSheet();
+
+        backend.current.state.deleteChatError = {
+            status: 403,
+            code: 'forbidden',
+        };
+        await click(byTestId('wa-details-delete'));
+        await click(byTestId('wa-delete-chat-dialog-confirm'));
+
+        await waitFor(() => expect(dialogError()).not.toBeNull());
+        expect(routerMock.visit).not.toHaveBeenCalled();
+        expect(toast.success).not.toHaveBeenCalled();
+        expect(session.store.getState().chats[CHAT_ULID]).toBeDefined();
+        expect(byTestId('wa-delete-chat-dialog')).not.toBeNull();
+
+        backend.current.state.deleteChatError = {
+            status: 500,
+            code: 'server_error',
+        };
+        await click(byTestId('wa-delete-chat-dialog-confirm'));
+        await waitFor(() => expect(deletes()).toHaveLength(2));
+        expect(routerMock.visit).not.toHaveBeenCalled();
+
+        // The third try goes through.
+        await click(byTestId('wa-delete-chat-dialog-confirm'));
+        await waitFor(() =>
+            expect(routerMock.visit).toHaveBeenCalledWith('/whatsapp'),
+        );
     });
 });
 

@@ -20,7 +20,10 @@ import {
     StaffRealtimeContext,
     type StaffRealtimeContextValue,
 } from '@/lib/realtime/staff/context';
-import { setOsNotificationPolicy } from '@/lib/realtime/staff/os-notification';
+import {
+    resetOsNotificationPolicy,
+    setOsNotificationPolicy,
+} from '@/lib/realtime/staff/os-notification';
 import {
     fireRouterEvent,
     resetInertiaMock,
@@ -53,6 +56,7 @@ vi.mock('@/lib/realtime/staff/os-notification', async (importOriginal) => ({
         typeof import('@/lib/realtime/staff/os-notification')
     >()),
     setOsNotificationPolicy: vi.fn(),
+    resetOsNotificationPolicy: vi.fn(),
 }));
 
 const staff = { id: 7, name: 'Sam', is_admin: false, is_agent: true };
@@ -345,6 +349,31 @@ describe('the dialog and the page', () => {
         expect(document.querySelector('[role="dialog"]')).not.toBeNull();
     });
 
+    it('does not open the first-login dialog for an administrator who does not take chats, but does for an agent', async () => {
+        for (const [user, opens] of [
+            [{ id: 1, name: 'Ada', is_admin: true, is_agent: false }, false],
+            [{ id: 7, name: 'Sam', is_admin: false, is_agent: true }, true],
+            [{ id: 2, name: 'Both', is_admin: true, is_agent: true }, true],
+        ] as const) {
+            const r = setup();
+            const view = await render(
+                r.wrap(
+                    <NotificationsHost initialPage={page(user)} deps={r.deps}>
+                        <Probe />
+                    </NotificationsHost>,
+                ),
+            );
+
+            await act(async () => {
+                await new Promise((resolve) => setTimeout(resolve, 10));
+            });
+            expect(document.querySelector('[role="dialog"]') !== null).toBe(
+                opens,
+            );
+            await view.unmount();
+        }
+    });
+
     it('opens the chat a clicked notification asks for, through the router, only for same-origin paths', async () => {
         const r = setup();
 
@@ -437,9 +466,61 @@ describe("quiet hours for the page's own notifications", () => {
         expect(registered?.quiet?.()).toBe(false);
 
         await view.unmount();
-        expect(
-            vi.mocked(setOsNotificationPolicy).mock.calls.at(-1)?.[0],
-        ).toEqual({ quiet: null });
+        expect(resetOsNotificationPolicy).toHaveBeenCalled();
+    });
+
+    it("registers the member's own switches too, live: previews, offers, messages and this browser off", async () => {
+        const r = setup();
+        let controller: ReturnType<typeof useNotificationsOptional> = null;
+
+        function Grab() {
+            controller = useNotificationsOptional();
+
+            return null;
+        }
+
+        const view = await render(
+            r.wrap(
+                <NotificationsHost initialPage={page(staff)} deps={r.deps}>
+                    <Grab />
+                </NotificationsHost>,
+            ),
+        );
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+        });
+
+        const registered = vi
+            .mocked(setOsNotificationPolicy)
+            .mock.calls.at(-1)?.[0];
+
+        expect(registered?.preferences?.()).toEqual({
+            previews: true,
+            offers: true,
+            messages: true,
+            off: false,
+        });
+
+        await act(async () => {
+            await controller?.updateSettings({
+                includePreview: false,
+                pushOffers: false,
+                pushMessages: false,
+            });
+        });
+        expect(registered?.preferences?.()).toEqual({
+            previews: false,
+            offers: false,
+            messages: false,
+            off: false,
+        });
+
+        await act(async () => {
+            await controller?.disable();
+        });
+        expect(registered?.preferences?.()?.off).toBe(true);
+
+        await view.unmount();
     });
 });
 

@@ -1289,7 +1289,11 @@ export class ChatController {
                     category === undefined ? {} : { category },
                 );
 
-                this.dispatch({ type: 'WHATSAPP_OK', handoff });
+                this.dispatch({
+                    type: 'WHATSAPP_OK',
+                    handoff,
+                    now: this.now(),
+                });
 
                 return;
             } catch (error) {

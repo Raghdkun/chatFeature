@@ -154,14 +154,18 @@ export function SessionsCard({
         action: SessionAction,
         call: () => Promise<WhatsAppSession>,
         done?: (next: WhatsAppSession) => void,
-    ): Promise<void> => {
+    ): Promise<boolean> => {
         setBusy({ ulid: session.ulid, action });
         problem(session.ulid, null);
 
         try {
             done?.(await call());
+
+            return true;
         } catch (error) {
             problem(session.ulid, describeWaError(error, t, locale));
+
+            return false;
         } finally {
             setBusy(null);
         }
@@ -310,7 +314,7 @@ export function SessionsCard({
                 }}
                 starting={busy?.action === 'start'}
                 onStart={(session) =>
-                    void run(
+                    run(
                         session,
                         'start',
                         () => controller.start(session.ulid),

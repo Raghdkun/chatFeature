@@ -25,6 +25,7 @@ import {
     mergeMessages,
     setPendingStatus,
 } from '@/lib/chat/messages';
+import { handoffDeadline } from '@/embed/lib/whatsapp';
 import type { HandoffResponse } from '@/lib/whatsapp/types';
 import type {
     AgentRef,
@@ -185,8 +186,11 @@ export type MachineState = {
         email?: string;
     };
     closedReason: ClosedReason | null;
-    /** The hand-off the visitor is looking at (`whatsapp` phase): the code, the `wa.me` link, when it stops working. */
-    whatsapp: { handoff: HandoffResponse | null };
+    /**
+     * The hand-off the visitor is looking at (`whatsapp` phase): the code, the `wa.me` link, and `deadline`, when it stops working on this
+     * browser's own clock (counted from the answer's arrival, never from a clock of the server: see `handoffDeadline`).
+     */
+    whatsapp: { handoff: HandoffResponse | null; deadline: number | null };
     /**
      * Agent messages up to this `seq` were on screen while the panel was open: the launcher never counts them as unread, whether or
      * not the visitor scrolled to them (the receipts stay honest, they only follow what was really seen).
@@ -214,7 +218,7 @@ export function createInitialState(open = false): MachineState {
         transferred: false,
         offline: { reason: 'no_agents', missed: null, ticket: null },
         closedReason: null,
-        whatsapp: { handoff: null },
+        whatsapp: { handoff: null, deadline: null },
         acknowledgedSeq: 0,
     };
 }
@@ -249,7 +253,7 @@ export type Action =
     | { type: 'WHATSAPP_START' }
     /** "Get a new code" on the hand-off screen. */
     | { type: 'WHATSAPP_NEW_CODE' }
-    | { type: 'WHATSAPP_OK'; handoff: HandoffResponse }
+    | { type: 'WHATSAPP_OK'; handoff: HandoffResponse; now: number }
     | { type: 'WHATSAPP_FAIL'; failure: CreateFailure }
     /** "I sent it". */
     | { type: 'WHATSAPP_SENT' }
@@ -356,7 +360,7 @@ function cleared(state: MachineState): MachineState {
         ...state,
         category: null,
         channel: 'chat',
-        whatsapp: { handoff: null },
+        whatsapp: { handoff: null, deadline: null },
         initialMessage: null,
         conversation: null,
         messages: [],
@@ -575,7 +579,7 @@ export function reduce(state: MachineState, action: Action): MachineState {
                 return toFirstStep({
                     ...state,
                     channel: 'chat',
-                    whatsapp: { handoff: null },
+                    whatsapp: { handoff: null, deadline: null },
                     busy: null,
                     notice: null,
                     fieldErrors: {},
@@ -659,7 +663,10 @@ export function reduce(state: MachineState, action: Action): MachineState {
             }
 
             const patch: Partial<MachineState> = {
-                whatsapp: { handoff: action.handoff },
+                whatsapp: {
+                    handoff: action.handoff,
+                    deadline: handoffDeadline(action.handoff, action.now),
+                },
                 busy: null,
                 notice: null,
                 fieldErrors: {},
@@ -704,7 +711,7 @@ export function reduce(state: MachineState, action: Action): MachineState {
                 : go(state, 'closed', {
                       closedReason: 'whatsapp',
                       channel: 'chat',
-                      whatsapp: { handoff: null },
+                      whatsapp: { handoff: null, deadline: null },
                       busy: null,
                       notice: null,
                   });

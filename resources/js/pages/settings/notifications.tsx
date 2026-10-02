@@ -1,4 +1,5 @@
 import { Head, usePage } from '@inertiajs/react';
+import type { ReactNode } from 'react';
 import { BrowserSection } from '@/components/notifications/browser-section';
 import { DevicesSection } from '@/components/notifications/devices-section';
 import { PreferencesSection } from '@/components/notifications/preferences-section';
@@ -8,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Notice } from '@/components/widgets/form-bits';
 import { useTrans } from '@/hooks/use-trans';
+import AppLayout from '@/layouts/app-layout';
+import SettingsLayout from '@/layouts/settings/layout';
 import {
     useNotificationsOptional,
     useNotificationsState,
@@ -92,11 +95,22 @@ export default function Notifications() {
     );
 }
 
-Notifications.layout = {
-    breadcrumbs: [
-        {
-            title: 'Notification settings',
-            href: notificationRoutes.pages.settings,
-        },
-    ],
-};
+Notifications.layout = [NotificationsAppLayout, SettingsLayout];
+
+/** The breadcrumb is translated like every other label (a static layout prop could not be). */
+function NotificationsAppLayout({ children }: { children: ReactNode }) {
+    const { t } = useTrans();
+
+    return (
+        <AppLayout
+            breadcrumbs={[
+                {
+                    title: t('notifications.settings.title'),
+                    href: notificationRoutes.pages.settings,
+                },
+            ]}
+        >
+            {children}
+        </AppLayout>
+    );
+}

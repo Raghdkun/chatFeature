@@ -43,6 +43,11 @@ export const KEEPALIVE_AFTER_HIDDEN_MS = 10 * 60_000;
  * the beat is out, so the selector never keeps saying "Online" for an agent the server already considers offline.
  */
 export const PRESENCE_RESYNC_AFTER_MS = 3 * HEARTBEAT_INTERVAL_MS;
+/**
+ * Beats that failed one after the other before the status is read again: that is about the server's whole 90 s window, after which it
+ * may already consider the agent offline (and an outage past 180 s makes it forget them altogether).
+ */
+export const PRESENCE_RESYNC_AFTER_FAILED_BEATS = 3;
 /** `setTimeout` takes a 32-bit delay; a longer wait (a deadline days away) fires early and is simply re-planned. */
 const MAX_TIMER_MS = 2_000_000_000;
 /** Coalesces a burst of `queue.updated` events into one refetch. */
@@ -118,6 +123,18 @@ export type ClaimOutcome =
     | { ok: true; conversation: ConversationStaff }
     | { ok: false; reason: 'taken' | 'failed' };
 
+/** What one heartbeat came to (see `sendHeartbeat`). */
+export type BeatOutcome = 'skipped' | 'failed' | 'sent' | 'applied';
+
+/** The status a heartbeat answer carries, or `null` (`204`, an older backend, a shape this build does not know). */
+function reportedStatus(answer: unknown): PresenceStatus | null {
+    const status = (answer as { status?: unknown } | null | undefined)?.status;
+
+    return status === 'online' || status === 'away' || status === 'offline'
+        ? status
+        : null;
+}
+
 export function offerTag(ulid: string): string {
     return `offer-${ulid}`;
 }
@@ -142,6 +159,10 @@ export function createStaffController(deps: StaffControllerDeps) {
     let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
     let hiddenSince: number | null = null;
     let lastBeatTick = 0;
+    /** Beats that failed in a row; a success after a failure re-reads the status (the server may have forgotten this agent meanwhile). */
+    let failedBeats = 0;
+    /** The websocket was connected at least once: a later `connected` is a RECONNECT after a drop. */
+    let connectedOnce = false;
     /** Bumped by every own status change (a choice, an event): an answer to an older `GET /me/presence` is not applied. */
     let presenceEpoch = 0;
     let unsubscribe: (() => void) | null = null;
@@ -382,31 +403,66 @@ export function createStaffController(deps: StaffControllerDeps) {
     /** The caller's own status, when the page did not bring it (any page but the inbox): then the first beat. */
     async function loadPresence(): Promise<void> {
         if (store.getState().presence !== null) {
-            return sendHeartbeat();
+            await sendHeartbeat();
+
+            return;
         }
 
         try {
             const own = await api.presence();
 
             store.dispatch({ type: 'presence', status: own.status });
-
-            return sendHeartbeat();
+            await sendHeartbeat();
         } catch {
             // Unknown stays unknown: the selector shows "unavailable" and the next page load tries again.
         }
     }
 
-    async function sendHeartbeat(): Promise<void> {
+    /**
+     * One beat. `applied`: the answer carried the status the server holds now (newer backends answer `200 {status, isManual}`) and the
+     * selector follows it at once; `sent`: an empty answer (`204`); `failed`: it did not get through; `skipped`: this agent is not online
+     * or away, so nothing is sent. Whatever the answer says is dropped when the agent changed their own status while it was on its way.
+     */
+    async function sendHeartbeat(): Promise<BeatOutcome> {
         const status = store.getState().presence;
 
         if (status !== 'online' && status !== 'away') {
-            return;
+            return 'skipped';
         }
 
+        const epoch = presenceEpoch;
+
         try {
-            await api.heartbeat(isVisible());
+            const answer = await api.heartbeat(isVisible());
+            const recovered = failedBeats > 0;
+
+            failedBeats = 0;
+
+            const reported = reportedStatus(answer);
+
+            if (reported !== null) {
+                if (started && epoch === presenceEpoch) {
+                    store.dispatch({ type: 'presence', status: reported });
+                }
+
+                return 'applied';
+            }
+
+            if (recovered) {
+                // Beats were missing for a while: the server may have moved (or forgotten) this agent meanwhile.
+                void refreshPresence();
+            }
+
+            return 'sent';
         } catch {
-            // A missed beat is covered by the 90 s window; the next one retries.
+            // A missed beat is covered by the 90 s window and the next one retries; a run of misses re-reads the status once.
+            failedBeats++;
+
+            if (failedBeats === PRESENCE_RESYNC_AFTER_FAILED_BEATS) {
+                void refreshPresence();
+            }
+
+            return 'failed';
         }
     }
 
@@ -430,9 +486,20 @@ export function createStaffController(deps: StaffControllerDeps) {
         const gap = now() - lastBeatTick;
 
         lastBeatTick = now();
-        await sendHeartbeat();
 
-        if (gap > PRESENCE_RESYNC_AFTER_MS) {
+        const outcome = await sendHeartbeat();
+
+        if (gap > PRESENCE_RESYNC_AFTER_MS && outcome !== 'applied') {
+            await refreshPresence();
+        }
+    }
+
+    /**
+     * Whatever happened while this tab could not reach the server (a dropped socket, the network gone and back): beat, then learn the
+     * status the server holds now, unless the beat's answer already said it. An agent the server forgot shows as offline at once.
+     */
+    async function resyncPresence(): Promise<void> {
+        if ((await sendHeartbeat()) !== 'applied') {
             await refreshPresence();
         }
     }
@@ -507,6 +574,9 @@ export function createStaffController(deps: StaffControllerDeps) {
             title: t('inbox.toast.offer_title'),
             body: t('inbox.toast.offer_body', { name: who, topic }),
             tag: offerTag(offer.conversation),
+            kind: 'offer',
+            // With previews off the page says what the push says: the topic (admin-defined), nothing the visitor typed or is called.
+            generic: { title: t('inbox.toast.offer_title'), body: topic },
             onClick: () => effects.openConversation(offer.conversation),
         });
     }
@@ -576,6 +646,11 @@ export function createStaffController(deps: StaffControllerDeps) {
                 title: t('inbox.toast.message_title', { name: who }),
                 body: before.lastMessagePreview ?? undefined,
                 tag: `message-${payload.conversation}`,
+                kind: 'message',
+                generic: {
+                    title: t('notifications.push.message_title_private'),
+                    body: t('notifications.push.message_body_private'),
+                },
                 onClick: () => effects.openConversation(payload.conversation),
             });
         }
@@ -682,7 +757,31 @@ export function createStaffController(deps: StaffControllerDeps) {
         // Back online after a drop: whatever happened meanwhile is a REST call away.
         if (status === 'connected' && previous !== 'connected' && started) {
             void sync();
+
+            // The first connection of the page brings nothing new (the beat of `start()` is out); a RECONNECT may have lasted past the
+            // server's window, so the agent's status is read again.
+            if (connectedOnce) {
+                void resyncPresence();
+            }
         }
+
+        if (status === 'connected') {
+            connectedOnce = true;
+        }
+    }
+
+    /**
+     * The browser says the network is back (the window's `online` event), whether or not this tab is in front: the lists and the agent's
+     * status are read again. (The websocket may already be connected, so a `connected` transition alone is not enough.)
+     */
+    function online(): void {
+        if (!started) {
+            return;
+        }
+
+        lastBeatTick = now();
+        void sync();
+        void resyncPresence();
     }
 
     /** The tab went to the background: remember since when, to know on its return whether the session needs a keep-alive. */
@@ -705,8 +804,10 @@ export function createStaffController(deps: StaffControllerDeps) {
         void sync();
         // The tab is visible again: say so at once (a visible beat brings an agent who went away back online), then, after a long absence,
         // learn what the server made of it.
-        void sendHeartbeat().then(() =>
-            away > PRESENCE_RESYNC_AFTER_MS ? refreshPresence() : undefined,
+        void sendHeartbeat().then((outcome) =>
+            away > PRESENCE_RESYNC_AFTER_MS && outcome !== 'applied'
+                ? refreshPresence()
+                : undefined,
         );
 
         if (away > KEEPALIVE_AFTER_HIDDEN_MS) {
@@ -774,6 +875,8 @@ export function createStaffController(deps: StaffControllerDeps) {
         }
 
         hiddenSince = null;
+        failedBeats = 0;
+        connectedOnce = false;
 
         exitTimers.forEach((timer) => clearTimeout(timer));
         exitTimers.clear();
@@ -789,6 +892,7 @@ export function createStaffController(deps: StaffControllerDeps) {
         setPresence,
         setConnection,
         sleep,
+        online,
         /** Exposed for tests. */
         heartbeat: sendHeartbeat,
     };

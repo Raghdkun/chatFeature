@@ -218,6 +218,82 @@ describe('displayMessages', () => {
     });
 });
 
+describe('a reply the server stored but could not queue', () => {
+    const failedEntry = (overrides: Partial<OutboxEntry> = {}) =>
+        entry({
+            clientMsgId: 'client-1',
+            state: 'failed',
+            failure: 'queue_unavailable',
+            ...overrides,
+        });
+
+    it('shows the server\u2019s FAILED row as the bubble, with the entry\u2019s Retry / Discard marker, once', () => {
+        const known = makeWaMessage();
+        const stored = makeWaReply({
+            body: 'On my way',
+            status: 'failed',
+            error: 'The message could not be queued for sending.',
+        });
+        const shown = displayMessages(
+            [known, stored],
+            [failedEntry({ after: known.ulid })],
+            'chat-1',
+            ME,
+        );
+
+        expect(shown.map((m) => m.ulid)).toEqual([known.ulid, stored.ulid]);
+        expect(shown[1]).toMatchObject({
+            status: 'failed',
+            local: {
+                clientMsgId: 'client-1',
+                failure: 'queue_unavailable',
+                retryAfter: null,
+            },
+        });
+        expect(shown[0].local).toBeUndefined();
+    });
+
+    it('also finds it by the id the answer carried', () => {
+        const stored = makeWaReply({ body: 'x', status: 'failed' });
+        const shown = displayMessages(
+            [stored],
+            [failedEntry({ serverUlid: stored.ulid, body: 'other' })],
+            'chat-1',
+            ME,
+        );
+
+        expect(shown).toHaveLength(1);
+        expect(shown[0].local?.clientMsgId).toBe('client-1');
+    });
+
+    it('does not dress a row that is not failed (still pending: the status event has not come yet), and not another kind of failure', () => {
+        const pending = makeWaReply({ body: 'On my way', status: 'pending' });
+        const failed = makeWaReply({ body: 'On my way', status: 'failed' });
+
+        expect(
+            displayMessages([pending], [failedEntry()], 'chat-1', ME)[0].local,
+        ).toBeUndefined();
+        // An uncertain failure is not adopted: its retry looks at the transcript first and would drop the entry.
+        expect(
+            displayMessages(
+                [failed],
+                [failedEntry({ failure: 'network' })],
+                'chat-1',
+                ME,
+            )[0].local,
+        ).toBeUndefined();
+        // Being retried: the entry is sending again, the row is just the row.
+        expect(
+            displayMessages(
+                [failed],
+                [failedEntry({ state: 'sending', failure: null })],
+                'chat-1',
+                ME,
+            )[0].local,
+        ).toBeUndefined();
+    });
+});
+
 describe('syncCursor', () => {
     it('starts right after the newest message when every reply of ours is settled', () => {
         const a = makeWaMessage();
@@ -268,6 +344,9 @@ describe('send failures', () => {
         expect(
             sendFailureOf(error('validation_failed', 422, { x: ['y'] })),
         ).toBe('rejected');
+        expect(sendFailureOf(error('queue_unavailable', 503))).toBe(
+            'queue_unavailable',
+        );
         expect(sendFailureOf(error('network', 0))).toBe('network');
         expect(sendFailureOf(error('server_error', 500))).toBe('unknown');
         expect(sendFailureOf(new Error('boom'))).toBe('unknown');
@@ -279,6 +358,9 @@ describe('send failures', () => {
         expect(isFinalSendFailure('session_not_ready')).toBe(false);
         expect(isFinalSendFailure('pacing')).toBe(false);
         expect(isFinalSendFailure(null)).toBe(false);
+        // The server answered clearly that it did not send: a retry is offered, and it needs no look-first (it cannot double-send).
+        expect(isFinalSendFailure('queue_unavailable')).toBe(false);
+        expect(isUncertainSendFailure('queue_unavailable')).toBe(false);
         expect(isUncertainSendFailure('network')).toBe(true);
         expect(isUncertainSendFailure('unknown')).toBe(true);
         expect(isUncertainSendFailure('daily_cap')).toBe(false);

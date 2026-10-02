@@ -9,14 +9,19 @@ import {
 } from '@/components/ui/popover';
 import { useTrans } from '@/hooks/use-trans';
 import type { PresenceMemberData } from '@/lib/chat/types';
+import { useNotificationsOptional } from '@/lib/notifications/context';
 import type { SoundPlayer } from '@/lib/realtime/staff/sound';
 
 /**
  * Mute / unmute the inbox sounds (remembered per browser). Until the first click or key press the browser keeps the page silent, so a
  * dot says so ("click anywhere") instead of letting the first request go unheard. Unmuting is a gesture too, so it unlocks the audio.
+ *
+ * It writes the SAME setting as Settings > Notifications ("Sound for new chats"): the server's value is applied to the player on every
+ * page load, so a toggle that only changed this browser would be undone by the next one.
  */
 export function SoundToggle({ sound }: { sound: SoundPlayer }) {
     const { t } = useTrans();
+    const notifications = useNotificationsOptional();
     const state = useSyncExternalStore(
         sound.subscribe,
         sound.state,
@@ -45,8 +50,24 @@ export function SoundToggle({ sound }: { sound: SoundPlayer }) {
                 sound.unlock();
 
                 // A click on a locked toggle is the gesture the browser was waiting for: it turns the sound on, it does not mute.
-                if (state !== 'locked') {
-                    sound.setMuted(state !== 'muted');
+                if (state === 'locked') {
+                    return;
+                }
+
+                const muted = state !== 'muted';
+
+                sound.setMuted(muted);
+
+                // Settings not loaded yet (or no session): nothing to write, this browser's choice stands until they are.
+                if (notifications?.getState().settings) {
+                    void notifications
+                        .updateSettings({ sound: !muted })
+                        .then((saved) => {
+                            // A save the server refused: the screen and the stored value agree again.
+                            if (!saved) {
+                                sound.setMuted(!muted);
+                            }
+                        });
                 }
             }}
         >

@@ -1,4 +1,4 @@
-import { act } from 'react';
+import { act, useState } from 'react';
 import {
     afterEach,
     beforeEach,
@@ -15,6 +15,7 @@ import {
 } from '@/lib/realtime/whatsapp/use-qr-poll';
 import type { WaApi } from '@/lib/whatsapp-api/client';
 import type { QrResult } from '@/lib/whatsapp-api/types';
+import type { SessionStatus } from '@/lib/whatsapp/types';
 import { render } from '@/tests/render';
 
 const PNG = 'data:image/png;base64,iVBORw0KGgo=';
@@ -35,8 +36,16 @@ function setup(replies: (QrResult | Error)[]) {
     const seen: QrView[] = [];
     let refresh: () => void = () => undefined;
 
-    function Probe({ open, ulid }: { open: boolean; ulid: string | null }) {
-        const poll = useQrPoll({ ulid, open, api, onReady });
+    function Probe({
+        open,
+        ulid,
+        status,
+    }: {
+        open: boolean;
+        ulid: string | null;
+        status?: SessionStatus;
+    }) {
+        const poll = useQrPoll({ ulid, open, api, onReady, status });
 
         seen.push(poll.view);
         refresh = poll.refresh;
@@ -239,5 +248,66 @@ describe('the QR poll', () => {
 
         await act(async () => refresh());
         expect(qr).toHaveBeenCalledTimes(2);
+    });
+
+    describe('after the session was found not running', () => {
+        function Harness({
+            Probe,
+            expose,
+        }: {
+            Probe: ReturnType<typeof setup>['Probe'];
+            expose: (set: (status: SessionStatus) => void) => void;
+        }) {
+            const [status, setStatus] = useState<SessionStatus>('disconnected');
+
+            expose(setStatus);
+
+            return <Probe open ulid="s1" status={status} />;
+        }
+
+        it('reads again when the status the page knows changes (started again, here or by another admin)', async () => {
+            const { qr, Probe } = setup([
+                { status: 'disconnected', image: null, updatedAt: null },
+                { status: 'qr', image: PNG, updatedAt: null },
+            ]);
+            let setStatus: (status: SessionStatus) => void = () => undefined;
+
+            await render(
+                <Harness Probe={Probe} expose={(set) => (setStatus = set)} />,
+            );
+            expect(shows('stopped')).toBe(true);
+            expect(qr).toHaveBeenCalledTimes(1);
+
+            // Nothing changes by waiting: the poll stopped.
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(QR_POLL_MS * 4);
+            });
+            expect(qr).toHaveBeenCalledTimes(1);
+
+            await act(async () => setStatus('starting'));
+
+            expect(qr).toHaveBeenCalledTimes(2);
+            expect(shows('qr')).toBe(true);
+        });
+
+        it('a manual refresh (the dialog started the session) resumes it too', async () => {
+            const { qr, Probe, refresh } = setup([
+                { status: 'disconnected', image: null, updatedAt: null },
+                { status: 'starting', image: null, updatedAt: null },
+                { status: 'qr', image: PNG, updatedAt: null },
+            ]);
+
+            await render(<Probe open ulid="s1" />);
+            expect(shows('stopped')).toBe(true);
+
+            await act(async () => refresh());
+            expect(shows('waiting')).toBe(true);
+
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(QR_POLL_MS);
+            });
+            expect(shows('qr')).toBe(true);
+            expect(qr).toHaveBeenCalledTimes(3);
+        });
     });
 });

@@ -79,4 +79,11 @@ describe('shouldPrompt', () => {
         expect(shouldPrompt(input({ settings: null }))).toBe(false);
         expect(shouldPrompt(input({ offHere: true }))).toBe(false);
     });
+
+    it('only asks agents: an account that does not take chats is never pushed, so never asked', () => {
+        expect(shouldPrompt(input({ isAgent: false }))).toBe(false);
+        expect(shouldPrompt(input({ isAgent: true }))).toBe(true);
+        // Unspecified = an agent (the controller always says).
+        expect(shouldPrompt(input())).toBe(true);
+    });
 });

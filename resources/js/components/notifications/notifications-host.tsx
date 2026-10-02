@@ -20,6 +20,7 @@ import { i18n } from '@/hooks/use-trans';
 import { NotificationsContext } from '@/lib/notifications/context';
 import {
     createNotificationsController,
+    osPreferencesOf,
     type NotificationsController,
     type NotificationsDeps,
 } from '@/lib/notifications/controller';
@@ -27,7 +28,10 @@ import { isQuietNow } from '@/lib/notifications/quiet-hours';
 import { notificationRoutes } from '@/lib/notifications/routes';
 import { useStaffRealtimeOptional } from '@/lib/realtime/staff/context';
 import { identityOf } from '@/lib/realtime/staff/host';
-import { setOsNotificationPolicy } from '@/lib/realtime/staff/os-notification';
+import {
+    resetOsNotificationPolicy,
+    setOsNotificationPolicy,
+} from '@/lib/realtime/staff/os-notification';
 
 type PageLike = { props: Record<string, unknown>; url?: string };
 
@@ -124,6 +128,7 @@ export function NotificationsHost({
             ? identity.user
             : null;
     const staffId = staff?.id ?? null;
+    const staffAgent = staff?.isAgent ?? false;
 
     const controller = useMemo<NotificationsController | null>(
         () =>
@@ -132,6 +137,7 @@ export function NotificationsHost({
                 : createNotificationsController({
                       userId: staffId,
                       vapidPublicKey: pushKey,
+                      isAgent: staffAgent,
                       ...depsRef.current,
                       // The server's mute wins over a device that is unmuted; a device the person muted stays muted (they own that toggle).
                       onSoundPreference: (soundOn) => {
@@ -148,7 +154,7 @@ export function NotificationsHost({
                               ? openRef.current(target)
                               : router.visit(target),
                   }),
-        [staffId, pushKey],
+        [staffId, staffAgent, pushKey],
     );
 
     useEffect(() => {
@@ -157,8 +163,10 @@ export function NotificationsHost({
         }
 
         void controller.start();
+        // Getters, so the page's own notifications always follow the member's current settings (previews, offers, messages, this browser off).
         setOsNotificationPolicy({
             quiet: () => isQuietNow(controller.getState().settings?.quietHours),
+            preferences: () => osPreferencesOf(controller.getState()),
         });
 
         const recheck = (): void => {
@@ -171,7 +179,7 @@ export function NotificationsHost({
 
         return () => {
             document.removeEventListener('visibilitychange', recheck);
-            setOsNotificationPolicy({ quiet: null });
+            resetOsNotificationPolicy();
             controller.stop();
         };
     }, [controller]);

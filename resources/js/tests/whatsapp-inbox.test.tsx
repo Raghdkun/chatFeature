@@ -507,7 +507,10 @@ describe('more than one page', () => {
         await click(byTestId('wa-list-more'));
         await waitFor(() => expect(rows().length).toBe(52));
         expect(byTestId('wa-list-more')).toBeNull();
-        expect(listCalls().at(-1)?.query.cursor).toBe('50');
+        // The cursor is the server's, handed back untouched (it is opaque: not a page number, not an offset).
+        expect(listCalls().at(-1)?.query.cursor).toMatch(
+            /^wc1_[A-Za-z0-9+/]+$/,
+        );
     });
 
     it('does not read the list on the first render when the props hold all of it', async () => {
