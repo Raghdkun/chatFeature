@@ -104,6 +104,16 @@ class Category extends Model
     }
 
     /**
+     * WhatsApp chats a hand-off ticket linked to this category.
+     *
+     * @return HasMany<WaChat, $this>
+     */
+    public function waChats(): HasMany
+    {
+        return $this->hasMany(WaChat::class);
+    }
+
+    /**
      * @param  Builder<Category>  $query
      * @return Builder<Category>
      */

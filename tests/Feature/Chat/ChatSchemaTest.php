@@ -63,6 +63,16 @@ class ChatSchemaTest extends TestCase
         );
     }
 
+    private function migrationsSinceChat(): int
+    {
+        $files = array_filter(
+            scandir(database_path('migrations')) ?: [],
+            static fn (string $file): bool => str_ends_with($file, '.php') && strcmp($file, '2026_11_10_000100') >= 0,
+        );
+
+        return count($files);
+    }
+
     public function test_every_table_has_exactly_the_documented_columns(): void
     {
         foreach (self::expectedColumns() as $table => $columns) {
@@ -73,7 +83,8 @@ class ChatSchemaTest extends TestCase
 
     public function test_the_migrations_roll_back_cleanly_and_run_again(): void
     {
-        $this->artisan('migrate:rollback', ['--step' => 4, '--force' => true])->assertSuccessful();
+        // Every migration from the first chat table on (the P4 block and the phases after it, which reference these tables) goes back.
+        $this->artisan('migrate:rollback', ['--step' => $this->migrationsSinceChat(), '--force' => true])->assertSuccessful();
 
         foreach (array_keys(self::expectedColumns()) as $table) {
             $this->assertFalse(Schema::hasTable($table), "{$table} should be gone after the rollback");

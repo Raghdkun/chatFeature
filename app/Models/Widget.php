@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -36,11 +37,13 @@ use Illuminate\Support\Facades\Crypt;
  * @property string $timezone
  * @property bool $allow_non_browser_clients
  * @property string|null $identity_secret_encrypted
+ * @property int|null $whatsapp_session_id
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property Carbon|null $deleted_at
  * @property-read int|null $domains_count
  * @property-read int|null $categories_count
+ * @property-read WhatsAppSession|null $whatsappSession
  */
 #[Fillable(['name', 'is_enabled', 'locale', 'idle_timeout_minutes', 'queue_timeout_seconds', 'offline_mode', 'timezone', 'allow_non_browser_clients'])]
 #[Hidden(['identity_secret_encrypted'])]
@@ -93,6 +96,7 @@ class Widget extends Model
             'queue_timeout_seconds' => 'integer',
             'offline_mode' => OfflineMode::class,
             'allow_non_browser_clients' => 'boolean',
+            'whatsapp_session_id' => 'integer',
         ];
     }
 
@@ -140,6 +144,34 @@ class Widget extends Model
     public function conversations(): HasMany
     {
         return $this->hasMany(Conversation::class);
+    }
+
+    /**
+     * The WhatsApp session (number) this widget hands visitors over to; null when none is linked (or the session was deleted).
+     *
+     * @return BelongsTo<WhatsAppSession, $this>
+     */
+    public function whatsappSession(): BelongsTo
+    {
+        return $this->belongsTo(WhatsAppSession::class, 'whatsapp_session_id');
+    }
+
+    /**
+     * WhatsApp chats a hand-off ticket linked to this widget.
+     *
+     * @return HasMany<WaChat, $this>
+     */
+    public function waChats(): HasMany
+    {
+        return $this->hasMany(WaChat::class);
+    }
+
+    /**
+     * @return HasMany<WaHandoffTicket, $this>
+     */
+    public function waHandoffTickets(): HasMany
+    {
+        return $this->hasMany(WaHandoffTicket::class);
     }
 
     public function hasIdentitySecret(): bool

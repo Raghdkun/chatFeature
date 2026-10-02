@@ -154,6 +154,16 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     }
 
     /**
+     * WhatsApp replies this administrator wrote (admin-only feature; empty for everybody else).
+     *
+     * @return HasMany<WaMessage, $this>
+     */
+    public function sentWhatsAppMessages(): HasMany
+    {
+        return $this->hasMany(WaMessage::class, 'sent_by_user_id');
+    }
+
+    /**
      * The DB mirror of this staff member's presence (absent until they first go online).
      *
      * @return HasOne<AgentPresence, $this>
