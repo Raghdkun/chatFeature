@@ -1424,7 +1424,7 @@ describe('the WhatsApp hand-off (P6)', () => {
             booted({ whatsapp: true, categoryCount: 3 }),
             { type: 'WHATSAPP_START' },
             { type: 'CATEGORY_PICK', slug: 'sales' },
-            { type: 'WHATSAPP_OK', handoff: HANDOFF },
+            { type: 'WHATSAPP_OK', handoff: HANDOFF, now: NOW },
         );
 
         expect(onCode.phase).toBe('whatsapp');
@@ -1441,7 +1441,7 @@ describe('the WhatsApp hand-off (P6)', () => {
         const single = run(
             booted({ whatsapp: true, categoryCount: 1 }),
             { type: 'WHATSAPP_START' },
-            { type: 'WHATSAPP_OK', handoff: HANDOFF },
+            { type: 'WHATSAPP_OK', handoff: HANDOFF, now: NOW },
             { type: 'BACK' },
         );
 

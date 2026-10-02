@@ -10,6 +10,7 @@ use App\Domain\WhatsApp\Support\Payload;
 use App\Domain\WhatsApp\Support\PhoneNumber;
 use App\Models\WhatsAppSession;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
