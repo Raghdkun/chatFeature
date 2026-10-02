@@ -109,7 +109,7 @@ $plan = function (string $sql, array $bindings): array {
     }
 
     try {
-        $rows = DB::select('EXPLAIN '.$sql, $bindings);
+        $rows = DB::select('EXPLAIN FORMAT=TRADITIONAL '.$sql, $bindings);
     } catch (Throwable $exception) {
         return [[['error' => substr($exception->getMessage(), 0, 160)]], null];
     }
