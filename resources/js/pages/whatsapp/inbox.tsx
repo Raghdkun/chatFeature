@@ -10,6 +10,7 @@ import {
     WaInboxShell,
 } from '@/components/whatsapp/inbox-shell';
 import { useReplyOnlyToInbound } from '@/components/whatsapp/use-reply-policy';
+import { WaReady } from '@/components/whatsapp/wa-ready';
 import { useTrans } from '@/hooks/use-trans';
 import type { WaInboxPageProps } from '@/types/whatsapp';
 
@@ -53,29 +54,31 @@ export default function WhatsAppInbox({
                         : t('whatsapp.inbox.title')
                 }
             />
-            <WaInboxShell
-                chats={chats}
-                cursor={meta.next_cursor}
-                hasMore={meta.next_cursor !== null}
-                sessions={sessions}
-                widgets={widgets}
-                categories={categories}
-                whatsappEnabled={whatsappEnabled}
-                selectedUlid={selected?.detail.chat.ulid ?? null}
-            >
-                {selected ? (
-                    // Keyed by chat: switching chats starts a clean transcript, composer and reply queue.
-                    <ChatView
-                        key={selected.detail.chat.ulid}
-                        detail={selected.detail}
-                        messages={selected.messages}
-                        hasOlder={selected.meta.prev_cursor !== null}
-                        replyOnlyToInbound={replyOnlyToInbound}
-                    />
-                ) : (
-                    <EmptyConversation />
-                )}
-            </WaInboxShell>
+            <WaReady>
+                <WaInboxShell
+                    chats={chats}
+                    cursor={meta.next_cursor}
+                    hasMore={meta.next_cursor !== null}
+                    sessions={sessions}
+                    widgets={widgets}
+                    categories={categories}
+                    whatsappEnabled={whatsappEnabled}
+                    selectedUlid={selected?.detail.chat.ulid ?? null}
+                >
+                    {selected ? (
+                        // Keyed by chat: switching chats starts a clean transcript, composer and reply queue.
+                        <ChatView
+                            key={selected.detail.chat.ulid}
+                            detail={selected.detail}
+                            messages={selected.messages}
+                            hasOlder={selected.meta.prev_cursor !== null}
+                            replyOnlyToInbound={replyOnlyToInbound}
+                        />
+                    ) : (
+                        <EmptyConversation />
+                    )}
+                </WaInboxShell>
+            </WaReady>
         </>
     );
 }

@@ -1,6 +1,7 @@
 /**
- * The WhatsApp live session of the page, mounted by the staff host (`StaffRealtimeHost`) for ADMINISTRATORS only: everybody else gets no
- * context, no store, no request and no subscription. It renders no UI of its own.
+ * The WhatsApp live session of the page, mounted by the staff host (`StaffRealtimeHost`, through `gate.tsx`, loaded on demand) for
+ * ADMINISTRATORS only: everybody else gets no context, no store, no request and no subscription, and never downloads this code. It
+ * renders no UI of its own.
  *
  * It does nothing until something needs it (`useWaRetain`: the sidebar badge, a WhatsApp page): the first consumer starts the unread
  * summary, the polling fallback and, when the page has a websocket, the `private-whatsapp-admin` subscriptions; the last one to leave stops
@@ -43,20 +44,19 @@ export function createWaSession(
     };
 }
 
-export function WhatsAppRealtimeProvider({
-    admin,
-    sockets,
-    api,
-    initial,
-    children,
-}: {
+type RuntimeOptions = {
     /** Only an active administrator gets a session. */
     admin: boolean;
     sockets: boolean;
     api?: WaApi;
     initial?: Partial<WaLiveState>;
-    children: ReactNode;
-}) {
+};
+
+/** The session of one administrator and everything that runs it: the controller while somebody retains it, the socket bindings. */
+function useWaRuntime({ admin, sockets, api, initial }: RuntimeOptions): {
+    session: WaRealtimeContextValue | null;
+    bindings: ReactNode;
+} {
     const [consumers, setConsumers] = useState(0);
     const session = useMemo(
         () =>
@@ -100,12 +100,48 @@ export function WhatsAppRealtimeProvider({
         };
     }, [session, active]);
 
+    return {
+        session,
+        bindings:
+            session && session.sockets && active ? (
+                <WaRealtimeBindings controller={session.controller} />
+            ) : null,
+    };
+}
+
+/** The session, mounted around its consumers (tests, and anything that can import this module statically). */
+export function WhatsAppRealtimeProvider({
+    children,
+    ...options
+}: RuntimeOptions & { children: ReactNode }) {
+    const { session, bindings } = useWaRuntime(options);
+
     return (
         <WaRealtimeContext.Provider value={session}>
-            {session && session.sockets && active ? (
-                <WaRealtimeBindings controller={session.controller} />
-            ) : null}
+            {bindings}
             {children}
         </WaRealtimeContext.Provider>
     );
+}
+
+/**
+ * The same session, run beside its consumers instead of around them: `publish` hands the session (and `null` when it goes away) to the
+ * component that provides the context. This is what the dashboard loads lazily (`gate.tsx`): the page's tree must not be re-created
+ * when the code arrives, so it cannot be a wrapper that appears later. Renders no UI.
+ */
+export function WhatsAppRealtimeEngine({
+    publish,
+    ...options
+}: RuntimeOptions & {
+    publish: (session: WaRealtimeContextValue | null) => void;
+}) {
+    const { session, bindings } = useWaRuntime(options);
+
+    useEffect(() => {
+        publish(session);
+
+        return () => publish(null);
+    }, [session, publish]);
+
+    return bindings;
 }

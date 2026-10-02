@@ -144,7 +144,10 @@ export function waLiveReducer(
         }
 
         case 'chatRemoved': {
-            if (!(action.ulid in state.chats) && !(action.ulid in state.messages)) {
+            if (
+                !(action.ulid in state.chats) &&
+                !(action.ulid in state.messages)
+            ) {
                 return state;
             }
 
@@ -312,38 +315,12 @@ export function waLiveReducer(
     }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Selectors                                                                  */
-/* -------------------------------------------------------------------------- */
-
-/** Unread messages across the open chats (an archived chat is out of sight and out of the count): the badge and the title. */
-export function selectUnreadTotal(state: WaLiveState): number {
-    let total = 0;
-
-    for (const chat of Object.values(state.chats)) {
-        if (chat.status === 'open' && chat.unreadByAdmin > 0) {
-            total += chat.unreadByAdmin;
-        }
-    }
-
-    return total;
-}
-
-/** How many open chats have something unread. */
-export function selectUnreadChats(state: WaLiveState): number {
-    return Object.values(state.chats).filter(
-        (chat) => chat.status === 'open' && chat.unreadByAdmin > 0,
-    ).length;
-}
-
-/** Newest first: the time of the last message, then the id (a ULID is time-ordered). */
-export function byRecency(a: WaChat, b: WaChat): number {
-    return (
-        (b.lastMessageAt ?? b.createdAt).localeCompare(
-            a.lastMessageAt ?? a.createdAt,
-        ) || b.ulid.localeCompare(a.ulid)
-    );
-}
+/* Selectors live in ./selectors (a tiny module the dashboard's initial bundle can import without this store); re-exported for the rest. */
+export {
+    byRecency,
+    selectUnreadChats,
+    selectUnreadTotal,
+} from '@/lib/realtime/whatsapp/selectors';
 
 /* -------------------------------------------------------------------------- */
 /* The store                                                                  */

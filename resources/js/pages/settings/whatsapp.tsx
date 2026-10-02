@@ -7,6 +7,7 @@ import { BehaviorCard } from '@/components/whatsapp/settings/behavior-card';
 import { ConnectionCard } from '@/components/whatsapp/settings/connection-card';
 import { RiskNotice } from '@/components/whatsapp/settings/risk-notice';
 import { SessionsCard } from '@/components/whatsapp/settings/sessions-card';
+import { WaReady } from '@/components/whatsapp/wa-ready';
 import { useTrans } from '@/hooks/use-trans';
 import AppLayout from '@/layouts/app-layout';
 import SettingsLayout from '@/layouts/settings/layout';
@@ -41,7 +42,11 @@ export default function WhatsAppSettings(props: WaSettingsPageProps) {
         );
     }
 
-    return <WhatsAppSettingsBody {...props} />;
+    return (
+        <WaReady>
+            <WhatsAppSettingsBody {...props} />
+        </WaReady>
+    );
 }
 
 function WhatsAppSettingsBody({

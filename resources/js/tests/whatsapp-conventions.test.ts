@@ -165,6 +165,7 @@ describe('translations', () => {
                 'name_taken',
                 'teardown_pending',
                 'session_busy',
+                'queue_unavailable',
                 'not_found',
             ].map((kind) => `whatsapp.error.${kind}`),
         ];
@@ -359,6 +360,48 @@ describe('isolation: WhatsApp stays an administrator feature', () => {
             );
 
         expect(offenders).toEqual([]);
+    });
+
+    it('keeps the live engine (provider, controller, store, bindings, API client) out of the dashboard\u2019s initial bundle: only a dynamic import in the gate reaches it', () => {
+        // The files every signed-in member downloads: the entry, the staff host, the gate, the context, the nav badge and the selectors.
+        const initial = [
+            '/resources/js/app.tsx',
+            '/resources/js/lib/realtime/staff/host.tsx',
+            '/resources/js/lib/realtime/whatsapp/gate.tsx',
+            '/resources/js/lib/realtime/whatsapp/context.tsx',
+            '/resources/js/lib/realtime/whatsapp/selectors.ts',
+            '/resources/js/components/whatsapp/nav-badge.tsx',
+            '/resources/js/nav/40-whatsapp.ts',
+        ];
+        const engine =
+            /^\s*import\s+(?!type\b)[^;]*?from\s+'@\/lib\/(?:realtime\/whatsapp\/(?:provider|controller|bindings|store|use-[\w-]+)|whatsapp-api\/client)'/m;
+        const sources = notTest(everything);
+
+        for (const path of initial) {
+            const source = sources.find(([file]) => file === path)?.[1];
+
+            expect(source, `${path} exists`).toBeDefined();
+            expect(engine.test(source as string), path).toBe(false);
+        }
+
+        // ... and the gate really does reach the engine, lazily.
+        const gate = sources.find(([file]) =>
+            file.endsWith('lib/realtime/whatsapp/gate.tsx'),
+        )?.[1];
+
+        expect(gate).toMatch(
+            /lazy\(\(\) =>\s*import\('@\/lib\/realtime\/whatsapp\/provider'\)/,
+        );
+        expect(
+            engine.test(
+                "import { x } from '@/lib/realtime/whatsapp/provider';",
+            ),
+        ).toBe(true);
+        expect(
+            engine.test(
+                "import type { x } from '@/lib/realtime/whatsapp/store';",
+            ),
+        ).toBe(false);
     });
 
     it('keeps the visitor panel and the loader free of the management client', () => {

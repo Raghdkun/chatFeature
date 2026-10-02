@@ -15,7 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Busy, Notice } from '@/components/widgets/form-bits';
 import { useTrans } from '@/hooks/use-trans';
-import { useWaApi } from '@/lib/realtime/whatsapp/context';
+import { useWaApi } from '@/lib/realtime/whatsapp/use-wa-api';
 import { describeWaError } from '@/lib/whatsapp-api/client';
 import {
     WA_LIMITS,

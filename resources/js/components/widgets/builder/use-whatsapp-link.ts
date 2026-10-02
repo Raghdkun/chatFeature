@@ -4,7 +4,7 @@
  * text). Loaded when the tab opens, not with the builder page: an administrator who never opens the tab costs no request.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { useWaApi } from '@/lib/realtime/whatsapp/context';
+import { useWaApi } from '@/lib/realtime/whatsapp/use-wa-api';
 import type { WaSettings, WidgetWhatsAppLink } from '@/lib/whatsapp-api/types';
 import type { WhatsAppSession } from '@/lib/whatsapp/types';
 

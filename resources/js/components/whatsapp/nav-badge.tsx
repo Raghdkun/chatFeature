@@ -3,7 +3,7 @@ import {
     useWaRetain,
     useWaStateOptional,
 } from '@/lib/realtime/whatsapp/context';
-import { selectUnreadTotal } from '@/lib/realtime/whatsapp/store';
+import { selectUnreadTotal } from '@/lib/realtime/whatsapp/selectors';
 
 /**
  * Unread WhatsApp messages, at the end of the "WhatsApp" sidebar entry (administrators only: the entry is not shown to anybody else, and
