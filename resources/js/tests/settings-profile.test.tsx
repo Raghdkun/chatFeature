@@ -81,6 +81,7 @@ describe('Settings in Auth Portal mode', () => {
         expect(navTexts(view)).toEqual([
             'Profile',
             'Appearance',
+            'Notifications',
             'Support categories',
         ]);
     });
@@ -96,6 +97,7 @@ describe('Settings in Auth Portal mode', () => {
             'Profile',
             'Security',
             'Appearance',
+            'Notifications',
             'Support categories',
         ]);
     });

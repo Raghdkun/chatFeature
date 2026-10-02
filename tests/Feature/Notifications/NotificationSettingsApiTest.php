@@ -42,6 +42,7 @@ class NotificationSettingsApiTest extends TestCase
                 'snoozedUntil' => null,
                 'previewsAllowed' => true,
                 'pushAvailable' => true,
+                'snoozeDays' => 7,
             ]]);
         $this->assertSame(0, NotificationSetting::query()->count());
     }
