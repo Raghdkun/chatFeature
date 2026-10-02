@@ -47,6 +47,11 @@ export const PRESENCE_RESYNC_AFTER_MS = 3 * HEARTBEAT_INTERVAL_MS;
 const MAX_TIMER_MS = 2_000_000_000;
 /** Coalesces a burst of `queue.updated` events into one refetch. */
 export const SYNC_DEBOUNCE_MS = 400;
+/**
+ * The notification for a visitor's message waits at most this long for the `conversation.updated` that carries its words: the server
+ * sends the unread counter first and the conversation (with the new preview) right after it.
+ */
+export const MESSAGE_NOTICE_WAIT_MS = 400;
 
 type Translate = (
     key: string,
@@ -146,6 +151,8 @@ export function createStaffController(deps: StaffControllerDeps) {
     let presenceEpoch = 0;
     let unsubscribe: (() => void) | null = null;
     const exitTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    /** Chats whose new-message notification waits for the conversation update that brings the new preview. */
+    const noticeTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
     function visitorLabel(name: string | null): string {
         return name && name.trim() !== '' ? name : t('inbox.visitor.anonymous');
@@ -569,16 +576,40 @@ export function createStaffController(deps: StaffControllerDeps) {
         });
 
         if (before && payload.unseen > before.unseenByAgent) {
-            const who = visitorLabel(before.visitor.name);
-
             effects.playSound('message');
-            effects.notify({
-                title: t('inbox.toast.message_title', { name: who }),
-                body: before.lastMessagePreview ?? undefined,
-                tag: `message-${payload.conversation}`,
-                onClick: () => effects.openConversation(payload.conversation),
-            });
+            // The words come with the conversation update that follows this event: waiting for it keeps the notification from showing
+            // the previous message (found by the e2e suite); if it does not come, the notification is made with what the page holds.
+            clearTimeout(noticeTimers.get(payload.conversation));
+            noticeTimers.set(
+                payload.conversation,
+                setTimeout(
+                    () => noticeMessage(payload.conversation),
+                    MESSAGE_NOTICE_WAIT_MS,
+                ),
+            );
         }
+    }
+
+    /** The OS notification for the newest unseen visitor message of a chat, built from the conversation as the page holds it NOW. */
+    function noticeMessage(ulid: string): void {
+        clearTimeout(noticeTimers.get(ulid));
+        noticeTimers.delete(ulid);
+
+        const chat = store.getState().mine.find((item) => item.ulid === ulid);
+
+        // Opened meanwhile (or gone): the agent is reading it, nothing to announce.
+        if (!chat || chat.unseenByAgent === 0 || deps.isViewing(ulid)) {
+            return;
+        }
+
+        effects.notify({
+            title: t('inbox.toast.message_title', {
+                name: visitorLabel(chat.visitor.name),
+            }),
+            body: chat.lastMessagePreview ?? undefined,
+            tag: `message-${ulid}`,
+            onClick: () => effects.openConversation(ulid),
+        });
     }
 
     /** Dispatch one server event. Unknown versions are ignored (a newer server must not break an older tab). */
@@ -610,6 +641,12 @@ export function createStaffController(deps: StaffControllerDeps) {
                     viewer,
                 });
                 syncIfQueuedForNobodyHere(conversation);
+
+                // The update a message notification was waiting for (its new preview).
+                if (noticeTimers.has(conversation.ulid)) {
+                    noticeMessage(conversation.ulid);
+                }
+
                 break;
             }
             case 'unread.updated':
@@ -777,6 +814,8 @@ export function createStaffController(deps: StaffControllerDeps) {
 
         exitTimers.forEach((timer) => clearTimeout(timer));
         exitTimers.clear();
+        noticeTimers.forEach((timer) => clearTimeout(timer));
+        noticeTimers.clear();
     }
 
     return {

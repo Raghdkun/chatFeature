@@ -20,6 +20,7 @@ import {
     HEARTBEAT_INTERVAL_MS,
     KEEPALIVE_AFTER_HIDDEN_MS,
     KEEPALIVE_INTERVAL_MS,
+    MESSAGE_NOTICE_WAIT_MS,
     offerTag,
     POLL_INTERVAL_MS,
     PRESENCE_RESYNC_AFTER_MS,
@@ -408,13 +409,30 @@ describe('other events', () => {
 
         expect(store.getState().mine[0].unseenByAgent).toBe(1);
         expect(effects.playSound).toHaveBeenCalledWith('message');
+
+        // The notification waits for the conversation update that carries the NEW words (the server sends it right after the counter):
+        // the page still holds the previous message's preview at this moment.
+        expect(effects.notify).not.toHaveBeenCalled();
+        controller.handle('conversation.updated', {
+            v: 1,
+            conversation: {
+                ...chat,
+                unseenByAgent: 1,
+                lastMessagePreview: 'Hello? Anyone?',
+            },
+        });
+        expect(effects.notify).toHaveBeenCalledTimes(1);
         expect(effects.notify).toHaveBeenCalledWith(
             expect.objectContaining({
                 title: 'New message from Vera Visitor',
-                body: 'Are you there?',
+                body: 'Hello? Anyone?',
                 tag: `message-${chat.ulid}`,
             }),
         );
+
+        // Nothing is left waiting: the timer does not notify a second time.
+        vi.advanceTimersByTime(MESSAGE_NOTICE_WAIT_MS * 2);
+        expect(effects.notify).toHaveBeenCalledTimes(1);
 
         effects.playSound.mockClear();
         controller.handle('unread.updated', {
@@ -428,6 +446,47 @@ describe('other events', () => {
             unseen: 0,
         });
         expect(effects.playSound).not.toHaveBeenCalled();
+    });
+
+    it('a message notification whose conversation update never comes is made after the wait, with what the page holds', () => {
+        const { store, effects, controller } = rig();
+        const chat = makeActiveConversationStaff({
+            assignedAgent: { id: ME.id, name: 'Me' },
+            lastMessagePreview: 'Are you there?',
+            unseenByAgent: 0,
+        });
+
+        store.dispatch({ type: 'hydrate', queue: [], mine: [chat] });
+        controller.handle('unread.updated', {
+            v: 1,
+            conversation: chat.ulid,
+            unseen: 1,
+        });
+        expect(effects.notify).not.toHaveBeenCalled();
+
+        vi.advanceTimersByTime(MESSAGE_NOTICE_WAIT_MS);
+        expect(effects.notify).toHaveBeenCalledWith(
+            expect.objectContaining({ body: 'Are you there?' }),
+        );
+    });
+
+    it('a chat the agent opens while the notification waits is not announced', () => {
+        const { store, effects, viewing, controller } = rig();
+        const chat = makeActiveConversationStaff({
+            assignedAgent: { id: ME.id, name: 'Me' },
+            unseenByAgent: 0,
+        });
+
+        store.dispatch({ type: 'hydrate', queue: [], mine: [chat] });
+        controller.handle('unread.updated', {
+            v: 1,
+            conversation: chat.ulid,
+            unseen: 1,
+        });
+        viewing.current = chat.ulid;
+        vi.advanceTimersByTime(MESSAGE_NOTICE_WAIT_MS);
+
+        expect(effects.notify).not.toHaveBeenCalled();
     });
 
     it('stays quiet and clears the badge for the chat the agent is reading', () => {
