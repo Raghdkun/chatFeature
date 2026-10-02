@@ -100,6 +100,7 @@ final class RequestDocs
                 'agent_id' => ['description' => 'Hand the chat to this colleague (user id from `transfer-targets`). Give this or `category`.', 'example' => 7],
                 'category' => ['description' => 'Hand the chat to a topic (ulid or slug): it is queued again and offered through the routing waves. Give this or `agent_id`.', 'example' => 'billing'],
             ],
+            'Analytics\\AnalyticsRequest' => AnalyticsFieldDocs::request(),
             'Catalog\\StoreCategoryRequest' => self::categoryFields(),
             'Catalog\\UpdateCategoryRequest' => self::categoryFields(),
             'Catalog\\SyncCategoriesRequest' => [

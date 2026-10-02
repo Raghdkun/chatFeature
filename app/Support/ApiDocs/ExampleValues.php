@@ -28,6 +28,7 @@ final class ExampleValues
      * @var array<string, array<string, mixed>>
      */
     private const OVERRIDES = [
+        // P7 analytics: the examples live next to the prose in AnalyticsFieldDocs::examples() and are merged in `for()`.
         'ConversationStaffData' => ['status' => 'active', 'unseenByAgent' => 2, 'endedAt' => null, 'queueExpiresAt' => null],
         'ConversationPublicData' => ['status' => 'active', 'endedAt' => null],
         'MessageSenderData' => ['type' => 'agent'],
@@ -55,6 +56,14 @@ final class ExampleValues
         'PresenceMemberData' => ['status' => 'online'],
     ];
 
+    /**
+     * A pinned example (`OVERRIDES`, the analytics examples) for a property of a Data class, or `null`.
+     */
+    public static function pinned(string $class, string $name): mixed
+    {
+        return (self::OVERRIDES + AnalyticsFieldDocs::examples())[self::short($class)][$name] ?? null;
+    }
+
     /** A 26-character lower-case ULID that is the same for the same seed. */
     public static function ulid(string $seed): string
     {
@@ -75,7 +84,7 @@ final class ExampleValues
      */
     public static function for(string $class, string $name, string $type): mixed
     {
-        $overrides = self::OVERRIDES[self::short($class)] ?? [];
+        $overrides = (self::OVERRIDES + AnalyticsFieldDocs::examples())[self::short($class)] ?? [];
 
         if (array_key_exists($name, $overrides)) {
             return $overrides[$name];

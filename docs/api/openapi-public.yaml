@@ -1420,7 +1420,7 @@ components:
           message: 'This chat cannot be ended by the visitor.'
     ErrorForbidden:
       type: object
-      description: 'The caller is authenticated but not allowed: not an administrator on an admin route, or not allowed to see this conversation.'
+      description: "The caller is authenticated but not allowed: not an administrator on an admin route, not allowed to see this conversation, or an agent asking for another agent's analytics."
       required:
         - error
       properties:

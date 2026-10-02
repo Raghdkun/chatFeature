@@ -54,7 +54,7 @@ final class DataShape
                     break;
 
                 case 'list':
-                    $example[$name] = $this->listExample($property, $path, $withOptional, $fields, $spec);
+                    $example[$name] = $this->listExample($property, $path, $withOptional, $fields, $spec, $class);
 
                     break;
 
@@ -94,9 +94,10 @@ final class DataShape
      * @param  array{name: string, class: class-string|null, item: string|null}  $property
      * @param  array<string, FieldSpec>  $fields
      * @param  FieldSpec  $spec
+     * @param  class-string  $class
      * @return list<mixed>
      */
-    private function listExample(array $property, string $path, bool $withOptional, array &$fields, array $spec): array
+    private function listExample(array $property, string $path, bool $withOptional, array &$fields, array $spec, string $class): array
     {
         if ($property['class'] !== null) {
             $spec['type'] = 'object[]';
@@ -105,13 +106,29 @@ final class DataShape
             return [$this->walk($property['class'], $path, $withOptional, $fields)];
         }
 
-        $scalar = match ($property['item']) {
+        $nested = str_ends_with((string) $property['item'], '[]');
+        $scalar = match (rtrim((string) $property['item'], '[]')) {
             'int' => 'integer',
             'bool' => 'boolean',
             default => 'string',
         };
-        $spec['type'] = $scalar.'[]';
+        $spec['type'] = $scalar.($nested ? '[][]' : '[]');
         $fields[$path] = $spec;
+
+        // A list of numbers or text a name cannot decide (a matrix, a distribution) is pinned next to its prose.
+        $pinned = ExampleValues::pinned($class, $property['name']);
+
+        if (is_array($pinned)) {
+            return array_values($pinned);
+        }
+
+        if ($nested) {
+            return [[match ($scalar) {
+                'integer' => 1,
+                'boolean' => true,
+                default => 'example',
+            }]];
+        }
 
         return [match ($scalar) {
             'integer' => 1,
