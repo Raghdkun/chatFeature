@@ -192,7 +192,8 @@ class WhatsAppSettingsApiTest extends TestCase
 
         $audit = AuditLog::query()->where('action', 'whatsapp.settings.updated')->sole();
         $this->assertSame($this->admin->id, $audit->actor_id);
-        $this->assertSame(['old' => 200, 'new' => 77], $audit->changes['whatsapp.daily_send_cap']);
+        // (MySQL's JSON type reorders keys: compare without the order.)
+        $this->assertEquals(['old' => 200, 'new' => 77], $audit->changes['whatsapp.daily_send_cap']);
         $this->assertSame('changed', $audit->changes['openwa_credential']);
         $this->assertStringNotContainsString(self::KEY, json_encode($audit->changes));
         $this->assertStringNotContainsString(self::KEY, json_encode(AuditLog::query()->get()->all()));

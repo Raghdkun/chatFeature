@@ -171,7 +171,7 @@ class WhatsAppSendSafetyTest extends TestCase
         $message = $this->pending('Hello');
         $thrown = false;
         DB::beforeExecuting(function (string $sql) use (&$thrown): void {
-            if (! $thrown && str_starts_with($sql, 'update "wa_messages"') && str_contains($sql, '"wa_message_id"')) {
+            if (! $thrown && str_starts_with($sql, 'update') && str_contains($sql, 'wa_messages') && str_contains($sql, 'wa_message_id')) {
                 $thrown = true;
 
                 throw new \RuntimeException('database went away');

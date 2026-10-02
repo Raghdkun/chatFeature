@@ -117,7 +117,7 @@ class NotificationSettingsApiTest extends TestCase
         $this->actingAs($this->agent, 'sanctum')->putJson(self::URL, ['quiet_hours' => ['end' => '22:00']])
             ->assertStatus(422)
             ->assertJsonStructure(['error' => ['details' => ['quiet_hours.end']]]);
-        $this->assertSame(['enabled' => true, 'start' => '22:00', 'end' => '07:00'], collect(NotificationSetting::query()->sole()->quiet_hours)->only(['enabled', 'start', 'end'])->all());
+        $this->assertEquals(['enabled' => true, 'start' => '22:00', 'end' => '07:00'], collect(NotificationSetting::query()->sole()->quiet_hours)->only(['enabled', 'start', 'end'])->all());
 
         // Switching the window on over saved equal times (an empty window) is refused too; switched off, equal times are harmless.
         $this->actingAs($this->agent, 'sanctum')->putJson(self::URL, ['quiet_hours' => ['enabled' => false, 'start' => '09:00', 'end' => '09:00']])->assertOk();

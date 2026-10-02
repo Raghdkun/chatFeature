@@ -61,7 +61,7 @@ class WhatsAppPagesTest extends TestCase
         Widget::factory()->create();
         Category::factory()->create(['slug' => 'billing']);
         $admin = $this->whatsAppPeople()['admin'];
-        $touched = fn (array $log, string $table): int => count(array_filter($log, fn (array $entry): bool => str_contains((string) $entry['query'], 'from "'.$table.'"')));
+        $touched = fn (array $log, string $table): int => count(array_filter($log, fn (array $entry): bool => str_contains(str_replace(['"', '`'], '', (string) $entry['query']), 'from '.$table)));
 
         // The first visit carries everything (and runs everything).
         DB::flushQueryLog();

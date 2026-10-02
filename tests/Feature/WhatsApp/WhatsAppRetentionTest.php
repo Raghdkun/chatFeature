@@ -204,7 +204,7 @@ class WhatsAppRetentionTest extends TestCase
 
         $entry = AuditLog::query()->where('action', 'whatsapp.chat.deleted')->sole();
         $this->assertSame($this->admin->id, $entry->actor_id);
-        $this->assertSame(['chat' => $chat->ulid, 'messages' => 3, 'files' => 0], $entry->changes);
+        $this->assertEquals(['chat' => $chat->ulid, 'messages' => 3, 'files' => 0], $entry->changes, 'ids and counts only');
         $dump = (string) json_encode($entry->toArray());
         foreach (['iban', 'Anna', '4915123456789'] as $personal) {
             $this->assertStringNotContainsString($personal, $dump);

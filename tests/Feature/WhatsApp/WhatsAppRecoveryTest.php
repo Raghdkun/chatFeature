@@ -68,7 +68,7 @@ class WhatsAppRecoveryTest extends TestCase
         // The linker's transaction fails once (a deadlock victim, say) AFTER the message row was stored.
         $armed = true;
         DB::beforeExecuting(function (string $sql) use (&$armed): void {
-            if ($armed && str_starts_with($sql, 'update "wa_handoff_tickets"')) {
+            if ($armed && str_starts_with($sql, 'update') && str_contains($sql, 'wa_handoff_tickets')) {
                 $armed = false;
 
                 throw new RuntimeException('deadlock');
