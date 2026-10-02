@@ -343,7 +343,8 @@ class WhatsAppSessionApiTest extends TestCase
         if ($hint) {
             $this->assertStringContainsString('host.docker.internal', $text);
             $this->assertStringContainsString('redirect', $text);
-            $this->assertStringContainsString('127.0.0.1', $response->json('error.details.host'));
+            // The host of the address OpenWA was asked to call back (the application's own, whatever APP_URL is here).
+            $this->assertSame(parse_url($session->webhookUrl(), PHP_URL_HOST), $response->json('error.details.host'));
         } else {
             $this->assertStringContainsString($message, $text);
         }
