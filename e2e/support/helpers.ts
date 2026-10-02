@@ -227,14 +227,3 @@ export async function settleFrames(page: Page): Promise<void> {
             .catch(() => undefined);
     }
 }
-
-/**
- * Waits until the app's own background requests are over. Every signed-in page reads the staff state (presence, the queue and the
- * conversation lists) as it loads, and each of those requests rewrites the session when it ends: a navigation or a form post that is
- * answered meanwhile can have what it stored overwritten (the URL a password confirmation returns to, the confirmation itself, a
- * flash message). A spec that depends on session state set by one request and read by the next waits for quiet in between, like a
- * person who reads the page before pressing a button does.
- */
-export async function settleRequests(page: Page): Promise<void> {
-    await page.waitForLoadState('networkidle');
-}

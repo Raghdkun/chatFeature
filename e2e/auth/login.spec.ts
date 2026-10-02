@@ -1,5 +1,4 @@
 import { type Page } from '@playwright/test';
-import { settleRequests } from '../support/helpers';
 import { expect, test } from '../support/test';
 import { loginAccounts, PASSWORD, type TestUser } from '../support/users';
 
@@ -193,14 +192,10 @@ test.describe('signing in and out', () => {
         await expect(page).toHaveURL(/\/settings\/profile$/);
         await expect(page).toHaveTitle(/Profile settings/);
         await expect(page.locator('input[name=email]')).toBeVisible();
-        // The profile page's own background requests (they rewrite the session) must be over before the next request asks for the
-        // password: the URL it stores to return to would be overwritten otherwise.
-        await settleRequests(page);
 
         // Security (password + two-factor) asks for the password once more.
         await page.goto('/settings/security');
         await expect(page).toHaveURL(/confirm-password/);
-        await settleRequests(page);
         await page.locator('#password').fill(PASSWORD);
         await page.locator('[data-test="confirm-password-button"]').click();
         await expect(page).toHaveURL(/\/settings\/security$/);
