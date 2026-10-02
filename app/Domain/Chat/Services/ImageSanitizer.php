@@ -40,8 +40,13 @@ final class ImageSanitizer
 
     public const THUMBNAIL_EDGE = 320;
 
-    /** Bytes of working memory per pixel while decoding and re-encoding (truecolor decode plus the encoder's copy). */
-    private const BYTES_PER_PIXEL = 9;
+    /**
+     * Bytes of working memory per pixel while decoding and re-encoding. Measured on this pipeline (P7 upload review, peak of a 2000 x 2000
+     * image): 11.3 (JPEG, WebP), 11.5 (truecolor PNG), 12.4 (GIF) and 13.1 (palette / grayscale PNG, which is converted to truecolor first)
+     * bytes per pixel: the truecolor canvas, the copy `orient()` makes, the thumbnail's clone and the encoder's buffer. The earlier
+     * estimate of 9 let a 17 KB PNG that declares 4096 x 4096 grayscale pixels through a 256 MB limit and end in a PHP fatal error.
+     */
+    private const BYTES_PER_PIXEL = 14;
 
     /** Animated GIFs are refused: a chat image is a still. */
     private const MAX_GIF_FRAMES = 1;
