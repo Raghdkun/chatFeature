@@ -204,6 +204,7 @@ test('the selector explains the automatic status, and "Go online" after Offline 
         'aria-describedby',
         (await hint.getAttribute('id')) ?? '',
     );
+    await expect.poll(() => statusOf(ann)).toBe('online');
     await expect.poll(() => isManualOf(ann)).toBe(false);
 
     // Away is a choice, not the automatic status: no hint (the dashboard does not move it), and it is pinned.
@@ -220,6 +221,7 @@ test('the selector explains the automatic status, and "Go online" after Offline 
     await ann.inbox.tid('presence-go-online').click();
     await expect(select).toHaveValue('online');
     await expect(hint).toBeVisible();
+    await expect.poll(() => statusOf(ann)).toBe('online');
     await expect.poll(() => isManualOf(ann)).toBe(false);
 });
 

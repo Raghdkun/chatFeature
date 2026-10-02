@@ -194,8 +194,8 @@ test('the presence selector by typing its options and "Go online" by Enter', asy
         )
         .toBe('online');
 
-    // The native select by keyboard: typing the first letters picks the option (the arrow keys open the list on some platforms), Home picks
-    // the first one, and the choice is saved.
+    // The native select by keyboard: typing the first letters picks the option (the arrow keys open the list on some platforms), and the
+    // choice is saved.
     const select = agent.inbox.tid('presence-select');
 
     await select.focus();
@@ -208,8 +208,11 @@ test('the presence selector by typing its options and "Go online" by Enter', asy
             return (result.data as { status: string }).status;
         })
         .toBe('away');
-    // (Typing again straight away would extend the typeahead buffer, "AwOn", which matches nothing: Home is the first option, Online.)
-    await page.keyboard.press('Home');
+    // (Typing again straight away would extend the typeahead buffer, "AwOn", which matches nothing: leaving the field and coming back starts it
+    // afresh.)
+    await select.blur();
+    await select.focus();
+    await page.keyboard.type('On');
     await expect(select).toHaveValue('online');
 });
 
