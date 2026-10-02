@@ -16,7 +16,7 @@ returns (`#[TypeScript]`), so web, loader and the future mobile app share one co
 | `presence-staff` | roster of signed-in staff | active staff only; member info `{id, name, avatarUrl, status}`. |
 | `private-conversation.{ulid}` | the visitor of that conversation + its assigned agent; admins may monitor | callback with guards `web, sanctum` for staff; **visitors do not use this callback**: they authorise only through `POST /api/v1/public/broadcasting/auth` (bearer token bound to the conversation). Staff: `is_admin` **or** assigned agent **or** currently in the offered set of a still-`queued` chat. Visitor: bearer token whose session is bound to this conversation. Visitor auth endpoint: `POST /api/v1/public/broadcasting/auth` (Bearer `vt_…`). |
 | `private-admin` | admins only | `is_admin`. |
-| `private-whatsapp-admin` | admins only (P6) | **Not registered until P6** (nobody can join it). Agents can **never** subscribe. |
+| `private-whatsapp-admin` | active administrators only (P6) | Registered (`WhatsAppAdminChannel`, guards `web, sanctum`): active account + admin role + `private-` kind only; agents, visitors, `presence-whatsapp-admin` and any other spelling are refused. |
 
 Why per-agent offer channels (not per-category channels): the eligible set is computed at request time (presence, category, capacity), so there are no stale subscriptions after an agent edits categories.
 
@@ -42,6 +42,10 @@ Why per-agent offer channels (not per-category channels): the eligible set is co
 | `conversation.closed` | `conversation.{ulid}` | `{v, reason: 'rated'\|'skipped'\|'idle'\|'timeout'\|'system'\|'cancelled'}` | queued |
 | `conversation.missed` | `conversation.{ulid}` | `{v}` — a queued chat nobody accepted in time became `missed`: show the offline form | queued |
 | `conversation.transferred` | `conversation.{ulid}` | `{v}` (visitor sees "connecting you to another agent…") | queued |
+| `wa.message.created` | `whatsapp-admin` | `{v, message: WaMessageData, chat: WaChatData}` (admin-only, P6) | queued |
+| `wa.message.updated` | `whatsapp-admin` | `{v, message: WaMessageData}` (delivery acks: pending -> sent -> delivered -> read / failed) | queued |
+| `wa.chat.updated` | `whatsapp-admin` | `{v, chat: WaChatData}` | queued |
+| `wa.session.status` | `whatsapp-admin` | `{v, session: WhatsAppSessionData}` (never the QR image) | queued |
 | `offline-ticket.created` | `admin` | `{v, conversation: ConversationStaff}` | queued |
 | `conversation.rated` | `admin` | `{v, conversation, score: 1..5}` | queued |
 
