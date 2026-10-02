@@ -94,6 +94,10 @@ return Application::configure(basePath: dirname(__DIR__))
             // WhatsApp settings (P6): the OpenWA API key; never flashed back into a rejected form.
             'api_key',
             'webhook_secret',
+            // The web two-factor form and the native sign-in post these; never flashed back after a validation error.
+            'code',
+            'recovery_code',
+            'challenge',
         ]);
 
         // `api/*` errors use the documented envelope {error:{code,message,details?}} (docs/contracts/rest-shapes.md).
