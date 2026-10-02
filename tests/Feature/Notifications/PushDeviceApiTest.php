@@ -6,11 +6,13 @@ use App\Domain\Notifications\Channels\FcmChannel;
 use App\Domain\Notifications\Support\PushMessage;
 use App\Models\DeviceToken;
 use App\Models\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use PDOException;
 use Tests\Support\WidgetFixtures;
 use Tests\TestCase;
 
@@ -42,6 +44,30 @@ class PushDeviceApiTest extends TestCase
         $this->assertStringNotContainsString($token, (string) $response->getContent());
         $this->assertNotSame($token, DB::table('device_tokens')->value('token'));
         $this->assertSame($token, DeviceToken::query()->sole()->token);
+    }
+
+    public function test_a_deadlock_victim_registering_for_the_first_time_runs_again(): void
+    {
+        $thrown = 0;
+
+        DB::beforeExecuting(function (string $query) use (&$thrown): void {
+            if ($thrown < 2 && str_starts_with($query, 'insert into "device_tokens"')) {
+                $thrown++;
+
+                $previous = new PDOException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock; try restarting transaction');
+                $previous->errorInfo = ['40001', 1213, 'Deadlock found when trying to get lock; try restarting transaction'];
+
+                $exception = new QueryException('mysql', $query, [], $previous);
+                $exception->errorInfo = $previous->errorInfo;
+
+                throw $exception;
+            }
+        });
+
+        $this->actingAs($this->agent, 'sanctum')->postJson(self::URL, ['platform' => 'android', 'token' => Str::random(160)])->assertCreated();
+
+        $this->assertSame(2, $thrown);
+        $this->assertSame(1, DeviceToken::query()->count());
     }
 
     public function test_registering_the_same_token_again_is_an_update_and_a_new_owner_takes_the_device(): void
