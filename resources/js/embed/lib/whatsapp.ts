@@ -24,6 +24,41 @@ export function whatsAppHref(value: string): string | null {
     }
 }
 
+/** What a hand-off answer says about its own lifetime: the server's countdown, and the moment it computed that from. */
+export type HandoffTiming = { expiresAt: string; ttlSeconds?: number | null };
+
+/**
+ * When the code stops working, in milliseconds on THIS browser's clock, or `null` when that cannot be told.
+ *
+ * The server's countdown (`ttlSeconds`) is counted from the moment its answer ARRIVED here, so no clock of the server is compared with
+ * the visitor's: a visitor whose clock is hours off still sees the true time left, and "Get a new code" cannot loop on codes that look
+ * expired the moment they arrive. An older server sends only `expiresAt`; then it is compared with the visitor's clock, but a code
+ * that is already past on arrival is a FRESH code seen on a skewed clock (a live ticket is never expired): it is shown with no expiry
+ * rather than as expired.
+ */
+export function handoffDeadline(
+    handoff: HandoffTiming,
+    arrivedAt: number,
+): number | null {
+    const ttl = handoff.ttlSeconds;
+
+    if (typeof ttl === 'number' && Number.isFinite(ttl) && ttl > 0) {
+        return arrivedAt + ttl * 1000;
+    }
+
+    const at = Date.parse(handoff.expiresAt);
+
+    return Number.isNaN(at) || at <= arrivedAt ? null : at;
+}
+
+/** Milliseconds until a deadline (never negative); `null` when there is none. */
+export function remainingUntil(
+    deadline: number | null,
+    now: number,
+): number | null {
+    return deadline === null ? null : Math.max(0, deadline - now);
+}
+
 /** Milliseconds a code still works (never negative); `null` when the time is not a time. */
 export function remainingMs(expiresAt: string, now: number): number | null {
     const at = Date.parse(expiresAt);

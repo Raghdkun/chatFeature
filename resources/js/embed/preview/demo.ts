@@ -113,6 +113,7 @@ export function createDemoBackend(options: { delay?: number } = {}) {
                 code: 'K7M2QX4P',
                 waUrl: 'https://wa.me/15550001234?text=Hi!%20My%20support%20code%20is%20K7M2QX4P',
                 expiresAt: new Date(Date.now() + 24 * 3_600_000).toISOString(),
+                ttlSeconds: 24 * 3_600,
             };
         },
         async getConfig() {

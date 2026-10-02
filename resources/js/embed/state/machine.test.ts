@@ -84,7 +84,7 @@ function whatsapp(patch: Partial<Flow> = {}): MachineState {
     return run(
         booted({ whatsapp: true, ...patch }),
         { type: 'WHATSAPP_START' },
-        { type: 'WHATSAPP_OK', handoff: HANDOFF },
+        { type: 'WHATSAPP_OK', handoff: HANDOFF, now: NOW },
     );
 }
 
@@ -652,7 +652,7 @@ describe('illegal transitions are ignored', () => {
             },
             { type: 'WHATSAPP_START' },
             { type: 'WHATSAPP_NEW_CODE' },
-            { type: 'WHATSAPP_OK', handoff: HANDOFF },
+            { type: 'WHATSAPP_OK', handoff: HANDOFF, now: NOW },
             {
                 type: 'WHATSAPP_FAIL',
                 failure: { kind: 'notice', notice: { code: 'network' } },
@@ -1253,7 +1253,11 @@ describe('the WhatsApp hand-off (P6)', () => {
         const asked = run(booted({ whatsapp: true }), {
             type: 'WHATSAPP_START',
         });
-        const shown = run(asked, { type: 'WHATSAPP_OK', handoff: HANDOFF });
+        const shown = run(asked, {
+            type: 'WHATSAPP_OK',
+            handoff: HANDOFF,
+            now: NOW,
+        });
 
         expect(shown.phase).toBe('whatsapp');
         expect(shown.whatsapp.handoff).toEqual(HANDOFF);
@@ -1261,7 +1265,52 @@ describe('the WhatsApp hand-off (P6)', () => {
 
         const idle = booted({ whatsapp: true });
 
-        expect(run(idle, { type: 'WHATSAPP_OK', handoff: HANDOFF })).toBe(idle);
+        expect(
+            run(idle, { type: 'WHATSAPP_OK', handoff: HANDOFF, now: NOW }),
+        ).toBe(idle);
+    });
+
+    it('works out when the code stops working on THIS browser\u2019s clock: from the server\u2019s ttl when it sends one, counted from the answer\u2019s arrival', () => {
+        const asked = run(booted({ whatsapp: true }), {
+            type: 'WHATSAPP_START',
+        });
+        const withTtl = run(asked, {
+            type: 'WHATSAPP_OK',
+            handoff: { ...HANDOFF, ttlSeconds: 3_600 },
+            now: NOW,
+        });
+        // The `expiresAt` of the server is ignored whenever the ttl is there (a skewed clock cannot change the answer).
+        const skewed = run(asked, {
+            type: 'WHATSAPP_OK',
+            handoff: {
+                ...HANDOFF,
+                expiresAt: '2020-01-01T00:00:00.000Z',
+                ttlSeconds: 90 * 60,
+            },
+            now: NOW,
+        });
+
+        expect(withTtl.whatsapp.deadline).toBe(NOW + 3_600_000);
+        expect(skewed.whatsapp.deadline).toBe(NOW + 90 * 60_000);
+    });
+
+    it('falls back to expiresAt without a ttl, and never shows a code as expired the moment it arrives', () => {
+        const asked = run(booted({ whatsapp: true }), {
+            type: 'WHATSAPP_START',
+        });
+
+        expect(
+            run(asked, { type: 'WHATSAPP_OK', handoff: HANDOFF, now: NOW })
+                .whatsapp.deadline,
+        ).toBe(Date.parse(HANDOFF.expiresAt));
+        // A fresh code that is already past on this clock: the visitor's clock is ahead, so there is no expiry to show.
+        expect(
+            run(asked, {
+                type: 'WHATSAPP_OK',
+                handoff: HANDOFF,
+                now: Date.parse(HANDOFF.expiresAt) + 3_600_000,
+            }).whatsapp.deadline,
+        ).toBeNull();
     });
 
     it('keeps the visitor where they were, with the reason, when the code cannot be had', () => {
@@ -1316,6 +1365,7 @@ describe('the WhatsApp hand-off (P6)', () => {
         const fresh = run(again, {
             type: 'WHATSAPP_OK',
             handoff: { ...HANDOFF, code: 'ZZ99AA77' },
+            now: NOW,
         });
 
         expect(fresh.phase).toBe('whatsapp');
@@ -1367,7 +1417,7 @@ describe('the WhatsApp hand-off (P6)', () => {
         const back = run(
             booted({ whatsapp: true, offline: true }),
             { type: 'WHATSAPP_START' },
-            { type: 'WHATSAPP_OK', handoff: HANDOFF },
+            { type: 'WHATSAPP_OK', handoff: HANDOFF, now: NOW },
             { type: 'BACK' },
         );
 

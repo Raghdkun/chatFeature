@@ -6,7 +6,7 @@ import { Button } from '@/embed/components/ui';
 import { useClock } from '@/embed/hooks/use-clock';
 import {
     formatRemaining,
-    remainingMs,
+    remainingUntil,
     spacedCode,
     whatsAppHref,
 } from '@/embed/lib/whatsapp';
@@ -31,7 +31,8 @@ export function WhatsAppScreen() {
         return null;
     }
 
-    const left = remainingMs(handoff.expiresAt, now);
+    // Counted from the moment the answer arrived (the server's own `ttlSeconds`), not against a clock of the server: see `handoffDeadline`.
+    const left = remainingUntil(state.whatsapp.deadline, now);
     const expired = left !== null && left <= 0;
     const href = whatsAppHref(handoff.waUrl);
     const busy = state.busy === 'whatsapp';

@@ -456,6 +456,85 @@ describe('the code countdown', () => {
     });
 });
 
+describe('the code countdown on a visitor\u2019s skewed clock', () => {
+    /** The server's clock is 2 hours BEHIND this browser's, so a one-hour code's `expiresAt` already lies in this browser's past. */
+    const behind = (backend: {
+        state: { serverClockOffsetMs: number; handoffTtlMs: number };
+    }) => {
+        backend.state.serverClockOffsetMs = -2 * 3_600_000;
+        backend.state.handoffTtlMs = 3_600_000;
+    };
+
+    it('counts from the server\u2019s own ttl when it sends one: a fresh code is never shown as expired', async () => {
+        const ctx = await panel(whatsappBoot());
+
+        behind(ctx.backend);
+        ctx.backend.state.handoffReturnsTtl = true;
+        await click(byTestId(ctx.c, 'channel-whatsapp'));
+        await waitFor(() => phase(ctx.c) === 'whatsapp');
+
+        expect(
+            byTestId(ctx.c, 'whatsapp-expiry')?.dataset.expired,
+        ).toBeUndefined();
+        expect(text(byTestId(ctx.c, 'whatsapp-expiry'))).toBe(
+            'This code works for another 60 minutes.',
+        );
+        expect(byTestId(ctx.c, 'whatsapp-new-code')).toBeNull();
+        expect(byTestId(ctx.c, 'whatsapp-open')).not.toBeNull();
+    });
+
+    it('with an older server (no ttl) shows no expiry at all rather than "expired" for a code that just arrived, so "Get a new code" cannot loop', async () => {
+        const ctx = await panel(whatsappBoot());
+
+        behind(ctx.backend);
+        ctx.backend.state.handoffReturnsTtl = false;
+        await click(byTestId(ctx.c, 'channel-whatsapp'));
+        await waitFor(() => phase(ctx.c) === 'whatsapp');
+
+        expect(byTestId(ctx.c, 'whatsapp-expiry')).toBeNull();
+        expect(byTestId(ctx.c, 'whatsapp-new-code')).toBeNull();
+        expect(byTestId(ctx.c, 'whatsapp-open')).not.toBeNull();
+        expect(ctx.backend.callsTo('POST', '/whatsapp-handoff')).toHaveLength(
+            1,
+        );
+    });
+
+    it('a new code after the countdown ran out counts again from ITS arrival, once, on the same skewed clock', async () => {
+        vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+
+        const ctx = await panel(whatsappBoot());
+
+        behind(ctx.backend);
+        ctx.backend.state.handoffReturnsTtl = true;
+        ctx.backend.state.handoffTtlMs = 3 * 60_000;
+        await click(byTestId(ctx.c, 'channel-whatsapp'));
+        await waitFor(() => phase(ctx.c) === 'whatsapp');
+
+        await run(() => {
+            vi.advanceTimersByTime(4 * 60_000);
+        });
+        expect(byTestId(ctx.c, 'whatsapp-expiry')?.dataset.expired).toBe(
+            'true',
+        );
+
+        await click(byTestId(ctx.c, 'whatsapp-new-code'));
+        await waitFor(
+            () => text(byTestId(ctx.c, 'whatsapp-code')) === 'K7M2 Q002',
+        );
+
+        expect(
+            byTestId(ctx.c, 'whatsapp-expiry')?.dataset.expired,
+        ).toBeUndefined();
+        expect(text(byTestId(ctx.c, 'whatsapp-expiry'))).toBe(
+            'This code works for another 3 minutes.',
+        );
+        expect(byTestId(ctx.c, 'whatsapp-new-code')).toBeNull();
+        expect(ctx.backend.callsTo('POST', '/whatsapp-handoff')).toHaveLength(
+            2,
+        );
+    });
+});
+
 describe('failures', () => {
     it('409: says WhatsApp is not available now and keeps the choice (the visitor can still chat)', async () => {
         const { c, backend } = await panel();

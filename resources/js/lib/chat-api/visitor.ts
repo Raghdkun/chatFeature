@@ -679,6 +679,11 @@ export function createVisitorApi(options: VisitorApiOptions) {
                 code: value.code,
                 waUrl: value.waUrl,
                 expiresAt: value.expiresAt,
+                // The server's own countdown (newer than the first backend): the screen counts from the answer's arrival.
+                ...(typeof value.ttlSeconds === 'number' &&
+                Number.isFinite(value.ttlSeconds)
+                    ? { ttlSeconds: value.ttlSeconds }
+                    : {}),
             };
         },
 

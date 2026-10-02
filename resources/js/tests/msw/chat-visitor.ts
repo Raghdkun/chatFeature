@@ -239,6 +239,10 @@ export function createVisitorBackend(options: BackendOptions = {}) {
         whatsappUnavailable: false,
         /** How long a hand-off lives (ms), from now. */
         handoffTtlMs: 24 * 3_600_000,
+        /** The answer carries `ttlSeconds` (the backend fix of the P5/P6 audit); `false` = the first backend (only `expiresAt`). */
+        handoffReturnsTtl: false,
+        /** The server's clock is this far AHEAD of the visitor's (ms; negative = behind): `expiresAt` is computed on the server's clock. */
+        serverClockOffsetMs: 0,
     };
     const calls: RecordedCall[] = [];
     const failures: Failure[] = [];
@@ -539,18 +543,35 @@ export function createVisitorBackend(options: BackendOptions = {}) {
                 const existing = state.handoffs.find(
                     (h) =>
                         h.category === category &&
-                        Date.parse(h.expiresAt) > Date.now(),
+                        Date.parse(h.expiresAt) >
+                            Date.now() + state.serverClockOffsetMs,
                 );
+                const answer = (h: {
+                    code: string;
+                    waUrl: string;
+                    expiresAt: string;
+                }) => ({
+                    code: h.code,
+                    waUrl: h.waUrl,
+                    expiresAt: h.expiresAt,
+                    ...(state.handoffReturnsTtl
+                        ? {
+                              ttlSeconds: Math.max(
+                                  1,
+                                  Math.round(
+                                      (Date.parse(h.expiresAt) -
+                                          (Date.now() +
+                                              state.serverClockOffsetMs)) /
+                                          1000,
+                                  ),
+                              ),
+                          }
+                        : {}),
+                });
 
                 if (existing) {
                     return HttpResponse.json(
-                        {
-                            data: {
-                                code: existing.code,
-                                waUrl: existing.waUrl,
-                                expiresAt: existing.expiresAt,
-                            },
-                        },
+                        { data: answer(existing) },
                         { status: 200 },
                     );
                 }
@@ -560,7 +581,9 @@ export function createVisitorBackend(options: BackendOptions = {}) {
                     code,
                     waUrl: `https://wa.me/491701234567?text=Hi%21%20My%20support%20code%20is%20${code}`,
                     expiresAt: new Date(
-                        Date.now() + state.handoffTtlMs,
+                        Date.now() +
+                            state.serverClockOffsetMs +
+                            state.handoffTtlMs,
                     ).toISOString(),
                     category,
                 };
@@ -568,13 +591,7 @@ export function createVisitorBackend(options: BackendOptions = {}) {
                 state.handoffs.push(issued);
 
                 return HttpResponse.json(
-                    {
-                        data: {
-                            code,
-                            waUrl: issued.waUrl,
-                            expiresAt: issued.expiresAt,
-                        },
-                    },
+                    { data: answer(issued) },
                     { status: 201 },
                 );
             },
