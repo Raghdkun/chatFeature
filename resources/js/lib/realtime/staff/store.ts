@@ -71,6 +71,11 @@ export type InboxState = {
     /** The caller's own status; `null` until known. */
     presence: PresenceStatus | null;
     roster: PresenceMemberData[];
+    /**
+     * The last `presence.changed` heard for each member of staff (with the time it was heard): live updates for pages that list people
+     * who are not on the roster (the agents page). Not a snapshot: ignore entries older than your own data.
+     */
+    seenPresence: Record<number, { status: PresenceStatus; at: number }>;
     connection: ConnectionState;
     /**
      * A counter bumped by every change to a conversation, and the value it had when each conversation last changed. A REST snapshot
@@ -88,6 +93,7 @@ export const EMPTY_INBOX: InboxState = {
     tickets: [],
     presence: null,
     roster: [],
+    seenPresence: {},
     connection: 'connecting',
     clock: 0,
     touched: {},
@@ -124,7 +130,8 @@ export type InboxAction =
     | { type: 'rosterHere'; members: PresenceMemberData[] }
     | { type: 'rosterJoin'; member: PresenceMemberData }
     | { type: 'rosterLeave'; id: number }
-    | { type: 'rosterStatus'; id: number; status: PresenceStatus };
+    | { type: 'rosterStatus'; id: number; status: PresenceStatus }
+    | { type: 'presenceSeen'; id: number; status: PresenceStatus; at: number };
 
 /** How long a lost / lapsed offer card stays on screen (to be read) before it is removed. */
 export const OFFER_EXIT_MS = 1_600;
@@ -664,6 +671,18 @@ function reduce(state: InboxState, action: InboxAction): InboxState {
                       ),
                   }
                 : state;
+
+        case 'presenceSeen':
+            return state.seenPresence[action.id]?.status === action.status &&
+                state.seenPresence[action.id].at >= action.at
+                ? state
+                : {
+                      ...state,
+                      seenPresence: {
+                          ...state.seenPresence,
+                          [action.id]: { status: action.status, at: action.at },
+                      },
+                  };
 
         case 'rosterStatus':
             return state.roster.some(

@@ -422,8 +422,8 @@ export function createStaffBackend(options: StaffBackendOptions = {}) {
             });
         }),
 
-        http.post(`${API}/me/presence/heartbeat`, ({ request }) => {
-            record(request);
+        http.post(`${API}/me/presence/heartbeat`, async ({ request }) => {
+            record(request, await bodyOf(request));
 
             return down() ?? new HttpResponse(null, { status: 204 });
         }),

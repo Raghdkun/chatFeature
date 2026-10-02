@@ -8,6 +8,10 @@ import {
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
+import {
+    countOnline,
+    resolvePresence,
+} from '@/components/agents/agent-presence';
 import { AGENT_GRID, AgentRow } from '@/components/agents/agent-row';
 import {
     filterAgents,
@@ -36,6 +40,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { useTrans } from '@/hooks/use-trans';
 import AppLayout from '@/layouts/app-layout';
+import { useInboxOptional } from '@/lib/realtime/staff/context';
 import { safeExternalUrl } from '@/lib/urls';
 import { cn } from '@/lib/utils';
 import { widgetsRoutes } from '@/lib/widgets-routes';
@@ -46,6 +51,7 @@ export default function AgentsIndex({
     categories,
     authMode,
     canManageStaff,
+    presence,
 }: AgentsPageProps) {
     const { t } = useTrans();
     const plural = usePlural();
@@ -55,6 +61,15 @@ export default function AgentsIndex({
         useAgents(initialAgents);
     const [filters, setFilters] = useState<AgentFilters>(NO_FILTERS);
     const [creating, setCreating] = useState(false);
+    // The props are a snapshot of the moment the page loaded; `presence.changed` events heard since then update the dots.
+    const [loadedAt] = useState(() => Date.now());
+    const heard = useInboxOptional((state) => state.seenPresence);
+    const statusOf = (id: number) =>
+        resolvePresence(id, presence, heard, loadedAt);
+    const online = countOnline(
+        agents.filter((agent) => agent.is_active).map((agent) => agent.id),
+        statusOf,
+    );
 
     const visible = filterAgents(agents, filters);
     const filtered = hasActiveFilters(filters);
@@ -130,6 +145,14 @@ export default function AgentsIndex({
                         aria-label={t('agents.list_label')}
                         className="overflow-hidden rounded-xl border bg-card"
                     >
+                        <p
+                            className="border-b px-4 py-2 text-sm text-muted-foreground"
+                            aria-live="polite"
+                            data-testid="agents-online-count"
+                        >
+                            {t('presence.online_count', { count: online })}
+                        </p>
+
                         <div className="grid gap-2 border-b p-3 sm:grid-cols-[minmax(0,1fr)_12rem_10rem]">
                             <div className="relative">
                                 <Search
@@ -231,6 +254,7 @@ export default function AgentsIndex({
                                     <AgentRow
                                         key={agent.id}
                                         agent={agent}
+                                        presence={statusOf(agent.id)}
                                         categories={categories}
                                         canManageStaff={canManageStaff}
                                         onSetCategories={(entry, ulids) =>

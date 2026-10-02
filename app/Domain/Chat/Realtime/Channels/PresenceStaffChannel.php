@@ -3,16 +3,19 @@
 namespace App\Domain\Chat\Realtime\Channels;
 
 use App\Data\Chat\PresenceMemberData;
-use App\Domain\Chat\Enums\PresenceStatus;
+use App\Domain\Presence\PresenceService;
 use Illuminate\Contracts\Auth\Authenticatable;
 
 /**
  * `presence-staff`: the roster of signed-in staff. Every active admin or agent may join; the member info other members see is
- * `{id, name, avatarUrl, status}` (no e-mail), the status being the stored presence of the account.
+ * `{id, name, avatarUrl, status}` (no e-mail), the status being the account's effective presence (the presence store).
  */
 final class PresenceStaffChannel
 {
-    public function __construct(private readonly StaffAccess $access) {}
+    public function __construct(
+        private readonly StaffAccess $access,
+        private readonly PresenceService $presence,
+    ) {}
 
     /**
      * @return array<string, mixed>|false
@@ -25,6 +28,6 @@ final class PresenceStaffChannel
             return false;
         }
 
-        return PresenceMemberData::fromModel($staff, $staff->presence->status ?? PresenceStatus::Offline)->toArray();
+        return PresenceMemberData::fromModel($staff, $this->presence->statusOf($staff))->toArray();
     }
 }

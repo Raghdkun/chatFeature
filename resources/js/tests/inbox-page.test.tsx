@@ -496,9 +496,10 @@ describe('presence', () => {
             expect(session.store.getState().presence).toBe('online'),
         );
 
+        // "Online" is the automatic status: the dashboard keeps the agent online while a tab is visible.
         expect(
             backend.current.calls('PUT', '/api/v1/me/presence')[0].body,
-        ).toEqual({ status: 'online' });
+        ).toEqual({ status: 'online', automatic: true });
         expect(
             (view.byTestId('presence-select') as HTMLSelectElement).value,
         ).toBe('online');
@@ -527,6 +528,27 @@ describe('presence', () => {
         expect(backend.current.state.presence).toBe('away');
     });
 
+    it('explains the automatic away only while online, and ties the hint to the select', async () => {
+        const { view, session } = await renderStaff(
+            <InboxIndex {...shell()} />,
+        );
+        const select = view.byTestId('presence-select') as HTMLSelectElement;
+
+        expect(view.byTestId('presence-hint')?.textContent).toContain(
+            'switch to Away by yourself',
+        );
+        expect(select.getAttribute('aria-describedby')).toBe(
+            view.byTestId('presence-hint')?.id,
+        );
+
+        await act(async () =>
+            session.store.dispatch({ type: 'presence', status: 'away' }),
+        );
+
+        expect(view.byTestId('presence-hint')).toBeNull();
+        expect(select.getAttribute('aria-describedby')).toBeNull();
+    });
+
     it('beats right after arriving online', async () => {
         await renderStaff(<InboxIndex {...shell()} />);
 
@@ -535,6 +557,10 @@ describe('presence', () => {
                 backend.current.calls('POST', '/api/v1/me/presence/heartbeat'),
             ).toHaveLength(1),
         );
+        expect(
+            backend.current.calls('POST', '/api/v1/me/presence/heartbeat')[0]
+                .body,
+        ).toEqual({ visible: true });
     });
 });
 

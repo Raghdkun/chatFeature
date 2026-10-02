@@ -4,6 +4,7 @@ use App\Console\Commands\ChatCloseIdle;
 use App\Console\Commands\ChatCloseUnrated;
 use App\Console\Commands\ChatExpireQueued;
 use App\Console\Commands\ChatOfferWaves;
+use App\Console\Commands\ChatPresenceSweep;
 use App\Console\Commands\ChatPruneVisitorSessions;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -25,4 +26,6 @@ Schedule::command(ChatExpireQueued::class)->everyMinute()->withoutOverlapping(5)
 Schedule::command(ChatOfferWaves::class)->everyMinute()->withoutOverlapping(5)->onOneServer();
 Schedule::command(ChatCloseIdle::class)->everyMinute()->withoutOverlapping(5)->onOneServer();
 Schedule::command(ChatCloseUnrated::class)->everyMinute()->withoutOverlapping(5)->onOneServer();
+// P5: silent agents go offline, idle automatic ones away (docs/realtime.md, "Presence").
+Schedule::command(ChatPresenceSweep::class)->everyMinute()->withoutOverlapping(5)->onOneServer();
 Schedule::command(ChatPruneVisitorSessions::class)->dailyAt('03:45')->withoutOverlapping(60)->onOneServer();

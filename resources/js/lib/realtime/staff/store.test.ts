@@ -584,6 +584,39 @@ describe('connection, presence and roster', () => {
     });
 });
 
+describe('presence heard from anybody', () => {
+    it('keeps the last status heard per person with its time', () => {
+        const state = run(
+            EMPTY_INBOX,
+            { type: 'presenceSeen', id: 5, status: 'online', at: 1_000 },
+            { type: 'presenceSeen', id: 6, status: 'offline', at: 1_100 },
+            { type: 'presenceSeen', id: 5, status: 'away', at: 1_200 },
+        );
+
+        expect(state.seenPresence).toEqual({
+            5: { status: 'away', at: 1_200 },
+            6: { status: 'offline', at: 1_100 },
+        });
+        // The same status heard again later is newer news (a page that loaded in between needs the time); an older repeat is not.
+        expect(
+            run(state, {
+                type: 'presenceSeen',
+                id: 5,
+                status: 'away',
+                at: 1_000,
+            }),
+        ).toBe(state);
+        expect(
+            run(state, {
+                type: 'presenceSeen',
+                id: 5,
+                status: 'away',
+                at: 9_999,
+            }).seenPresence[5],
+        ).toEqual({ status: 'away', at: 9_999 });
+    });
+});
+
 describe('removed', () => {
     it('forgets a conversation everywhere', () => {
         const offer = makeOffer();

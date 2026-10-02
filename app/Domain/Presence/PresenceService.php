@@ -4,127 +4,127 @@ namespace App\Domain\Presence;
 
 use App\Domain\Chat\Enums\PresenceStatus;
 use App\Domain\Chat\Events\PresenceChanged;
+use App\Domain\Presence\Contracts\PresenceStore;
 use App\Domain\Widgets\Availability\AvailabilityService;
 use App\Models\AgentPresence;
 use App\Models\User;
 use App\Models\Widget;
-use Carbon\CarbonInterface;
-use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 
 /**
- * A staff member's presence, stored in `agent_presence` (P4). P5 puts Redis, auto-away and the sweep behind this class and
- * keeps the three REST endpoints (`GET/PUT /me/presence`, `POST /me/presence/heartbeat`).
+ * A staff member's presence: the single entry point for changing it and for reading what it is (decisions P5-D1..D3). The state itself
+ * is in a `PresenceStore` (Redis, or the `agent_presence` table); `PresencePolicy` says what it means (manual choice, 90 s of silence,
+ * auto-away).
  *
- * Routing counts an agent as reachable when the stored status is `online` or `away` AND the last heartbeat is younger than
- * `HEARTBEAT_TTL_SECONDS` (clients beat every 30 s): a closed tab drops out after 90 s even though nobody told us. The effective
- * status below applies the same rule, so what `GET /me/presence` says matches what routing does.
- *
- * `PresenceChanged` is dispatched when the effective status changes; the cached public availability of the widgets the agent
- * serves is dropped when the agent starts or stops being reachable (that can flip a widget's `online`).
+ * Every write and every sweep step ends in `announce()`: when the EFFECTIVE status really changed (and this call was the one that moved
+ * it) `PresenceChanged` is dispatched once, and the cached public availability of the widgets the agent serves is dropped (it may flip
+ * a widget's `online`). Routing, availability, `GET /me/presence`, the roster and the agents page read the same store, so they agree.
  */
 final class PresenceService
 {
-    /** A heartbeat older than this no longer counts as present. */
-    public const HEARTBEAT_TTL_SECONDS = 90;
+    public function __construct(
+        private readonly PresenceStore $store,
+        private readonly PresencePolicy $policy,
+        private readonly EffectivePresence $effective,
+        private readonly AvailabilityService $availability,
+    ) {}
 
-    public function __construct(private readonly AvailabilityService $availability) {}
-
-    /** The stored row, or a fresh `offline` one that is not saved yet. */
+    /** The stored record as an unsaved model, or a fresh `offline` one: the status the agent chose, not necessarily the effective one. */
     public function current(User $user): AgentPresence
     {
-        return AgentPresence::query()->where('user_id', $user->id)->first() ?? new AgentPresence(['user_id' => $user->id]);
+        return $this->store->find($user->id, now())?->toModel() ?? new AgentPresence(['user_id' => $user->id]);
     }
 
+    /** What the status of a model is right now (silence, auto-away included). */
     public function effectiveStatus(?AgentPresence $presence): PresenceStatus
     {
-        if ($presence === null || ! $presence->status->isAvailable()) {
-            return PresenceStatus::Offline;
-        }
-
-        return $this->isFresh($presence->last_heartbeat_at) ? $presence->status : PresenceStatus::Offline;
+        return $this->policy->effective($presence === null ? null : PresenceRecord::fromModel($presence), now());
     }
 
-    /** The agent picks a status themselves (`PUT /me/presence`). Going `online` or `away` also counts as a heartbeat. */
-    public function set(User $user, PresenceStatus $status): AgentPresence
+    public function statusOf(User|int $user): PresenceStatus
     {
-        return $this->write($user, function (AgentPresence $presence) use ($status): void {
-            $presence->status = $status;
-            $presence->is_manual = true;
-            $presence->forceFill(['last_seen_at' => now()]);
-
-            if ($status->isAvailable()) {
-                $presence->forceFill(['last_heartbeat_at' => now()]);
-            }
-        });
+        return $this->effective->of($user instanceof User ? $user->id : $user);
     }
 
     /**
-     * `POST /me/presence/heartbeat`: the dashboard is open. Refreshes an `online` / `away` status; it never turns an `offline`
-     * agent online (only an explicit status change does).
+     * @param  list<int>  $userIds
+     * @return array<int, PresenceStatus> every id (one read for all of them)
      */
-    public function heartbeat(User $user): AgentPresence
+    public function statusesOf(array $userIds): array
     {
-        return $this->write($user, function (AgentPresence $presence): void {
-            $presence->forceFill(['last_seen_at' => now()]);
-
-            if ($presence->status->isAvailable()) {
-                $presence->forceFill(['last_heartbeat_at' => now()]);
-            }
-        });
+        return $this->effective->many($userIds);
     }
 
     /**
-     * @param  callable(AgentPresence): void  $change
+     * The status the dashboard starts from: what the agent chose while their record lives (so a reload revives it with the first
+     * heartbeat), `offline` when the store has none.
      */
-    private function write(User $user, callable $change): AgentPresence
+    public function chosenStatus(User $user): PresenceStatus
     {
-        [$presence, $before] = $this->persist($user, $change);
-        $after = $this->effectiveStatus($presence);
-
-        if ($before !== $after) {
-            PresenceChanged::dispatch($user->id, $after);
-
-            if ($before->isAvailable() !== $after->isAvailable()) {
-                $this->forgetAvailabilityOf($user);
-            }
-        }
-
-        return $presence;
+        return $this->store->find($user->id, now())->status ?? PresenceStatus::Offline;
     }
 
     /**
-     * Applies the change to the user's row (created on first use) and returns it with the effective status it had before.
-     *
-     * @param  callable(AgentPresence): void  $change
-     * @return array{0: AgentPresence, 1: PresenceStatus}
+     * The agent picks a status themselves (`PUT /me/presence`). `online` and `away` also count as a heartbeat. `$automatic` (only for
+     * `online`) hands control back to the dashboard: `online` while a tab is visible, `away` after the auto-away minutes of hidden tabs;
+     * any other choice is pinned and wins over auto-away.
      */
-    private function persist(User $user, callable $change): array
+    public function set(User $user, PresenceStatus $status, bool $automatic = false): AgentPresence
     {
-        for ($attempt = 1; ; $attempt++) {
-            $presence = AgentPresence::query()->where('user_id', $user->id)->first();
-            $before = $this->effectiveStatus($presence);
-            $presence ??= new AgentPresence(['user_id' => $user->id]);
+        $transition = $this->store->choose($user->id, $status, ! ($automatic && $status === PresenceStatus::Online), now());
 
-            $change($presence);
+        $this->announce($transition);
 
-            try {
-                $presence->save();
-            } catch (UniqueConstraintViolationException $exception) {
-                // Two first-time writes raced for the one row per user: read it again and apply the change to it.
-                if ($attempt >= 2) {
-                    throw $exception;
-                }
-
-                continue;
-            }
-
-            return [$presence, $before];
-        }
+        return $this->modelOf($user, $transition);
     }
 
-    private function forgetAvailabilityOf(User $user): void
+    /**
+     * `POST /me/presence/heartbeat`: the dashboard is open. Refreshes an `online` / `away` status; it never turns an `offline` agent
+     * online (only an explicit status change does). `$visible` = the tab is in the foreground.
+     */
+    public function heartbeat(User $user, bool $visible = true): AgentPresence
     {
-        $categoryIds = $user->categories()->pluck('categories.id')->all();
+        $transition = $this->store->beat($user->id, $visible, now());
+
+        $this->announce($transition);
+
+        return $this->modelOf($user, $transition);
+    }
+
+    /** The sweep's step for one user; announces a change exactly like a write does. */
+    public function reconcile(int $userId): PresenceTransition
+    {
+        $transition = $this->store->reconcile($userId, now());
+
+        $this->announce($transition);
+
+        return $transition;
+    }
+
+    public function forget(User $user): void
+    {
+        $this->store->forget($user->id);
+    }
+
+    private function announce(PresenceTransition $transition): void
+    {
+        if (! $transition->changed()) {
+            return;
+        }
+
+        PresenceChanged::dispatch($transition->userId, $transition->after);
+        $this->forgetAvailabilityOf($transition->userId);
+    }
+
+    private function modelOf(User $user, PresenceTransition $transition): AgentPresence
+    {
+        return $transition->record?->toModel() ?? new AgentPresence(['user_id' => $user->id]);
+    }
+
+    /** A widget's `online` depends on which of its agents are reachable (and at which routing wave), so drop what was cached. */
+    private function forgetAvailabilityOf(int $userId): void
+    {
+        $categoryIds = DB::table('category_user')->where('user_id', $userId)->pluck('category_id')->all();
 
         if ($categoryIds === []) {
             return;
@@ -134,10 +134,5 @@ final class PresenceService
             ->whereHas('categories', fn ($categories) => $categories->whereIn('categories.id', $categoryIds))
             ->get()
             ->each(fn (Widget $widget) => $this->availability->forget($widget));
-    }
-
-    private function isFresh(?CarbonInterface $heartbeat): bool
-    {
-        return $heartbeat !== null && $heartbeat->gte(now()->subSeconds(self::HEARTBEAT_TTL_SECONDS));
     }
 }

@@ -37,6 +37,12 @@ export const HEARTBEAT_INTERVAL_MS = 30_000;
  */
 export const KEEPALIVE_INTERVAL_MS = 20 * 60_000;
 export const KEEPALIVE_AFTER_HIDDEN_MS = 10 * 60_000;
+/**
+ * The server may have changed the agent's status while this tab could not hear it (a sleeping laptop, a background tab whose timers were
+ * throttled, a socket that was down): after a gap this long between two beats, or a tab hidden this long, the status is asked again once
+ * the beat is out, so the selector never keeps saying "Online" for an agent the server already considers offline.
+ */
+export const PRESENCE_RESYNC_AFTER_MS = 3 * HEARTBEAT_INTERVAL_MS;
 /** `setTimeout` takes a 32-bit delay; a longer wait (a deadline days away) fires early and is simply re-planned. */
 const MAX_TIMER_MS = 2_000_000_000;
 /** Coalesces a burst of `queue.updated` events into one refetch. */
@@ -79,6 +85,8 @@ export type StaffControllerDeps = {
     effects: StaffEffects;
     /** Whether the agent is looking at this conversation right now (open in the view, tab visible). */
     isViewing: (ulid: string) => boolean;
+    /** Whether this tab is in the foreground; every heartbeat says so (default: `document.visibilityState`). */
+    isVisible?: () => boolean;
     now?: () => number;
 };
 
@@ -117,6 +125,11 @@ export function offerTag(ulid: string): string {
 export function createStaffController(deps: StaffControllerDeps) {
     const { store, api, viewer, t, effects } = deps;
     const now = deps.now ?? Date.now;
+    const isVisible =
+        deps.isVisible ??
+        (() =>
+            typeof document === 'undefined' ||
+            document.visibilityState === 'visible');
 
     let started = false;
     let syncing: Promise<void> | null = null;
@@ -128,6 +141,9 @@ export function createStaffController(deps: StaffControllerDeps) {
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
     let hiddenSince: number | null = null;
+    let lastBeatTick = 0;
+    /** Bumped by every own status change (a choice, an event): an answer to an older `GET /me/presence` is not applied. */
+    let presenceEpoch = 0;
     let unsubscribe: (() => void) | null = null;
     const exitTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -337,6 +353,7 @@ export function createStaffController(deps: StaffControllerDeps) {
     async function setPresence(status: PresenceStatus): Promise<boolean> {
         const previous = store.getState().presence;
 
+        presenceEpoch++;
         store.dispatch({ type: 'presence', status });
 
         try {
@@ -387,9 +404,36 @@ export function createStaffController(deps: StaffControllerDeps) {
         }
 
         try {
-            await api.heartbeat();
+            await api.heartbeat(isVisible());
         } catch {
             // A missed beat is covered by the 90 s window; the next one retries.
+        }
+    }
+
+    /** What the server says my status is now (the beat that was just sent may have changed it), unless I changed it myself meanwhile. */
+    async function refreshPresence(): Promise<void> {
+        const epoch = presenceEpoch;
+
+        try {
+            const own = await api.presence();
+
+            if (started && epoch === presenceEpoch) {
+                store.dispatch({ type: 'presence', status: own.status });
+            }
+        } catch {
+            // Unknown stays as it is: the next resync or event settles it.
+        }
+    }
+
+    /** The interval beat; a long gap since the last one (the timers were suspended) also re-reads the status. */
+    async function heartbeatTick(): Promise<void> {
+        const gap = now() - lastBeatTick;
+
+        lastBeatTick = now();
+        await sendHeartbeat();
+
+        if (gap > PRESENCE_RESYNC_AFTER_MS) {
+            await refreshPresence();
         }
     }
 
@@ -587,8 +631,15 @@ export function createStaffController(deps: StaffControllerDeps) {
                     id: change.userId,
                     status: change.status,
                 });
+                store.dispatch({
+                    type: 'presenceSeen',
+                    id: change.userId,
+                    status: change.status,
+                    at: now(),
+                });
 
                 if (change.userId === viewer.id) {
+                    presenceEpoch++;
                     store.dispatch({ type: 'presence', status: change.status });
                 }
 
@@ -650,8 +701,13 @@ export function createStaffController(deps: StaffControllerDeps) {
         const away = hiddenSince === null ? 0 : now() - hiddenSince;
 
         hiddenSince = null;
+        lastBeatTick = now();
         void sync();
-        void sendHeartbeat();
+        // The tab is visible again: say so at once (a visible beat brings an agent who went away back online), then, after a long absence,
+        // learn what the server made of it.
+        void sendHeartbeat().then(() =>
+            away > PRESENCE_RESYNC_AFTER_MS ? refreshPresence() : undefined,
+        );
 
         if (away > KEEPALIVE_AFTER_HIDDEN_MS) {
             void keepAlive();
@@ -671,8 +727,9 @@ export function createStaffController(deps: StaffControllerDeps) {
                 void sync();
             }
         }, POLL_INTERVAL_MS);
+        lastBeatTick = now();
         heartbeatTimer = setInterval(
-            () => void sendHeartbeat(),
+            () => void heartbeatTick(),
             HEARTBEAT_INTERVAL_MS,
         );
         keepAliveTimer = setInterval(

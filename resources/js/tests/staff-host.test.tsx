@@ -398,6 +398,43 @@ describe('lifecycle', () => {
         );
     });
 
+    it('says its tab is visible with the first heartbeat and beats again at once when the tab comes back to the foreground', async () => {
+        backend.current.state.presence = 'online';
+        await render(
+            <StaffRealtimeHost
+                initialPage={page(staffUser)}
+                sockets
+                sound={fakeSound()}
+            >
+                <Probe />
+            </StaffRealtimeHost>,
+        );
+
+        const beats = () =>
+            backend.current.calls('POST', '/api/v1/me/presence/heartbeat');
+
+        await waitFor(() => expect(beats().length).toBe(1));
+        expect(beats()[0].body).toEqual({ visible: true });
+
+        const setVisibility = async (state: 'hidden' | 'visible') => {
+            Object.defineProperty(document, 'visibilityState', {
+                value: state,
+                configurable: true,
+            });
+            await act(async () =>
+                document.dispatchEvent(new Event('visibilitychange')),
+            );
+        };
+
+        // Going to the background sends nothing (the next interval beat will say `visible: false`); coming back beats at once.
+        await setVisibility('hidden');
+        expect(beats().length).toBe(1);
+
+        await setVisibility('visible');
+        await waitFor(() => expect(beats().length).toBe(2));
+        expect(beats()[1].body).toEqual({ visible: true });
+    });
+
     it('keeps the session alive when a tab that was hidden for a long time comes back, and not after a short absence', async () => {
         let clock = Date.now();
 

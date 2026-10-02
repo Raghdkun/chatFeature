@@ -6,7 +6,8 @@ use App\Domain\Chat\Enums\PresenceStatus;
 use App\Domain\Widgets\Contracts\PresenceReader;
 
 /**
- * Widget availability from the presence mirror in the database (P4). P5 keeps the interface and puts Redis behind `PresenceService`.
+ * Widget availability for the public endpoint. The name is P4's (it read the table): since P5 it reads the presence store through
+ * `AvailableAgents`, the same effective statuses routing uses, so a widget never says `online` for a chat that would then be refused.
  */
 final class DatabasePresenceReader implements PresenceReader
 {

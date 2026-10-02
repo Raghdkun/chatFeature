@@ -986,6 +986,8 @@
     "inbox.presence.offline": "Offline",
     "inbox.presence.offline_notice": "You are offline, so new chat requests do not reach you.",
     "inbox.presence.go_online": "Go online",
+    "presence.hint.online": "You switch to Away by yourself when the dashboard stays in the background for a few minutes, and back to Online when you return.",
+    "presence.online_count": ":count online",
     "inbox.roster.label": ":count colleagues signed in",
     "inbox.roster.title": "Signed in",
     "inbox.roster.empty": "Nobody else is signed in.",
