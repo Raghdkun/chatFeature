@@ -127,18 +127,23 @@ export function Heatmap({
                     onMouseLeave={() => setShown(null)}
                 >
                     <div role="row" className="contents">
-                        <span
-                            role="columnheader"
-                            aria-label={t('analytics.heatmap.weekday')}
-                        />
+                        <span role="columnheader">
+                            <span className="sr-only">
+                                {t('analytics.heatmap.weekday')}
+                            </span>
+                        </span>
                         {HOURS.map((hour) => (
                             <span
                                 key={hour}
                                 role="columnheader"
-                                aria-label={hourLabel(hour, locale)}
                                 className="text-center tabular-nums"
                             >
-                                {hour % 3 === 0 ? hour : ''}
+                                <span className="sr-only">
+                                    {hourLabel(hour, locale)}
+                                </span>
+                                <span aria-hidden>
+                                    {hour % 3 === 0 ? hour : ''}
+                                </span>
                             </span>
                         ))}
                     </div>

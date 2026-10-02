@@ -686,3 +686,20 @@ describe("an agent's own view", () => {
         expect(view.byTestId('analytics-error')).toBeNull();
     });
 });
+
+describe('locale and direction', () => {
+    it('formats durations and weekday names in the page locale', async () => {
+        const view = await renderAnalytics('admin', {}, 'ar');
+
+        // The unit of "43s" is Arabic, and so are the weekday names of the heatmap's sentences.
+        expect(text(view, 'kpi-wait-value')).not.toBe('43s');
+        expect(text(view, 'kpi-wait-value')).toMatch(/[\u0600-\u06FF]/);
+        await waitFor(() => expect(view.byTestId('heat-1-14')).not.toBeNull());
+        expect(view.byTestId('heat-1-14')?.getAttribute('aria-label')).toMatch(
+            /[\u0600-\u06FF]/,
+        );
+        expect(view.container.querySelector('h1')?.textContent).toBe(
+            'Analytics',
+        );
+    });
+});
