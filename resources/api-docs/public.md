@@ -40,10 +40,13 @@ The panel opens no websocket until the visitor starts a chat. The session answer
 
 | Event (leading dot in Echo) | Payload |
 |---|---|
-| `message.created` | a visitor-safe `Message` |
-| `message.delivered`, `message.seen` | `{ upToSeq, by, at }` |
-| `chat.claimed` | the conversation and the agent's `{ name, avatarUrl }` |
-| `conversation.ended`, `conversation.closed`, `conversation.transferred` | the state change |
+| `chat.claimed` | `{ agent: { name, avatarUrl }, claimedAt }`: an agent accepted the chat |
+| `message.created` | `{ message }`: a visitor-safe `Message` |
+| `message.delivered`, `message.seen` | `{ upToSeq, by, at }`: the other side received / read the messages up to `upToSeq` |
+| `conversation.ended` | `{ endedBy, ratingRequested }` |
+| `conversation.closed` | `{ reason }`: `rated`, `skipped`, `idle`, `timeout`, `system` or `cancelled` |
+| `conversation.missed` | `{}`: nobody accepted in time, show the offline form |
+| `conversation.transferred` | `{}`: the chat is being handed to another agent |
 | `typing` and the `client-typing` whisper | `{ actor, typing }`: untrusted input, never stored |
 
 Every payload carries `v: 1`. After any reconnect, resync with `after_seq`; a visitor's socket outlives its token until it disconnects, so the client reconnects with the rotated token.
