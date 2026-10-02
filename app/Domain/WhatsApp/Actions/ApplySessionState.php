@@ -120,19 +120,36 @@ final class ApplySessionState
     /**
      * A fresh QR image (stored encrypted: a QR is a login credential while it is valid) and, when the session was not waiting for a
      * scan yet, the move to `qr`.
+     *
+     * @param  SessionStatus|null  $onlyFrom  Write only while the session still has this status. A QR that was FETCHED (the poll, a
+     *                                        reconciliation) answers a question asked while the session was `qr`; a webhook that says
+     *                                        `ready` in the meantime must win: the old code would be stored and the session sent back to
+     *                                        `qr`. (The `session.qr` webhook itself passes nothing: it is the newest information.)
      */
-    public function qr(WhatsAppSession $session, string $dataUrl): WhatsAppSession
+    public function qr(WhatsAppSession $session, string $dataUrl, ?SessionStatus $onlyFrom = null): WhatsAppSession
     {
-        WhatsAppSession::withTrashed()->whereKey($session->id)->update([
+        $query = WhatsAppSession::withTrashed()->whereKey($session->id);
+
+        if ($onlyFrom !== null) {
+            $query->where('status', $onlyFrom->value);
+        }
+
+        $stored = $query->update([
             'last_qr' => Crypt::encryptString($dataUrl),
             'last_qr_at' => now(),
             'updated_at' => now(),
         ]);
 
-        $this->transition(WhatsAppSession::withTrashed()->findOrFail($session->id), SessionStatus::Qr);
+        if ($stored === 0 && $onlyFrom !== null) {
+            return WhatsAppSession::withTrashed()->find($session->id) ?? $session;
+        }
+
+        $this->transition(WhatsAppSession::withTrashed()->findOrFail($session->id), SessionStatus::Qr, onlyFrom: $onlyFrom);
         $fresh = WhatsAppSession::withTrashed()->findOrFail($session->id);
 
-        WaSessionQrUpdated::dispatch($fresh);
+        if ($onlyFrom === null || $fresh->status === SessionStatus::Qr) {
+            WaSessionQrUpdated::dispatch($fresh);
+        }
 
         return $fresh;
     }

@@ -7,7 +7,7 @@
 | NOT a test and not part of the application: it boots the app in a fresh PHP process against the database named in the environment, waits
 | for a shared start time so that every worker hits the database at the same moment, runs one WhatsApp action and prints one line of JSON.
 |
-|   php tests/Support/wa-race-worker.php deliver <start-at> <session-ulid> <base64 body> <idempotency-key>
+|   php tests/Support/wa-race-worker.php deliver <start-at> <session-ulid> <base64 body> [ignored]
 |   php tests/Support/wa-race-worker.php reply   <start-at> <chat-ulid> <admin-id> <count> <client-msg-id|->
 */
 
@@ -40,9 +40,10 @@ while (microtime(true) < $startAt) {
 
 try {
     if ($action === 'deliver') {
-        [$ulid, $encoded, $key] = $arguments;
+        // A third argument (the idempotency key the old header carried) is ignored: the key is read from the signed body now.
+        [$ulid, $encoded] = $arguments;
         $session = WhatsAppSession::query()->where('ulid', $ulid)->firstOrFail();
-        $status = app(ReceiveWebhookDelivery::class)->handle($session, (string) base64_decode($encoded), $key, 'message.received', 'dlv_'.Str::random(8));
+        $status = app(ReceiveWebhookDelivery::class)->handle($session, (string) base64_decode($encoded));
         $emit(['ok' => true, 'status' => $status]);
     } elseif ($action === 'reply') {
         [$ulid, $adminId, $count, $clientMsgId] = $arguments;

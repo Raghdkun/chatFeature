@@ -10,7 +10,7 @@ use App\Domain\WhatsApp\Support\Payload;
 use App\Domain\WhatsApp\Support\PhoneNumber;
 use App\Models\WhatsAppSession;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 /**
  * The `session.*` webhooks: `session.status` (`{sessionId, status}`, OpenWA's wire values), `session.qr` (`{sessionId, qr}`, a PNG data
@@ -86,8 +86,10 @@ final class SessionEventApplier
     }
 
     /**
-     * Whether an event is older than the newest one already applied to this session (kept in the cache, millisecond precision, for an
-     * hour: the window in which deliveries can swap places; the scheduled reconciliation repairs anything beyond it).
+     * Whether an event is older than the newest one already applied to this session (`whatsapp_sessions.last_event_ms`, millisecond
+     * precision, from the signed envelope). Kept in the database, not in a cache: a captured older delivery replayed hours or days later,
+     * with the cache flushed and its ledger row pruned, must still be dropped. One guarded `UPDATE` moves the mark forward, so two
+     * workers racing with different moments cannot move it backwards; an event with the same moment as the newest passes.
      */
     private function isStale(WhatsAppSession $session, ?CarbonImmutable $at): bool
     {
@@ -95,16 +97,20 @@ final class SessionEventApplier
             return false;
         }
 
-        $key = 'wa:session-event:'.$session->id;
         $moment = (int) $at->getPreciseTimestamp(3);
-        $latest = (int) Cache::get($key, 0);
 
-        if ($moment < $latest) {
-            return true;
+        // The plain query builder: this bookkeeping column must not bump `updated_at` of a session nothing else changed on.
+        $advanced = DB::table('whatsapp_sessions')
+            ->where('id', $session->id)
+            ->where(fn ($query) => $query->whereNull('last_event_ms')->orWhere('last_event_ms', '<', $moment))
+            ->update(['last_event_ms' => $moment]);
+
+        if ($advanced === 1) {
+            return false;
         }
 
-        Cache::put($key, $moment, 3600);
+        $latest = DB::table('whatsapp_sessions')->where('id', $session->id)->value('last_event_ms');
 
-        return false;
+        return $latest !== null && $moment < (int) $latest;
     }
 }

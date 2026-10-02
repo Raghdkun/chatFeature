@@ -33,10 +33,10 @@ class WhatsAppSchemaTest extends TestCase
         return [
             'whatsapp_sessions' => [
                 'id', 'ulid', 'workspace_id', 'name', 'name_key', 'openwa_session_id', 'openwa_webhook_id', 'engine', 'status', 'phone_e164', 'push_name',
-                'webhook_secret_encrypted', 'webhook_registered_at', 'last_qr', 'last_qr_at', 'ready_at', 'last_error', 'settings', 'created_at', 'updated_at', 'deleted_at',
+                'webhook_secret_encrypted', 'webhook_registered_at', 'last_qr', 'last_qr_at', 'ready_at', 'last_event_ms', 'last_error', 'settings', 'created_at', 'updated_at', 'deleted_at',
             ],
             'wa_handoff_tickets' => [
-                'id', 'ulid', 'widget_id', 'visitor_id', 'category_id', 'session_id', 'code', 'expires_at', 'consumed_at', 'wa_chat_id', 'created_at', 'updated_at',
+                'id', 'ulid', 'widget_id', 'visitor_id', 'category_id', 'session_id', 'network_hash', 'code', 'expires_at', 'consumed_at', 'wa_chat_id', 'created_at', 'updated_at',
             ],
             'wa_chats' => [
                 'id', 'ulid', 'workspace_id', 'session_id', 'chat_id', 'phone_e164', 'push_name', 'is_group', 'status', 'widget_id', 'visitor_id', 'category_id',
@@ -44,9 +44,9 @@ class WhatsAppSchemaTest extends TestCase
             ],
             'wa_messages' => [
                 'id', 'ulid', 'wa_chat_id', 'direction', 'wa_message_id', 'client_msg_id', 'type', 'body', 'media_path', 'media_mime', 'media_filename', 'media_size',
-                'sent_by_user_id', 'status', 'error', 'wa_timestamp', 'raw', 'created_at', 'updated_at',
+                'sent_by_user_id', 'status', 'error', 'announced_at', 'wa_timestamp', 'raw', 'created_at', 'updated_at',
             ],
-            'wa_webhook_deliveries' => ['id', 'session_id', 'idempotency_key', 'delivery_id', 'event', 'outcome', 'received_at', 'processed_at', 'error'],
+            'wa_webhook_deliveries' => ['id', 'session_id', 'idempotency_key', 'delivery_id', 'event', 'outcome', 'received_at', 'processed_at', 'error', 'body', 'replays'],
             // Added by the backend track (migration 2026_11_26): the daily send counter.
             'wa_send_counters' => ['session_id', 'day', 'count'],
         ];
@@ -82,7 +82,7 @@ class WhatsAppSchemaTest extends TestCase
 
     public function test_the_migrations_roll_back_cleanly_and_run_again(): void
     {
-        $this->artisan('migrate:rollback', ['--step' => 6, '--force' => true])->assertSuccessful();
+        $this->artisan('migrate:rollback', ['--step' => 7, '--force' => true])->assertSuccessful();
 
         foreach (array_keys(self::expectedColumns()) as $table) {
             $this->assertFalse(Schema::hasTable($table), "{$table} should be gone after the rollback");
@@ -105,9 +105,9 @@ class WhatsAppSchemaTest extends TestCase
         $expected = [
             'whatsapp_sessions' => ['ulid', 'status', 'openwa_session_id', 'name_key'],
             'wa_chats' => ['ulid', 'session_id,chat_id', 'status,last_message_at', 'session_id,status,last_message_at', 'phone_e164', 'handoff_ticket_id'],
-            'wa_handoff_tickets' => ['ulid', 'code', 'expires_at', 'session_id,expires_at'],
+            'wa_handoff_tickets' => ['ulid', 'code', 'expires_at', 'session_id,expires_at', 'widget_id,network_hash'],
             'wa_messages' => ['ulid', 'wa_chat_id,wa_message_id', 'wa_chat_id,id', 'wa_message_id', 'wa_chat_id,client_msg_id', 'status,created_at'],
-            'wa_webhook_deliveries' => ['session_id,idempotency_key', 'received_at'],
+            'wa_webhook_deliveries' => ['session_id,idempotency_key', 'received_at', 'outcome,received_at'],
         ];
 
         foreach ($expected as $table => $indexes) {

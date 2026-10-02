@@ -34,6 +34,9 @@ use Illuminate\Support\Str;
  *    transaction as the row, `last_message_*` only forward in time.
  *  - An image is stored (inline data, or fetched later by a job); the first inbound messages of an unlinked chat are searched for a
  *    hand-off code (`ChatLinker`). Realtime events fire after all of it, so the first broadcast already shows the link.
+ *  - Everything after the insert is idempotent and finished by a RETRY: a delivery that stored its row but failed afterwards (the queue
+ *    refused the media job, the linker was a deadlock victim) hits the existing row on its next run, and because the row is not marked
+ *    `announced_at` yet, that run does the media, the link and the events again. A repeat of a finished message is a plain `duplicate`.
  */
 final class InboundMessageRecorder
 {
@@ -114,7 +117,8 @@ final class InboundMessageRecorder
             throw new \RuntimeException('The message could not be stored.');
         }
 
-        if (! $stored) {
+        // The same message again, and everything was done the first time: nothing to do. (A stored row that was NOT finished falls through.)
+        if (! $stored && $message->announced_at !== null) {
             return WebhookResult::duplicate();
         }
 
@@ -126,6 +130,8 @@ final class InboundMessageRecorder
         } else {
             WaMessageSent::dispatch($message->load('chat'));
         }
+
+        WaMessage::query()->whereKey($message->id)->whereNull('announced_at')->update(['announced_at' => now()]);
 
         return WebhookResult::processed();
     }
@@ -308,7 +314,8 @@ final class InboundMessageRecorder
      */
     private function storeMedia(WaMessage $message, WaMessageType $type, ?array $inline, array $data): void
     {
-        if (! $type->isStoredAsFile() || $inline === null) {
+        // Not an image, or its file is already there (a retried delivery): nothing to store or fetch.
+        if (! $type->isStoredAsFile() || $inline === null || $message->hasStoredMedia()) {
             return;
         }
 

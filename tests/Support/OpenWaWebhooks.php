@@ -43,7 +43,7 @@ trait OpenWaWebhooks
 
         $headers += [
             'X-OpenWA-Signature' => WebhookSignature::sign((string) $raw, $secret),
-            'X-OpenWA-Event' => (string) ($payload['event'] ?? 'message.received'),
+            'X-OpenWA-Event' => is_scalar($payload['event'] ?? null) ? (string) $payload['event'] : 'message.received',
             'X-OpenWA-Idempotency-Key' => (string) ($payload['idempotencyKey'] ?? 'key_'.Str::random(12)),
             'X-OpenWA-Delivery-Id' => (string) ($payload['deliveryId'] ?? 'dlv_'.Str::uuid()),
             'X-OpenWA-Retry-Count' => '0',

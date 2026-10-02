@@ -43,6 +43,7 @@ use SensitiveParameter;
  * @property string|null $last_qr
  * @property Carbon|null $last_qr_at
  * @property Carbon|null $ready_at
+ * @property int|null $last_event_ms Epoch milliseconds of the newest session event applied (from the signed envelope)
  * @property string|null $last_error
  * @property array<string, mixed>|null $settings
  * @property Carbon|null $created_at
@@ -101,6 +102,7 @@ class WhatsAppSession extends Model
             'last_qr' => 'encrypted',
             'last_qr_at' => 'datetime',
             'ready_at' => 'datetime',
+            'last_event_ms' => 'integer',
             'settings' => 'array',
         ];
     }

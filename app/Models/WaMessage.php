@@ -35,6 +35,7 @@ use Illuminate\Support\Carbon;
  * @property int|null $sent_by_user_id
  * @property WaMessageStatus $status
  * @property string|null $error
+ * @property Carbon|null $announced_at
  * @property Carbon $wa_timestamp
  * @property array<string, mixed>|null $raw
  * @property Carbon|null $created_at
@@ -44,7 +45,7 @@ use Illuminate\Support\Carbon;
  */
 #[Fillable([
     'wa_chat_id', 'direction', 'wa_message_id', 'client_msg_id', 'type', 'body', 'media_path', 'media_mime', 'media_filename', 'media_size',
-    'sent_by_user_id', 'status', 'error', 'wa_timestamp', 'raw',
+    'sent_by_user_id', 'status', 'error', 'announced_at', 'wa_timestamp', 'raw',
 ])]
 #[Hidden(['raw', 'media_path'])]
 class WaMessage extends Model
@@ -88,6 +89,7 @@ class WaMessage extends Model
             'sent_by_user_id' => 'integer',
             'status' => WaMessageStatus::class,
             'wa_timestamp' => 'datetime',
+            'announced_at' => 'datetime',
             'raw' => 'array',
         ];
     }

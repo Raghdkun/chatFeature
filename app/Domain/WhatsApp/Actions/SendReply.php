@@ -117,6 +117,8 @@ final class SendReply
             'body' => $text,
             'sent_by_user_id' => $actor->id,
             'status' => WaMessageStatus::Pending,
+            // Announced by the reply's own `WaMessageSent`: the echo of this message must never be announced a second time.
+            'announced_at' => now(),
             'wa_timestamp' => now(),
         ]);
 

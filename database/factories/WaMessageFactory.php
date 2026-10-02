@@ -39,6 +39,7 @@ class WaMessageFactory extends Factory
             'sent_by_user_id' => null,
             'status' => WaMessageStatus::Received,
             'error' => null,
+            'announced_at' => now(),
             'wa_timestamp' => now(),
             'raw' => null,
         ];

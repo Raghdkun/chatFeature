@@ -68,7 +68,12 @@ final class FetchSessionQr
             throw OpenWaProblem::from($unavailable);
         }
 
-        $session = $this->state->qr($session, $remote->dataUrl);
+        // Stored only while the session is still waiting for the scan this code is for: a webhook that said `ready` while OpenWA was asked wins.
+        $session = $this->state->qr($session, $remote->dataUrl, SessionStatus::Qr);
+
+        if ($session->status !== SessionStatus::Qr || ! $session->hasQr()) {
+            throw new ApiProblemException(409, 'qr_not_available', __('This session is not waiting for a scan.'), ['status' => $session->status->value]);
+        }
 
         return ['qr' => (string) $session->last_qr, 'updatedAt' => $session->last_qr_at ?? now()];
     }

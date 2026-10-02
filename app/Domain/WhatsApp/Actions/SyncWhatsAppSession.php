@@ -54,6 +54,11 @@ final class SyncWhatsAppSession
             return $session;
         }
 
+        // The status as it is now, read BEFORE the question goes out: OpenWA's answer describes the moment it built it, so it may only move a
+        // session that still has this status. A webhook (or an administrator's Start / Stop) that changed it in the meantime is newer.
+        $current = WhatsAppSession::withTrashed()->find($session->id);
+        $seen = $current === null ? $session->status : $current->status;
+
         try {
             $remote = $this->openWa->getSession($session->openwa_session_id);
         } catch (OpenWaRejected $rejected) {
@@ -61,10 +66,10 @@ final class SyncWhatsAppSession
                 throw $rejected;
             }
 
-            return $this->state->transition($session, SessionStatus::Failed, ['last_error' => 'OpenWA no longer knows this session. Start it again to create it.']);
+            return $this->state->transition($session, SessionStatus::Failed, ['last_error' => 'OpenWA no longer knows this session. Start it again to create it.'], $seen);
         }
 
-        $session = $this->state->observe($session, $remote);
+        $session = $this->state->observe($session, $remote, $seen);
 
         if ($session->status === SessionStatus::Qr && ! $session->hasQr()) {
             $session = $this->fetchQr($session);
@@ -76,7 +81,7 @@ final class SyncWhatsAppSession
     private function fetchQr(WhatsAppSession $session): WhatsAppSession
     {
         try {
-            return $this->state->qr($session, $this->openWa->getQr((string) $session->openwa_session_id)->dataUrl);
+            return $this->state->qr($session, $this->openWa->getQr((string) $session->openwa_session_id)->dataUrl, SessionStatus::Qr);
         } catch (Throwable) {
             // A QR that is not ready yet (400) or an unusable one: the next reconciliation or webhook has it.
             return $session;
