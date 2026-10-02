@@ -65,6 +65,7 @@ describe("the administrator's dashboard", () => {
         expect(text(view, 'kpi-rating-value')).toBe('4.40');
         expect(text(view, 'kpi-rating')).toContain('from 40 ratings');
         expect(text(view, 'kpi-peak-value')).toBe('6');
+        expect(text(view, 'kpi-peak')).toContain('queue up to 3');
         expect(view.container.querySelector('h1')?.textContent).toBe(
             'Analytics',
         );

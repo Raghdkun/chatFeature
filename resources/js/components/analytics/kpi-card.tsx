@@ -3,6 +3,7 @@ import { usePlural } from '@/components/widgets/page-chrome';
 import { useTrans } from '@/hooks/use-trans';
 import {
     deltaOf,
+    formatCount,
     formatDuration,
     formatPercent,
     formatValue,
@@ -47,6 +48,14 @@ function Subtext({ def, kpis }: { def: KpiDefinition; kpis: Kpis }) {
                 kpis.ratings.count === 0
                     ? t('analytics.kpi.no_ratings')
                     : plural('analytics.kpi.ratings_count', kpis.ratings.count);
+            break;
+        case 'peak':
+            text =
+                kpis.queuePeak === null
+                    ? null
+                    : t('analytics.kpi.queue_peak', {
+                          count: formatCount(kpis.queuePeak, locale),
+                      });
             break;
         case 'wait':
             text = t('analytics.kpi.longest', {

@@ -78,8 +78,8 @@ export function SkeletonBlock({
             className={cn('grid gap-2', className)}
             data-testid="analytics-skeleton"
         >
-            <Skeleton className="h-4 w-1/3" />
-            <Skeleton className="h-full min-h-24 w-full" />
+            <Skeleton className="h-4 w-1/3 motion-reduce:animate-none" />
+            <Skeleton className="h-full min-h-24 w-full motion-reduce:animate-none" />
         </div>
     );
 }

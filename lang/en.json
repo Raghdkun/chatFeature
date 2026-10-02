@@ -1660,6 +1660,7 @@
     "analytics.kpi.ratings_count.one": "from :count rating",
     "analytics.kpi.ratings_count.other": "from :count ratings",
     "analytics.kpi.longest": "longest :value",
+    "analytics.kpi.queue_peak": "queue up to :count",
     "analytics.kpi.accepted": "accepted :rate",
     "analytics.delta.up": "Up :value",
     "analytics.delta.down": "Down :value",
