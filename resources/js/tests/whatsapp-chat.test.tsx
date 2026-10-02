@@ -824,7 +824,7 @@ describe('history and catching up', () => {
             expect(byTestId('wa-transcript')?.textContent).toContain('ancient'),
         );
 
-        expect(messageGets().at(-1)?.query.before).toBe(newest.ulid);
+        expect(messageGets().at(-1)?.query.before_id).toBe(newest.ulid);
         expect(byTestId('wa-load-older')).toBeNull();
     });
 

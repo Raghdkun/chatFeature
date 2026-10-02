@@ -15,13 +15,14 @@ import {
     type ConnectionTestResult,
     type QrResult,
     type SendReplyInput,
+    type SessionPacingInput,
     type WaChatListQuery,
     type WaChatPage,
     type WaMessagePage,
     type WaMessagesQuery,
     type WaSettings,
     type WaSettingsInput,
-    type WidgetWhatsApp,
+    type WidgetWhatsAppLink,
 } from '@/lib/whatsapp-api/types';
 import type {
     SessionStatus,
@@ -141,7 +142,7 @@ export function settingsBody(input: WaSettingsInput): Record<string, unknown> {
     }
 
     if (input.clearApiKey === true) {
-        body.api_key = null;
+        body.clear_api_key = true;
     }
 
     return body;
@@ -150,62 +151,98 @@ export function settingsBody(input: WaSettingsInput): Record<string, unknown> {
 /** Only a base64 PNG / JPEG data URL is ever put into an `<img>` (the QR is a credential: nothing else may be shown as one). */
 const IMAGE_DATA_URL = /^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/;
 
+const SESSION_STATUSES: readonly SessionStatus[] = [
+    'created',
+    'starting',
+    'qr',
+    'ready',
+    'disconnected',
+    'failed',
+];
+
+const asStatus = (value: unknown): SessionStatus | null =>
+    typeof value === 'string' &&
+    (SESSION_STATUSES as readonly string[]).includes(value)
+        ? (value as SessionStatus)
+        : null;
+
 export function qrFromWire(raw: unknown): QrResult {
     const source = isRecord(raw) ? raw : {};
     const image = pick(source, 'qr', 'image', 'dataUrl', 'data_url');
-    const status = pick(source, 'status');
+    const updated = pick(source, 'updatedAt', 'updated_at');
 
     return {
-        status:
-            typeof status === 'string'
-                ? (status as SessionStatus)
-                : image
-                  ? 'qr'
-                  : 'starting',
+        status: asStatus(pick(source, 'status')) ?? (image ? 'qr' : 'starting'),
         image:
             typeof image === 'string' && IMAGE_DATA_URL.test(image)
                 ? image
                 : null,
-        expiresAt:
-            typeof pick(source, 'expires_at', 'expiresAt') === 'string'
-                ? (pick(source, 'expires_at', 'expiresAt') as string)
-                : null,
+        updatedAt: typeof updated === 'string' ? updated : null,
     };
 }
 
 export function connectionResultFromWire(raw: unknown): ConnectionTestResult {
     const source = isRecord(raw) ? raw : {};
 
-    if (flag(pick(source, 'ok', 'success', 'valid'), false)) {
+    if (flag(pick(source, 'ok'), false)) {
+        const operate = pick(source, 'canOperate', 'can_operate');
+
         return {
             ok: true,
             role: typeof source.role === 'string' ? source.role : null,
             engine: typeof source.engine === 'string' ? source.engine : null,
+            canOperate: typeof operate === 'boolean' ? operate : null,
         };
     }
 
     return {
         ok: false,
-        code: text(pick(source, 'code', 'error'), 'connection_failed'),
-        message: text(pick(source, 'message', 'reason'), ''),
+        reason: text(pick(source, 'reason', 'code', 'error'), 'unreachable'),
+        message: text(pick(source, 'message'), ''),
     };
 }
 
-type Envelope<T> = { data: T; meta?: { next_cursor?: string | null } };
+/** The widget link as `GET|PUT /widgets/{ulid}/whatsapp` answers it. */
+export function widgetLinkFromWire(raw: unknown): WidgetWhatsAppLink {
+    const source = isRecord(raw) ? raw : {};
+    const session = isRecord(source.session) ? source.session : null;
+    const masked = pick(source, 'maskedPhone', 'masked_phone');
 
-function pageOf<T>(body: unknown): { rows: T[]; next: string | null } {
+    return {
+        session:
+            session !== null &&
+            typeof session.ulid === 'string' &&
+            typeof session.name === 'string'
+                ? { ulid: session.ulid, name: session.name }
+                : null,
+        status: asStatus(pick(source, 'status')),
+        maskedPhone: typeof masked === 'string' ? masked : null,
+        connected: flag(pick(source, 'connected'), false),
+    };
+}
+
+type Envelope<T> = {
+    data: T;
+    meta?: { next_cursor?: string | null; prev_cursor?: string | null };
+};
+
+function pageOf<T>(body: unknown): {
+    rows: T[];
+    next: string | null;
+    prev: string | null;
+} {
     if (!isRecord(body) || !Array.isArray(body.data)) {
-        return { rows: [], next: null };
+        return { rows: [], next: null, prev: null };
     }
 
     const meta = isRecord(body.meta) ? body.meta : {};
+    const cursor = (value: unknown): string | null =>
+        typeof value === 'string' && value !== '' ? value : null;
 
     return {
         rows: body.data as T[],
-        next:
-            typeof meta.next_cursor === 'string' && meta.next_cursor !== ''
-                ? meta.next_cursor
-                : null,
+        next: cursor(meta.next_cursor),
+        prev: cursor(meta.prev_cursor),
     };
 }
 
@@ -220,15 +257,16 @@ export function createWaApi(client: ApiClient = api) {
 
         saveSettings: async (input: WaSettingsInput): Promise<WaSettings> =>
             settingsFromWire(
-                await client.patch<unknown>(
+                await client.put<unknown>(
                     waRoutes.api.settings(),
                     settingsBody(input),
                 ),
             ),
 
         /**
-         * Asks OpenWA (with the SAVED address and key) who the key is. A failure is a result, not an exception: the card shows the
-         * reason next to the button. Only a failure of the app itself (`403`, a dropped connection) is thrown.
+         * Asks OpenWA (with the SAVED address and key) who the key is. A failure of OpenWA is a RESULT (`ok: false`, a reason and a
+         * sentence): the card shows it next to the button. Only a failure of the app itself (`403`, `429` from the test limiter, a dropped
+         * connection) is thrown.
          */
         testConnection: async (): Promise<ConnectionTestResult> => {
             try {
@@ -248,7 +286,7 @@ export function createWaApi(client: ApiClient = api) {
                 ) {
                     return {
                         ok: false,
-                        code: error.code,
+                        reason: error.code,
                         message: error.message,
                     };
                 }
@@ -270,17 +308,55 @@ export function createWaApi(client: ApiClient = api) {
         stopSession: (ulid: string) =>
             client.post<WhatsAppSession>(waRoutes.api.sessionStop(ulid)),
 
-        deleteSession: (ulid: string) =>
-            client.delete<null>(waRoutes.api.session(ulid)),
+        /**
+         * `force`: delete it here even when OpenWA cannot be asked (the OpenWA session may then stay behind): offered only after a normal
+         * delete failed with `openwa_unavailable`.
+         */
+        deleteSession: (ulid: string, force = false) =>
+            client.delete<null>(waRoutes.api.session(ulid), {
+                query: force ? { force: 1 } : undefined,
+            }),
 
-        /** `no-store` on purpose; a `400`-like answer while the session is not waiting for a scan is `{status, image: null}`. */
-        qr: async (ulid: string, signal?: AbortSignal): Promise<QrResult> =>
-            qrFromWire(
-                await client.get<unknown>(waRoutes.api.sessionQr(ulid), {
-                    signal,
-                    cache: 'no-store',
-                }),
-            ),
+        /** Ask OpenWA what it knows and write that (status, number, last error). */
+        syncSession: (ulid: string) =>
+            client.post<WhatsAppSession>(waRoutes.api.sessionSync(ulid)),
+
+        updateSessionPacing: (ulid: string, input: SessionPacingInput) =>
+            client.patch<WhatsAppSession>(waRoutes.api.session(ulid), {
+                ...(input.sendMinIntervalMs !== undefined
+                    ? { send_min_interval_ms: input.sendMinIntervalMs }
+                    : {}),
+                ...(input.dailySendCap !== undefined
+                    ? { daily_send_cap: input.dailySendCap }
+                    : {}),
+            }),
+
+        /**
+         * `no-store` on purpose. While the session is not waiting for a scan the server answers `409 qr_not_available`
+         * (`details.status`): that is a result here (`{ status, image: null }`), the dialog uses it to follow the session to `ready`.
+         */
+        qr: async (ulid: string, signal?: AbortSignal): Promise<QrResult> => {
+            try {
+                return qrFromWire(
+                    await client.get<unknown>(waRoutes.api.sessionQr(ulid), {
+                        signal,
+                        cache: 'no-store',
+                    }),
+                );
+            } catch (error) {
+                if (isApiError(error) && error.code === 'qr_not_available') {
+                    return {
+                        status:
+                            asStatus(error.firstMessage('status')) ??
+                            'starting',
+                        image: null,
+                        updatedAt: null,
+                    };
+                }
+
+                throw error;
+            }
+        },
 
         /* ------------------------------------------------------------ chats */
 
@@ -292,6 +368,8 @@ export function createWaApi(client: ApiClient = api) {
                     query: {
                         status: query.status,
                         session: query.session,
+                        widget: query.widget,
+                        category: query.category,
                         linked:
                             query.linked === undefined
                                 ? undefined
@@ -300,7 +378,6 @@ export function createWaApi(client: ApiClient = api) {
                                   : 0,
                         unread: query.unread ? 1 : undefined,
                         q: query.q === '' ? undefined : query.q,
-                        sort: query.sort,
                         cursor: query.cursor,
                         limit: query.limit,
                     },
@@ -318,25 +395,26 @@ export function createWaApi(client: ApiClient = api) {
             ulid: string,
             query: WaMessagesQuery = {},
         ): Promise<WaMessagePage> => {
-            const limit = query.limit ?? 50;
+            const limit = query.limit ?? 100;
             const body = await client.get<Envelope<WaMessage[]>>(
                 waRoutes.api.chatMessages(ulid),
                 {
                     envelope: true,
                     signal: query.signal,
                     query: {
-                        after: query.after,
-                        before: query.before,
+                        after_id: query.after,
+                        before_id: query.before,
                         limit,
                     },
                 },
             );
-            const { rows, next } = pageOf<WaMessage>(body);
+            const { rows, next, prev } = pageOf<WaMessage>(body);
 
             return {
                 messages: rows,
-                // A full page, or a cursor, says there is more beyond it.
-                hasMore: next !== null || rows.length >= limit,
+                // Always oldest first. More in the direction asked for: newer rows after `after`, older rows otherwise.
+                hasMore:
+                    query.after !== undefined ? next !== null : prev !== null,
             };
         },
 
@@ -358,34 +436,26 @@ export function createWaApi(client: ApiClient = api) {
 
         /* ---------------------------------------------------------- widgets */
 
-        widgetWhatsApp: async (widgetUlid: string): Promise<WidgetWhatsApp> => {
-            const raw = await client.get<unknown>(
-                waRoutes.api.widgetWhatsApp(widgetUlid),
-            );
-            const source = isRecord(raw) ? raw : {};
-            const session = pick(source, 'session_ulid', 'sessionUlid');
+        widgetWhatsApp: async (
+            widgetUlid: string,
+        ): Promise<WidgetWhatsAppLink> =>
+            widgetLinkFromWire(
+                await client.get<unknown>(
+                    waRoutes.api.widgetWhatsApp(widgetUlid),
+                ),
+            ),
 
-            return {
-                sessionUlid: typeof session === 'string' ? session : null,
-            };
-        },
-
+        /** Link the widget to a live session (`null` unlinks it). `422` with `details.session` for an unknown or deleted one. */
         setWidgetWhatsApp: async (
             widgetUlid: string,
             sessionUlid: string | null,
-        ): Promise<WidgetWhatsApp> => {
-            const raw = await client.put<unknown>(
-                waRoutes.api.widgetWhatsApp(widgetUlid),
-                { session_ulid: sessionUlid },
-            );
-            const source = isRecord(raw) ? raw : {};
-            const session = pick(source, 'session_ulid', 'sessionUlid');
-
-            return {
-                sessionUlid:
-                    typeof session === 'string' ? session : sessionUlid,
-            };
-        },
+        ): Promise<WidgetWhatsAppLink> =>
+            widgetLinkFromWire(
+                await client.put<unknown>(
+                    waRoutes.api.widgetWhatsApp(widgetUlid),
+                    { session: sessionUlid },
+                ),
+            ),
     };
 }
 
@@ -407,6 +477,9 @@ export type WaErrorKind =
     | 'unreachable'
     | 'unauthorized_key'
     | 'webhook_rejected'
+    | 'openwa_rejected'
+    | 'session_state'
+    | 'qr_not_available'
     | 'name_taken'
     | 'teardown_pending'
     | 'session_busy'
@@ -427,6 +500,7 @@ const CODES: Record<string, WaErrorKind> = {
     pacing_limited: 'pacing',
     send_too_fast: 'pacing',
     reply_only_to_inbound: 'not_inbound',
+    reply_not_allowed: 'not_inbound',
     chat_not_inbound_initiated: 'not_inbound',
     not_inbound_initiated: 'not_inbound',
     inbound_required: 'not_inbound',
@@ -434,6 +508,10 @@ const CODES: Record<string, WaErrorKind> = {
     openwa_unreachable: 'unreachable',
     gateway_unavailable: 'unreachable',
     openwa_not_configured: 'unreachable',
+    openwa_rejected: 'openwa_rejected',
+    session_not_startable: 'session_state',
+    session_not_stoppable: 'session_state',
+    qr_not_available: 'qr_not_available',
     openwa_unauthorized: 'unauthorized_key',
     openwa_invalid_api_key: 'unauthorized_key',
     invalid_api_key: 'unauthorized_key',
@@ -443,6 +521,7 @@ const CODES: Record<string, WaErrorKind> = {
     session_name_taken: 'name_taken',
     session_name_conflict: 'name_taken',
     session_exists: 'name_taken',
+    openwa_session_exists: 'name_taken',
     session_name_teardown_pending: 'teardown_pending',
     session_busy: 'session_busy',
     session_in_use: 'session_busy',
@@ -536,6 +615,12 @@ export function describeWaError(
             return t('whatsapp.error.unauthorized_key');
         case 'webhook_rejected':
             return t('whatsapp.error.webhook_rejected');
+        case 'openwa_rejected':
+            return t('whatsapp.error.openwa_rejected');
+        case 'session_state':
+            return t('whatsapp.error.session_state');
+        case 'qr_not_available':
+            return t('whatsapp.error.qr_not_available');
         case 'name_taken':
             return t('whatsapp.error.name_taken');
         case 'teardown_pending':

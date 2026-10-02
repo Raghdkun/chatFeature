@@ -1,0 +1,78 @@
+import { Head, usePage } from '@inertiajs/react';
+import { ChatView } from '@/components/whatsapp/chat-view';
+import { chatTitle } from '@/components/whatsapp/format';
+import {
+    WaInboxLayout,
+    WhatsAppForbidden,
+} from '@/components/whatsapp/inbox-layout';
+import {
+    EmptyConversation,
+    WaInboxShell,
+} from '@/components/whatsapp/inbox-shell';
+import { useTrans } from '@/hooks/use-trans';
+import type { WaInboxPageProps } from '@/types/whatsapp';
+
+/**
+ * `/whatsapp` and `/whatsapp/chats/{chat}` (administrators only). One page: the list column and, when `selected` is set, the open chat.
+ * Picking a chat reloads only `selected` (the same component stays mounted), so the filters, the search text and the pages already loaded
+ * survive. An agent is answered 403 by the server; the check here only keeps a stale tab from drawing any WhatsApp data.
+ */
+export default function WhatsAppInbox({
+    sessions,
+    chats,
+    meta,
+    widgets,
+    categories,
+    whatsappEnabled,
+    replyOnlyToInbound,
+    selected,
+}: WaInboxPageProps) {
+    const { t } = useTrans();
+    const { auth } = usePage().props;
+
+    if (!auth.user?.is_admin) {
+        return <WhatsAppForbidden />;
+    }
+
+    return (
+        <>
+            <Head
+                title={
+                    selected
+                        ? t('whatsapp.chat.title', {
+                              name: chatTitle(
+                                  selected.detail.chat,
+                                  t('whatsapp.chat.unknown'),
+                              ),
+                          })
+                        : t('whatsapp.inbox.title')
+                }
+            />
+            <WaInboxShell
+                chats={chats}
+                cursor={meta.next_cursor}
+                hasMore={meta.has_more ?? meta.next_cursor !== null}
+                sessions={sessions}
+                widgets={widgets}
+                categories={categories}
+                whatsappEnabled={whatsappEnabled}
+                selectedUlid={selected?.detail.chat.ulid ?? null}
+            >
+                {selected ? (
+                    // Keyed by chat: switching chats starts a clean transcript, composer and reply queue.
+                    <ChatView
+                        key={selected.detail.chat.ulid}
+                        detail={selected.detail}
+                        messages={selected.messages}
+                        hasOlder={selected.meta.prev_cursor !== null}
+                        replyOnlyToInbound={replyOnlyToInbound}
+                    />
+                ) : (
+                    <EmptyConversation />
+                )}
+            </WaInboxShell>
+        </>
+    );
+}
+
+WhatsAppInbox.layout = WaInboxLayout;

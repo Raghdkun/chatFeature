@@ -2,7 +2,11 @@ import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useTrans } from '@/hooks/use-trans';
 import type { WaListFilters } from '@/lib/realtime/whatsapp/use-wa-chat-list';
-import type { WhatsAppSession } from '@/lib/whatsapp/types';
+import type {
+    WaCategoryRef,
+    WaWidgetRef,
+    WhatsAppSession,
+} from '@/lib/whatsapp/types';
 import { cn } from '@/lib/utils';
 
 function Chip({
@@ -35,6 +39,41 @@ function Chip({
     );
 }
 
+function FilterSelect({
+    label,
+    all,
+    testId,
+    value,
+    options,
+    onChange,
+}: {
+    label: string;
+    all: string;
+    testId: string;
+    value: string;
+    options: { value: string; label: string }[];
+    onChange: (value: string) => void;
+}) {
+    return (
+        <label className="grid gap-1 text-xs text-muted-foreground">
+            <span>{label}</span>
+            <select
+                value={value}
+                onChange={(event) => onChange(event.target.value)}
+                data-testid={testId}
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            >
+                <option value="">{all}</option>
+                {options.map((option) => (
+                    <option key={option.value} value={option.value}>
+                        {option.label}
+                    </option>
+                ))}
+            </select>
+        </label>
+    );
+}
+
 /**
  * Search and filters of the chat list: the text (server side: numbers, names, message texts), open / archived, linked to the website or
  * not, only the unread, unread first, and one session. Every control is labelled; the chips are toggle buttons (`aria-pressed`).
@@ -42,10 +81,14 @@ function Chip({
 export function ChatFilters({
     filters,
     sessions,
+    widgets,
+    categories,
     onChange,
 }: {
     filters: WaListFilters;
     sessions: Pick<WhatsAppSession, 'ulid' | 'name'>[];
+    widgets: WaWidgetRef[];
+    categories: WaCategoryRef[];
     onChange: (patch: Partial<WaListFilters>) => void;
 }) {
     const { t } = useTrans();
@@ -148,26 +191,43 @@ export function ChatFilters({
             </div>
 
             {sessions.length > 1 && (
-                <label className="grid gap-1 text-xs text-muted-foreground">
-                    <span>{t('whatsapp.filter.session')}</span>
-                    <select
-                        value={filters.session}
-                        onChange={(event) =>
-                            onChange({ session: event.target.value })
-                        }
-                        data-testid="wa-filter-session"
-                        className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                    >
-                        <option value="">
-                            {t('whatsapp.filter.all_sessions')}
-                        </option>
-                        {sessions.map((session) => (
-                            <option key={session.ulid} value={session.ulid}>
-                                {session.name}
-                            </option>
-                        ))}
-                    </select>
-                </label>
+                <FilterSelect
+                    label={t('whatsapp.filter.session')}
+                    all={t('whatsapp.filter.all_sessions')}
+                    testId="wa-filter-session"
+                    value={filters.session}
+                    options={sessions.map((s) => ({
+                        value: s.ulid,
+                        label: s.name,
+                    }))}
+                    onChange={(session) => onChange({ session })}
+                />
+            )}
+            {widgets.length > 1 && (
+                <FilterSelect
+                    label={t('whatsapp.filter.widget')}
+                    all={t('whatsapp.filter.all_widgets')}
+                    testId="wa-filter-widget"
+                    value={filters.widget}
+                    options={widgets.map((w) => ({
+                        value: w.ulid,
+                        label: w.name,
+                    }))}
+                    onChange={(widget) => onChange({ widget })}
+                />
+            )}
+            {categories.length > 1 && (
+                <FilterSelect
+                    label={t('whatsapp.filter.category')}
+                    all={t('whatsapp.filter.all_categories')}
+                    testId="wa-filter-category"
+                    value={filters.category}
+                    options={categories.map((c) => ({
+                        value: c.slug,
+                        label: c.label,
+                    }))}
+                    onChange={(category) => onChange({ category })}
+                />
             )}
         </div>
     );

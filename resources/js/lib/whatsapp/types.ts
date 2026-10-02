@@ -7,6 +7,9 @@
 
 export type WhatsAppSession = App.Data.WhatsApp.WhatsAppSessionData;
 export type WaSessionRef = App.Data.WhatsApp.WaSessionRefData;
+/** The widget and topic a chat is linked to (the P4 refs). */
+export type WaWidgetRef = App.Data.Chat.WidgetRefData;
+export type WaCategoryRef = App.Data.Chat.CategoryRefData;
 export type WaChat = App.Data.WhatsApp.WaChatData;
 export type WaChatDetail = App.Data.WhatsApp.WaChatDetailData;
 export type WaVisitorRef = App.Data.WhatsApp.WaVisitorRefData;

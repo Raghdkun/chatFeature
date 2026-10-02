@@ -7,8 +7,9 @@
 import type {
     SessionStatus,
     WaChat,
-    WaMessage,
     WaChatStatus,
+    WaMessage,
+    WaSessionRef,
 } from '@/lib/whatsapp/types';
 
 /** The behaviour settings and the connection to OpenWA (`whatsapp.*`). The API key never comes back: only `hasApiKey`. */
@@ -44,26 +45,39 @@ export const WA_LIMITS = {
     sessionName: { min: 3, max: 50, pattern: /^[A-Za-z0-9-]+$/ },
 } as const;
 
-/** The result of "Test connection": the key's role and the engine, or why it did not work. */
+/**
+ * The result of "Test connection" (`POST /whatsapp/settings/test`, the SAVED address and key): the key's role, the engine and whether it
+ * may operate (start sessions, send), or why it did not work (`reason`: `not_configured`, `blocked`, `unreachable`, `unauthorized`,
+ * `rejected`, `unexpected_response`) with a one-sentence message.
+ */
 export type ConnectionTestResult =
-    | { ok: true; role: string | null; engine: string | null }
-    | { ok: false; code: string; message: string };
+    | {
+          ok: true;
+          role: string | null;
+          engine: string | null;
+          canOperate: boolean | null;
+      }
+    | { ok: false; reason: string; message: string };
 
-/** `GET /whatsapp/sessions/{ulid}/qr`: the picture is a base64 PNG data URL, present only while the session waits for a scan. */
+/**
+ * `GET /whatsapp/sessions/{ulid}/qr`: a base64 PNG data URL, served only while the session waits for a scan. In any other status the
+ * server answers `409 qr_not_available` (`details.status`): the client turns that into `{ status, image: null }`.
+ */
 export type QrResult = {
     status: SessionStatus;
     image: string | null;
-    /** When the code stops working, when the server knows. */
-    expiresAt: string | null;
+    /** When the picture was taken (`updatedAt`): a new one replaces it about every 20 seconds. */
+    updatedAt: string | null;
 };
 
 export type WaChatListFilters = {
     status?: WaChatStatus | 'all';
     session?: string;
+    widget?: string;
+    category?: string;
     linked?: boolean;
     unread?: boolean;
     q?: string;
-    sort?: 'recent' | 'unread';
 };
 
 export type WaChatListQuery = WaChatListFilters & {
@@ -74,15 +88,18 @@ export type WaChatListQuery = WaChatListFilters & {
 export type WaChatPage = { chats: WaChat[]; nextCursor: string | null };
 
 export type WaMessagesQuery = {
-    /** Messages newer than this one (a gap sync, the poll). */
+    /** The page after this message (a gap sync, the poll): `?after_id=`. */
     after?: string;
-    /** Messages older than this one (scrolling up). */
+    /** The page before this message (scrolling up): `?before_id=`. */
     before?: string;
     limit?: number;
     signal?: AbortSignal;
 };
 
-/** A page of a transcript, oldest first; `hasMore` says there are older (`before`) or newer (`after`) rows beyond the page. */
+/**
+ * A page of a transcript, oldest first. `hasMore` says there is more in the direction that was asked for: older rows for the newest page
+ * and for `before` (`meta.prev_cursor`), newer rows for `after` (`meta.next_cursor`).
+ */
 export type WaMessagePage = { messages: WaMessage[]; hasMore: boolean };
 
 export type SendReplyInput = {
@@ -91,5 +108,17 @@ export type SendReplyInput = {
     body: string;
 };
 
-/** The widget's WhatsApp link: which session's number the hand-off offers (`null`: none). */
-export type WidgetWhatsApp = { sessionUlid: string | null };
+/** The widget's WhatsApp link (`GET|PUT /widgets/{ulid}/whatsapp`): which session's number the hand-off offers (`null`: none). */
+export type WidgetWhatsAppLink = {
+    session: WaSessionRef | null;
+    status: SessionStatus | null;
+    maskedPhone: string | null;
+    /** A `ready` session is linked: the hand-off works. */
+    connected: boolean;
+};
+
+/** A session's own pacing (`PATCH /whatsapp/sessions/{ulid}`): `null` goes back to the global setting. */
+export type SessionPacingInput = {
+    sendMinIntervalMs?: number | null;
+    dailySendCap?: number | null;
+};

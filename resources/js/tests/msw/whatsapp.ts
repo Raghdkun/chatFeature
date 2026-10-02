@@ -86,14 +86,17 @@ export function createWaBackend(options: WaBackendOptions = {}) {
         widgetLinks: new Map<string, string | null>(
             Object.entries(options.widgetLinks ?? {}),
         ),
-        /** What `POST connection/test` answers (the OpenWA key's role and engine), or a failure. */
+        /** What `POST settings/test` answers (the OpenWA key's role and engine), or a failure. */
         connection: {
             ok: true,
             role: 'admin',
             engine: 'whatsapp-web.js',
+            canOperate: true,
         } as
-            | { ok: true; role: string; engine: string }
-            | { ok: false; code: string; message: string },
+            | { ok: true; role: string; engine: string; canOperate: boolean }
+            | { ok: false; reason: string; message: string },
+        /** Session ulids whose delete answers `503 openwa_unavailable` unless `?force=1`. */
+        openWaDown: new Set<string>(),
         /** ulid of a session -> the QR picture the poll answers (cleared = no code yet). */
         qr: new Map<string, string | null>(),
         /** Session ulids whose QR poll answers `ready` (the scan happened). */
@@ -159,6 +162,23 @@ export function createWaBackend(options: WaBackendOptions = {}) {
         state.messages.get(ulid) ?? [];
 
     const notFound = () => envelopeError('not_found', 'Not found.', 404);
+
+    /** `WidgetWhatsAppLinkData`: the widget, its session (if any), that session's status and masked number, and whether it can serve. */
+    const linkOf = (widgetUlid: string) => {
+        const session = state.sessions.get(
+            state.widgetLinks.get(widgetUlid) ?? '',
+        );
+
+        return {
+            widget: { ulid: widgetUlid, name: 'Main site' },
+            session: session
+                ? { ulid: session.ulid, name: session.name }
+                : null,
+            status: session?.status ?? null,
+            maskedPhone: session?.maskedPhone ?? null,
+            connected: session?.status === 'ready',
+        };
+    };
     /** A route template for MSW: `route(waRoutes.api.session)` -> `/api/v1/whatsapp/sessions/:ulid`. */
     const api = (path: string) => path;
     const route = (build: (id: string) => string): string =>
@@ -168,12 +188,10 @@ export function createWaBackend(options: WaBackendOptions = {}) {
         http.get(api(waRoutes.api.settings()), ({ request }) => {
             record(request);
 
-            return (
-                down() ?? HttpResponse.json({ data: toWire(state.settings) })
-            );
+            return down() ?? HttpResponse.json({ data: state.settings });
         }),
 
-        http.patch(api(waRoutes.api.settings()), async ({ request }) => {
+        http.put(api(waRoutes.api.settings()), async ({ request }) => {
             const body = await bodyOf(request);
 
             record(request, body);
@@ -208,6 +226,26 @@ export function createWaBackend(options: WaBackendOptions = {}) {
             ) {
                 errors.base_url = [
                     'The OpenWA address must be a plain address.',
+                ];
+            }
+
+            if (
+                typeof body.base_url === 'string' &&
+                body.base_url !== state.settings.baseUrl &&
+                typeof body.api_key !== 'string'
+            ) {
+                errors.api_key = [
+                    'Enter the API key again: it is not reused for a new address.',
+                ];
+            }
+
+            if (
+                typeof body.base_url === 'string' &&
+                body.base_url !== state.settings.baseUrl &&
+                typeof body.api_key !== 'string'
+            ) {
+                errors.api_key = [
+                    'Enter the API key again: it is not reused for a new address.',
                 ];
             }
 
@@ -255,13 +293,17 @@ export function createWaBackend(options: WaBackendOptions = {}) {
                 next.mediaMaxBytes = body.media_max_bytes;
             }
 
-            if ('api_key' in body) {
-                next.hasApiKey = body.api_key !== null;
+            if (typeof body.api_key === 'string') {
+                next.hasApiKey = true;
+            }
+
+            if (body.clear_api_key === true) {
+                next.hasApiKey = false;
             }
 
             state.settings = next;
 
-            return HttpResponse.json({ data: toWire(next) });
+            return HttpResponse.json({ data: next });
         }),
 
         http.post(api(waRoutes.api.connectionTest()), ({ request }) => {
@@ -392,6 +434,20 @@ export function createWaBackend(options: WaBackendOptions = {}) {
             return HttpResponse.json({ data: next });
         }),
 
+        http.post(route(waRoutes.api.sessionSync), ({ request, params }) => {
+            record(request);
+
+            const outage = down();
+
+            if (outage) {
+                return outage;
+            }
+
+            const session = state.sessions.get(String(params.ulid));
+
+            return session ? HttpResponse.json({ data: session }) : notFound();
+        }),
+
         http.get(route(waRoutes.api.sessionQr), ({ request, params }) => {
             record(request);
 
@@ -409,28 +465,24 @@ export function createWaBackend(options: WaBackendOptions = {}) {
             }
 
             if (state.scanned.has(ulid)) {
-                const ready: WhatsAppSession = {
-                    ...session,
-                    status: 'ready',
-                };
+                state.sessions.set(ulid, { ...session, status: 'ready' });
+            }
 
-                state.sessions.set(ulid, ready);
+            const current = state.sessions.get(ulid) as WhatsAppSession;
+            const image = state.qr.get(ulid) ?? null;
 
-                return HttpResponse.json(
-                    { data: { status: 'ready', qr: null } },
-                    { headers: { 'Cache-Control': 'no-store' } },
+            // Only while the session waits for a scan: any other status is a 409 that names the status (docs/rest-api.md).
+            if (image === null) {
+                return envelopeError(
+                    'qr_not_available',
+                    'There is no QR code to scan.',
+                    409,
+                    { details: { status: [current.status] } },
                 );
             }
 
-            const image = state.qr.get(ulid) ?? null;
-
             return HttpResponse.json(
-                {
-                    data: {
-                        status: image === null ? session.status : 'qr',
-                        qr: image,
-                    },
-                },
+                { data: { qr: image, updatedAt: fakeTime(1) } },
                 { headers: { 'Cache-Control': 'no-store' } },
             );
         }),
@@ -445,10 +497,22 @@ export function createWaBackend(options: WaBackendOptions = {}) {
             }
 
             const ulid = String(params.ulid);
+            const force =
+                new URL(request.url).searchParams.get('force') === '1';
 
-            if (!state.sessions.delete(ulid)) {
+            if (!state.sessions.has(ulid)) {
                 return notFound();
             }
+
+            if (state.openWaDown.has(ulid) && !force) {
+                return envelopeError(
+                    'openwa_unavailable',
+                    'OpenWA could not be reached.',
+                    503,
+                );
+            }
+
+            state.sessions.delete(ulid);
 
             return new HttpResponse(null, { status: 204 });
         }),
@@ -491,7 +555,13 @@ export function createWaBackend(options: WaBackendOptions = {}) {
 
             return HttpResponse.json({
                 data: page,
-                meta: { next_cursor: nextCursor },
+                meta: {
+                    next_cursor: nextCursor,
+                    unread_chats: [...state.chats.values()].filter(
+                        (chat) =>
+                            chat.status === 'open' && chat.unreadByAdmin > 0,
+                    ).length,
+                },
             });
         }),
 
@@ -533,26 +603,35 @@ export function createWaBackend(options: WaBackendOptions = {}) {
             const all = [...messagesOf(ulid)].sort((a, b) =>
                 a.createdAt.localeCompare(b.createdAt),
             );
-            const limit = Number(call.query.limit ?? 50);
-            let rows = all;
+            const limit = Number(call.query.limit ?? 100);
+            let rows: WaMessage[];
+            let next: string | null = null;
+            let prev: string | null = null;
 
-            if (call.query.after) {
-                const index = all.findIndex((m) => m.ulid === call.query.after);
-
-                rows = index === -1 ? all : all.slice(index + 1);
-            } else if (call.query.before) {
+            if (call.query.after_id) {
                 const index = all.findIndex(
-                    (m) => m.ulid === call.query.before,
+                    (m) => m.ulid === call.query.after_id,
                 );
+                const tail = index === -1 ? all : all.slice(index + 1);
 
-                rows = (index === -1 ? all : all.slice(0, index)).slice(-limit);
+                rows = tail.slice(0, limit);
+                next = tail.length > limit ? (rows.at(-1)?.ulid ?? null) : null;
+            } else if (call.query.before_id) {
+                const index = all.findIndex(
+                    (m) => m.ulid === call.query.before_id,
+                );
+                const head = index === -1 ? all : all.slice(0, index);
+
+                rows = head.slice(-limit);
+                prev = head.length > limit ? (rows[0]?.ulid ?? null) : null;
             } else {
                 rows = all.slice(-limit);
+                prev = all.length > limit ? (rows[0]?.ulid ?? null) : null;
             }
 
             return HttpResponse.json({
-                data: call.query.before ? rows : rows.slice(0, limit),
-                meta: { next_cursor: null },
+                data: rows,
+                meta: { next_cursor: next, prev_cursor: prev },
             });
         }),
 
@@ -721,12 +800,7 @@ export function createWaBackend(options: WaBackendOptions = {}) {
                 return outage;
             }
 
-            return HttpResponse.json({
-                data: {
-                    session_ulid:
-                        state.widgetLinks.get(String(params.ulid)) ?? null,
-                },
-            });
+            return HttpResponse.json({ data: linkOf(String(params.ulid)) });
         }),
 
         http.put(
@@ -742,17 +816,17 @@ export function createWaBackend(options: WaBackendOptions = {}) {
                     return outage;
                 }
 
-                const session = body.session_ulid;
+                const session = body.session;
 
                 if (
                     typeof session === 'string' &&
-                    state.sessions.get(session)?.status !== 'ready'
+                    !state.sessions.has(session)
                 ) {
-                    return envelopeError(
-                        'session_not_ready',
-                        'The session is not connected.',
-                        409,
-                    );
+                    return envelopeError('validation_failed', 'Invalid.', 422, {
+                        details: {
+                            session: ['The selected session is invalid.'],
+                        },
+                    });
                 }
 
                 state.widgetLinks.set(
@@ -760,12 +834,7 @@ export function createWaBackend(options: WaBackendOptions = {}) {
                     typeof session === 'string' ? session : null,
                 );
 
-                return HttpResponse.json({
-                    data: {
-                        session_ulid:
-                            typeof session === 'string' ? session : null,
-                    },
-                });
+                return HttpResponse.json({ data: linkOf(String(params.ulid)) });
             },
         ),
     ];
@@ -774,19 +843,3 @@ export function createWaBackend(options: WaBackendOptions = {}) {
 }
 
 export type WaBackend = ReturnType<typeof createWaBackend>;
-
-/** The settings as the server spells them (snake_case); `has_api_key` instead of the key. */
-function toWire(settings: WaSettings): Record<string, unknown> {
-    return {
-        enabled: settings.enabled,
-        base_url: settings.baseUrl,
-        has_api_key: settings.hasApiKey,
-        handoff_text: settings.handoffText,
-        handoff_ttl_minutes: settings.handoffTtlMinutes,
-        ignore_groups: settings.ignoreGroups,
-        reply_only_to_inbound: settings.replyOnlyToInbound,
-        send_min_interval_ms: settings.sendMinIntervalMs,
-        daily_send_cap: settings.dailySendCap,
-        media_max_bytes: settings.mediaMaxBytes,
-    };
-}

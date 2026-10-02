@@ -16,8 +16,8 @@ use Tests\Support\WidgetFixtures;
 use Tests\TestCase;
 
 /**
- * The three WhatsApp pages (`/whatsapp`, `/whatsapp/{chat}`, `/settings/whatsapp`): administrators only (decision P6-D1), the props of
- * `resources/js/types/whatsapp.ts`, and no secret in any of them.
+ * The WhatsApp pages (`/whatsapp`, `/whatsapp/chats/{chat}`, `/settings/whatsapp`): administrators only (decision P6-D1), the props of
+ * docs/rest-api.md ("WhatsApp API (P6)", Inertia pages; `resources/js/types/whatsapp.ts`), and no secret in any of them.
  */
 class WhatsAppPagesTest extends TestCase
 {
@@ -44,7 +44,7 @@ class WhatsAppPagesTest extends TestCase
     {
         return match ($page) {
             'inbox' => '/whatsapp',
-            'chat' => '/whatsapp/'.($chat ?? WaChat::factory()->create())->ulid,
+            'chat' => '/whatsapp/chats/'.($chat ?? WaChat::factory()->create())->ulid,
             default => '/settings/whatsapp',
         };
     }
@@ -86,27 +86,35 @@ class WhatsAppPagesTest extends TestCase
         $this->actingAs($people['adminAndAgent'])->get($this->url($page, $chat))->assertOk();
     }
 
-    public function test_the_inbox_starts_with_the_open_chats_newest_first_and_the_sessions(): void
+    public function test_the_inbox_starts_with_the_open_chats_newest_first_the_sessions_and_what_to_filter_by(): void
     {
         $session = WhatsAppSession::factory()->ready()->create(['name' => 'support-main']);
+        $widget = Widget::factory()->create(['name' => 'Main site']);
+        $category = Category::factory()->create(['name' => 'Sales']);
         $old = WaChat::factory()->for($session, 'session')->create(['last_message_at' => now()->subHours(2), 'push_name' => 'Old']);
         $new = WaChat::factory()->for($session, 'session')->unread(3)->create(['last_message_at' => now()->subMinute(), 'push_name' => 'New']);
-        WaChat::factory()->for($session, 'session')->archived()->create(['push_name' => 'Archived']);
+        WaChat::factory()->for($session, 'session')->archived()->unread(9)->create(['push_name' => 'Archived']);
         $admin = $this->whatsAppPeople()['admin'];
 
         $this->actingAs($admin)->get('/whatsapp')->assertInertia(fn (Assert $page) => $page
-            ->component('whatsapp/index')
+            ->component('whatsapp/inbox')
             ->has('chats', 2)
             ->where('chats.0.ulid', $new->ulid)
             ->where('chats.0.unreadByAdmin', 3)
             ->where('chats.0.session.name', 'support-main')
             ->where('chats.1.ulid', $old->ulid)
-            ->where('hasMore', false)
+            ->where('meta.has_more', false)
+            ->where('meta.next_cursor', null)
+            ->where('meta.unread_chats', 1)
             ->has('sessions', 1)
             ->where('sessions.0.name', 'support-main')
             ->where('sessions.0.status', 'ready')
+            ->where('widgets.0.ulid', $widget->ulid)
+            ->where('widgets.0.name', 'Main site')
+            ->where('categories.0.slug', $category->slug)
+            ->where('whatsappEnabled', false)
             ->where('replyOnlyToInbound', true)
-            ->missing('detail')
+            ->where('selected', null)
             ->etc());
     }
 
@@ -118,7 +126,7 @@ class WhatsAppPagesTest extends TestCase
 
         $this->actingAs($this->whatsAppPeople()['admin'])->get('/whatsapp')->assertInertia(fn (Assert $page) => $page
             ->has('chats', 50)
-            ->where('hasMore', true)
+            ->where('meta.has_more', true)
             ->etc());
     }
 
@@ -131,19 +139,20 @@ class WhatsAppPagesTest extends TestCase
         $reply = WaMessage::factory()->for($chat, 'chat')->outbound($this->whatsAppPeople()['admin'])->create(['body' => 'Hi Vera', 'wa_timestamp' => now()->subMinutes(4)]);
         $image = WaMessage::factory()->for($chat, 'chat')->image('A photo')->create(['wa_timestamp' => now()->subMinute()]);
 
-        $this->actingAs($this->whatsAppPeople()['admin'])->get('/whatsapp/'.$chat->ulid)->assertInertia(fn (Assert $page) => $page
-            ->component('whatsapp/show')
-            ->where('detail.chat.ulid', $chat->ulid)
-            ->where('detail.chat.linked', true)
-            ->where('detail.chat.widget.name', 'Main site')
-            ->where('detail.chat.category.label', 'Sales')
-            ->has('detail.handoff.code')
-            ->has('messages', 3)
-            ->where('messages.0.ulid', $first->ulid)
-            ->where('messages.1.ulid', $reply->ulid)
-            ->where('messages.1.direction', 'out')
-            ->where('messages.2.ulid', $image->ulid)
-            ->where('hasOlder', false)
+        $this->actingAs($this->whatsAppPeople()['admin'])->get('/whatsapp/chats/'.$chat->ulid)->assertInertia(fn (Assert $page) => $page
+            ->component('whatsapp/inbox')
+            ->where('selected.detail.chat.ulid', $chat->ulid)
+            ->where('selected.detail.chat.linked', true)
+            ->where('selected.detail.chat.widget.name', 'Main site')
+            ->where('selected.detail.chat.category.label', 'Sales')
+            ->has('selected.detail.handoff.code')
+            ->has('selected.messages', 3)
+            ->where('selected.messages.0.ulid', $first->ulid)
+            ->where('selected.messages.1.ulid', $reply->ulid)
+            ->where('selected.messages.1.direction', 'out')
+            ->where('selected.messages.2.ulid', $image->ulid)
+            ->where('selected.meta.prev_cursor', null)
+            ->where('selected.meta.next_cursor', null)
             ->has('chats')
             ->has('sessions')
             ->etc());
@@ -157,11 +166,12 @@ class WhatsAppPagesTest extends TestCase
             WaMessage::factory()->for($chat, 'chat')->create(['body' => "m{$n}", 'wa_timestamp' => now()->subMinutes(200 - $n)]);
         }
 
-        $this->actingAs($this->whatsAppPeople()['admin'])->get('/whatsapp/'.$chat->ulid)->assertInertia(fn (Assert $page) => $page
-            ->has('messages', 100)
-            ->where('messages.0.body', 'm4')
-            ->where('messages.99.body', 'm103')
-            ->where('hasOlder', true)
+        $this->actingAs($this->whatsAppPeople()['admin'])->get('/whatsapp/chats/'.$chat->ulid)->assertInertia(fn (Assert $page) => $page
+            ->has('selected.messages', 100)
+            ->where('selected.messages.0.body', 'm4')
+            ->where('selected.messages.99.body', 'm103')
+            // The `before_id` of the previous page is the oldest message of this one.
+            ->where('selected.meta.prev_cursor', fn (string $cursor) => $cursor === WaMessage::query()->where('body', 'm4')->value('ulid'))
             ->etc());
     }
 
@@ -169,8 +179,8 @@ class WhatsAppPagesTest extends TestCase
     {
         $admin = $this->whatsAppPeople()['admin'];
 
-        $this->actingAs($admin)->get('/whatsapp/01JNOSUCHCHATNOSUCHCHAT00')->assertNotFound();
-        $this->actingAs($admin)->get('/whatsapp/not-a-ulid')->assertNotFound();
+        $this->actingAs($admin)->get('/whatsapp/chats/01JNOSUCHCHATNOSUCHCHAT00')->assertNotFound();
+        $this->actingAs($admin)->get('/whatsapp/chats/not-a-ulid')->assertNotFound();
     }
 
     public function test_the_settings_page_names_the_values_and_never_the_api_key(): void
@@ -195,8 +205,18 @@ class WhatsAppPagesTest extends TestCase
             ->has('sessions', 1)
             ->where('sessions.0.name', 'sales-line')
             ->where('sessions.0.status', 'qr')
+            ->where('privateHostsAllowed', false)
             ->etc());
         $response->assertDontSee('super-secret-openwa-key');
+    }
+
+    public function test_the_settings_page_says_when_a_private_openwa_address_is_allowed(): void
+    {
+        config(['chat.portal_allow_private_hosts' => true]);
+
+        $this->actingAs($this->whatsAppPeople()['admin'])->get('/settings/whatsapp')->assertInertia(fn (Assert $page) => $page
+            ->where('privateHostsAllowed', true)
+            ->etc());
     }
 
     public function test_the_settings_page_says_when_no_key_is_saved(): void
@@ -222,8 +242,18 @@ class WhatsAppPagesTest extends TestCase
 
     public function test_the_pages_are_reachable_by_name(): void
     {
-        $this->assertSame(url('/whatsapp'), route('whatsapp.index'));
+        $this->assertSame(url('/whatsapp'), route('whatsapp.inbox'));
         $this->assertSame(url('/settings/whatsapp'), route('settings.whatsapp.edit'));
-        $this->assertSame(url('/whatsapp/01ABC'), route('whatsapp.show', ['chat' => '01ABC']));
+        $this->assertSame(url('/whatsapp/chats/01ABC'), route('whatsapp.chats.show', ['chat' => '01ABC']));
+    }
+
+    public function test_the_short_url_of_a_chat_still_leads_there(): void
+    {
+        $chat = WaChat::factory()->create();
+
+        $this->actingAs($this->whatsAppPeople()['admin'])->get('/whatsapp/'.$chat->ulid)
+            ->assertRedirect(route('whatsapp.chats.show', ['chat' => $chat->ulid]));
+        // Agents never get as far as the redirect.
+        $this->actingAs($this->whatsAppPeople()['agent'])->get('/whatsapp/'.$chat->ulid)->assertForbidden();
     }
 }

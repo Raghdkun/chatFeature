@@ -98,8 +98,8 @@ export type WaChatOptions = {
     messages: WaMessage[];
     /** The page props say there is older history than the transcript starts with. */
     hasOlder: boolean;
-    /** `whatsapp.reply_only_to_inbound`: a chat the customer did not start cannot be answered. */
-    replyOnlyToInbound: boolean;
+    /** `whatsapp.reply_only_to_inbound`: a chat the customer did not start cannot be answered. `undefined`: not known here, the API decides. */
+    replyOnlyToInbound?: boolean;
     api?: WaApi;
 };
 
@@ -474,7 +474,7 @@ export function useWaChat({
     /* ---------------------------------------------------------------- */
 
     const block: ComposerBlock | null =
-        replyOnlyToInbound && !chat.inboundInitiated
+        replyOnlyToInbound === true && !chat.inboundInitiated
             ? 'not_inbound'
             : sessionStatus !== null && sessionStatus !== 'ready'
               ? 'session_not_ready'

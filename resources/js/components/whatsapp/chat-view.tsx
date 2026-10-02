@@ -9,7 +9,7 @@ import { Transcript } from '@/components/whatsapp/transcript';
 import { useTrans } from '@/hooks/use-trans';
 import { useWaChat } from '@/lib/realtime/whatsapp/use-wa-chat';
 import { describeWaError } from '@/lib/whatsapp-api/client';
-import type { WaInboxShowProps } from '@/types/whatsapp';
+import type { WaChatDetail, WaMessage } from '@/lib/whatsapp/types';
 
 /**
  * The open chat: header, transcript, reply box and the details sheet. All state lives in `useWaChat` (the live copy, the transcript, the
@@ -20,10 +20,14 @@ export function ChatView({
     messages: initialMessages,
     hasOlder,
     replyOnlyToInbound,
-}: Pick<
-    WaInboxShowProps,
-    'detail' | 'messages' | 'hasOlder' | 'replyOnlyToInbound'
->) {
+}: {
+    detail: WaChatDetail;
+    messages: WaMessage[];
+    /** There is older history than `messages` starts with. */
+    hasOlder: boolean;
+    /** `whatsapp.reply_only_to_inbound`, when the page knows it. */
+    replyOnlyToInbound?: boolean;
+}) {
     const { t, locale } = useTrans();
     const [details, setDetails] = useState(false);
     const [archiving, setArchiving] = useState(false);

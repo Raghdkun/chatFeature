@@ -1320,5 +1320,13 @@
     "whatsapp.status.chat_archived": "Archived",
     "whatsapp.phone.show": "Show the number",
     "whatsapp.phone.hide": "Hide the number",
-    "whatsapp.phone.none": "Not connected yet"
+    "whatsapp.phone.none": "Not connected yet",
+    "whatsapp.error.openwa_rejected": "OpenWA refused the request. Its log says why.",
+    "whatsapp.error.session_state": "The session cannot be started or stopped in its current state. Reload the page to see where it is.",
+    "whatsapp.error.qr_not_available": "There is no QR code to scan right now.",
+    "whatsapp.filter.widget": "Widget",
+    "whatsapp.filter.all_widgets": "All widgets",
+    "whatsapp.filter.category": "Topic",
+    "whatsapp.filter.all_categories": "All topics",
+    "whatsapp.inbox.disabled": "WhatsApp is switched off for visitors: the hand-off is hidden on your sites. Messages to a connected number are still recorded."
 }

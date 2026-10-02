@@ -11,11 +11,17 @@ import {
     EmptyMedia,
     EmptyTitle,
 } from '@/components/ui/empty';
+import { Notice } from '@/components/widgets/form-bits';
 import { useTrans } from '@/hooks/use-trans';
 import { useWaRealtime, useWaState } from '@/lib/realtime/whatsapp/context';
 import { useWaChatList } from '@/lib/realtime/whatsapp/use-wa-chat-list';
 import { waRoutes } from '@/lib/whatsapp-api/routes';
-import type { WaInboxShellProps } from '@/types/whatsapp';
+import type {
+    WaCategoryRef,
+    WaChat,
+    WaWidgetRef,
+    WhatsAppSession,
+} from '@/lib/whatsapp/types';
 import { cn } from '@/lib/utils';
 
 /** The "pick a chat" pane of `/whatsapp` (wide screens; on a phone the list is the whole screen). */
@@ -47,13 +53,24 @@ export function EmptyConversation() {
  */
 export function WaInboxShell({
     chats,
+    cursor,
     hasMore,
     sessions,
+    widgets,
+    categories,
+    whatsappEnabled,
     selectedUlid,
     children,
-}: WaInboxShellProps & {
+}: {
+    chats: WaChat[];
+    cursor: string | null;
+    hasMore: boolean;
+    sessions: WhatsAppSession[];
+    widgets: WaWidgetRef[];
+    categories: WaCategoryRef[];
+    whatsappEnabled: boolean;
     selectedUlid: string | null;
-    /** The conversation pane (`/whatsapp/{chat}`); absent on `/whatsapp`. */
+    /** The conversation pane (`/whatsapp/chats/{chat}`); absent on `/whatsapp`. */
     children?: ReactNode;
 }) {
     const { t } = useTrans();
@@ -61,6 +78,7 @@ export function WaInboxShell({
     const connection = useWaState((state) => state.connection);
     const list = useWaChatList({
         initialChats: chats,
+        initialCursor: cursor,
         initialHasMore: hasMore,
     });
     const Title = selectedUlid ? 'h2' : 'h1';
@@ -109,10 +127,28 @@ export function WaInboxShell({
 
                 <ConnectionBanner status={connection} />
 
+                {!whatsappEnabled && (
+                    <Notice
+                        tone="warning"
+                        data-testid="wa-disabled-notice"
+                        className="mx-3 mt-3 text-xs"
+                    >
+                        {t('whatsapp.inbox.disabled')}{' '}
+                        <Link
+                            href={waRoutes.pages.settings()}
+                            className="font-medium underline underline-offset-2"
+                        >
+                            {t('whatsapp.inbox.settings')}
+                        </Link>
+                    </Notice>
+                )}
+
                 <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
                     <ChatList
                         list={list}
                         sessions={sessions}
+                        widgets={widgets}
+                        categories={categories}
                         selected={selectedUlid}
                     />
                 </div>

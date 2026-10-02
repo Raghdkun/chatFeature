@@ -55,6 +55,14 @@ function seed(...chats: WaChat[]): WaChat[] {
     return chats;
 }
 
+/** The props of the inbox shell that every test needs and few care about. */
+const SHELL = {
+    cursor: null,
+    widgets: [] as { ulid: string; name: string }[],
+    categories: [] as { slug: string; label: string }[],
+    whatsappEnabled: true,
+};
+
 async function mount(
     chats: WaChat[],
     options: {
@@ -68,10 +76,10 @@ async function mount(
 
     return renderWa(
         <WaInboxShell
+            {...SHELL}
             chats={chats}
             hasMore={options.hasMore ?? false}
             sessions={options.sessions ?? [SESSION]}
-            replyOnlyToInbound
             selectedUlid={options.selected ?? null}
         >
             <p data-testid="pane">the conversation pane</p>
@@ -132,7 +140,7 @@ describe('the chat list', () => {
         expect(byTestId(`wa-chat-unread-${old.ulid}`)).toBeNull();
         expect(
             byTestId(`wa-chat-row-${fresh.ulid}`)?.getAttribute('href'),
-        ).toBe(`/whatsapp/${fresh.ulid}`);
+        ).toBe(`/whatsapp/chats/${fresh.ulid}`);
     });
 
     it('names the number when WhatsApp gave no name, and says so when it has neither', async () => {
@@ -425,10 +433,10 @@ describe('more than one page', () => {
         // The page props carried two of them; the API pages by two as well.
         await renderWa(
             <WaInboxShell
+                {...SHELL}
                 chats={all.slice(0, 2)}
                 hasMore
                 sessions={[SESSION]}
-                replyOnlyToInbound
                 selectedUlid={null}
             />,
         );
@@ -451,10 +459,10 @@ describe('more than one page', () => {
         seed(...all);
         await renderWa(
             <WaInboxShell
+                {...SHELL}
                 chats={all.slice(0, 50)}
                 hasMore
                 sessions={[SESSION]}
-                replyOnlyToInbound
                 selectedUlid={null}
             />,
         );

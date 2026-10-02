@@ -7,6 +7,7 @@ use App\Domain\Settings\SettingsRepository;
 use App\Http\Controllers\Controller;
 use App\Models\WaChat;
 use App\Models\WhatsAppSession;
+use App\Support\Network\OutboundUrlGuard;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -18,11 +19,13 @@ use Inertia\Response;
  */
 class WhatsAppSettingsPageController extends Controller
 {
-    public function edit(SettingsRepository $settings): Response
+    public function edit(SettingsRepository $settings, OutboundUrlGuard $guard): Response
     {
         Gate::authorize('viewAny', WaChat::class);
 
         return Inertia::render('settings/whatsapp', [
+            // OpenWA on a loopback / private address needs this switch (PORTAL_ALLOW_PRIVATE_HOSTS): the page says so.
+            'privateHostsAllowed' => $guard->allowsPrivateHosts(),
             'sessions' => WhatsAppSession::query()->withCount('widgets')->orderBy('name')->get()
                 ->map(fn (WhatsAppSession $session): array => WhatsAppSessionData::fromModel($session)->toArray())->values()->all(),
             'settings' => [

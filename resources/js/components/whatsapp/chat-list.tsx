@@ -13,16 +13,24 @@ import {
 import { Busy } from '@/components/widgets/form-bits';
 import { useTrans } from '@/hooks/use-trans';
 import type { useWaChatList } from '@/lib/realtime/whatsapp/use-wa-chat-list';
-import type { WhatsAppSession } from '@/lib/whatsapp/types';
+import type {
+    WaCategoryRef,
+    WaWidgetRef,
+    WhatsAppSession,
+} from '@/lib/whatsapp/types';
 
 /** The chats of the current filters, with the controls that change them. State lives in `useWaChatList` (the shell owns the hook). */
 export function ChatList({
     list,
     sessions,
+    widgets,
+    categories,
     selected,
 }: {
     list: ReturnType<typeof useWaChatList>;
     sessions: Pick<WhatsAppSession, 'ulid' | 'name'>[];
+    widgets: WaWidgetRef[];
+    categories: WaCategoryRef[];
     selected: string | null;
 }) {
     const { t } = useTrans();
@@ -33,7 +41,9 @@ export function ChatList({
         filters.status !== 'open' ||
         filters.linked !== 'all' ||
         filters.unreadOnly ||
-        filters.session !== '';
+        filters.session !== '' ||
+        filters.widget !== '' ||
+        filters.category !== '';
 
     return (
         <section
@@ -57,6 +67,8 @@ export function ChatList({
             <ChatFilters
                 filters={filters}
                 sessions={sessions}
+                widgets={widgets}
+                categories={categories}
                 onChange={(patch) =>
                     list.setFilters((held) => ({ ...held, ...patch }))
                 }

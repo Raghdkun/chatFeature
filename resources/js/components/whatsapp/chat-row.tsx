@@ -39,7 +39,7 @@ export function ChatRow({
         <li className="min-w-0">
             <Link
                 href={waRoutes.pages.chat(chat.ulid)}
-                only={['detail', 'messages', 'hasOlder']}
+                only={['selected']}
                 preserveScroll
                 preserveState
                 data-testid={`wa-chat-row-${chat.ulid}`}

@@ -22,6 +22,10 @@ export type WaListFilters = {
     status: 'open' | 'archived' | 'all';
     /** A session's ulid, or `''` for every session. */
     session: string;
+    /** A widget's ulid, or `''` for every widget. */
+    widget: string;
+    /** A topic's slug, or `''` for every topic. */
+    category: string;
     linked: 'all' | 'linked' | 'unlinked';
     unreadOnly: boolean;
     sort: 'recent' | 'unread';
@@ -31,6 +35,8 @@ export type WaListFilters = {
 export const DEFAULT_WA_FILTERS: WaListFilters = {
     status: 'open',
     session: '',
+    widget: '',
+    category: '',
     linked: 'all',
     unreadOnly: false,
     sort: 'recent',
@@ -45,6 +51,8 @@ export function matchesFilters(chat: WaChat, filters: WaListFilters): boolean {
     return (
         (filters.status === 'all' || chat.status === filters.status) &&
         (filters.session === '' || chat.session.ulid === filters.session) &&
+        (filters.widget === '' || chat.widget?.ulid === filters.widget) &&
+        (filters.category === '' || chat.category?.slug === filters.category) &&
         (filters.linked === 'all' ||
             chat.linked === (filters.linked === 'linked')) &&
         (!filters.unreadOnly || chat.unreadByAdmin > 0)
@@ -55,6 +63,8 @@ function sameFilters(a: WaListFilters, b: WaListFilters): boolean {
     return (
         a.status === b.status &&
         a.session === b.session &&
+        a.widget === b.widget &&
+        a.category === b.category &&
         a.linked === b.linked &&
         a.unreadOnly === b.unreadOnly &&
         a.sort === b.sort &&
@@ -83,11 +93,14 @@ export function sortChats(
 
 export function useWaChatList({
     initialChats,
+    initialCursor,
     initialHasMore,
     api: injectedApi,
 }: {
     initialChats: WaChat[];
-    /** The page props carry only the first page: there is more, and the first read over the API says where it continues. */
+    /** The API's cursor of the second page, when the page props carry it (6A's own page controller does). */
+    initialCursor: string | null;
+    /** The page props carry only the first page: there is more, and (without a cursor) the first read over the API says where it continues. */
     initialHasMore: boolean;
     api?: WaApi;
 }) {
@@ -104,7 +117,7 @@ export function useWaChatList({
     const [ids, setIds] = useState<string[]>(() =>
         initialChats.map((chat) => chat.ulid),
     );
-    const [cursor, setCursor] = useState<string | null>(null);
+    const [cursor, setCursor] = useState<string | null>(initialCursor);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(false);
     const request = useRef(0);
@@ -136,13 +149,15 @@ export function useWaChatList({
             api.chats({
                 status: applied.status,
                 session: applied.session === '' ? undefined : applied.session,
+                widget: applied.widget === '' ? undefined : applied.widget,
+                category:
+                    applied.category === '' ? undefined : applied.category,
                 linked:
                     applied.linked === 'all'
                         ? undefined
                         : applied.linked === 'linked',
                 unread: applied.unreadOnly,
                 q: applied.q.trim(),
-                sort: applied.sort,
                 cursor: from,
                 limit: LIST_PAGE_LIMIT,
             }),
@@ -211,7 +226,7 @@ export function useWaChatList({
         if (firstRun.current) {
             firstRun.current = false;
 
-            if (initialHasMore) {
+            if (initialHasMore && initialCursor === null) {
                 void reload(false, true);
             }
 
@@ -219,7 +234,7 @@ export function useWaChatList({
         }
 
         void reload();
-    }, [reload, initialHasMore]);
+    }, [reload, initialHasMore, initialCursor]);
 
     const loadMore = useCallback(async (): Promise<void> => {
         if (cursor === null || loading) {

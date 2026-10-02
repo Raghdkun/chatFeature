@@ -1,14 +1,12 @@
-import { Head, usePage } from '@inertiajs/react';
+import { Head } from '@inertiajs/react';
 import { ShieldAlert } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { WaInboxShell } from '@/components/whatsapp/inbox-shell';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useTrans } from '@/hooks/use-trans';
 import AppLayout from '@/layouts/app-layout';
 import { waRoutes } from '@/lib/whatsapp-api/routes';
-import type { WaInboxShellProps, WaInboxShowProps } from '@/types/whatsapp';
 
-/** What an agent would see if a stale tab rendered the page anyway (the server answers 403 first; the UI never shows WhatsApp data to them). */
+/** What an agent would see if a stale tab rendered a WhatsApp page anyway (the server answers 403 first; the UI never shows WhatsApp data to them). */
 export function WhatsAppForbidden() {
     const { t } = useTrans();
 
@@ -30,17 +28,9 @@ export function WhatsAppForbidden() {
     );
 }
 
-/**
- * The persistent layout of `/whatsapp` and `/whatsapp/{chat}` (a function DECLARATION on purpose: Inertia treats an arrow function with
- * one parameter as a render function, not a component). The list column lives here, so it survives the move between the two pages; the
- * pages render the conversation pane only. It receives the page props.
- */
-export function WaInboxLayout({
-    children,
-    ...props
-}: { children: ReactNode } & Partial<WaInboxShowProps>) {
+/** The layout of the WhatsApp inbox: the app shell with its breadcrumb (a function declaration: Inertia reads an arrow with one parameter as a render function). */
+export function WaInboxLayout({ children }: { children: ReactNode }) {
     const { t } = useTrans();
-    const { auth } = usePage().props;
 
     return (
         <AppLayout
@@ -51,21 +41,7 @@ export function WaInboxLayout({
                 },
             ]}
         >
-            {auth.user?.is_admin ? (
-                <WaInboxShell
-                    chats={props.chats ?? []}
-                    hasMore={props.hasMore ?? false}
-                    sessions={props.sessions ?? []}
-                    replyOnlyToInbound={props.replyOnlyToInbound ?? true}
-                    selectedUlid={props.detail?.chat.ulid ?? null}
-                >
-                    {children}
-                </WaInboxShell>
-            ) : (
-                <WhatsAppForbidden />
-            )}
+            {children}
         </AppLayout>
     );
 }
-
-export type { WaInboxShellProps };

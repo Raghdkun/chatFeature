@@ -9,6 +9,7 @@ import {
     settingsBody,
     settingsFromWire,
     waitLabel,
+    widgetLinkFromWire,
     WA_SETTINGS_DEFAULTS,
 } from '@/lib/whatsapp-api/client';
 import { waRoutes } from '@/lib/whatsapp-api/routes';
@@ -59,13 +60,19 @@ describe('routes', () => {
         expect(waRoutes.api.sessionStart('01A/B')).toBe(
             '/api/v1/whatsapp/sessions/01A%2FB/start',
         );
+        expect(waRoutes.api.sessionSync('s1')).toBe(
+            '/api/v1/whatsapp/sessions/s1/sync',
+        );
         expect(waRoutes.api.chatMessages('01ABC')).toBe(
             '/api/v1/whatsapp/chats/01ABC/messages',
+        );
+        expect(waRoutes.api.connectionTest()).toBe(
+            '/api/v1/whatsapp/settings/test',
         );
         expect(waRoutes.api.widgetWhatsApp('w1')).toBe(
             '/api/v1/widgets/w1/whatsapp',
         );
-        expect(waRoutes.pages.chat('01ABC')).toBe('/whatsapp/01ABC');
+        expect(waRoutes.pages.chat('01ABC')).toBe('/whatsapp/chats/01ABC');
         expect(waRoutes.pages.settings()).toBe('/settings/whatsapp');
         // The public hand-off is relative to the boot config's `api.base` (`/api/v1/public`).
         expect(waRoutes.handoff('wk_abc')).toBe(
@@ -78,8 +85,8 @@ describe('settings', () => {
     it('reads both spellings and fills what the server leaves out with the defaults', () => {
         expect(
             settingsFromWire({
-                base_url: 'https://openwa.example.com',
-                has_api_key: true,
+                baseUrl: 'https://openwa.example.com',
+                hasApiKey: true,
                 daily_send_cap: 50,
                 replyOnlyToInbound: false,
             }),
@@ -104,15 +111,17 @@ describe('settings', () => {
         expect(settingsBody({ apiKey: ' secret-key ' })).toEqual({
             api_key: 'secret-key',
         });
-        expect(settingsBody({ clearApiKey: true })).toEqual({ api_key: null });
+        expect(settingsBody({ clearApiKey: true })).toEqual({
+            clear_api_key: true,
+        });
         expect(settingsBody({ ignoreGroups: false })).toEqual({
             ignore_groups: false,
         });
     });
 
-    it('PATCHes the body with the cookie headers and returns the parsed settings', async () => {
+    it('PUTs the body with the cookie headers and returns the parsed settings', async () => {
         const { api, calls } = clientWith(() =>
-            json({ data: { base_url: 'https://x.test', has_api_key: true } }),
+            json({ data: { baseUrl: 'https://x.test', hasApiKey: true } }),
         );
         const saved = await api.saveSettings({
             baseUrl: 'https://x.test',
@@ -120,7 +129,7 @@ describe('settings', () => {
         });
 
         expect(calls[0].url).toBe('/api/v1/whatsapp/settings');
-        expect(calls[0].init.method).toBe('PATCH');
+        expect(calls[0].init.method).toBe('PUT');
         expect(
             (calls[0].init.headers as Record<string, string>)['X-XSRF-TOKEN'],
         ).toBe('xsrf-1');
@@ -133,113 +142,203 @@ describe('settings', () => {
 });
 
 describe('connection test', () => {
-    it('reads the role and the engine of a good key', () => {
+    it('reads the role, the engine and whether the key may operate', () => {
         expect(
             connectionResultFromWire({
                 ok: true,
-                role: 'admin',
+                role: 'operator',
                 engine: 'baileys',
+                canOperate: true,
             }),
-        ).toEqual({ ok: true, role: 'admin', engine: 'baileys' });
+        ).toEqual({
+            ok: true,
+            role: 'operator',
+            engine: 'baileys',
+            canOperate: true,
+        });
+        expect(
+            connectionResultFromWire({
+                ok: false,
+                reason: 'unauthorized',
+                message: 'OpenWA refused the key.',
+            }),
+        ).toEqual({
+            ok: false,
+            reason: 'unauthorized',
+            message: 'OpenWA refused the key.',
+        });
     });
 
-    it('turns a failed check into a result, not an exception', async () => {
+    it('asks the SAVED settings through POST settings/test', async () => {
+        const { api, calls } = clientWith(() =>
+            json({
+                data: {
+                    ok: true,
+                    role: 'admin',
+                    engine: 'x',
+                    canOperate: true,
+                },
+            }),
+        );
+
+        await expect(api.testConnection()).resolves.toMatchObject({ ok: true });
+        expect(calls[0].url).toBe('/api/v1/whatsapp/settings/test');
+        expect(calls[0].init.method).toBe('POST');
+    });
+
+    it('turns an error answer about OpenWA into a result, not an exception', async () => {
         const { api } = clientWith(() =>
             json(
                 { error: { code: 'openwa_unavailable', message: 'No route.' } },
-                502,
+                503,
             ),
         );
 
         await expect(api.testConnection()).resolves.toEqual({
             ok: false,
-            code: 'openwa_unavailable',
+            reason: 'openwa_unavailable',
             message: 'No route.',
         });
     });
 
-    it('reads { ok: false } answers too, and still throws what is not about OpenWA (403, a dropped connection)', async () => {
-        const failed = clientWith(() =>
-            json({
-                data: { ok: false, code: 'invalid_api_key', message: 'Bad' },
-            }),
-        );
+    it('still throws what is not about OpenWA: 403, the limiter, a server fault', async () => {
+        for (const [status, code] of [
+            [403, 'forbidden'],
+            [429, 'rate_limited'],
+            [500, 'server_error'],
+        ] as const) {
+            const { api } = clientWith(() =>
+                json({ error: { code, message: 'No.' } }, status),
+            );
 
-        await expect(failed.api.testConnection()).resolves.toEqual({
-            ok: false,
-            code: 'invalid_api_key',
-            message: 'Bad',
-        });
-
-        const forbidden = clientWith(() =>
-            json({ error: { code: 'forbidden', message: 'No.' } }, 403),
-        );
-
-        await expect(forbidden.api.testConnection()).rejects.toBeInstanceOf(
-            ApiError,
-        );
+            await expect(api.testConnection()).rejects.toBeInstanceOf(ApiError);
+        }
     });
 });
 
 describe('QR', () => {
     it('keeps only a base64 PNG / JPEG data URL as the picture', () => {
-        expect(qrFromWire({ status: 'qr', qr: PNG })).toEqual({
+        expect(
+            qrFromWire({ qr: PNG, updatedAt: '2026-11-20T10:00:00Z' }),
+        ).toEqual({
             status: 'qr',
             image: PNG,
-            expiresAt: null,
+            updatedAt: '2026-11-20T10:00:00Z',
         });
+        expect(qrFromWire({ qr: 'https://evil.test/x.png' }).image).toBeNull();
         expect(
-            qrFromWire({ status: 'qr', qr: 'https://evil.test/x.png' }).image,
+            qrFromWire({ qr: 'data:text/html;base64,PHNjcmlwdD4=' }).image,
         ).toBeNull();
         expect(
-            qrFromWire({
-                status: 'qr',
-                qr: 'data:text/html;base64,PHNjcmlwdD4=',
-            }).image,
+            qrFromWire({ qr: 'data:image/svg+xml;base64,PHN2Zz4=' }).image,
         ).toBeNull();
-        expect(
-            qrFromWire({
-                status: 'qr',
-                qr: 'data:image/svg+xml;base64,PHN2Zz4=',
-            }).image,
-        ).toBeNull();
-        expect(qrFromWire({ status: 'ready' })).toEqual({
-            status: 'ready',
-            image: null,
-            expiresAt: null,
-        });
     });
 
     it('asks for the picture without any caching', async () => {
         const { api, calls } = clientWith(() =>
-            json({
-                data: {
-                    status: 'qr',
-                    qr: PNG,
-                    expires_at: '2026-11-20T10:01:00Z',
-                },
-            }),
+            json({ data: { qr: PNG, updatedAt: '2026-11-20T10:01:00Z' } }),
         );
         const qr = await api.qr('01SESSION');
 
         expect(calls[0].url).toBe('/api/v1/whatsapp/sessions/01SESSION/qr');
         expect(calls[0].init.cache).toBe('no-store');
-        expect(qr.expiresAt).toBe('2026-11-20T10:01:00Z');
+        expect(qr).toMatchObject({ status: 'qr', image: PNG });
+    });
+
+    it('turns "no QR to scan" (409 qr_not_available) into the session status, so the dialog can follow it to ready', async () => {
+        const { api } = clientWith(() =>
+            json(
+                {
+                    error: {
+                        code: 'qr_not_available',
+                        message: 'No QR.',
+                        details: { status: ['ready'] },
+                    },
+                },
+                409,
+            ),
+        );
+
+        await expect(api.qr('s1')).resolves.toEqual({
+            status: 'ready',
+            image: null,
+            updatedAt: null,
+        });
+    });
+
+    it('lets any other failure through', async () => {
+        const { api } = clientWith(() =>
+            json({ error: { code: 'openwa_unavailable', message: 'x' } }, 503),
+        );
+
+        await expect(api.qr('s1')).rejects.toBeInstanceOf(ApiError);
+    });
+});
+
+describe('sessions', () => {
+    it('creates, starts, stops and syncs through their own endpoints', async () => {
+        const { api, calls } = clientWith(() => json({ data: { ulid: 's1' } }));
+
+        await api.createSession('support-main');
+        await api.startSession('s1');
+        await api.stopSession('s1');
+        await api.syncSession('s1');
+
+        expect(calls.map((c) => `${c.init.method} ${c.url}`)).toEqual([
+            'POST /api/v1/whatsapp/sessions',
+            'POST /api/v1/whatsapp/sessions/s1/start',
+            'POST /api/v1/whatsapp/sessions/s1/stop',
+            'POST /api/v1/whatsapp/sessions/s1/sync',
+        ]);
+        expect(bodyOf(calls[0])).toEqual({ name: 'support-main' });
+    });
+
+    it('deletes, and only deletes locally (force) when asked to', async () => {
+        const { api, calls } = clientWith(
+            () => new Response(null, { status: 204 }),
+        );
+
+        await api.deleteSession('s1');
+        await api.deleteSession('s1', true);
+
+        expect(calls.map((c) => c.url)).toEqual([
+            '/api/v1/whatsapp/sessions/s1',
+            '/api/v1/whatsapp/sessions/s1?force=1',
+        ]);
+    });
+
+    it("changes a session's pacing, null going back to the global setting", async () => {
+        const { api, calls } = clientWith(() => json({ data: { ulid: 's1' } }));
+
+        await api.updateSessionPacing('s1', {
+            sendMinIntervalMs: 3000,
+            dailySendCap: null,
+        });
+
+        expect(calls[0].init.method).toBe('PATCH');
+        expect(bodyOf(calls[0])).toEqual({
+            send_min_interval_ms: 3000,
+            daily_send_cap: null,
+        });
     });
 });
 
 describe('chats and messages', () => {
     it('lists chats with the filters as query parameters and reads the cursor from the meta', async () => {
         const { api, calls } = clientWith(() =>
-            json({ data: [{ ulid: 'c1' }], meta: { next_cursor: 'page-2' } }),
+            json({
+                data: [{ ulid: 'c1' }],
+                meta: { next_cursor: 'page-2', unread_chats: 3 },
+            }),
         );
         const page = await api.chats({
             status: 'open',
             session: 's1',
+            widget: 'w1',
+            category: 'sales',
             linked: false,
             unread: true,
             q: 'invoice',
-            sort: 'unread',
             cursor: 'page-1',
             limit: 25,
         });
@@ -252,10 +351,11 @@ describe('chats and messages', () => {
         expect(Object.fromEntries(url.searchParams)).toEqual({
             status: 'open',
             session: 's1',
+            widget: 'w1',
+            category: 'sales',
             linked: '0',
             unread: '1',
             q: 'invoice',
-            sort: 'unread',
             cursor: 'page-1',
             limit: '25',
         });
@@ -269,22 +369,62 @@ describe('chats and messages', () => {
         expect(calls[0].url).toBe('/api/v1/whatsapp/chats');
     });
 
-    it('reads a transcript page and says there is more when the page is full or a cursor is given', async () => {
+    it('reads the newest transcript page: older rows exist while meta.prev_cursor is set', async () => {
         const rows = [{ ulid: 'm1' }, { ulid: 'm2' }];
-        const full = clientWith(() => json({ data: rows, meta: {} }));
-        const short = clientWith(() => json({ data: rows, meta: {} }));
-
-        await expect(
-            full.api.messages('c1', { limit: 2, before: 'm9' }),
-        ).resolves.toEqual({ messages: rows, hasMore: true });
-        await expect(
-            short.api.messages('c1', { limit: 50, after: 'm0' }),
-        ).resolves.toEqual({ messages: rows, hasMore: false });
-        expect(full.calls[0].url).toBe(
-            '/api/v1/whatsapp/chats/c1/messages?before=m9&limit=2',
+        const more = clientWith(() =>
+            json({
+                data: rows,
+                meta: { next_cursor: null, prev_cursor: 'm1' },
+            }),
         );
-        expect(short.calls[0].url).toBe(
-            '/api/v1/whatsapp/chats/c1/messages?after=m0&limit=50',
+        const all = clientWith(() =>
+            json({
+                data: rows,
+                meta: { next_cursor: null, prev_cursor: null },
+            }),
+        );
+
+        await expect(more.api.messages('c1')).resolves.toEqual({
+            messages: rows,
+            hasMore: true,
+        });
+        await expect(all.api.messages('c1')).resolves.toEqual({
+            messages: rows,
+            hasMore: false,
+        });
+        expect(more.calls[0].url).toBe(
+            '/api/v1/whatsapp/chats/c1/messages?limit=100',
+        );
+    });
+
+    it('pages backwards with before_id and forwards with after_id, each saying whether there is more that way', async () => {
+        const rows = [{ ulid: 'm1' }];
+        const back = clientWith(() =>
+            json({
+                data: rows,
+                meta: { next_cursor: 'm1', prev_cursor: null },
+            }),
+        );
+        const forward = clientWith(() =>
+            json({
+                data: rows,
+                meta: { next_cursor: null, prev_cursor: 'm0' },
+            }),
+        );
+
+        // Going back: the next cursor is irrelevant, only the previous one says there is older history.
+        await expect(
+            back.api.messages('c1', { before: 'm9', limit: 50 }),
+        ).resolves.toEqual({ messages: rows, hasMore: false });
+        // Going forward: only the next cursor counts.
+        await expect(
+            forward.api.messages('c1', { after: 'm0', limit: 50 }),
+        ).resolves.toEqual({ messages: rows, hasMore: false });
+        expect(back.calls[0].url).toBe(
+            '/api/v1/whatsapp/chats/c1/messages?before_id=m9&limit=50',
+        );
+        expect(forward.calls[0].url).toBe(
+            '/api/v1/whatsapp/chats/c1/messages?after_id=m0&limit=50',
         );
     });
 
@@ -319,19 +459,44 @@ describe('chats and messages', () => {
 });
 
 describe('the widget link', () => {
+    const link = {
+        widget: { ulid: 'w1', name: 'Main site' },
+        session: { ulid: 's1', name: 'support-main' },
+        status: 'ready',
+        maskedPhone: '+49•••••••4567',
+        connected: true,
+    };
+
+    it('reads the session, its status, the masked number and whether it can serve', () => {
+        expect(widgetLinkFromWire(link)).toEqual({
+            session: { ulid: 's1', name: 'support-main' },
+            status: 'ready',
+            maskedPhone: '+49•••••••4567',
+            connected: true,
+        });
+        expect(
+            widgetLinkFromWire({ widget: link.widget, session: null }),
+        ).toEqual({
+            session: null,
+            status: null,
+            maskedPhone: null,
+            connected: false,
+        });
+    });
+
     it('reads and writes the session of a widget', async () => {
-        const read = clientWith(() => json({ data: { session_ulid: 's1' } }));
+        const read = clientWith(() => json({ data: link }));
         const written = clientWith(() =>
-            json({ data: { session_ulid: null } }),
+            json({ data: { ...link, session: null, connected: false } }),
         );
 
-        await expect(read.api.widgetWhatsApp('w1')).resolves.toEqual({
-            sessionUlid: 's1',
+        await expect(read.api.widgetWhatsApp('w1')).resolves.toMatchObject({
+            connected: true,
         });
         await expect(
             written.api.setWidgetWhatsApp('w1', null),
-        ).resolves.toEqual({ sessionUlid: null });
-        expect(bodyOf(written.calls[0])).toEqual({ session_ulid: null });
+        ).resolves.toMatchObject({ session: null, connected: false });
+        expect(bodyOf(written.calls[0])).toEqual({ session: null });
         expect(written.calls[0].init.method).toBe('PUT');
     });
 });
@@ -350,14 +515,26 @@ describe('errors', () => {
         expect(classifyWaError(error('SEND_PACING_LIMITED', 429, 7200))).toBe(
             'pacing',
         );
+        expect(classifyWaError(error('reply_not_allowed', 409))).toBe(
+            'not_inbound',
+        );
         expect(
             classifyWaError(error('SESSION_NAME_TEARDOWN_PENDING', 409)),
         ).toBe('teardown_pending');
         expect(classifyWaError(error('session_name_taken', 409))).toBe(
             'name_taken',
         );
+        expect(classifyWaError(error('openwa_session_exists', 409))).toBe(
+            'name_taken',
+        );
         expect(classifyWaError(error('webhook_rejected', 422))).toBe(
             'webhook_rejected',
+        );
+        expect(classifyWaError(error('openwa_rejected', 502))).toBe(
+            'openwa_rejected',
+        );
+        expect(classifyWaError(error('session_not_startable', 409))).toBe(
+            'session_state',
         );
         expect(classifyWaError(error('whatever', 429))).toBe('rate_limited');
         expect(classifyWaError(error('whatever', 403))).toBe('forbidden');
@@ -378,7 +555,7 @@ describe('errors', () => {
         expect(describeWaError(error('send_pacing_limited', 429), t)).toMatch(
             /too fast/i,
         );
-        expect(describeWaError(error('openwa_unavailable', 502), t)).toMatch(
+        expect(describeWaError(error('openwa_unavailable', 503), t)).toMatch(
             /reach/i,
         );
         expect(describeWaError(error('webhook_rejected', 422), t)).toContain(
@@ -387,6 +564,12 @@ describe('errors', () => {
         expect(
             describeWaError(error('session_name_teardown_pending', 409), t),
         ).toMatch(/wait/i);
+        expect(describeWaError(error('session_not_startable', 409), t)).toMatch(
+            /cannot be started or stopped/i,
+        );
+        expect(describeWaError(error('openwa_rejected', 502), t)).toMatch(
+            /refused/i,
+        );
         // Anything else goes through the shared texts.
         expect(describeWaError(error('server_error', 500), t)).toBe(
             t('widgets.api.error.server'),
