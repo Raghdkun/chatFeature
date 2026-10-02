@@ -850,22 +850,6 @@ function expand(): Instance[] {
 
         if (definition.perProject) {
             instances.push(
-                build(
-                    name,
-                    definition,
-                    `${name}-mobile`,
-                    definition.perProject.mobilePort,
-                    definition.perProject.mobileDbSuffix,
-                    definition.perProject.mobileHostPort ??
-                        definition.hostPort ??
-                        null,
-                    definition.perProject.mobileReverbPort ??
-                        definition.reverbPort ??
-                        null,
-                    definition.perProject.mobileOpenWaPort ??
-                        definition.openWaPort ??
-                        null,
-                ),
                 place(name, definition, `${name}-mobile`, {
                     port: definition.perProject.mobilePort,
                     dbSuffix: definition.perProject.mobileDbSuffix,
@@ -875,6 +859,9 @@ function expand(): Instance[] {
                     reverbPort:
                         definition.perProject.mobileReverbPort ??
                         definition.reverbPort,
+                    openWaPort:
+                        definition.perProject.mobileOpenWaPort ??
+                        definition.openWaPort,
                     pushPort:
                         definition.perProject.mobilePushPort ??
                         definition.push?.port,
