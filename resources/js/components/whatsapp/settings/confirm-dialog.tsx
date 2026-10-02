@@ -9,6 +9,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { useReturnFocus } from '@/components/inbox/use-return-focus';
 import { Busy, Notice } from '@/components/widgets/form-bits';
 
 /**
@@ -45,6 +46,7 @@ export function ConfirmDialog({
 }) {
     const [pending, setPending] = useState(false);
     const [failure, setFailure] = useState<unknown>(null);
+    const returnFocus = useReturnFocus(open);
 
     const run = async (): Promise<void> => {
         setPending(true);
@@ -69,7 +71,7 @@ export function ConfirmDialog({
                 }
             }}
         >
-            <AlertDialogContent data-testid={testId}>
+            <AlertDialogContent data-testid={testId} {...returnFocus}>
                 <AlertDialogHeader>
                     <AlertDialogTitle>{title}</AlertDialogTitle>
                     <AlertDialogDescription>{body}</AlertDialogDescription>
