@@ -3112,20 +3112,26 @@ paths:
       description: "The Pusher channel authorisation of a VISITOR, exactly what `pusher-js` posts (form or JSON fields `socket_id` and `channel_name`) with the visitor bearer in `authEndpoint` headers. It signs **only** `private-conversation.{ulid}` of the conversation the session is bound to (the ulid spelled lower case, as events are published); anything else is `403 channel_forbidden`, never `404`, because a Pusher client treats any non-200 as a refusal. The signature comes from the configured broadcaster (the Reverb app secret never leaves the server); the answer is `Cache-Control: no-store` and sets no cookie.\n\nConnect to the host, port and scheme of `ws` from the session answer with the app `key`. `503 realtime_unavailable` means Reverb is not configured: stay on REST polling.\n\n**Access.** Visitor bearer token (`Authorization: Bearer vt_...`) from the session call. Only the token's own session and conversations are reachable; anything else is `404`.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `broadcasting-auth`: 30 a minute per token and 120 per client network."
       responses:
         200:
-          description: 'The signed channel authorisation: `<app key>:<signature>`.'
+          description: 'The signed channel authorisation: `<app key>:<signature>`, and the signed `channel_data` the Pusher client must pass on as is.'
           content:
             application/json:
               schema:
                 type: object
                 example:
                   auth: 'f1a2b3c4d5e6f7a8b9c0:3b1f0c9e5a7d2e4f6a8b0c1d2e3f405162738495a6b7c8d9e0f1a2b3c4d5e6f7'
+                  channel_data: '{\"user_id\":\"v_3f9c1a7e5b2d4086a1c7e9f3\"}'
                 properties:
                   auth:
                     type: string
                     example: 'f1a2b3c4d5e6f7a8b9c0:3b1f0c9e5a7d2e4f6a8b0c1d2e3f405162738495a6b7c8d9e0f1a2b3c4d5e6f7'
                     description: '`<app key>:<hmac signature>`, handed to the Pusher client.'
+                  channel_data:
+                    type: string
+                    example: '{\"user_id\":\"v_3f9c1a7e5b2d4086a1c7e9f3\"}'
+                    description: "A JSON string naming the opaque principal tag this subscription is signed with (it lets the server close the visitor's sockets when the session ends). Not an identity: do not parse or display it."
                 required:
                   - auth
+                  - channel_data
         401:
           description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
           content:

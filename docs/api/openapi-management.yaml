@@ -39,6 +39,9 @@ tags:
     name: Analytics
     description: "Numbers about chats, response times, ratings and WhatsApp, read from daily rollups (today is live). Every staff member may call most of it, but the server scopes it: an **agent only ever sees their own numbers**, never a colleague's, a WhatsApp number or a visitor's comment; the breakdown, WhatsApp and export endpoints are administrators only. Definitions: `docs/analytics.md`."
   -
+    name: Privacy
+    description: '**Administrators only.** Data-subject requests about one visitor (export everything held, erase) and the retention of closed conversations. Every call is recorded in the audit log with ids and counts only.'
+  -
     name: 'WhatsApp (admin only)'
     description: '**Administrators only.** WhatsApp is recorded for the admin inbox and never shown to agents: they get `403`, and nothing in the answer says WhatsApp exists. Documented here for completeness; most integrations never need it.'
 components:
@@ -2214,6 +2217,20 @@ components:
         host: chat.example.com
         port: 443
         scheme: https
+    Retention:
+      type: object
+      description: '`GET|PUT /privacy/retention`: how many days closed conversations are kept (0 = for ever) and the shortest retention that is accepted.'
+      required:
+        - days
+        - minimumDays
+      properties:
+        days:
+          type: integer
+        minimumDays:
+          type: integer
+      example:
+        days: 3
+        minimumDays: 3
     StaffAgentRef:
       type: object
       description: 'The agent as colleagues and admins see them (`{id, name}`): staff-facing payloads only, never sent to visitors.'
@@ -2479,6 +2496,65 @@ components:
           -
             slug: billing
             label: Billing
+    VisitorErasure:
+      type: object
+      description: 'The answer of `DELETE /visitors/{ulid}`: whether a visitor was erased and what went with them (counts only).'
+      required:
+        - visitor
+        - erased
+        - sessions
+        - conversations
+        - offlineTickets
+        - messages
+        - attachments
+        - ratings
+        - events
+        - whatsappChatsUnlinked
+        - handoffTickets
+      properties:
+        visitor:
+          type: string
+        erased:
+          type: boolean
+        sessions:
+          type: integer
+          nullable: true
+        conversations:
+          type: integer
+          nullable: true
+        offlineTickets:
+          type: integer
+          nullable: true
+        messages:
+          type: integer
+          nullable: true
+        attachments:
+          type: integer
+          nullable: true
+        ratings:
+          type: integer
+          nullable: true
+        events:
+          type: integer
+          nullable: true
+        whatsappChatsUnlinked:
+          type: integer
+          nullable: true
+        handoffTickets:
+          type: integer
+          nullable: true
+      example:
+        visitor: example
+        erased: true
+        sessions: 3
+        conversations: 3
+        offlineTickets: 3
+        messages: 3
+        attachments: 3
+        ratings: 3
+        events: 3
+        whatsappChatsUnlinked: 3
+        handoffTickets: 3
     VisitorSummary:
       type: object
       description: 'What staff see about a visitor (contact details they gave, verification, host-site metadata).'
@@ -4424,6 +4500,35 @@ components:
           details:
             email:
               - 'The email field must be a valid email address.'
+    ErrorVisitorHasOpenChat:
+      type: object
+      description: "Erasing a visitor is refused while they have a queued or active conversation (it would vanish from an agent's screen). `details.openConversations` is how many."
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - visitor_has_open_chat
+            message:
+              type: string
+              example: 'This visitor has a chat that is still open. End or close it first.'
+            details:
+              type: object
+              example:
+                openConversations: 1
+      example:
+        error:
+          code: visitor_has_open_chat
+          message: 'This visitor has a chat that is still open. End or close it first.'
+          details:
+            openConversations: 1
     ErrorWebhookLimitReached:
       type: object
       description: "The gateway's 16 webhooks per session are used up."
@@ -9888,6 +9993,345 @@ paths:
                 type: integer
       tags:
         - Analytics
+  '/api/v1/visitors/{ulid}/export':
+    get:
+      summary: 'Export everything held about a visitor'
+      operationId: visitorsExport
+      description: "A data-subject access request. Streams one JSON document: the identity as stored, every session, every conversation with its messages, attachments (metadata and a short-lived signed URL each), rating and timeline (offline tickets are conversations of type `offline`), and counts of the linked WhatsApp records. Staff appear by their public label only; token and network hashes are not exported. Recorded in the audit log (`privacy.visitor.exported`, ids and counts only). Administrators only.\n\n**Access.** Administrators only.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `staff-api`: 600 calls a minute per staff member."
+      responses:
+        200:
+          description: 'The visitor document.'
+          content:
+            'application/json; charset=utf-8':
+              schema:
+                type: object
+                example:
+                  exportedAt: '2026-10-02T09:00:00.000Z'
+                  subject:
+                    type: visitor
+                    ulid: 01j9...
+                    name: 'Ada Lovelace'
+                    email: ada@example.com
+                  sessions: []
+                  conversations: []
+                  whatsapp:
+                    linkedChats: 0
+                    handoffTickets: 0
+                properties:
+                  exportedAt:
+                    type: string
+                    example: '2026-10-02T09:00:00.000Z'
+                  subject:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        example: visitor
+                      ulid:
+                        type: string
+                        example: 01j9...
+                      name:
+                        type: string
+                        example: 'Ada Lovelace'
+                      email:
+                        type: string
+                        example: ada@example.com
+                  sessions:
+                    type: array
+                    example: []
+                  conversations:
+                    type: array
+                    example: []
+                  whatsapp:
+                    type: object
+                    properties:
+                      linkedChats:
+                        type: integer
+                        example: 0
+                      handoffTickets:
+                        type: integer
+                        example: 0
+        401:
+          description: "- `unauthenticated`\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        403:
+          description: "- `no_chat_access`\n- `forbidden`: Not an active administrator."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorNoChatAccess'
+                  -
+                    $ref: '#/components/schemas/ErrorForbidden'
+        404:
+          description: '`not_found`: No visitor has this ulid.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+        503:
+          description: '`auth_unavailable`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorAuthUnavailable'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - Privacy
+    parameters:
+      -
+        in: path
+        name: ulid
+        description: "The ulid of the conversation. It must belong to the visitor token's session; another visitor's conversation is `404`."
+        example: 01j9z3q8x7m5n2k4p6r8t0v1w2
+        required: true
+        schema:
+          type: string
+  '/api/v1/visitors/{ulid}':
+    delete:
+      summary: 'Erase a visitor'
+      operationId: visitorsDestroy
+      description: "Erases one visitor for good: identity, sessions, conversations, messages, attachment files (deleted first), ratings, events, offers and offline tickets; the visitor's websockets are closed; a linked WhatsApp chat is unlinked, not deleted (`DELETE /whatsapp/chats/{ulid}`). **Idempotent**: a visitor that is already gone (or never existed, or a malformed ulid) answers `200` with `erased: false` and changes nothing. Refused while the visitor has a queued or active chat. Audited (`privacy.visitor.erased`) with the ulid and counts, never a name, address or text. Administrators only.\n\n**Access.** Administrators only.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `staff-api`: 600 calls a minute per staff member."
+      responses:
+        200:
+          description: 'The answer of `DELETE /visitors/{ulid}`: whether a visitor was erased and what went with them (counts only).'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/VisitorErasure'
+        401:
+          description: "- `unauthenticated`\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        403:
+          description: "- `no_chat_access`\n- `forbidden`: Not an active administrator."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorNoChatAccess'
+                  -
+                    $ref: '#/components/schemas/ErrorForbidden'
+        404:
+          description: '`not_found`: Unknown id.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNotFound'
+        409:
+          description: '`visitor_has_open_chat`: The visitor has a queued or active conversation: end or close it first (`details.openConversations`).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorVisitorHasOpenChat'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+        503:
+          description: '`auth_unavailable`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorAuthUnavailable'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - Privacy
+    parameters:
+      -
+        in: path
+        name: ulid
+        description: "The ulid of the conversation. It must belong to the visitor token's session; another visitor's conversation is `404`."
+        example: 01j9z3q8x7m5n2k4p6r8t0v1w2
+        required: true
+        schema:
+          type: string
+  /api/v1/privacy/retention:
+    get:
+      summary: 'Show the conversation retention'
+      operationId: privacyRetentionShow
+      description: "How many days closed and missed conversations (with their messages, images and ratings) are kept before the daily `chat:prune-conversations` deletes them: `0` keeps them for ever. `minimumDays` is the shortest accepted retention.\n\n**Access.** Administrators only.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `staff-api`: 600 calls a minute per staff member."
+      responses:
+        200:
+          description: '`GET|PUT /privacy/retention`: how many days closed conversations are kept (0 = for ever) and the shortest retention that is accepted.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Retention'
+        401:
+          description: "- `unauthenticated`\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        403:
+          description: "- `no_chat_access`\n- `forbidden`: Not an active administrator."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorNoChatAccess'
+                  -
+                    $ref: '#/components/schemas/ErrorForbidden'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+        503:
+          description: '`auth_unavailable`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorAuthUnavailable'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - Privacy
+    put:
+      summary: 'Change the conversation retention'
+      operationId: privacyRetentionUpdate
+      description: "`0` (keep for ever) or 7 to 3 650 days (a shorter retention is refused: analytics rollups seal a day 3 days after it ends). Audited as `settings.updated`.\n\n**Access.** Administrators only.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `staff-api`: 600 calls a minute per staff member."
+      responses:
+        200:
+          description: '`GET|PUT /privacy/retention`: how many days closed conversations are kept (0 = for ever) and the shortest retention that is accepted.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Retention'
+        401:
+          description: "- `unauthenticated`\n- `session_revoked`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorUnauthenticated'
+                  -
+                    $ref: '#/components/schemas/ErrorSessionRevoked'
+        403:
+          description: "- `no_chat_access`\n- `forbidden`: Not an active administrator."
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorNoChatAccess'
+                  -
+                    $ref: '#/components/schemas/ErrorForbidden'
+        422:
+          description: '`validation_failed`: `days` is missing, not a whole number, below the minimum (other than 0) or above 3650.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorValidationFailed'
+        429:
+          description: '`rate_limited`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+        503:
+          description: '`auth_unavailable`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorAuthUnavailable'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - Privacy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                days:
+                  type: string
+                  description: 'Retention in days: 0 keeps closed conversations for ever, otherwise 7 to 3650.'
+                  example: 90
+              required:
+                - days
   /api/v1/whatsapp/sessions:
     get:
       summary: 'List WhatsApp sessions'

@@ -6,6 +6,7 @@ use App\Support\ApiDocs\Entries\AnalyticsEntries;
 use App\Support\ApiDocs\Entries\AuthEntries;
 use App\Support\ApiDocs\Entries\ConversationEntries;
 use App\Support\ApiDocs\Entries\DirectoryEntries;
+use App\Support\ApiDocs\Entries\PrivacyEntries;
 use App\Support\ApiDocs\Entries\PublicEntries;
 use App\Support\ApiDocs\Entries\StaffEntries;
 use App\Support\ApiDocs\Entries\WhatsAppEntries;
@@ -78,6 +79,7 @@ final class Catalogue
             WidgetEntries::class,
             WhatsAppEntries::class,
             AnalyticsEntries::class,
+            PrivacyEntries::class,
             PublicEntries::class,
         ];
     }
@@ -90,7 +92,7 @@ final class Catalogue
     public static function groupOrder(ApiAudience $audience): array
     {
         return match ($audience) {
-            ApiAudience::Management => ['Authentication', 'Presence', 'Notifications', 'Conversations', 'Messages & attachments', 'Categories', 'Agents', 'Widgets', 'Analytics', 'WhatsApp (admin only)'],
+            ApiAudience::Management => ['Authentication', 'Presence', 'Notifications', 'Conversations', 'Messages & attachments', 'Categories', 'Agents', 'Widgets', 'Analytics', 'Privacy', 'WhatsApp (admin only)'],
             ApiAudience::Public => ['Widget config', 'Sessions', 'Conversation', 'Messages & attachments', 'Rating', 'Offline tickets', 'WhatsApp hand-off', 'Realtime', 'Widget delivery'],
         };
     }
@@ -107,6 +109,7 @@ final class Catalogue
             'Agents' => 'The staff directory and the categories each agent serves (administrators only).',
             'Widgets' => 'The embeddable chat widgets: operational settings, the draft/publish config workflow, allowed domains, greetings and embed codes (administrators only).',
             'Analytics' => 'Numbers about chats, response times, ratings and WhatsApp, read from daily rollups (today is live). Every staff member may call most of it, but the server scopes it: an **agent only ever sees their own numbers**, never a colleague\'s, a WhatsApp number or a visitor\'s comment; the breakdown, WhatsApp and export endpoints are administrators only. Definitions: `docs/analytics.md`.',
+            'Privacy' => '**Administrators only.** Data-subject requests about one visitor (export everything held, erase) and the retention of closed conversations. Every call is recorded in the audit log with ids and counts only.',
             'WhatsApp (admin only)' => '**Administrators only.** WhatsApp is recorded for the admin inbox and never shown to agents: they get `403`, and nothing in the answer says WhatsApp exists. Documented here for completeness; most integrations never need it.',
             'Widget config' => 'What a visitor client needs before it starts: the published configuration and the live availability. Cacheable, origin-checked.',
             'Sessions' => 'A visitor session is the `vt_...` bearer token every other call carries.',

@@ -61,7 +61,19 @@ class RouteBehaviourMatrixTest extends TestCase
 
     private function management(LaravelRoute $route): bool
     {
-        return str_starts_with($route->uri(), 'api/v1/') && ! str_starts_with($route->uri(), 'api/v1/public/');
+        return str_starts_with($route->uri(), 'api/v1/') && ! str_starts_with($route->uri(), 'api/v1/public/') && ! $this->guestRoute($route);
+    }
+
+    /** The native sign-in (7D): unauthenticated on purpose, covered by StaffSignInTest. */
+    private function guestRoute(LaravelRoute $route): bool
+    {
+        foreach ($route->methods() as $method) {
+            if (array_key_exists($method.' '.$route->uri(), RouteClassificationTest::API_GUEST)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function adminOnly(LaravelRoute $route): bool
@@ -414,6 +426,7 @@ class RouteBehaviourMatrixTest extends TestCase
             'api/v1/conversations/{conversation}' => 'an agent against a chat that is not theirs',
             'api/v1/me/devices/{device}' => 'own rows only',
             'api/v1/me/push-subscriptions/{subscription}' => 'own rows only',
+            'api/v1/auth/tokens/{token}' => 'own tokens only (StaffTokensApiTest)',
             'api/v1/public/attachments/{attachment}' => 'signed URL',
             'api/v1/public/widgets/{key}/' => 'the widget key is public; the Origin gate decides',
             'webhooks/openwa/{session}' => 'HMAC of the raw body with the secret of that session',

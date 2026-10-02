@@ -407,6 +407,7 @@ class SecurityHeadersTest extends TestCase
             'inbox' => '/inbox',
             'conversation' => '/inbox/'.$conversation->ulid,
             'history' => '/history',
+            'analytics' => '/analytics',
             'offline tickets' => '/offline-tickets',
             'agents' => '/agents',
             'categories' => '/categories',

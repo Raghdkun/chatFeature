@@ -51,6 +51,24 @@ class RouteClassificationTest extends TestCase
         'DELETE api/v1/me/push-subscriptions/{subscription}',
         'POST api/v1/me/devices',
         'DELETE api/v1/me/devices/{device}',
+        // P7: an agent's own numbers (the server scopes them to the caller), and the caller's own credential.
+        'GET api/v1/analytics/heatmap',
+        'GET api/v1/analytics/overview',
+        'GET api/v1/analytics/ratings',
+        'GET api/v1/analytics/timeseries',
+        'GET api/v1/auth/me',
+        'GET api/v1/auth/tokens',
+        'DELETE api/v1/auth/tokens/{token}',
+        'POST api/v1/auth/logout',
+    ];
+
+    /**
+     * The only unauthenticated management routes: the native app's sign-in (track 7D). Stateless (no session, no cookie, no CORS),
+     * never cached, size-capped, and each behind a named limiter.
+     */
+    public const API_GUEST = [
+        'POST api/v1/auth/token' => 'native app sign-in: password check, then a bearer token (or a two-factor challenge)',
+        'POST api/v1/auth/token/two-factor' => 'native app sign-in: second step with a challenge from the first',
     ];
 
     /** Public routes that need nothing but an allowed Origin (no visitor token): the pre-chat handshake. */
@@ -95,9 +113,6 @@ class RouteClassificationTest extends TestCase
         'POST csp-report' => 'Content-Security-Policy violation collector (throttled, logs only)',
         'GET broadcasting/auth' => 'channel authorisation: the channel guards decide (403 for a guest); the framework excludes CSRF here',
         'POST broadcasting/auth' => 'channel authorisation: the channel guards decide (403 for a guest); the framework excludes CSRF here',
-        'GET docs' => 'generated API documentation (Scribe, 7B decides who may read it)',
-        'GET docs.postman' => 'generated API documentation (Scribe)',
-        'GET docs.openapi' => 'generated API documentation (Scribe)',
         'GET storage/{path}' => 'local disk: only signed URLs are served (framework route)',
         'PUT storage/{path}' => 'local disk: only signed upload URLs are accepted (framework route)',
     ];
@@ -177,7 +192,7 @@ class RouteClassificationTest extends TestCase
 
     public function test_every_management_route_is_authenticated_validated_and_either_listed_as_agent_reachable_or_admin_only(): void
     {
-        $management = array_filter($this->routes('api/'), fn (string $key): bool => ! str_contains($key, ' api/v1/public/') && ! str_contains($key, ' webhooks/'), ARRAY_FILTER_USE_KEY);
+        $management = array_filter($this->routes('api/'), fn (string $key): bool => ! str_contains($key, ' api/v1/public/') && ! str_contains($key, ' webhooks/') && ! array_key_exists($key, self::API_GUEST), ARRAY_FILTER_USE_KEY);
 
         $this->assertGreaterThan(60, count($management), 'the management API is being walked');
 
@@ -204,6 +219,23 @@ class RouteClassificationTest extends TestCase
         }
 
         $this->assertEqualsCanonicalizing(self::ANY_STAFF, $anyStaff, 'The routes an agent can reach changed: a new management route is admin-only (EnsureAdmin / EnsureWhatsAppAdmin) unless it is added to ANY_STAFF on purpose.');
+    }
+
+    public function test_the_native_sign_in_routes_are_the_only_unauthenticated_management_routes_and_are_stateless_limited_and_never_cached(): void
+    {
+        $guests = array_filter($this->routes('api/v1/'), fn ($route, string $key): bool => ! str_contains($key, ' api/v1/public/') && ! $this->has($this->middleware($route), 'Authenticate'), ARRAY_FILTER_USE_BOTH);
+
+        $this->assertEqualsCanonicalizing(array_keys(self::API_GUEST), array_keys($guests), 'A management route without authentication must be listed in API_GUEST with its reason.');
+
+        foreach ($guests as $key => $route) {
+            $middleware = $this->middleware($route);
+
+            $this->assertTrue($this->isLimited($middleware), "{$key}: a named limiter");
+            $this->assertTrue($this->has($middleware, 'NoStoreResponses'), "{$key}: never cached");
+            $this->assertTrue($this->has($middleware, 'LimitRequestBodySize'), "{$key}: size-capped");
+            $this->assertFalse($this->has($middleware, 'EnsureFrontendRequestsAreStateful'), "{$key}: no session, no cookie");
+            $this->assertFalse($this->has($middleware, 'StartSession'), "{$key}: no session");
+        }
     }
 
     public function test_every_whatsapp_route_is_for_administrators_only(): void
