@@ -669,53 +669,58 @@ test('nothing secret ever leaves the application: not the webhook secret, not th
     expect(fresh.length).toBeGreaterThanOrEqual(16);
 });
 
-test('a flood of unsigned requests is limited per client network and does not touch anybody else', async ({
-    instance,
-    openWa,
-    request,
-    wa,
-}) => {
-    const session = await readySession(wa, openWa);
-    const { hook, openWaId } = await webhookOf(session, {
-        request,
+// The limit is 600 a minute per network: only a pace that beats the clock trips it, so nothing else may load the app meanwhile.
+test.describe('the flood limit', () => {
+    test.use({ waMode: 'exclusive' });
+
+    test('a flood of unsigned requests is limited per client network and does not touch anybody else', async ({
         instance,
         openWa,
-    });
-    const flood = '203.0.113.200';
-    const raw = JSON.stringify(
-        envelope(
-            openWaId,
-            'message.received',
-            textMessage(uniquePhone(), 'flood'),
-        ),
-    );
-    let limited: Awaited<ReturnType<WebhookClient['post']>> | null = null;
-    let sent = 0;
-
-    while (limited === null && sent < 900) {
-        const batch = await Promise.all(
-            Array.from({ length: 30 }, () =>
-                hook.post(raw, { sign: false, address: flood }),
+        request,
+        wa,
+    }) => {
+        const session = await readySession(wa, openWa);
+        const { hook, openWaId } = await webhookOf(session, {
+            request,
+            instance,
+            openWa,
+        });
+        const flood = '203.0.113.200';
+        const raw = JSON.stringify(
+            envelope(
+                openWaId,
+                'message.received',
+                textMessage(uniquePhone(), 'flood'),
             ),
         );
+        let limited: Awaited<ReturnType<WebhookClient['post']>> | null = null;
+        let sent = 0;
 
-        sent += batch.length;
-        limited = batch.find((answer) => answer.status === 429) ?? null;
-    }
+        while (limited === null && sent < 3000) {
+            const batch = await Promise.all(
+                Array.from({ length: 30 }, () =>
+                    hook.post(raw, { sign: false, address: flood }),
+                ),
+            );
 
-    expect(limited, `no 429 after ${sent} requests`).not.toBeNull();
-    expect(Number(limited!.headers['retry-after'])).toBeGreaterThan(0);
-    // The same network is still limited (even with a valid signature) ...
-    expect((await hook.post(raw, { address: flood })).status).toBe(429);
-    // ... while another network, and OpenWA itself, are not.
-    expect((await hook.post(raw, { address: '203.0.113.201' })).status).toBe(
-        200,
-    );
-    const fromOpenWa = await openWa.deliver({
-        session: session.name,
-        event: 'message.received',
-        data: textMessage(uniquePhone(), 'from OpenWA during the flood'),
+            sent += batch.length;
+            limited = batch.find((answer) => answer.status === 429) ?? null;
+        }
+
+        expect(limited, `no 429 after ${sent} requests`).not.toBeNull();
+        expect(Number(limited!.headers['retry-after'])).toBeGreaterThan(0);
+        // The same network is still limited (even with a valid signature) ...
+        expect((await hook.post(raw, { address: flood })).status).toBe(429);
+        // ... while another network, and OpenWA itself, are not.
+        expect(
+            (await hook.post(raw, { address: '203.0.113.201' })).status,
+        ).toBe(200);
+        const fromOpenWa = await openWa.deliver({
+            session: session.name,
+            event: 'message.received',
+            data: textMessage(uniquePhone(), 'from OpenWA during the flood'),
+        });
+
+        expect(fromOpenWa.results[0].status).toBe(200);
     });
-
-    expect(fromOpenWa.results[0].status).toBe(200);
 });

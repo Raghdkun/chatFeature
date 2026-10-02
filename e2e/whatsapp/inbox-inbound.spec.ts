@@ -213,9 +213,12 @@ test('an image arrives inline and is shown through a signed link that only an ad
     // ... a signature that was touched does not ...
     const bad = new URL(media.url);
 
+    const signed = bad.searchParams.get('signature')!;
+
+    // Change the last character to a different one (a fixed "0" leaves one signature in sixteen untouched).
     bad.searchParams.set(
         'signature',
-        `${bad.searchParams.get('signature')!.slice(0, -1)}0`,
+        `${signed.slice(0, -1)}${signed.endsWith('0') ? '1' : '0'}`,
     );
     expect(
         (await adminApi.request('GET', `${bad.pathname}${bad.search}`)).status,
