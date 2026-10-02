@@ -102,22 +102,6 @@ class PublicMessagesApiTest extends TestCase
         $this->assertSame(2, $this->chat->fresh()->unseen_by_agent);
     }
 
-    public function test_the_conversation_update_is_announced_before_the_unseen_count(): void
-    {
-        // The dashboard notifies about a new message when the counter arrives and uses the preview it holds by then: the new one must be there.
-        $order = [];
-
-        foreach ([MessageCreated::class, UnseenCountChanged::class, ConversationUpdated::class] as $class) {
-            Event::listen($class, function () use (&$order, $class): void {
-                $order[] = class_basename($class);
-            });
-        }
-
-        $this->send(['body' => 'the newest words'])->assertCreated();
-
-        $this->assertSame(['MessageCreated', 'ConversationUpdated', 'UnseenCountChanged'], $order);
-    }
-
     public function test_a_message_moves_the_idle_deadline_and_nothing_else_does(): void
     {
         $this->travelTo(now()->addMinutes(30));

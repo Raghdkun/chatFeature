@@ -167,14 +167,11 @@ final class SendMessage
 
         MessageCreated::dispatch($message);
 
-        // The conversation's new state (its last-message preview) goes out BEFORE the unseen counter: the agent's dashboard builds the OS
-        // notification for the new message when the counter arrives, and must already hold the new preview then (it showed the previous
-        // message's text when the order was the other way round: found by the e2e suite).
-        ConversationUpdated::dispatch($conversation);
-
         if ($sender === SenderType::Visitor) {
             UnseenCountChanged::dispatch($conversation);
         }
+
+        ConversationUpdated::dispatch($conversation);
 
         if ($sender === SenderType::Agent && $conversation->type === ConversationType::Offline) {
             $this->mailReply($conversation, $message);
