@@ -18,6 +18,11 @@ final class ForgetSessionPushSubscriptions
 {
     public function handle(Logout $event): void
     {
+        // A guard that had no user (a token-authenticated request ending a session it never had) has nothing to forget.
+        if ($event->user === null) {
+            return;
+        }
+
         try {
             $userId = $event->user->getAuthIdentifier();
 
