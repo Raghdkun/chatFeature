@@ -10,6 +10,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\PersonalAccessToken;
 use Tests\Support\InteractsWithPortal;
+use Tests\Support\InteractsWithRealtime;
 use Tests\Support\PizzasysMock;
 use Tests\Support\WidgetFixtures;
 use Tests\TestCase;
@@ -21,7 +22,7 @@ use Tests\TestCase;
  */
 class StaffTokensApiTest extends TestCase
 {
-    use InteractsWithPortal, RefreshDatabase, WidgetFixtures;
+    use InteractsWithPortal, InteractsWithRealtime, RefreshDatabase, WidgetFixtures;
 
     protected function setUp(): void
     {
@@ -59,6 +60,22 @@ class StaffTokensApiTest extends TestCase
         $this->assertTrue($json['token']['current']);
         $this->assertEqualsWithDelta(now()->timestamp, strtotime($json['serverTime']), 5, 'the server clock, for clock-skew correction');
         $this->assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/', $json['serverTime']);
+    }
+
+    public function test_me_gives_a_native_client_the_public_realtime_address_and_never_the_secret(): void
+    {
+        [, $token] = $this->signedIn();
+
+        $this->withToken($token)->getJson('/api/v1/auth/me')->assertOk()->assertJsonPath('data.realtime', null);
+
+        $this->useReverbBroadcaster();
+        config(['reverb.apps.apps.0.options.host' => 'chat.example.com', 'reverb.apps.apps.0.options.port' => 443, 'reverb.apps.apps.0.options.scheme' => 'https']);
+        $this->app['auth']->forgetGuards();
+
+        $response = $this->withToken($token)->getJson('/api/v1/auth/me')->assertOk();
+
+        $this->assertSame(['key' => self::REVERB_KEY, 'host' => 'chat.example.com', 'port' => 443, 'scheme' => 'https'], $response->json('data.realtime'));
+        $this->assertStringNotContainsString(self::REVERB_SECRET, (string) $response->getContent());
     }
 
     public function test_me_has_no_token_for_the_dashboard_session_cookie(): void

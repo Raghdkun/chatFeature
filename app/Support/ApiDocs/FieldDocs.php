@@ -160,6 +160,7 @@ final class FieldDocs
                 'mode' => 'The active auth driver: `fortify` (local accounts) or `pizzasys` (external auth portal).',
                 'capabilities' => 'What the active driver lets the user do (hide UI it cannot honour).',
                 'token' => 'The bearer token this call was made with; `null` when the call used the dashboard\'s session cookie.',
+                'realtime' => 'Where to open the websocket (Laravel Reverb, Pusher protocol) and the public app key; `null` when realtime is not configured, then stay on REST polling. Authorise private channels with `POST /broadcasting/auth` and your bearer token.',
                 'serverTime' => 'The server clock (ISO-8601 UTC). Compare it with your own to correct clock skew before counting down any `expiresAt`.',
             ],
             'ApiTokenData' => [

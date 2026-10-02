@@ -15,7 +15,7 @@ final class AuthEntries implements EntryList
             Doc::route('api.auth.me')
                 ->in('Authentication')
                 ->title('Show the signed-in user')
-                ->about("The first call a client makes after signing in, and a cheap way to check that a stored token still works (`401 unauthenticated` / `session_revoked` otherwise).\n\nIt returns the same user object the dashboard receives, which auth driver is active (`fortify`: accounts of this installation, `pizzasys`: an external auth portal) and what that driver lets the user do, the bearer token the call was made with (`null` when the dashboard's session cookie was used) and the server clock: compare `serverTime` with your own clock to correct clock skew before you count down any `expiresAt`.")
+                ->about("The first call a client makes after signing in, and a cheap way to check that a stored token still works (`401 unauthenticated` / `session_revoked` otherwise).\n\nIt returns the same user object the dashboard receives, which auth driver is active (`fortify`: accounts of this installation, `pizzasys`: an external auth portal) and what that driver lets the user do, the bearer token the call was made with (`null` when the dashboard's session cookie was used), the public address and key of the realtime (websocket) server, and the server clock: compare `serverTime` with your own clock to correct clock skew before you count down any `expiresAt`.")
                 ->item(StaffMeData::class),
 
             Doc::route('api.auth.tokens.index')

@@ -10,6 +10,8 @@ use App\Data\Auth\ApiTokenData;
 use App\Data\Auth\AuthCapabilitiesData;
 use App\Data\Auth\AuthUserData;
 use App\Data\Auth\StaffMeData;
+use App\Data\Chat\RealtimeEndpointData;
+use App\Domain\Chat\Realtime\ReverbEndpoint;
 use App\Domain\Widgets\Support\Timestamps;
 use App\Http\Exceptions\ApiProblemException;
 use App\Models\User;
@@ -27,7 +29,7 @@ use Laravel\Sanctum\PersonalAccessToken;
  */
 class StaffAuthController extends ChatStaffController
 {
-    public function me(Request $request, AuthDriver $driver, AuthModeManager $modes, StaffTokens $tokens): JsonResponse
+    public function me(Request $request, AuthDriver $driver, AuthModeManager $modes, StaffTokens $tokens, ReverbEndpoint $realtime): JsonResponse
     {
         $user = $this->staff($request);
         $current = $this->currentToken($request);
@@ -37,6 +39,7 @@ class StaffAuthController extends ChatStaffController
             mode: AuthMode::tryFrom($modes->getDefaultDriver()) ?? AuthMode::Fortify,
             capabilities: AuthCapabilitiesData::fromCapabilities($driver->capabilities()),
             token: $current === null ? null : ApiTokenData::fromModel($current, (int) $current->getKey(), $tokens),
+            realtime: $realtime->isAvailable() ? RealtimeEndpointData::fromArray($realtime->forVisitors()) : null,
             serverTime: (string) Timestamps::iso(now()),
         ));
     }
