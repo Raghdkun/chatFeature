@@ -3,6 +3,7 @@ import { resolve as resolvePath } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { install } from '../src/api';
 import { ping, unlockSound } from '../src/sound';
+import { ALERT_GAP_MS, VISIBLE_ALERT_MS } from '../src/widget';
 import {
     APP,
     KEY,
@@ -537,7 +538,8 @@ describe('Widget (launcher + panel + bridge wired together)', () => {
             expect(changed).toHaveBeenCalledTimes(1); // unchanged count: no event, no extra ping
             expect(ping).toHaveBeenCalledTimes(1);
             b.fromPanel('unread', { count: 3 });
-            expect(ping).toHaveBeenCalledTimes(2);
+            expect(changed).toHaveBeenCalledTimes(2); // every change is an event...
+            expect(ping).toHaveBeenCalledTimes(1); // ...but a burst is one alert (see the alert policy below)
         });
 
         it('does not ping when the sounds feature is off', async () => {
@@ -610,6 +612,354 @@ describe('Widget (launcher + panel + bridge wired together)', () => {
             });
             b.fromPanel('state', { status: 'hacked', unread: 0 });
             expect(b.cf('getState')).toMatchObject({ status: 'idle' });
+        });
+    });
+
+    describe('closed-bubble reply alert policy (P5)', () => {
+        const ALERT_KEY = `chatfeature:${KEY}:alert`;
+        let b: Booted;
+        const alerting = (): boolean =>
+            b.q('button.launcher').dataset.alert === 'true';
+        const countOf = (mock: ReturnType<typeof vi.fn>): unknown[] =>
+            mock.mock.calls.map((c) => (c[0] as Dict).count);
+
+        beforeEach(async () => {
+            b = await boot({ settings: { features: { titleBadge: true } } });
+            b.cf('open');
+            b.handshake();
+            b.cf('close');
+        });
+
+        it('a burst of replies is one alert: badge and events follow every message, the hop and the sound only the first', async () => {
+            const changed = vi.fn();
+            b.cf('on', 'unread-changed', changed);
+            b.fromPanel('unread', { count: 1 });
+            expect(alerting()).toBe(true);
+            expect(ping).toHaveBeenCalledTimes(1);
+
+            for (const n of [2, 3, 4]) {
+                await vi.advanceTimersByTimeAsync(1500);
+                b.fromPanel('unread', { count: n });
+                expect(b.q('.badge').textContent).toBe(String(n));
+            }
+
+            expect(ping).toHaveBeenCalledTimes(1);
+            expect(countOf(changed)).toEqual([1, 2, 3, 4]);
+            expect(b.cf('getState')).toMatchObject({ unread: 4 });
+
+            // the burst is over: the next reply alerts again
+            await vi.advanceTimersByTimeAsync(ALERT_GAP_MS);
+            b.fromPanel('unread', { count: 5 });
+            expect(ping).toHaveBeenCalledTimes(2);
+            expect(alerting()).toBe(true);
+        });
+
+        it('counts replies that arrive while the tab is hidden but alerts only once it is visible again', async () => {
+            document.title = 'Shop';
+            setHidden(true);
+            b.fromPanel('unread', { count: 1 });
+            b.fromPanel('unread', { count: 2 });
+            expect(b.q('.badge').textContent).toBe('2');
+            expect(document.title).toBe('(2) Shop'); // the tab title is how a hidden tab shows it
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(alerting()).toBe(false);
+            expect(ping).not.toHaveBeenCalled();
+
+            setHidden(false);
+            await vi.advanceTimersByTimeAsync(VISIBLE_ALERT_MS - 1);
+            expect(alerting()).toBe(false);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(alerting()).toBe(true);
+            expect(ping).toHaveBeenCalledTimes(1);
+
+            // it is spent: coming back again later alerts nothing more
+            await vi.advanceTimersByTimeAsync(ALERT_GAP_MS * 2);
+            setHidden(true);
+            setHidden(false);
+            await vi.advanceTimersByTimeAsync(VISIBLE_ALERT_MS);
+            expect(ping).toHaveBeenCalledTimes(1);
+        });
+
+        it('stays silent while the host keeps the launcher hidden, and alerts once it is shown again', async () => {
+            b.cf('hide');
+            b.fromPanel('unread', { count: 1 });
+            b.fromPanel('unread', { count: 2 });
+            expect(b.cf('getState')).toMatchObject({ unread: 2 }); // still counted
+            expect(alerting()).toBe(false);
+            expect(ping).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(30_000);
+
+            b.cf('show');
+            expect(alerting()).toBe(true);
+            expect(ping).toHaveBeenCalledTimes(1);
+        });
+
+        it('a hidden tab whose replies were read elsewhere meanwhile never alerts', async () => {
+            setHidden(true);
+            b.fromPanel('unread', { count: 2 });
+            b.fromPanel('state', { status: 'active', unread: 0 }); // the panel re-synced: seen in another tab
+            setHidden(false);
+            await vi.advanceTimersByTimeAsync(10_000);
+            expect(alerting()).toBe(false);
+            expect(ping).not.toHaveBeenCalled();
+        });
+
+        it('hiding the tab again before the delay is over cancels the pending alert', async () => {
+            setHidden(true);
+            b.fromPanel('unread', { count: 1 });
+            setHidden(false);
+            await vi.advanceTimersByTimeAsync(VISIBLE_ALERT_MS - 100);
+            setHidden(true);
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(alerting()).toBe(false);
+            setHidden(false);
+            await vi.advanceTimersByTimeAsync(VISIBLE_ALERT_MS);
+            expect(alerting()).toBe(true);
+        });
+
+        it('stays a plain highlight under reduced motion: the alert is raised, the stylesheet drops the movement', () => {
+            media.set('reduced', true);
+            b.fromPanel('unread', { count: 1 });
+            expect(b.q('.root').dataset.motion).toBe('reduced');
+            expect(alerting()).toBe(true);
+            expect(b.q('.badge').dataset.show).toBe('true');
+            media.set('reduced', false);
+            expect(b.q('.root').dataset.motion).toBe('full');
+        });
+
+        it('does not alert again for a count that was already alerted (the next page of the site, another tab)', () => {
+            localStorage.setItem(
+                ALERT_KEY,
+                JSON.stringify({ at: Date.now() - 60_000, n: 2 }),
+            );
+            b.fromPanel('unread', { count: 2 });
+            expect(b.q('.badge').textContent).toBe('2');
+            expect(alerting()).toBe(false);
+            expect(ping).not.toHaveBeenCalled();
+
+            b.fromPanel('unread', { count: 3 }); // one genuinely new reply
+            expect(alerting()).toBe(true);
+            expect(
+                JSON.parse(localStorage.getItem(ALERT_KEY) ?? '{}'),
+            ).toMatchObject({ n: 3 });
+        });
+
+        it('another tab that alerted a moment ago keeps this one quiet: no double shake, no double sound', () => {
+            localStorage.setItem(
+                ALERT_KEY,
+                JSON.stringify({ at: Date.now() - 200, n: 1 }),
+            );
+            b.fromPanel('unread', { count: 1 });
+            expect(alerting()).toBe(false);
+            expect(ping).not.toHaveBeenCalled();
+            expect(b.q('.badge').dataset.show).toBe('true');
+        });
+
+        it('forgets the alert after a while, when the messages are read, and with a corrupt entry', () => {
+            localStorage.setItem(
+                ALERT_KEY,
+                JSON.stringify({ at: Date.now() - 6 * 60_000, n: 2 }),
+            );
+            b.fromPanel('unread', { count: 2 });
+            expect(alerting()).toBe(true); // too old to count as "already alerted"
+
+            b.cf('open'); // reading them clears the memory
+            expect(localStorage.getItem(ALERT_KEY)).toBeNull();
+            b.cf('close');
+            b.fromPanel('unread', { count: 1 });
+            expect(ping).toHaveBeenCalledTimes(2);
+
+            b.cf('open');
+            b.cf('close');
+            localStorage.setItem(ALERT_KEY, '{nope');
+            b.fromPanel('unread', { count: 1 });
+            expect(ping).toHaveBeenCalledTimes(3);
+        });
+
+        it('messages seen elsewhere lower the alerted count, so the next new reply alerts', async () => {
+            b.fromPanel('unread', { count: 3 });
+            expect(ping).toHaveBeenCalledTimes(1);
+            b.fromPanel('state', { status: 'active', unread: 1 }); // two read in another tab
+            expect(
+                JSON.parse(localStorage.getItem(ALERT_KEY) ?? '{}'),
+            ).toMatchObject({ n: 1 });
+            await vi.advanceTimersByTimeAsync(ALERT_GAP_MS);
+            b.fromPanel('unread', { count: 2 });
+            expect(ping).toHaveBeenCalledTimes(2);
+        });
+
+        it('shutdown forgets the alert memory together with the session', () => {
+            b.fromPanel('unread', { count: 1 });
+            expect(localStorage.getItem(ALERT_KEY)).not.toBeNull();
+            b.cf('shutdown');
+            expect(localStorage.getItem(ALERT_KEY)).toBeNull();
+        });
+
+        it('shows nothing for a chat that is not live, whatever the panel counts', () => {
+            b.fromPanel('state', { status: 'queued', unread: 1 });
+            expect(b.q('.badge').textContent).toBe('1');
+
+            for (const status of [
+                'ended',
+                'closed',
+                'offline',
+                'idle',
+                'prechat',
+            ]) {
+                b.fromPanel('state', { status: 'active', unread: 2 });
+                expect(b.q('.badge').dataset.show).toBe('true');
+                b.fromPanel('state', { status, unread: 3 });
+                expect(b.q('.badge').dataset.show).toBe('false');
+                expect(b.cf('getState')).toMatchObject({ status, unread: 0 });
+            }
+        });
+
+        it('opening clears the badge, the title and the alert; closing again does not bring the count back', () => {
+            document.title = 'Shop';
+            b.fromPanel('unread', { count: 3 });
+            expect(alerting()).toBe(true);
+            expect(document.title).toBe('(3) Shop');
+
+            b.cf('open');
+            expect(b.q('.badge').dataset.show).toBe('false');
+            expect(b.cf('getState')).toMatchObject({ open: true, unread: 0 });
+            expect(document.title).toBe('Shop');
+            expect(alerting()).toBe(false);
+
+            // a count the panel sent before it noticed the bubble was open
+            b.fromPanel('state', { status: 'active', unread: 5 });
+            expect(b.cf('getState')).toMatchObject({ unread: 0 });
+
+            b.cf('close');
+            expect(b.cf('getState')).toMatchObject({ open: false, unread: 0 });
+            expect(b.q('.badge').dataset.show).toBe('false');
+            expect(document.title).toBe('Shop');
+        });
+
+        it('announces the count to screen readers when it alerts, and clears the announcement once read', () => {
+            const status = (): string | null =>
+                b.q('[role="status"]').textContent;
+
+            b.fromPanel('unread', { count: 2 });
+            expect(status()).toBe('Chat with us, 2 unread messages');
+            b.fromPanel('unread', { count: 3 }); // within the burst: the announcement is not repeated
+            expect(status()).toBe('Chat with us, 2 unread messages');
+            b.cf('open');
+            expect(status()).toBe('');
+        });
+
+        it('hands a stale host unread-changed nothing but counts and the agent name', () => {
+            const changed = vi.fn();
+            b.cf('on', 'unread-changed', changed);
+            b.fromPanel('unread', {
+                count: 1,
+                preview: 'Your code is 4711',
+                agent: { name: 'Sara' },
+            });
+            b.cf('open');
+            expect(changed.mock.calls.map((c) => c[0])).toEqual([
+                { count: 1, agent: { name: 'Sara' } },
+                { count: 0 },
+            ]);
+        });
+    });
+
+    describe('the panel stays alive for a visitor with a live chat (P5)', () => {
+        const stored = (): void =>
+            localStorage.setItem(
+                SESSION_KEY,
+                JSON.stringify({
+                    token: 'vt_abc',
+                    expiresAt: FUTURE,
+                    id: 'anonymous',
+                }),
+            );
+
+        it('boots the panel at load and keeps it (hidden, not removed) when the bubble is closed', async () => {
+            stored();
+            const b = await boot();
+            expect(b.iframe()).not.toBeNull();
+            b.handshake();
+            b.cf('open');
+            const frame = b.iframe();
+            b.cf('close');
+            expect(b.iframe()).toBe(frame);
+            expect(b.q('.panel').dataset.open).toBe('false');
+            expect(types(b)).toContain('close');
+        });
+
+        it('rebuilds a panel whose handshake failed in the background a few times, then gives up', async () => {
+            stored();
+            const b = await boot();
+            const errors: unknown[] = [];
+            b.cf('on', 'error', (e: Dict) => errors.push(e.code));
+
+            await vi.advanceTimersByTimeAsync(10_000);
+            expect(errors).toEqual(['ready_timeout']);
+            expect(b.iframe()).toBeNull();
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(b.iframe()).not.toBeNull();
+
+            await vi.advanceTimersByTimeAsync(
+                10_000 + 20_000 + 10_000 + 60_000 + 10_000,
+            );
+            expect(errors).toHaveLength(4);
+            expect(b.iframe()).toBeNull();
+            await vi.advanceTimersByTimeAsync(10 * 60_000);
+            expect(b.iframe()).toBeNull();
+        });
+
+        it('a rebuilt panel that answers is a normal panel again (the retries start over)', async () => {
+            stored();
+            const b = await boot();
+            await vi.advanceTimersByTimeAsync(15_000);
+            expect(b.iframe()).not.toBeNull();
+            b.handshake();
+            expect(b.cf('getState')).toMatchObject({ panelReady: true });
+            b.fromPanel('unread', { count: 1 });
+            expect(b.q('.badge').textContent).toBe('1');
+        });
+
+        it('does not rebuild anything for a visitor without a stored session', async () => {
+            const b = await boot();
+            b.cf('open');
+            await vi.advanceTimersByTimeAsync(10_000);
+            expect(b.iframe()).toBeNull();
+            await vi.advanceTimersByTimeAsync(5 * 60_000);
+            expect(b.iframe()).toBeNull();
+        });
+
+        it('the first click or key press on the host page unlocks the reply sound when a chat may be live', async () => {
+            stored();
+            await boot();
+            expect(unlockSound).not.toHaveBeenCalled();
+            document.body.dispatchEvent(
+                new Event('pointerdown', { bubbles: true }),
+            );
+            document.body.dispatchEvent(
+                new Event('keydown', { bubbles: true }),
+            );
+            expect(unlockSound).toHaveBeenCalledTimes(1);
+        });
+
+        it('does not listen to the page at all without a stored session or with sounds off', async () => {
+            const add = vi.spyOn(document, 'addEventListener');
+            await boot();
+            expect(add.mock.calls.map((c) => c[0])).not.toContain(
+                'pointerdown',
+            );
+            document.body.dispatchEvent(
+                new Event('pointerdown', { bubbles: true }),
+            );
+            expect(unlockSound).not.toHaveBeenCalled();
+            resetGlobals();
+
+            stored();
+            add.mockClear();
+            await boot({ settings: { features: { sounds: false } } });
+            expect(add.mock.calls.map((c) => c[0])).not.toContain(
+                'pointerdown',
+            );
         });
     });
 

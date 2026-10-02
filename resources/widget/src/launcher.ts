@@ -89,6 +89,8 @@ export class Ui {
     private readonly back: HTMLElement;
     private readonly badge: HTMLElement;
     private readonly live: HTMLElement;
+    /** Screen-reader announcements of the unread count (visually hidden, polite). */
+    private readonly status: HTMLElement;
     private greet: HTMLElement | null = null;
     private eff: Effective | null = null;
     private sig = '';
@@ -134,6 +136,7 @@ export class Ui {
             this.badge,
         );
         this.live = h('div', 'live', { 'aria-live': 'polite' });
+        this.status = h('div', 'sr', { role: 'status' });
         this.panel = h('div', 'panel', {
             id: 'pne-panel',
             role: 'dialog',
@@ -146,6 +149,7 @@ export class Ui {
             'root',
             { 'data-motion': 'full', 'data-scheme': 'light' },
             h('div', 'dock', null, this.button, this.live),
+            this.status,
             this.panel,
         );
         this.shadow.append(this.root);
@@ -336,6 +340,11 @@ export class Ui {
         this.panel.toggleAttribute('inert', !open);
         this.panel.dataset.mode = fullscreen ? 'fullscreen' : 'panel';
         this.root.dataset.fullscreen = String(open && fullscreen && ready);
+
+        if (open) {
+            this.stopAlert();
+        }
+
         this.syncLabel();
     }
 
@@ -343,19 +352,31 @@ export class Ui {
         this.count = n;
         this.badge.textContent = n > 99 ? '99+' : String(n);
         this.badge.dataset.show = String(n > 0 && !this.open);
+
+        if (n === 0) {
+            this.status.textContent = '';
+        }
+
         this.syncLabel();
     }
 
-    /** Shake + ring for ~3 s (opacity blink under reduced motion). */
+    /**
+     * A reply arrived while the bubble is closed: a hop and an expanding ring for ~3 s (a static highlight ring under reduced
+     * motion, see styles.css), and the label with the count is announced to screen readers.
+     */
     alert(): void {
         this.button.dataset.alert = 'false';
         void this.button.offsetWidth;
         this.button.dataset.alert = 'true';
+        this.status.textContent = this.button.getAttribute('aria-label') ?? '';
 
         clearTimeout(this.alertTimer);
-        this.alertTimer = setTimeout(() => {
-            this.button.dataset.alert = 'false';
-        }, ALERT_MS);
+        this.alertTimer = setTimeout(() => this.stopAlert(), ALERT_MS);
+    }
+
+    private stopAlert(): void {
+        clearTimeout(this.alertTimer);
+        this.button.dataset.alert = 'false';
     }
 
     focusLauncher(): void {

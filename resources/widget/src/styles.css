@@ -227,6 +227,17 @@ svg {
     border: 2px solid var(--primary);
     opacity: 0;
     pointer-events: none;
+    transition: opacity 160ms var(--ease);
+}
+
+/* Visually hidden, still announced (the polite status region for the unread count). */
+.sr {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
 }
 
 .badge {
@@ -254,9 +265,38 @@ svg {
     transform: scale(1);
 }
 
-/* New message while closed: an expanding ring (transform + opacity only). */
+/* An agent reply while the bubble is closed: the bubble hops once (the individual `translate` / `rotate` properties, so the
+   flip's `transform` is never touched) and an expanding ring runs twice. The badge stays put and readable. */
+.launcher[data-alert='true'] .card {
+    animation: hop 900ms var(--ease);
+}
+
 .launcher[data-alert='true'] .ring {
     animation: ring 1400ms var(--ease) 2;
+}
+
+@keyframes hop {
+    0%,
+    100% {
+        translate: 0 0;
+        rotate: 0deg;
+    }
+    20% {
+        translate: 0 -8px;
+        rotate: -6deg;
+    }
+    40% {
+        translate: 0 0;
+        rotate: 5deg;
+    }
+    60% {
+        translate: 0 -4px;
+        rotate: -3deg;
+    }
+    80% {
+        translate: 0 0;
+        rotate: 2deg;
+    }
 }
 
 @keyframes enter {
@@ -515,10 +555,16 @@ svg {
 
 /* ------------------------------------------------------ reduced motion */
 
-/* No movement at all: the flip becomes a crossfade, panels/popups just fade, the ring is dropped
-   (the badge still signals a new message). */
+/* No movement at all: the flip becomes a crossfade, panels/popups just fade, the hop and the expanding ring are dropped. */
 [data-motion='reduced'] * {
     animation: none !important;
+}
+
+/* The alert becomes a highlight that does not move: a steady accent halo that fades in, and out again with the alert. */
+[data-motion='reduced'] .launcher[data-alert='true'] .ring {
+    inset: -5px;
+    border: 3px solid var(--accent);
+    opacity: 1;
 }
 
 [data-motion='reduced']

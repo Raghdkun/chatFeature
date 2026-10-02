@@ -2,7 +2,7 @@
     {
         "name": "widget loader (gzip)",
         "path": "public/widget/v1/loader.js",
-        "limit": "16 KB",
+        "limit": "18 KB",
         "gzip": true
     }
 ]

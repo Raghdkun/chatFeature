@@ -1632,6 +1632,8 @@ export class ChatController {
      * Where a catch-up fetch starts: the first hole in what we have, else the end of it. With `receipts` (a poll, a reconnect, the tab
      * coming back) it starts earlier, at the oldest of the visitor's own messages the agent has not read yet: a receipt that
      * happened while the socket was down (or the whole time, when polling) is never replayed, and without it the ticks stay at "sent".
+     * The same goes for the agent's messages this tab still shows as unseen: another tab of the visitor may have read them meanwhile,
+     * and the launcher's unread count must follow (a hidden tab that comes back must not shout about messages read elsewhere).
      */
     private catchUpFrom(receipts = false): number {
         const { conversation, messages } = this.state;
@@ -1649,9 +1651,11 @@ export class ChatController {
         const unread = receipts
             ? messages.find(
                   (message) =>
-                      message.sender.type === 'visitor' &&
                       message.seq !== null &&
-                      message.status !== 'seen',
+                      (message.sender.type === 'visitor'
+                          ? message.status !== 'seen'
+                          : message.sender.type === 'agent' &&
+                            message.seenAt === null),
               )
             : undefined;
 

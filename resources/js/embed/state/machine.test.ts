@@ -8,6 +8,7 @@ import {
     PHASES,
     reduce,
     selectUnread,
+    selectUnreadPreview,
     toHostState,
     TRANSITIONS,
     type Action,
@@ -905,6 +906,119 @@ describe('unread and the host state', () => {
         });
 
         expect(selectUnread(state)).toBe(0);
+    });
+
+    it('counts what the server reports as unseen on a resumed chat, and nothing it reports as seen', () => {
+        const resumed = run(
+            createInitialState(),
+            { type: 'CONFIGURED', flow: flow() },
+            {
+                type: 'BOOTED',
+                conversation: makeConversationPublic({
+                    ulid: 'conv-1',
+                    status: 'active',
+                    agent: { name: 'Sam', avatarUrl: null },
+                }),
+                messages: [
+                    makeAgentMessage({
+                        conversation: 'conv-1',
+                        seq: 1,
+                        seenAt: fakeTime(5),
+                    }),
+                    makeAgentMessage({ conversation: 'conv-1', seq: 2 }),
+                    makeAgentMessage({ conversation: 'conv-1', seq: 3 }),
+                    makeMessage({ conversation: 'conv-1', seq: 4 }),
+                ],
+                now: NOW,
+            },
+        );
+
+        expect(resumed.phase).toBe('active');
+        expect(selectUnread(resumed)).toBe(2);
+        expect(selectUnreadPreview(resumed)).toBe(resumed.messages[2].body);
+    });
+
+    it('nothing is unread in a chat that is over, however many agent messages were never seen', () => {
+        const unseen = unreadState(false);
+
+        expect(selectUnread(unseen)).toBe(2);
+
+        for (const over of [
+            run(unseen, { type: 'ENDED', ratingRequested: true }),
+            run(unseen, { type: 'ENDED', ratingRequested: false }),
+            run(unseen, { type: 'CLOSED', reason: 'system' }),
+        ]) {
+            expect(selectUnread(over)).toBe(0);
+            expect(selectUnreadPreview(over)).toBeNull();
+            expect(toHostState(over)?.unread).toBe(0);
+        }
+    });
+
+    it('a transferred chat (back in the queue) keeps its unread count', () => {
+        const state = run(unreadState(false), {
+            type: 'TRANSFERRED',
+            now: NOW,
+        });
+
+        expect(state.phase).toBe('queued');
+        expect(selectUnread(state)).toBe(2);
+    });
+
+    it('closing the panel acknowledges what arrived while it was open: no count comes back, new messages count again', () => {
+        const state = run(
+            unreadState(true),
+            {
+                type: 'MESSAGES',
+                messages: [
+                    makeAgentMessage({ conversation: 'conv-1', seq: 5 }),
+                ],
+            },
+            { type: 'HOST_CLOSE' },
+        );
+
+        // none of them was marked seen (the visitor may have been scrolled up), yet the launcher stays quiet
+        expect(
+            state.messages.filter(
+                (m) => m.sender.type === 'agent' && m.seenAt === null,
+            ),
+        ).toHaveLength(3);
+        expect(selectUnread(state)).toBe(0);
+        expect(selectUnreadPreview(state)).toBeNull();
+
+        const later = run(state, {
+            type: 'MESSAGES',
+            messages: [makeAgentMessage({ conversation: 'conv-1', seq: 6 })],
+        });
+
+        expect(selectUnread(later)).toBe(1);
+        expect(selectUnread(run(later, { type: 'HOST_OPEN' }))).toBe(0);
+        expect(
+            selectUnread(
+                run(later, { type: 'HOST_OPEN' }, { type: 'HOST_CLOSE' }),
+            ),
+        ).toBe(0);
+    });
+
+    it('a repeated close changes nothing, and a message that arrived while still closed is not acknowledged', () => {
+        const closed = unreadState(false);
+
+        expect(run(closed, { type: 'HOST_CLOSE' })).toBe(closed);
+        expect(closed.acknowledgedSeq).toBe(0);
+        expect(selectUnread(closed)).toBe(2);
+    });
+
+    it('the acknowledgement belongs to one conversation: a new chat starts from zero', () => {
+        const closed = run(unreadState(true), { type: 'HOST_CLOSE' });
+
+        expect(closed.acknowledgedSeq).toBe(3);
+
+        const fresh = run(
+            closed,
+            { type: 'ENDED', ratingRequested: false },
+            { type: 'NEW_CHAT' },
+        );
+
+        expect(fresh.acknowledgedSeq).toBe(0);
     });
 
     it('maps phases to the statuses the loader knows (category is reported as prechat, booting not at all)', () => {

@@ -61,6 +61,14 @@ const SANDBOX =
 const FETCH_TIMEOUT_MS = 10_000;
 /** Pause before each retry of a failed config load. */
 const RETRY_MS = [2000, 8000, 30_000];
+/** Pause before each background rebuild of a panel whose handshake failed while a chat may be live. */
+const REVIVE_MS = [5000, 20_000, 60_000];
+/** At most one closed-bubble alert per burst of replies: later ones in the window only move the badge. */
+export const ALERT_GAP_MS = 8000;
+/** The same unread count is not alerted again (another page, another tab) for this long. */
+const ALERT_MEMORY_MS = 300_000;
+/** A tab that becomes visible waits this long for the alert it missed: the panel re-syncs its count meanwhile. */
+export const VISIBLE_ALERT_MS = 1500;
 /** What a panel `event` may hand to host code: identifiers, counts, timestamps, the agent's name. */
 const EVENT_KEYS = [
     'conversationId',
@@ -114,6 +122,11 @@ export class Widget {
     private hiddenByApi = false;
     private requestedMode: 'panel' | 'fullscreen' = 'panel';
     private unread = 0;
+    /** A reply arrived that has not been alerted yet (the tab was hidden, or the alert is due once it is visible). */
+    private owed = false;
+    private visibleTimer: ReturnType<typeof setTimeout> | undefined;
+    private reviveTries = 0;
+    private reviveTimer: ReturnType<typeof setTimeout> | undefined;
     private state: ChatState = { status: 'idle', open: false, unread: 0 };
     private titleBase: string | null = null;
     private titleApplied: string | null = null;
@@ -136,6 +149,11 @@ export class Widget {
 
     private get sessionKey(): string {
         return `chatfeature:${this.key}:session`;
+    }
+
+    /** `{ at, n }`: when the visitor was last alerted and for how many unread messages (shared by every tab of the page). */
+    private get alertKey(): string {
+        return `chatfeature:${this.key}:alert`;
     }
 
     private emit(name: EventName, data: Dict = {}): void {
@@ -310,13 +328,26 @@ export class Widget {
                 this.close();
             }
         };
+        // The alert of a reply that arrived while the tab was hidden is due once it is visible again.
+        const onVisible = (): void => {
+            clearTimeout(this.visibleTimer);
+
+            if (!this.doc.hidden && this.owed) {
+                this.visibleTimer = setTimeout(
+                    () => this.alertIfVisible(),
+                    VISIBLE_ALERT_MS,
+                );
+            }
+        };
         reduced?.addEventListener('change', onMotion);
         this.dark?.addEventListener('change', onScheme);
         this.doc.addEventListener('keydown', onKey);
+        this.doc.addEventListener('visibilitychange', onVisible);
         this.cleanups.push(() => {
             reduced?.removeEventListener('change', onMotion);
             this.dark?.removeEventListener('change', onScheme);
             this.doc.removeEventListener('keydown', onKey);
+            this.doc.removeEventListener('visibilitychange', onVisible);
         });
 
         this.viewport = new Viewport(
@@ -352,6 +383,7 @@ export class Widget {
         // A stored session means a chat may be live: boot the panel in the background so replies arrive.
         if (this.readSession() !== null) {
             this.ensurePanel();
+            this.unlockSoundOnGesture();
         }
 
         this.sched.start();
@@ -367,6 +399,33 @@ export class Widget {
         if (this.eff.openOnLoad) {
             this.open(false);
         }
+    }
+
+    /**
+     * After a page navigation the visitor may never touch the launcher: audio then stays locked and the reply sound would be
+     * silent. With sounds on and a chat that may be live, the first click or key press anywhere on the page unlocks it.
+     */
+    private unlockSoundOnGesture(): void {
+        if (!this.eff.features.sounds) {
+            return;
+        }
+
+        const events = ['pointerdown', 'keydown'];
+        const off = (): void => {
+            for (const e of events) {
+                this.doc.removeEventListener(e, unlock, true);
+            }
+        };
+        const unlock = (): void => {
+            off();
+            unlockSound(this.o.win);
+        };
+
+        for (const e of events) {
+            this.doc.addEventListener(e, unlock, true);
+        }
+
+        this.cleanups.push(off);
     }
 
     private guard(fn: () => void): void {
@@ -621,14 +680,41 @@ export class Widget {
                 // blank overlay: close it, and start from scratch on the next open.
                 this.close();
                 this.dropPanel();
+                this.revivePanel();
             },
-            onAck: () => this.layout(),
+            onAck: () => {
+                this.reviveTries = 0;
+                this.layout();
+            },
         });
 
         f.src = this.boot.api.embed;
         this.ui.panel.append(f);
 
         return this.bridge;
+    }
+
+    /**
+     * A panel whose handshake failed (slow network, a frame that was blocked for a while) is rebuilt in the background a few
+     * times while a chat may be live (a stored session), so replies keep arriving without the visitor opening the bubble.
+     */
+    private revivePanel(): void {
+        const wait = REVIVE_MS[this.reviveTries++];
+
+        if (
+            wait === undefined ||
+            this.destroyed ||
+            this.readSession() === null
+        ) {
+            return;
+        }
+
+        clearTimeout(this.reviveTimer);
+        this.reviveTimer = setTimeout(() => {
+            if (this.iframe === null && !this.destroyed) {
+                this.ensurePanel();
+            }
+        }, wait);
     }
 
     /** Throws the panel iframe away (identity change, failed handshake); an open panel is rebuilt at once. */
@@ -779,9 +865,12 @@ export class Widget {
                       },
                   }),
         };
-        this.applyUnread(this.state.unread);
+        const live = status === 'queued' || status === 'active';
 
-        if (status === 'queued' || status === 'active') {
+        // Nothing is unread in a chat that is over (ended, closed, offline): whatever the panel says.
+        this.applyUnread(live ? this.state.unread : 0);
+
+        if (live) {
             this.sched.hide('suppressed');
         }
     }
@@ -793,11 +882,10 @@ export class Widget {
         this.ui.setBadge(n);
 
         if (n > prev) {
-            this.ui.alert();
-
-            if (this.eff.features.sounds) {
-                ping();
-            }
+            this.owed = true;
+            this.alertIfVisible();
+        } else if (n < prev) {
+            this.forgetAlerted(n);
         }
 
         this.updateTitle();
@@ -810,6 +898,75 @@ export class Widget {
                 ...opt('preview', d.preview),
                 ...opt('agent', d.agent),
             });
+        }
+    }
+
+    private alerted(): { at: number; n: number } | null {
+        try {
+            const a: unknown = JSON.parse(this.local.get(this.alertKey) ?? '');
+
+            return isRecord(a) &&
+                typeof a.at === 'number' &&
+                typeof a.n === 'number'
+                ? { at: a.at, n: a.n }
+                : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /** The count went down (messages seen, here or in another tab): what was alerted for it shrinks too, so the next reply alerts. */
+    private forgetAlerted(n: number): void {
+        const a = this.alerted();
+
+        if (n === 0) {
+            this.owed = false;
+            clearTimeout(this.visibleTimer);
+            this.local.remove(this.alertKey);
+        } else if (a !== null && a.n > n) {
+            this.local.set(this.alertKey, JSON.stringify({ ...a, n }));
+        }
+    }
+
+    /**
+     * The closed-bubble alert (shake or highlight, a soft sound, a screen-reader announcement) for new unread replies. Not while
+     * the tab is hidden (it is owed until the tab is visible again), at most once per `ALERT_GAP_MS` however many messages a burst
+     * has, and never again for a count that was already alerted (another tab, the next page of the host site): `alertKey` is the
+     * visitor's shared memory of the last alert.
+     */
+    private alertIfVisible(): void {
+        clearTimeout(this.visibleTimer);
+
+        if (
+            !this.owed ||
+            this.unread === 0 ||
+            this.doc.hidden ||
+            this.hiddenByApi
+        ) {
+            return;
+        }
+
+        this.owed = false;
+
+        const a = this.alerted();
+        // `abs`: a clock that jumped back must not silence the alert until it catches up.
+        const age = a === null ? Infinity : Math.abs(Date.now() - a.at);
+
+        if (
+            age < ALERT_GAP_MS ||
+            (a !== null && age < ALERT_MEMORY_MS && this.unread <= a.n)
+        ) {
+            return;
+        }
+
+        this.local.set(
+            this.alertKey,
+            JSON.stringify({ at: Date.now(), n: this.unread }),
+        );
+        this.ui.alert();
+
+        if (this.eff.features.sounds) {
+            ping();
         }
     }
 
@@ -915,6 +1072,9 @@ export class Widget {
         if (hidden) {
             this.close();
             this.sched.hide('suppressed');
+        } else {
+            // replies that came in while the host kept the launcher hidden are alerted once it is shown again
+            this.alertIfVisible();
         }
     }
 
@@ -1085,6 +1245,8 @@ export class Widget {
         this.destroyed = true;
         this.abort.abort();
         clearTimeout(this.retry);
+        clearTimeout(this.reviveTimer);
+        clearTimeout(this.visibleTimer);
         this.pending = [];
 
         if (this.mounted) {
@@ -1098,6 +1260,7 @@ export class Widget {
         }
 
         this.local.remove(this.sessionKey);
+        this.local.remove(this.alertKey);
         this.mounted = false;
 
         for (const c of this.cleanups.splice(0)) {

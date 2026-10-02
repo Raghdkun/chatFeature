@@ -23,7 +23,7 @@ Dev uses `docker/compose.dev.yml` (MySQL, Redis, NATS profile, Mailpit) instead 
 
 Multi-stage, one image for `app`, `queue`, `scheduler`, `reverb` and `nats-consumer`:
 1. **composer** stage: `composer install --no-dev --optimize-autoloader` (this also drops Scribe and its public `/docs` route).
-2. **node** stage: `npm ci`, **`npm run build` and `npm run build:widget`**. The loader `public/widget/v1/loader.js` is git-ignored build output; an image without it serves a "bundle not built" stub on `/widget/v1/loader.js`. Add `npm run size` (16 KB gzip budget) as a build check.
+2. **node** stage: `npm ci`, **`npm run build` and `npm run build:widget`**. The loader `public/widget/v1/loader.js` is git-ignored build output; an image without it serves a "bundle not built" stub on `/widget/v1/loader.js`. Add `npm run size` (18 KB gzip budget) as a build check.
 3. **runtime** stage: PHP-FPM with `ext-pcntl` (graceful consumer shutdown), `ext-curl` (the SSRF guard pins the validated address through curl), `ext-intl` (domain whitelist punycode), `ext-uv` for Reverb; copies `public/build` and `public/widget`.
 Caddy serves `public/` statically (including `/widget/v1/loader.js`, see the caching note in the [runbook](runbook.md)) and sends everything else, notably `/w/*`, `/embed/*`, `/c/*`, `/api/*`, to PHP; Reverb is proxied as wss.
 
