@@ -116,13 +116,14 @@ export default defineConfig({
                   ],
         ),
         // The OpenWA mock of the WhatsApp specs (one per instance that has an `openWa`): the app's HTTP client talks to it, and it delivers
-        // its signed webhooks to the app. A short retry back-off keeps the delivery-retry specs fast (the real image waits 5 s, doubling).
+        // its signed webhooks to the app. A short retry back-off keeps the delivery-retry specs fast (the real image waits 5 s, doubling); a start takes
+        // 250 ms (the real one 5-25 s) so `initializing` and `qr_ready` are not delivered within milliseconds of each other to parallel PHP workers.
         ...ACTIVE_INSTANCES.flatMap((instance) =>
             instance.openWa === null
                 ? []
                 : [
                       {
-                          command: `node e2e/support/openwa-mock.mjs --port=${instance.openWa.port} --key=${instance.openWa.apiKey} --retry-base-ms=300`,
+                          command: `node e2e/support/openwa-mock.mjs --port=${instance.openWa.port} --key=${instance.openWa.apiKey} --retry-base-ms=300 --start-delay-ms=250`,
                           url: `${instance.openWa.url}/__mock/health`,
                           reuseExistingServer: false,
                           timeout: 30_000,

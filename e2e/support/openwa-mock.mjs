@@ -18,7 +18,7 @@
  *   POST /__mock/reset                        forget everything (sessions, webhooks, logs, scripts, config)
  *   GET  /__mock/state                        sessions, webhooks, config
  *   GET  /__mock/requests[?method=&path=&since=]  what the app called (API calls only, newest last); DELETE clears it
- *   GET  /__mock/deliveries[?event=&since=]   every delivery ATTEMPT to the app (status it answered, headers, raw body)
+ *   GET  /__mock/deliveries[?event=&since=&key=]  every delivery ATTEMPT to the app (status it answered, headers, raw body); `key` = a part of the idempotency key (e.g. a message id)
  *   POST /__mock/config                       { startDelayMs, retryBaseMs, deliveryTimeoutMs, ssrf, validationDetail, teardownPendingMs,
  *                                               acks:{mode:'auto'|'manual',steps,delayMs}, pacing:{minIntervalMs,dailyCap,coldDailyCap},
  *                                               resolveLid, mediaInlineMaxBytes, sentEcho }
@@ -30,6 +30,7 @@
  *   POST /__mock/sessions/:ref/qr             a fresh QR (`session.qr`)
  *   POST /__mock/sessions/:ref/inbound        inject a message: text, image (inline or omitted), group, @lid, fromMe ...
  *   POST /__mock/sessions/:ref/ack            { messageId, status } fire `message.ack` (+ `message.failed`)
+ *   POST /__mock/sessions/:ref/acks           { mode, steps, delayMs } this session's own ack plan (`config.acks` is the default for the rest)
  *   POST /__mock/replay                       { delivery: n, sameBody? } deliver an earlier delivery again (same idempotency key)
  *   POST /__mock/deliver                      { session?, event, data, signature?: 'valid'|'bad'|'wrong-secret'|'missing', url?, ... }
  *
@@ -761,7 +762,7 @@ export async function startOpenWaMock(options = {}) {
     }
 
     function scheduleAcks(session, messageId) {
-        const { mode, steps, delayMs } = state.config.acks;
+        const { mode, steps, delayMs } = session.acks ?? state.config.acks;
 
         if (mode !== 'auto') {
             return;
@@ -1765,7 +1766,9 @@ export async function startOpenWaMock(options = {}) {
         const json = (value, status = 200) => reply(status, value);
         const need = (ref) => findSession(ref);
         const sessionRef =
-            /^\/__mock\/sessions\/([^/]+)\/(status|qr|inbound|ack)$/.exec(path);
+            /^\/__mock\/sessions\/([^/]+)\/(status|qr|inbound|ack|acks)$/.exec(
+                path,
+            );
 
         if (method === 'GET' && path === '/__mock/health') {
             return json({
@@ -1836,7 +1839,11 @@ export async function startOpenWaMock(options = {}) {
                     (entry) =>
                         entry.n > since &&
                         (query.get('event') === null ||
-                            entry.event === query.get('event')),
+                            entry.event === query.get('event')) &&
+                        (query.get('key') === null ||
+                            String(entry.idempotencyKey).includes(
+                                query.get('key'),
+                            )),
                 ),
             );
         }
@@ -2055,6 +2062,22 @@ export async function startOpenWaMock(options = {}) {
                     { messageId: message.id, chatId: message.chatId, message },
                     201,
                 );
+            }
+
+            if (action === 'acks') {
+                // A plan of its own for THIS session (specs that share one mock must not fight over the global `config.acks`).
+                session.acks = {
+                    ...state.config.acks,
+                    ...(body?.mode === undefined ? {} : { mode: body.mode }),
+                    ...(Array.isArray(body?.steps)
+                        ? { steps: body.steps }
+                        : {}),
+                    ...(body?.delayMs === undefined
+                        ? {}
+                        : { delayMs: Number(body.delayMs) }),
+                };
+
+                return json({ ok: true, acks: session.acks });
             }
 
             if (action === 'ack') {

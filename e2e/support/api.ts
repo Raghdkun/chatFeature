@@ -10,6 +10,8 @@ export type ApiResult<T = any> = {
     ok: boolean;
     /** The parsed JSON body (`undefined` for an empty or non-JSON answer). */
     body: T;
+    /** The body as text (a CSV export, an image's bytes as a string): what `body` cannot hold. */
+    text?: string;
     headers: Record<string, string>;
     /** `body.data` for a `{ data }` success envelope. */
     data: any;
@@ -69,6 +71,7 @@ export class Api {
             status: response.status(),
             ok: response.ok(),
             body: parsed,
+            text,
             headers: response.headers(),
             data: parsed?.data,
             error: parsed?.error,

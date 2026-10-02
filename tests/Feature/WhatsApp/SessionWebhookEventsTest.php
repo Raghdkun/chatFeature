@@ -8,11 +8,13 @@ use App\Domain\WhatsApp\Enums\WebhookOutcome;
 use App\Domain\WhatsApp\Events\WaSessionQrUpdated;
 use App\Domain\WhatsApp\Events\WaSessionStatusChanged;
 use App\Domain\WhatsApp\Jobs\RunWhatsAppSessionStart;
+use App\Domain\WhatsApp\Services\SessionEventApplier;
 use App\Domain\WhatsApp\Support\OpenWa\Exceptions\OpenWaUnavailable;
 use App\Models\WaWebhookDelivery;
 use App\Models\WhatsAppSession;
 use Database\Factories\WhatsAppSessionFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\OpenWaFixtures;
@@ -292,6 +294,55 @@ class SessionWebhookEventsTest extends TestCase
         $this->assertSame(WebhookOutcome::Processed, $outcomes[0]->outcome);
         $this->assertSame(WebhookOutcome::Ignored, $outcomes[1]->outcome);
         $this->assertSame('Older than what was already applied to this session.', $outcomes[1]->error);
+    }
+
+    public function test_the_events_of_one_session_are_applied_one_at_a_time(): void
+    {
+        $session = $this->webhookSession(state: 'starting');
+        config(['whatsapp.webhook.session_lock_wait_seconds' => 1]);
+
+        // Another delivery of the same session is in the middle of its turn: this one waits for it, and gives up (its job will be retried)
+        // instead of applying out of order.
+        $held = Cache::lock(SessionEventApplier::LOCK_PREFIX.$session->id, 30);
+        $this->assertTrue($held->get());
+
+        try {
+            $this->deliver($session, $this->statusAt('ready', '2026-10-02T02:11:05.000Z'))->assertOk();
+
+            // Not applied, and not recorded as processed: the job failed on the lock (and is retried by a real queue).
+            $this->assertSame(SessionStatus::Starting, $session->refresh()->status);
+            $this->assertNotSame(WebhookOutcome::Processed, WaWebhookDelivery::query()->latest('id')->firstOrFail()->outcome);
+        } finally {
+            $held->release();
+        }
+
+        // Its turn comes: the same event, delivered again, applies.
+        $this->deliver($session, $this->statusAt('ready', '2026-10-02T02:11:05.000Z') + ['idempotencyKey' => 'second-try'])->assertOk();
+        $this->assertSame(SessionStatus::Ready, $session->refresh()->status);
+    }
+
+    public function test_the_turn_is_given_back_after_every_event_and_another_session_is_never_held_up(): void
+    {
+        $one = $this->webhookSession(state: 'starting');
+        $two = $this->webhookSession('the-other-sessions-secret-of-forty-chars-02', 'starting');
+
+        $this->deliver($one, $this->statusAt('qr_ready', '2026-10-02T02:11:05.000Z'))->assertOk();
+        $this->deliver($one, $this->statusAt('ready', '2026-10-02T02:11:06.000Z'))->assertOk();
+
+        // Nothing is left locked: the lock of the session is free again, and a held lock of one session does not touch the other.
+        $free = Cache::lock(SessionEventApplier::LOCK_PREFIX.$one->id, 5);
+        $this->assertTrue($free->get());
+        $free->release();
+
+        $held = Cache::lock(SessionEventApplier::LOCK_PREFIX.$one->id, 30);
+        $this->assertTrue($held->get());
+
+        try {
+            $this->deliver($two, $this->statusAt('ready', '2026-10-02T02:11:07.000Z'))->assertOk();
+            $this->assertSame(SessionStatus::Ready, $two->refresh()->status);
+        } finally {
+            $held->release();
+        }
     }
 
     public function test_events_of_the_same_moment_and_newer_ones_apply(): void

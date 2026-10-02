@@ -35,9 +35,12 @@ return [
      * - replay (`whatsapp:replay-deliveries`, every 5 minutes): a delivery OpenWA was answered for but whose job was lost (no outcome
      *   after `stuck_after_seconds`) or that ended `failed` (retried after `failed_after_seconds` x the replays used) is queued again, at
      *   most `max` times per delivery, `batch` per run. The raw body is kept on the ledger row for that.
+     * - session_lock_wait_seconds: the events of one session are applied one at a time (their order is the point); a delivery waits this
+     *   long for its turn and is retried by its job when the turn does not come.
      */
     'webhook' => [
         'max_body_bytes' => 1048576,
+        'session_lock_wait_seconds' => 10,
         // Per minute. `per_session`: one session's deliveries from one client network (OpenWA calls from one address for every session, so
         // the sessions must not share a budget); `per_network`: the ceiling for everything one client network sends to any session.
         'rate_limits' => ['per_network' => 6000, 'per_session' => 3000],

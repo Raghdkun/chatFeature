@@ -1,4 +1,4 @@
-import { expect, test } from '../support/test';
+import { expect, test, uniqueName, uniquePhone } from '../support/wa-test';
 import { createWidget } from '../support/api';
 import { VisitorApi } from '../support/chat-api';
 import { P4_CATEGORIES } from '../support/users';
@@ -18,25 +18,18 @@ import {
  * WhatsApp message with the code arrives through the mock and links the chat to the widget and the visitor, the administrator replies from
  * the inbox, the mock acks it, and an agent is refused everywhere.
  *
- * STATUS: `test.fixme('needs 6A+6B merged')`. It is written against the documented API of track 6A (`docs/rest-api.md`, "WhatsApp API
- * (P6)", every path in `e2e/support/whatsapp.ts`) and the documented UI test ids of track 6B (`wa-composer-input`, `wa-composer-send`,
- * `wa-transcript`, `wa-message-<ulid>`); neither exists on the branch this file was written on. When 6A and 6B are merged: remove the
- * `.fixme`, run `E2E_ONLY=p6-wa npx playwright test e2e/whatsapp`, and fix whatever the real routes / test ids say differently.
+ * It shares the app with the other WhatsApp specs (shared lock mode) and touches only the session, widget and chat it creates.
  */
 test.use({ scenario: 'p6-wa' });
 
-test.beforeEach(async ({ openWa }) => {
-    await openWa.reset();
-});
-
-test.fixme("needs 6A+6B merged: a customer's WhatsApp message with the hand-off code is linked, answered and acked; agents see nothing", async ({
+test("a customer's WhatsApp message with the hand-off code is linked, answered and acked; agents see nothing", async ({
     actors,
     adminApi,
     instance,
     openWa,
+    wa,
 }) => {
-    const wa = new WaAdminApi(adminApi);
-    const name = `support-${Date.now().toString(36)}`;
+    const name = uniqueName('support');
 
     // 1. The administrator creates a session and starts it: the app creates it at OpenWA, registers ONE webhook (secret write-only) and
     //    starts the engine; the mock answers `qr_ready` and the app shows a QR.
@@ -46,7 +39,7 @@ test.fixme("needs 6A+6B merged: a customer's WhatsApp message with the hand-off 
     );
 
     expect(created.status).toBe('created');
-    await openWa.waitForSession(name);
+    const mockSession = await openWa.waitForSession(name);
 
     expect((await wa.startSession(created.ulid)).status).toBe(202);
 
@@ -68,16 +61,15 @@ test.fixme("needs 6A+6B merged: a customer's WhatsApp message with the hand-off 
             'session.status',
         ]),
     );
-    await eventually(
-        async () =>
-            (await wa.sessions()).data.find(
-                (row: WaSession) => row.ulid === created.ulid,
-            )?.status === 'qr' && true,
-        'the session waiting for a scan',
-    );
-    expect((await wa.sessionQr(created.ulid)).data.qr).toMatch(
-        /^data:image\/png;base64,/,
-    );
+
+    // The status can flicker between `qr` and `starting` while the engine's first webhooks are still arriving: wait for the QR itself.
+    const qr = await eventually(async () => {
+        const result = await wa.sessionQr(created.ulid);
+
+        return result.status === 200 ? result : undefined;
+    }, 'the QR code');
+
+    expect(data(qr, 'read the QR').qr).toMatch(/^data:image\/png;base64,/);
 
     // 2. A phone scans the QR: the mock says `ready` (session.status + session.authenticated, signed). The app marks it ready and knows the number.
     await openWa.connect(name, '4915100000000', 'PNE Support');
@@ -88,11 +80,14 @@ test.fixme("needs 6A+6B merged: a customer's WhatsApp message with the hand-off 
             'read the session',
         );
 
-        return session.status === 'ready' ? session : undefined;
+        return session.status === 'ready' && session.phone !== null
+            ? session
+            : undefined;
     }, 'the session to become ready');
 
-    expect(ready.maskedPhone).not.toBeNull();
-    expect(JSON.stringify(ready)).not.toContain('4915100000000'); // the full number is never sent to the page
+    // The administrator's own data carries the number (the page shows it masked until revealed): E.164 and a masked twin.
+    expect(ready.phone).toBe('+4915100000000');
+    expect(ready.maskedPhone).toBe('+49•••••••0000');
 
     // 3. A widget offers WhatsApp: linked to the ready session, `features.whatsapp` on, published.
     const widget = await createWidget(adminApi, {
@@ -132,7 +127,7 @@ test.fixme("needs 6A+6B merged: a customer's WhatsApp message with the hand-off 
     ]);
 
     // 5. The customer sends the code from their phone. The mock delivers `message.received`, signed and with the idempotency headers; the app answers 200.
-    const customer = '4915112345678';
+    const customer = uniquePhone();
     const sent = await openWa.inboundText(
         name,
         customer,
@@ -214,8 +209,10 @@ test.fixme("needs 6A+6B merged: a customer's WhatsApp message with the hand-off 
         .fill('Hi Vera, I am looking at it now.');
     await admin.page.getByTestId('wa-composer-send').click();
 
-    const call = await openWa.waitForRequest((request) =>
-        request.path.endsWith('/messages/send-text'),
+    const call = await openWa.waitForRequest(
+        (request) =>
+            request.path.endsWith('/messages/send-text') &&
+            request.path.includes(`/${mockSession.id}/`),
     );
 
     expect(call.body).toMatchObject({

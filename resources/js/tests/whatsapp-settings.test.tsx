@@ -633,6 +633,29 @@ describe('the sessions', () => {
         expect(byTestId('wa-stop-dialog')).toBeNull();
     });
 
+    it('gives the focus back to the button that opened the confirmation, so a keyboard user keeps their place', async () => {
+        const session = ready();
+
+        await open({ sessions: [session] });
+
+        const opener = byTestId(
+            `wa-session-stop-${session.ulid}`,
+        ) as HTMLElement;
+
+        opener.focus();
+        await click(opener);
+        expect(byTestId('wa-stop-dialog')).not.toBeNull();
+
+        await click(
+            byTestId('wa-stop-dialog')!.querySelector(
+                '[data-slot="alert-dialog-cancel"]',
+            ) as HTMLElement,
+        );
+        await waitFor(() => expect(byTestId('wa-stop-dialog')).toBeNull());
+
+        await waitFor(() => expect(document.activeElement).toBe(opener));
+    });
+
     it('deletes a session only after a confirmation that names the widgets it stops', async () => {
         const session = ready();
 

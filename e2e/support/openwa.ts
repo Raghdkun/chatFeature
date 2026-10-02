@@ -296,11 +296,12 @@ export class OpenWaMock {
 
     /** Delivery attempts to the app (one row per attempt, so a retry shows up as its own row). */
     deliveries(
-        filter: { event?: string; since?: number } = {},
+        filter: { event?: string; since?: number; key?: string } = {},
     ): Promise<MockDelivery[]> {
         const query = new URLSearchParams();
 
         if (filter.event) query.set('event', filter.event);
+        if (filter.key) query.set('key', filter.key);
         if (filter.since) query.set('since', String(filter.since));
 
         return this.control('GET', `/__mock/deliveries?${query}`);
@@ -371,9 +372,17 @@ export class OpenWaMock {
             `/__mock/sessions/${encodeURIComponent(ref)}/qr`,
         );
 
-    /** A message arrives at the session's phone. Returns the WhatsApp message id and chat id. */
-    inbound = (ref: string, message: InboundMessage) =>
-        this.control<{
+    /**
+     * A message arrives at the session's phone. Returns the WhatsApp message id and chat id once the app has ANSWERED the signed delivery (on the
+     * `sync` queue of the e2e instances that is after the message was recorded and linked: what a spec asserts next is settled). `settle: false`
+     * returns at once (a webhook that is meant to fail, or no webhook at all).
+     */
+    inbound = async (
+        ref: string,
+        message: InboundMessage,
+        options: { settle?: boolean } = {},
+    ) => {
+        const sent = await this.control<{
             messageId: string;
             chatId: string;
             message: Record<string, unknown>;
@@ -382,6 +391,33 @@ export class OpenWaMock {
             `/__mock/sessions/${encodeURIComponent(ref)}/inbound`,
             message,
         );
+
+        if (options.settle !== false) {
+            const event = message.event ?? 'message.received';
+            const until = Date.now() + 4_000;
+
+            while (Date.now() < until) {
+                const attempts = await this.deliveries({
+                    event,
+                    key: sent.messageId,
+                });
+
+                if (
+                    attempts.some(
+                        (attempt) =>
+                            attempt.outcome !== 'retrying' ||
+                            attempt.status !== null,
+                    )
+                ) {
+                    break;
+                }
+
+                await new Promise((done) => setTimeout(done, 40));
+            }
+        }
+
+        return sent;
+    };
     inboundText = (
         ref: string,
         from: string,
@@ -414,6 +450,21 @@ export class OpenWaMock {
     /** The phone's own send (`fromMe: true`). */
     inboundFromMe = (ref: string, to: string, body: string) =>
         this.inbound(ref, { from: to, body, fromMe: true });
+
+    /** This session's own ack plan (`manual` = no automatic acks, fire them with `ack`); the global `config({ acks })` stays the default for the others. */
+    sessionAcks = (
+        ref: string,
+        plan: Partial<{
+            mode: 'auto' | 'manual';
+            steps: AckStatus[];
+            delayMs: number;
+        }>,
+    ) =>
+        this.control<{ ok: boolean }>(
+            'POST',
+            `/__mock/sessions/${encodeURIComponent(ref)}/acks`,
+            plan,
+        );
 
     /** A receipt for an outbound message (`message.ack`, plus `message.failed` for `failed`). */
     ack = (ref: string, messageId: string, status: AckStatus) =>

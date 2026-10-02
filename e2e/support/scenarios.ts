@@ -16,7 +16,8 @@
  *   P5 spare         web 8388-8389, Reverb 8407-8408; 8398 / 8399 are the fake push services of `p5-notify` (desktop / mobile: an HTTP proxy
  *                    for fcm.googleapis.com, started by the specs, not by Playwright); 8409 is nothing on purpose (`p5-presence-failover` points its Redis there)
  *   P6 (WhatsApp)    8360-8379: `p6-wa` web 8360 / 8361, customer site 8362 / 8363, Reverb 8364 / 8365, mock OpenWA 8366 / 8367 (desktop / mobile);
- *                    8368-8379 are free for the next WhatsApp scenarios and for scripts/openwa-record.mjs (its webhook receiver uses 8368) / the mock's own test (8379)
+ *                    `p6-wa-rtl` (the Arabic twin, E2) web 8369 / 8370, customer site 8371 / 8372, Reverb 8373 / 8374, mock OpenWA 8375 / 8376;
+ *                    8368 (scripts/openwa-record.mjs's webhook receiver) and 8377-8379 (the mock's own test) are not for scenarios
  * P4 layout: a stateful scenario takes web `8260 + n` (desktop) and `8270 + n` (mobile twin), a customer site `8280 + n` / `8285 + n`
  * and Reverb `8340 + n` / `8345 + n`; `p4-chat` is n = 0, `p4-chat-views` n = 2, `p4-chat-views-rtl` n = 3. 8264-8269, 8274-8279,
  * 8284, 8289 and 8344/8348 are free for more P4 scenarios. The deck-screenshot scenario `p4-shots` (n = 6) uses 8266 / 8276, customer
@@ -71,6 +72,7 @@ export type ScenarioName =
     | 'p4-poll'
     // P6 (WhatsApp via OpenWA, tested against the stateful mock `e2e/support/openwa-mock.mjs`). Ports 8360-8379.
     | 'p6-wa'
+    | 'p6-wa-rtl'
     // P5 (presence, notifications, the launcher alert). Ports 8380-8409, see the comment at the top.
     | 'p5-chat'
     | 'p5-presence-redis'
@@ -531,6 +533,26 @@ const DEFINITIONS: Record<ScenarioName, Definition> = {
         reverbPort: 8406,
         push: {},
         env: { TRUSTED_PROXIES: '*' },
+    },
+    // P6 e2e (E2): the Arabic twin of `p6-wa` (administrator UI mirrored, widget in Arabic): only the layout / RTL specs of `whatsapp/views-rtl.spec.ts`.
+    'p6-wa-rtl': {
+        kind: 'installed',
+        port: 8369,
+        dbSuffix: '_p6_wa_rtl',
+        mode: 'local',
+        locale: 'ar',
+        seed: 'chat',
+        hostPort: 8371,
+        reverbPort: 8373,
+        openWaPort: 8375,
+        env: { TRUSTED_PROXIES: '*', PORTAL_ALLOW_PRIVATE_HOSTS: 'true' },
+        perProject: {
+            mobilePort: 8370,
+            mobileDbSuffix: '_p6_wa_rtl_mobile',
+            mobileHostPort: 8372,
+            mobileReverbPort: 8374,
+            mobileOpenWaPort: 8376,
+        },
     },
     // Real wizard runs, in token mode, that the screenshot spec walks through for the deck.
     'shots-desktop': {

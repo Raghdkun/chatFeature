@@ -38,6 +38,10 @@ export type WaChat = {
     unreadByAdmin: number;
     inboundInitiated: boolean;
     lastMessagePreview: string | null;
+    lastMessageAt: string | null;
+    createdAt: string;
+    status: 'open' | 'archived';
+    session: { ulid: string; name: string };
 };
 
 /** `WaMessageData` (the fields the specs read). */
@@ -58,6 +62,16 @@ export class WaAdminApi {
         this.api.post('/api/v1/whatsapp/sessions', { name });
     session = (ulid: string) =>
         this.api.get(`/api/v1/whatsapp/sessions/${ulid}`);
+    /** The session's own pacing (`null` goes back to the global setting). */
+    updateSession = (
+        ulid: string,
+        body: {
+            send_min_interval_ms?: number | null;
+            daily_send_cap?: number | null;
+        },
+    ) => this.api.patch(`/api/v1/whatsapp/sessions/${ulid}`, body);
+    reregisterWebhook = (ulid: string) =>
+        this.api.post(`/api/v1/whatsapp/sessions/${ulid}/webhook`);
     /** `202` with status `starting`: the engine starts in a queued job (inline in the e2e suite, `QUEUE_CONNECTION=sync`). */
     startSession = (ulid: string) =>
         this.api.post(`/api/v1/whatsapp/sessions/${ulid}/start`);
@@ -134,6 +148,6 @@ export async function eventually<T>(
             );
         }
 
-        await new Promise((done) => setTimeout(done, 150));
+        await new Promise((done) => setTimeout(done, 300));
     }
 }

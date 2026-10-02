@@ -85,7 +85,7 @@ export function ChatHeader({
                     type="button"
                     variant="outline"
                     size="icon"
-                    className="ms-1 sm:w-auto sm:px-3"
+                    className="ms-1 aria-disabled:pointer-events-none aria-disabled:opacity-50 sm:w-auto sm:px-3"
                     data-testid="wa-archive"
                     aria-label={t(
                         archived ? 'whatsapp.unarchive' : 'whatsapp.archive',
@@ -93,8 +93,9 @@ export function ChatHeader({
                     title={t(
                         archived ? 'whatsapp.unarchive' : 'whatsapp.archive',
                     )}
-                    disabled={archiving}
-                    onClick={onToggleArchive}
+                    // Not `disabled`: a disabled button drops the keyboard focus to the page, and the next Enter goes nowhere.
+                    aria-disabled={archiving || undefined}
+                    onClick={archiving ? undefined : onToggleArchive}
                 >
                     {archiving ? (
                         <Busy />
