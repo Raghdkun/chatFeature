@@ -44,21 +44,43 @@ services:
         volumes:
             - nats-data:/data
 
-    # OpenWA WhatsApp gateway (API + dashboard on :2785). Pin the image digest in production.
-    # SSRF_ALLOWED_HOSTS lets OpenWA deliver webhooks to the app running on the host.
+    # OpenWA WhatsApp gateway: REST API + dashboard on http://127.0.0.1:2785 (loopback only: the admin API key must not be reachable from the network).
+    # Ops guide, QR pairing, the production fragment and the troubleshooting table: docs/whatsapp-openwa.md.
+    #   docker compose -f docker/compose.dev.yml --profile whatsapp up -d openwa
+    #   docker exec pne-chat-dev-openwa-1 cat /app/data/.api-key      # the admin key, minted on the first start (also in the first start log)
+    #   node scripts/openwa-smoke.mjs                                  # connectivity / role / session / QR / webhook check
+    # The image is pinned by the digest of its multi-arch index (OpenWA 0.23.7, what the fixtures in tests/fixtures/openwa were recorded
+    # from); set OPENWA_IMAGE to try another one.
     openwa:
         profiles: [whatsapp]
-        image: ghcr.io/rmyndharis/openwa:latest
+        image: ${OPENWA_IMAGE:-ghcr.io/rmyndharis/openwa@sha256:9a9eeee07de00902ca41b30c67cc4a3bb2b219df5c5e54357994f66a1808ee12}
         environment:
             ENGINE_TYPE: whatsapp-web.js
+            # OpenWA refuses webhook addresses that resolve to a private / loopback / Docker-internal host UNLESS the exact host name is
+            # listed here (comma separated, no wildcards, no ports). `host.docker.internal` is the app running on this Mac / PC: set the
+            # app's `app.url` to http://host.docker.internal:<port> (or use a tunnel) so the address the app registers is that one.
             SSRF_ALLOWED_HOSTS: host.docker.internal
+            # Senders identified by a privacy id (@lid) get a `senderPhone` in message.received (otherwise there is no number).
             RESOLVE_LID_TO_PHONE: 'true'
+            # Paired sessions start again by themselves after a container restart (default off: they would stay `disconnected`).
+            AUTO_START_SESSIONS: 'true'
+            # The dashboard is served over plain http here; the production default (upgrade-insecure-requests) renders it blank.
+            CSP_UPGRADE_INSECURE_REQUESTS: 'false'
+            # Let an in-flight webhook delivery (timeout 10 s) finish on shutdown.
+            WEBHOOK_SHUTDOWN_DRAIN_MS: '10000'
+            # VALIDATION_ERROR_DETAIL: 'true'   # 400 bodies with field detail (production: bare {"message":"Bad Request"}; the app handles both)
         extra_hosts:
             - 'host.docker.internal:host-gateway'
         ports:
-            - '2785:2785'
+            - '127.0.0.1:2785:2785'
         volumes:
-            - openwa-data:/app/data
+            - openwa-data:/app/data # sessions (the WhatsApp login!), API keys, message store: back it up, never delete it casually
+        healthcheck:
+            test: ['CMD-SHELL', 'curl -fsS http://localhost:2785/api/health/ready || exit 1']
+            interval: 15s
+            timeout: 5s
+            retries: 5
+            start_period: 20s
 
 volumes:
     mysql-data:
