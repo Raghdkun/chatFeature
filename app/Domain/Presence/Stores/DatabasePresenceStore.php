@@ -10,6 +10,9 @@ use App\Domain\Presence\PresenceRecord;
 use App\Domain\Presence\PresenceTransition;
 use App\Models\AgentPresence;
 use Carbon\CarbonInterface;
+use Illuminate\Database\DeadlockException;
+use Illuminate\Database\DetectsConcurrencyErrors;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
@@ -21,6 +24,11 @@ use Illuminate\Support\Facades\DB;
  */
 final class DatabasePresenceStore implements PresenceStore
 {
+    use DetectsConcurrencyErrors;
+
+    /** A first-time write that lost a race tries again this many times in all. */
+    private const WRITE_ATTEMPTS = 3;
+
     public function __construct(
         private readonly PresencePolicy $policy,
         private readonly PresenceMirror $mirror,
@@ -140,9 +148,13 @@ final class DatabasePresenceStore implements PresenceStore
 
                     return new PresenceTransition($userId, $before, $after, PresenceRecord::fromModel($row));
                 });
-            } catch (UniqueConstraintViolationException $exception) {
-                // Two first-time writes raced for the one row per user: the second reads the winner's row and applies its change to it.
-                if ($attempt >= 2) {
+            } catch (QueryException|DeadlockException $exception) {
+                // Two first-time writes raced for the one row per user. Either the unique key refused the second INSERT, or (the locking read
+                // of a missing row takes a gap lock on MySQL) both held the gap and the database chose one as the deadlock victim and rolled
+                // it back. The loser reads the winner's row and applies its change to it.
+                $raced = $exception instanceof UniqueConstraintViolationException || $this->causedByConcurrencyError($exception);
+
+                if (! $raced || $attempt >= self::WRITE_ATTEMPTS) {
                     throw $exception;
                 }
             }
