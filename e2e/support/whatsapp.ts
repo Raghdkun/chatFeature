@@ -38,6 +38,10 @@ export type WaChat = {
     unreadByAdmin: number;
     inboundInitiated: boolean;
     lastMessagePreview: string | null;
+    lastMessageAt: string | null;
+    createdAt: string;
+    status: 'open' | 'archived';
+    session: { ulid: string; name: string };
 };
 
 /** `WaMessageData` (the fields the specs read). */

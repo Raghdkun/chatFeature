@@ -269,7 +269,13 @@ export function waitForChat(
             'list the chats',
         );
 
-        return rows.find((row) => row.phone?.replace(/\D/g, '') === customer);
+        // The chat row is created a moment before its first message and counters are committed: a snapshot in between has no
+        // `lastMessageAt` yet (and `unreadByAdmin` 0), so wait for the first message.
+        return rows.find(
+            (row) =>
+                row.phone?.replace(/\D/g, '') === customer &&
+                row.lastMessageAt !== null,
+        );
     }, `the chat of ${customer}`);
 }
 
