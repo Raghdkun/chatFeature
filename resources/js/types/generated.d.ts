@@ -441,6 +441,111 @@ realtime: App.Data.Shared.RealtimeEndpointData | null,
 };
 export type TextDirection = 'ltr' | 'rtl';
 }
+namespace WhatsApp {
+export type HandoffData = {
+code: string,
+waUrl: string,
+expiresAt: string,
+};
+export type WaChatData = {
+ulid: string,
+session: App.Data.WhatsApp.WaSessionRefData,
+phone: string | null,
+pushName: string | null,
+isGroup: boolean,
+status: App.Domain.WhatsApp.Enums.WaChatStatus,
+linked: boolean,
+widget: App.Data.Chat.WidgetRefData | null,
+category: App.Data.Chat.CategoryRefData | null,
+unreadByAdmin: number,
+inboundInitiated: boolean,
+lastInboundAt: string | null,
+lastMessageAt: string | null,
+lastMessagePreview: string | null,
+createdAt: string,
+};
+export type WaChatDetailData = {
+chat: App.Data.WhatsApp.WaChatData,
+visitor: App.Data.WhatsApp.WaVisitorRefData | null,
+handoff: App.Data.WhatsApp.WaHandoffRefData | null,
+};
+export type WaHandoffRefData = {
+code: string,
+createdAt: string,
+consumedAt: string | null,
+};
+export type WaMediaData = {
+mime: string | null,
+filename: string | null,
+size: number | null,
+available: boolean,
+url: string | null,
+};
+export type WaMessageData = {
+ulid: string,
+chat: string,
+direction: App.Domain.WhatsApp.Enums.WaDirection,
+type: App.Domain.WhatsApp.Enums.WaMessageType,
+body: string | null,
+media: App.Data.WhatsApp.WaMediaData | null,
+status: App.Domain.WhatsApp.Enums.WaMessageStatus,
+error: string | null,
+sentBy: App.Data.Chat.StaffAgentRefData | null,
+waTimestamp: string,
+createdAt: string,
+};
+export type WaSessionRefData = {
+ulid: string,
+name: string,
+};
+export type WaVisitorRefData = {
+ulid: string,
+name: string | null,
+email: string | null,
+phone: string | null,
+verified: boolean,
+};
+export type WhatsAppSessionData = {
+ulid: string,
+name: string,
+engine: string,
+status: App.Domain.WhatsApp.Enums.SessionStatus,
+phone: string | null,
+maskedPhone: string | null,
+pushName: string | null,
+qrAvailable: boolean,
+lastQrAt: string | null,
+webhookRegistered: boolean,
+webhookUrl: string,
+readyAt: string | null,
+lastError: string | null,
+linkedWidgetsCount: number,
+isLinkedToWidgets: boolean,
+sendMinIntervalMs: number,
+dailySendCap: number,
+pacingOverridden: boolean,
+createdAt: string,
+};
+namespace Events {
+export type WaChatUpdatedPayload = {
+v: number,
+chat: App.Data.WhatsApp.WaChatData,
+};
+export type WaMessageCreatedPayload = {
+v: number,
+message: App.Data.WhatsApp.WaMessageData,
+chat: App.Data.WhatsApp.WaChatData,
+};
+export type WaMessageUpdatedPayload = {
+v: number,
+message: App.Data.WhatsApp.WaMessageData,
+};
+export type WaSessionStatusPayload = {
+v: number,
+session: App.Data.WhatsApp.WhatsAppSessionData,
+};
+}
+}
 namespace Widgets {
 export type GreetingData = {
 ulid: string,
@@ -531,6 +636,17 @@ export type RealtimeEvent = 'chat.offered' | 'chat.taken' | 'chat.assigned' | 'c
 namespace Settings {
 export type SettingGroup = 'app' | 'auth' | 'chat' | 'notifications' | 'storage' | 'whatsapp';
 export type SettingType = 'string' | 'bool' | 'int' | 'json';
+}
+namespace WhatsApp {
+namespace Enums {
+export type SessionStatus = 'created' | 'starting' | 'qr' | 'ready' | 'disconnected' | 'failed';
+export type WaChatStatus = 'open' | 'archived';
+export type WaDirection = 'in' | 'out';
+export type WaMessageStatus = 'pending' | 'sent' | 'delivered' | 'read' | 'failed' | 'received';
+export type WaMessageType = 'text' | 'image' | 'video' | 'audio' | 'voice' | 'document' | 'sticker' | 'location' | 'contact' | 'other';
+export type WaRealtimeEvent = 'wa.message.created' | 'wa.message.updated' | 'wa.chat.updated' | 'wa.session.status';
+export type WebhookOutcome = 'processed' | 'duplicate' | 'rejected' | 'ignored' | 'failed';
+}
 }
 namespace Widgets {
 namespace Data {

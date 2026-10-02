@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vite-plus/test';
 import {
     CHAT_EVENT,
     PAYLOAD_VERSION,
+    WA_EVENT,
     channels,
     echoEvent,
+    waChannels,
+    waEchoEvent,
     type ChatEventName,
     type ChatEventPayloads,
+    type WaEventName,
+    type WaEventPayloads,
 } from '@/lib/chat/events';
 
 describe('chat events', () => {
@@ -78,5 +83,50 @@ describe('chat events', () => {
         expect(channels.admin).toBe('admin');
         expect(channels.presenceStaff).toBe('staff');
         expect(PAYLOAD_VERSION).toBe(1);
+    });
+});
+
+describe('whatsapp admin events', () => {
+    it('names the four events of the admin-only channel once', () => {
+        expect(Object.values(WA_EVENT).sort()).toEqual(
+            [
+                'wa.chat.updated',
+                'wa.message.created',
+                'wa.message.updated',
+                'wa.session.status',
+            ].sort(),
+        );
+    });
+
+    it('has a payload type for every event name (compile-time)', () => {
+        const names: Record<WaEventName, keyof WaEventPayloads> = {
+            'wa.message.created': 'wa.message.created',
+            'wa.message.updated': 'wa.message.updated',
+            'wa.chat.updated': 'wa.chat.updated',
+            'wa.session.status': 'wa.session.status',
+        };
+
+        expect(Object.keys(names)).toHaveLength(Object.keys(WA_EVENT).length);
+    });
+
+    it('keeps the WhatsApp names apart from the chat names', () => {
+        const chatNames: string[] = Object.values(CHAT_EVENT);
+
+        for (const name of Object.values(WA_EVENT)) {
+            expect(chatNames).not.toContain(name);
+            expect(name.startsWith('wa.')).toBe(true);
+        }
+    });
+
+    it('listens with a leading dot (custom broadcastAs names)', () => {
+        expect(waEchoEvent(WA_EVENT.messageCreated)).toBe(
+            '.wa.message.created',
+        );
+        expect(waEchoEvent(WA_EVENT.sessionStatus)).toBe('.wa.session.status');
+    });
+
+    it('builds the channel name without the private- prefix, separate from the admin channel', () => {
+        expect(waChannels.admin).toBe('whatsapp-admin');
+        expect(waChannels.admin).not.toBe(channels.admin);
     });
 });
