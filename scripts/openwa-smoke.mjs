@@ -121,7 +121,7 @@ async function main() {
     } catch (error) {
         say(
             'fail',
-            `cannot reach ${BASE}: ${error.cause?.code ?? error.message}. Is OpenWA running and is this the right address (port 2785 by default)?`,
+            `cannot reach ${BASE}: ${error.cause?.code ?? error.cause?.message ?? error.message}. Is OpenWA running and is this the right address (port 2785 by default)?`,
         );
 
         return;
