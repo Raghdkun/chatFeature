@@ -9667,24 +9667,20 @@ paths:
             type: string
       responses:
         200:
-          description: 'Stored for processing (`duplicate` when the same delivery arrives again).'
+          description: 'Stored for processing (`duplicate` when the same delivery arrives again). Not wrapped in `data`.'
           content:
             application/json:
               schema:
                 type: object
                 example:
-                  data:
-                    status: accepted
+                  status: accepted
                 properties:
-                  data:
-                    type: object
-                    properties:
-                      status:
-                        type: string
-                        example: accepted
-                        description: '`accepted` or `duplicate`.'
-                    required:
-                      - status
+                  status:
+                    type: string
+                    example: accepted
+                    description: '`accepted` or `duplicate`.'
+                required:
+                  - status
         400:
           description: '`invalid_webhook`'
           content:

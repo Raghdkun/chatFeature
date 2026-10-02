@@ -3123,6 +3123,9 @@ paths:
                   auth:
                     type: string
                     example: 'f1a2b3c4d5e6f7a8b9c0:3b1f0c9e5a7d2e4f6a8b0c1d2e3f405162738495a6b7c8d9e0f1a2b3c4d5e6f7'
+                    description: '`<app key>:<hmac signature>`, handed to the Pusher client.'
+                required:
+                  - auth
         401:
           description: "- `unauthenticated`: No or an unknown visitor token.\n- `session_revoked`"
           content:

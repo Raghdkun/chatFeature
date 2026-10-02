@@ -46,8 +46,10 @@ class CatalogueResponseFields extends Strategy
                 $fields['data'] = ['name' => 'data', 'type' => 'object', 'description' => 'The resource, or `null` when there is none.', 'required' => true, 'nullable' => true];
             }
 
+            $prefix = $success->kind === 'plain' ? '' : 'data.';
+
             foreach ($success->fields as $path => $note) {
-                $fields['data.'.$path] = ['name' => 'data.'.$path, 'type' => $note['type'] ?? 'string', 'description' => $note['description'], 'required' => true, 'nullable' => false];
+                $fields[$prefix.$path] = ['name' => $prefix.$path, 'type' => $note['type'] ?? 'string', 'description' => $note['description'], 'required' => true, 'nullable' => false];
             }
 
             if ($success->kind === 'paged') {
