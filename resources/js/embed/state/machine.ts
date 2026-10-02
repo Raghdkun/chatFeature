@@ -575,6 +575,9 @@ export function reduce(state: MachineState, action: Action): MachineState {
                 return toFirstStep({
                     ...state,
                     channel: 'chat',
+                    // The topic was chosen for the code that is being left: a visitor who goes back to change it is asked again.
+                    category:
+                        state.flow.categoryCount > 1 ? null : state.category,
                     whatsapp: { handoff: null },
                     busy: null,
                     notice: null,

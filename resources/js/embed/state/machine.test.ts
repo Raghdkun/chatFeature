@@ -1363,6 +1363,35 @@ describe('the WhatsApp hand-off (P6)', () => {
         expect(fromPicker.channel).toBe('chat');
     });
 
+    it('asks for the topic again when the visitor goes back from the hand-off screen (the wrong topic must be changeable)', () => {
+        const onCode = run(
+            booted({ whatsapp: true, categoryCount: 3 }),
+            { type: 'WHATSAPP_START' },
+            { type: 'CATEGORY_PICK', slug: 'sales' },
+            { type: 'WHATSAPP_OK', handoff: HANDOFF },
+        );
+
+        expect(onCode.phase).toBe('whatsapp');
+        expect(onCode.category).toBe('sales');
+
+        const back = run(onCode, { type: 'BACK' });
+
+        expect(back.phase).toBe('idle');
+        expect(back.category).toBeNull();
+        // "Continue on WhatsApp" again: the picker, not the old topic's code.
+        expect(run(back, { type: 'WHATSAPP_START' }).phase).toBe('category');
+
+        // A widget with one topic has nothing to ask: that topic is implied and stays.
+        const single = run(
+            booted({ whatsapp: true, categoryCount: 1 }),
+            { type: 'WHATSAPP_START' },
+            { type: 'WHATSAPP_OK', handoff: HANDOFF },
+            { type: 'BACK' },
+        );
+
+        expect(single.phase).toBe('idle');
+    });
+
     it('goes back to the offline screen when that is where the visitor started', () => {
         const back = run(
             booted({ whatsapp: true, offline: true }),
