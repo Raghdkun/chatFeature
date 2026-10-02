@@ -46,6 +46,8 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('wa_handoff_tickets', function (Blueprint $table) {
+            // On MySQL the composite index took over as the index of the `widget_id` foreign key: give the key its own back first.
+            $table->index('widget_id');
             $table->dropIndex(['widget_id', 'network_hash']);
             $table->dropColumn('network_hash');
         });
