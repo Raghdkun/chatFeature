@@ -41,30 +41,44 @@ export function PresenceSelect({
 }) {
     const { t } = useTrans();
 
+    const hintId = `${id ?? 'presence'}-hint`;
+
     return (
-        <div className="relative min-w-0">
-            <PresenceDot
-                status={status}
-                className="pointer-events-none absolute start-3 top-1/2 z-10 -translate-y-1/2"
-            />
-            <NativeSelect
-                id={id}
-                data-testid="presence-select"
-                aria-label={t('inbox.presence.label')}
-                value={status ?? ''}
-                disabled={status === null}
-                onChange={(event) =>
-                    onChange(event.target.value as PresenceStatus)
-                }
-                className="h-9 ps-8"
-            >
-                {status === null && <option value="">…</option>}
-                {STATUSES.map((value) => (
-                    <option key={value} value={value}>
-                        {t(`inbox.presence.${value}`)}
-                    </option>
-                ))}
-            </NativeSelect>
+        <div className="min-w-0">
+            <div className="relative">
+                <PresenceDot
+                    status={status}
+                    className="pointer-events-none absolute start-3 top-1/2 z-10 -translate-y-1/2"
+                />
+                <NativeSelect
+                    id={id}
+                    data-testid="presence-select"
+                    aria-label={t('inbox.presence.label')}
+                    aria-describedby={status === 'online' ? hintId : undefined}
+                    value={status ?? ''}
+                    disabled={status === null}
+                    onChange={(event) =>
+                        onChange(event.target.value as PresenceStatus)
+                    }
+                    className="h-9 ps-8"
+                >
+                    {status === null && <option value="">…</option>}
+                    {STATUSES.map((value) => (
+                        <option key={value} value={value}>
+                            {t(`inbox.presence.${value}`)}
+                        </option>
+                    ))}
+                </NativeSelect>
+            </div>
+            {status === 'online' && (
+                <p
+                    id={hintId}
+                    data-testid="presence-hint"
+                    className="mt-1 text-xs text-muted-foreground"
+                >
+                    {t('presence.hint.online')}
+                </p>
+            )}
         </div>
     );
 }

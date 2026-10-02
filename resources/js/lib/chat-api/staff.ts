@@ -374,10 +374,19 @@ export function createStaffApi(client: ApiClient = api) {
 
         presence: () => client.get<PresenceData>(staffRoutes.api.presence()),
 
+        /**
+         * `online` is sent as AUTOMATIC: the dashboard keeps the agent online while a tab is visible and the server moves them to away
+         * after a few minutes of hidden tabs (and back on the next visible beat). `away` / `offline` are pinned by the agent.
+         */
         setPresence: (status: PresenceStatus) =>
-            client.put<PresenceData>(staffRoutes.api.presence(), { status }),
+            client.put<PresenceData>(
+                staffRoutes.api.presence(),
+                status === 'online' ? { status, automatic: true } : { status },
+            ),
 
-        heartbeat: () => client.post<null>(staffRoutes.api.heartbeat()),
+        /** `visible`: the sending tab is in the foreground (a visible beat is what keeps an automatic agent online). */
+        heartbeat: (visible = true) =>
+            client.post<null>(staffRoutes.api.heartbeat(), { visible }),
 
         /** `GET /session/keepalive`: `null` on 204; a `401` means the session is over. */
         keepAlive: () => client.get<null>(staffRoutes.session.keepAlive()),

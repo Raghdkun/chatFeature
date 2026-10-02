@@ -6,6 +6,8 @@
  * (one file, no call site changes).
  */
 
+import type { PresenceStatus } from '@/lib/chat/types';
+
 export type OfflineMode = 'auto_hours' | 'always_online' | 'always_offline';
 export type AuthSource = 'local' | 'pizzasys';
 export type AuthModeName = 'fortify' | 'pizzasys';
@@ -64,6 +66,8 @@ export type AgentsPageProps = {
     categories: CategoryData[];
     authMode: AuthModeName;
     canManageStaff: boolean;
+    /** Each staff member's effective presence at the time of loading, by user id (P5; absent = unknown, shown offline). */
+    presence?: Record<number, PresenceStatus>;
 };
 
 export type CreateStaffInput = {

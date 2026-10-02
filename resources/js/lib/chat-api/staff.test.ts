@@ -166,6 +166,42 @@ describe('the client', () => {
         });
     });
 
+    it('sends going online as automatic and the others as pinned choices', async () => {
+        const { api, calls } = clientWith(() => json({ data: {} }));
+
+        await api.setPresence('online');
+        await api.setPresence('away');
+        await api.setPresence('offline');
+
+        expect(bodyOf(calls[0])).toEqual({
+            status: 'online',
+            automatic: true,
+        });
+        expect(bodyOf(calls[1])).toEqual({ status: 'away' });
+        expect(bodyOf(calls[2])).toEqual({ status: 'offline' });
+    });
+
+    it('says whether the tab is visible with every heartbeat (visible unless told otherwise)', async () => {
+        const { api, calls } = clientWith(
+            () => new Response(null, { status: 204 }),
+        );
+
+        await api.heartbeat();
+        await api.heartbeat(false);
+        await api.heartbeat(true);
+
+        expect(calls.map((call) => call.init.method)).toEqual([
+            'POST',
+            'POST',
+            'POST',
+        ]);
+        expect(calls.map((call) => bodyOf(call))).toEqual([
+            { visible: true },
+            { visible: false },
+            { visible: true },
+        ]);
+    });
+
     it('accepts a 204 with no body (receipts, heartbeat)', async () => {
         const { api } = clientWith(() => new Response(null, { status: 204 }));
 

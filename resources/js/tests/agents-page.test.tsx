@@ -12,7 +12,13 @@ import AgentsIndex from '@/pages/agents/index';
 import { blur, body, byTestId, choose, fill, keyDown } from '@/tests/dom';
 import { fakeApi } from '@/tests/fake-api';
 import { AGENTS, CATEGORIES, makeAgent } from '@/tests/fixtures';
+import {
+    StaffRealtimeContext,
+    type StaffRealtimeContextValue,
+} from '@/lib/realtime/staff/context';
+import { createInboxStore } from '@/lib/realtime/staff/store';
 import { resetInertiaMock } from '@/tests/inertia-mock';
+import { act } from 'react';
 import { click, flush, render } from '@/tests/render';
 import type { AgentsPageProps } from '@/types/widgets';
 
@@ -681,5 +687,92 @@ describe('mode 2 (Auth Portal)', () => {
         expect(
             view.byTestId('agents-portal-notice')?.querySelector('a'),
         ).toBeNull();
+    });
+});
+
+describe('presence dots', () => {
+    const presence = { 1: 'online', 2: 'away', 3: 'online' } as const;
+
+    it("shows each person's status as a dot and a label, and counts who is online among the active", async () => {
+        const view = await render(
+            <AgentsIndex {...props({ presence: { ...presence } })} />,
+        );
+
+        expect(
+            view.byTestId('agent-presence-1')?.getAttribute('data-status'),
+        ).toBe('online');
+        expect(view.byTestId('agent-presence-1')?.textContent).toBe('Online');
+        expect(
+            view.byTestId('agent-presence-2')?.getAttribute('data-status'),
+        ).toBe('away');
+        expect(view.byTestId('agent-presence-2')?.textContent).toBe('Away');
+        // Lina (3) is inactive: she never counts, whatever the store says.
+        expect(view.byTestId('agents-online-count')?.textContent).toBe(
+            '1 online',
+        );
+    });
+
+    it('shows everybody offline when the page carries no presence', async () => {
+        const view = await render(<AgentsIndex {...props()} />);
+
+        for (const id of [1, 2, 3]) {
+            expect(
+                view
+                    .byTestId(`agent-presence-${id}`)
+                    ?.getAttribute('data-status'),
+            ).toBe('offline');
+        }
+
+        expect(view.byTestId('agents-online-count')?.textContent).toBe(
+            '0 online',
+        );
+    });
+
+    it('follows presence.changed events heard after the page loaded, for people who are not on the roster too', async () => {
+        const store = createInboxStore();
+        const session = { store } as unknown as StaffRealtimeContextValue;
+        const view = await render(
+            <StaffRealtimeContext.Provider value={session}>
+                <AgentsIndex {...props({ presence: { ...presence } })} />
+            </StaffRealtimeContext.Provider>,
+        );
+
+        // An older event (from before this page was loaded) changes nothing.
+        await act(async () =>
+            store.dispatch({
+                type: 'presenceSeen',
+                id: 1,
+                status: 'offline',
+                at: 1,
+            }),
+        );
+        expect(
+            view.byTestId('agent-presence-1')?.getAttribute('data-status'),
+        ).toBe('online');
+
+        await act(async () => {
+            store.dispatch({
+                type: 'presenceSeen',
+                id: 1,
+                status: 'offline',
+                at: Date.now() + 1_000,
+            });
+            store.dispatch({
+                type: 'presenceSeen',
+                id: 2,
+                status: 'online',
+                at: Date.now() + 1_000,
+            });
+        });
+
+        expect(
+            view.byTestId('agent-presence-1')?.getAttribute('data-status'),
+        ).toBe('offline');
+        expect(
+            view.byTestId('agent-presence-2')?.getAttribute('data-status'),
+        ).toBe('online');
+        expect(view.byTestId('agents-online-count')?.textContent).toBe(
+            '1 online',
+        );
     });
 });

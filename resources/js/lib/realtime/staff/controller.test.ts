@@ -22,6 +22,7 @@ import {
     KEEPALIVE_INTERVAL_MS,
     offerTag,
     POLL_INTERVAL_MS,
+    PRESENCE_RESYNC_AFTER_MS,
     SYNC_DEBOUNCE_MS,
     type StaffEffects,
 } from '@/lib/realtime/staff/controller';
@@ -51,6 +52,8 @@ type Rig = {
     };
     effects: { [K in keyof StaffEffects]: ReturnType<typeof vi.fn> };
     viewing: { current: string | null };
+    /** Whether the (fake) tab is in the foreground; every heartbeat reports it. */
+    visible: { current: boolean };
     controller: ReturnType<typeof createStaffController>;
 };
 
@@ -76,6 +79,7 @@ function rig(viewer = ME): Rig {
         openConversation: vi.fn(),
     };
     const viewing: { current: string | null } = { current: null };
+    const visible = { current: true };
     const controller = createStaffController({
         store,
         api: api as unknown as StaffApi,
@@ -83,9 +87,10 @@ function rig(viewer = ME): Rig {
         t: (key, replacements) => interpolate(en[key] ?? key, replacements),
         effects,
         isViewing: (ulid) => viewing.current === ulid,
+        isVisible: () => visible.current,
     });
 
-    return { store, api, effects, viewing, controller };
+    return { store, api, effects, viewing, visible, controller };
 }
 
 const taken = (by = 'Sam') =>
@@ -587,6 +592,20 @@ describe('other events', () => {
         expect(store.getState().presence).toBe('offline');
     });
 
+    it('presence.changed is remembered for everybody (the agents page lists people who are not on the roster), with the time it was heard', () => {
+        const { store, controller } = rig();
+
+        controller.handle('presence.changed', {
+            v: 1,
+            userId: 42,
+            status: 'offline',
+        });
+
+        expect(store.getState().seenPresence).toEqual({
+            42: { status: 'offline', at: Date.now() },
+        });
+    });
+
     it('offline-ticket.created adds the ticket and announces it', () => {
         const { store, effects, controller } = rig({
             id: 1,
@@ -1033,6 +1052,165 @@ describe('presence', () => {
         await controller.setPresence('offline');
 
         expect(api.heartbeat).not.toHaveBeenCalled();
+    });
+});
+
+describe('presence: visibility and resync', () => {
+    it('says whether the tab is visible with every beat', async () => {
+        const { api, store, visible, controller } = rig();
+
+        store.dispatch({ type: 'presence', status: 'online' });
+        controller.start();
+        await flush();
+        expect(api.heartbeat).toHaveBeenLastCalledWith(true);
+
+        visible.current = false;
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+        expect(api.heartbeat).toHaveBeenLastCalledWith(false);
+
+        visible.current = true;
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+        expect(api.heartbeat).toHaveBeenLastCalledWith(true);
+        controller.stop();
+    });
+
+    it('beats at once, as visible, when the tab comes back to the foreground', async () => {
+        const { api, store, visible, controller } = rig();
+
+        store.dispatch({ type: 'presence', status: 'online' });
+        controller.start();
+        controller.sleep();
+        visible.current = false;
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+        api.heartbeat.mockClear();
+
+        visible.current = true;
+        controller.wake();
+        await flush();
+
+        expect(api.heartbeat).toHaveBeenCalledTimes(1);
+        expect(api.heartbeat).toHaveBeenCalledWith(true);
+        // A short absence is not worth asking the server what happened.
+        expect(api.presence).not.toHaveBeenCalled();
+        controller.stop();
+    });
+
+    it('asks the server for the status after a long absence, once the beat is out', async () => {
+        const { api, store, visible, controller } = rig();
+
+        store.dispatch({ type: 'presence', status: 'online' });
+        api.presence.mockResolvedValue({
+            userId: ME.id,
+            status: 'offline',
+            isManual: false,
+            lastSeenAt: null,
+        });
+        controller.start();
+        controller.sleep();
+        visible.current = false;
+        await vi.advanceTimersByTimeAsync(PRESENCE_RESYNC_AFTER_MS + 1);
+        api.heartbeat.mockClear();
+        api.presence.mockClear();
+
+        visible.current = true;
+        controller.wake();
+        await flush();
+
+        expect(api.heartbeat).toHaveBeenCalledWith(true);
+        expect(api.presence).toHaveBeenCalledTimes(1);
+        expect(store.getState().presence).toBe('offline');
+        controller.stop();
+    });
+
+    it('re-reads the status after a long gap between two beats (the timers were suspended), not after a normal one', async () => {
+        const { api, store, controller } = rig();
+
+        store.dispatch({ type: 'presence', status: 'online' });
+        api.presence.mockResolvedValue({
+            userId: ME.id,
+            status: 'away',
+            isManual: false,
+            lastSeenAt: null,
+        });
+        controller.start();
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS * 2);
+        expect(api.presence).not.toHaveBeenCalled();
+
+        // A laptop that slept: the clock jumps, the next tick fires late.
+        vi.setSystemTime(Date.now() + PRESENCE_RESYNC_AFTER_MS * 4);
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+
+        expect(api.presence).toHaveBeenCalledTimes(1);
+        expect(store.getState().presence).toBe('away');
+        controller.stop();
+    });
+
+    it('does not apply an answer that is older than my own change', async () => {
+        const { api, store, visible, controller } = rig();
+        let answer: (value: unknown) => void = () => undefined;
+
+        store.dispatch({ type: 'presence', status: 'online' });
+        api.presence.mockReturnValue(
+            new Promise((resolve) => {
+                answer = resolve;
+            }),
+        );
+        api.setPresence.mockResolvedValue({
+            userId: ME.id,
+            status: 'away',
+            isManual: true,
+            lastSeenAt: null,
+        });
+        controller.start();
+        controller.sleep();
+        visible.current = false;
+        await vi.advanceTimersByTimeAsync(PRESENCE_RESYNC_AFTER_MS + 1);
+        visible.current = true;
+        controller.wake();
+        await flush();
+
+        await controller.setPresence('away');
+        answer({
+            userId: ME.id,
+            status: 'online',
+            isManual: false,
+            lastSeenAt: null,
+        });
+        await flush();
+
+        expect(store.getState().presence).toBe('away');
+        controller.stop();
+    });
+
+    it('an own presence.changed event wins over an answer that was already on its way', async () => {
+        const { api, store, controller } = rig();
+        let answer: (value: unknown) => void = () => undefined;
+
+        store.dispatch({ type: 'presence', status: 'online' });
+        api.presence.mockReturnValue(
+            new Promise((resolve) => {
+                answer = resolve;
+            }),
+        );
+        controller.start();
+        vi.setSystemTime(Date.now() + PRESENCE_RESYNC_AFTER_MS * 4);
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+
+        controller.handle('presence.changed', {
+            v: 1,
+            userId: ME.id,
+            status: 'away',
+        });
+        answer({
+            userId: ME.id,
+            status: 'online',
+            isManual: false,
+            lastSeenAt: null,
+        });
+        await flush();
+
+        expect(store.getState().presence).toBe('away');
+        controller.stop();
     });
 });
 

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AgentCategoriesPicker } from '@/components/agents/agent-categories-picker';
 import { parseConcurrentChats } from '@/components/agents/agent-model';
+import { PresenceDot } from '@/components/inbox/presence-select';
 import { formatRelativeTime } from '@/components/widgets/page-chrome';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -9,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useInitials } from '@/hooks/use-initials';
 import { useTrans } from '@/hooks/use-trans';
+import type { PresenceStatus } from '@/lib/chat/types';
 import { LIMITS } from '@/lib/limits';
 import { cn } from '@/lib/utils';
 import type { AgentListItemData, CategoryData } from '@/types/widgets';
@@ -28,6 +30,7 @@ function CellLabel({ children }: { children: string }) {
 
 export function AgentRow({
     agent,
+    presence = 'offline',
     categories,
     canManageStaff,
     onSetCategories,
@@ -36,6 +39,8 @@ export function AgentRow({
     onSetMaxChats,
 }: {
     agent: AgentListItemData;
+    /** The effective presence (online / away / offline), from the presence store. */
+    presence?: PresenceStatus;
     categories: CategoryData[];
     /** Mode 1: roles / active state are managed here. Mode 2: they come from the Auth Portal. */
     canManageStaff: boolean;
@@ -75,6 +80,14 @@ export function AgentRow({
                         dir="ltr"
                     >
                         {agent.email}
+                    </p>
+                    <p
+                        className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground"
+                        data-testid={`agent-presence-${agent.id}`}
+                        data-status={presence}
+                    >
+                        <PresenceDot status={presence} />
+                        <span>{t(`inbox.presence.${presence}`)}</span>
                     </p>
                 </div>
             </div>
