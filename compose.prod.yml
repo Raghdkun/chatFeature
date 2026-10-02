@@ -1,0 +1,344 @@
+# PNE Chat, production stack (Docker Compose).
+#
+#   cp .env.production.example .env          # then fill it in (see docs/deployment-hostinger-kvm.md)
+#   docker compose -f compose.prod.yml --env-file .env up -d --build
+#
+# Optional parts are Compose profiles (COMPOSE_PROFILES in .env, or --profile on the command line):
+#   whatsapp   the OpenWA WhatsApp gateway
+#   nats       a NATS JetStream server (only if you do not use the one of your auth portal)
+#
+# Only Caddy publishes ports (80, 443 tcp and 443 udp for HTTP/3). MySQL, Redis, Reverb, OpenWA and NATS never do.
+# Published ports bypass `ufw`: do not add `ports:` to any other service.
+name: pnechat
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+# One application image runs php-fpm, the queue worker, the scheduler, Reverb and the NATS consumer (different `command`).
+# Every service that uses it repeats the same build block, so `up --build` builds it once (the BuildKit cache makes the
+# repeats free) and `docker compose pull`/tags (PNE_TAG) stay consistent.
+x-app-build: &app-build
+  context: .
+  target: app
+
+x-app: &app
+  image: ${PNE_IMAGE_APP:-pnechat-app}:${PNE_TAG:-latest}
+  build: *app-build
+  init: true
+  restart: unless-stopped
+  env_file:
+    - .env
+  environment: &app-environment
+    # The wiring between the containers is fixed here, not in .env, so it cannot drift from the service names below.
+    DB_HOST: mysql
+    DB_PORT: "3306"
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
+    REVERB_SERVER_HOST: 0.0.0.0
+    REVERB_SERVER_PORT: "8080"
+    REVERB_PUBLISH_HOST: reverb
+    REVERB_PUBLISH_PORT: "8080"
+    REVERB_PUBLISH_SCHEME: http
+  read_only: true
+  tmpfs:
+    - /tmp:size=96m,mode=1777
+    # config/route cache written by the entrypoint at every start
+    - /var/www/html/bootstrap/cache:size=16m,uid=33,gid=33,mode=0755
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging: *logging
+  networks:
+    - internal
+  volumes:
+    - storage:/var/www/html/storage
+  depends_on: &app-depends
+    mysql:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  # ---------------------------------------------------------------------------------------------------------- edge
+  caddy:
+    image: ${PNE_IMAGE_WEB:-pnechat-web}:${PNE_TAG:-latest}
+    build:
+      context: .
+      target: web
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env}
+      CADDY_TLS: ${CADDY_TLS:?set CADDY_TLS in .env (an e-mail address, or "internal")}
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - caddy-data:/data # certificates and the ACME account: losing it only means new certificates (mind the Let's Encrypt rate limits)
+      - caddy-config:/config
+      - fpm-socket:/run/php
+    networks:
+      edge: {}
+      internal: {}
+      whatsapp:
+        # Lets OpenWA (and the app) reach the public https address of this site from inside Docker, without leaving the host.
+        aliases:
+          - ${APP_DOMAIN:?set APP_DOMAIN in .env}
+    depends_on:
+      app:
+        condition: service_healthy
+      reverb:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging: *logging
+    mem_limit: ${CADDY_MEM_LIMIT:-256m}
+
+  # ---------------------------------------------------------------------------------------------------- application
+  app:
+    <<: *app
+    environment:
+      <<: *app-environment
+      CHAT_ROLE: app
+    command: ["php-fpm"]
+    volumes:
+      - storage:/var/www/html/storage
+      - fpm-socket:/run/php
+    networks:
+      - internal
+      - whatsapp
+    healthcheck:
+      test: ["CMD", "pne-healthcheck", "fpm"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    stop_grace_period: 30s
+    mem_limit: ${APP_MEM_LIMIT:-1g}
+
+  queue:
+    <<: *app
+    environment:
+      <<: *app-environment
+      CHAT_WAIT_FOR_INSTALL: "true"
+    # retry_after of the queue connection is 300 s and must stay above --timeout (and above every job's own timeout, 150 s at most).
+    # The worker restarts itself every hour (--max-time) or above 384 MB (--memory): `restart: unless-stopped` brings it back.
+    command: ["php", "-d", "memory_limit=512M", "artisan", "queue:work", "--sleep=1", "--tries=3", "--timeout=180", "--max-time=3600", "--memory=384"]
+    networks:
+      - internal
+      - whatsapp
+    healthcheck:
+      test: ["CMD", "pne-healthcheck", "worker", "artisan queue:work"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 200s # a running job may take up to its timeout before the worker exits
+    mem_limit: ${QUEUE_MEM_LIMIT:-512m}
+
+  scheduler:
+    <<: *app
+    environment:
+      <<: *app-environment
+      CHAT_WAIT_FOR_INSTALL: "true"
+    # REQUIRED: chat timers, presence sweep, analytics rollups, WhatsApp reconciliation, retention and pruning all run from here.
+    command: ["php", "artisan", "schedule:work"]
+    networks:
+      - internal
+      - whatsapp
+    healthcheck:
+      test: ["CMD", "pne-healthcheck", "worker", "artisan schedule:work"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 30s
+    mem_limit: ${SCHEDULER_MEM_LIMIT:-384m}
+
+  reverb:
+    <<: *app
+    environment:
+      <<: *app-environment
+      CHAT_WAIT_FOR_INSTALL: "true"
+    # Reverb needs ext-uv (in the image) above ~1000 sockets and a high file-descriptor limit (one per socket).
+    # Behind Caddy it is reached as wss://<domain>/app/<key>; `/apps/*` (the publish API) is never proxied.
+    command: ["php", "artisan", "reverb:start", "--no-interaction"]
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD", "pne-healthcheck", "reverb"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 30s
+    mem_limit: ${REVERB_MEM_LIMIT:-512m}
+
+  # Consumes the user/role events of the pizzasys auth portal (mode 2). Always on and harmless in mode 1: without a NATS address
+  # saved in Settings > Auth it only idles (a few MB), so switching modes later needs no change here.
+  nats-consumer:
+    <<: *app
+    environment:
+      <<: *app-environment
+      CHAT_WAIT_FOR_INSTALL: "true"
+    command: ["php", "artisan", "chat:auth:consume-nats", "--instance=main"]
+    healthcheck:
+      test: ["CMD", "pne-healthcheck", "worker", "chat:auth:consume-nats"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 30s
+    mem_limit: ${NATS_CONSUMER_MEM_LIMIT:-256m}
+
+  # ---------------------------------------------------------------------------------------------------------- data
+  mysql:
+    image: mysql:8.4
+    init: true
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:?set DB_DATABASE in .env}
+      MYSQL_USER: ${DB_USERNAME:?set DB_USERNAME in .env}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      # Nobody needs the root account: the application user owns the database. A random root password is set at the first start.
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+      MYSQL_ROOT_HOST: localhost
+      TZ: UTC
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/pne.cnf:ro
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", 'MYSQL_PWD="$$MYSQL_PASSWORD" mysql -h 127.0.0.1 -u"$$MYSQL_USER" -e "SELECT 1" "$$MYSQL_DATABASE" >/dev/null 2>&1']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+    stop_grace_period: 60s
+    logging: *logging
+    mem_limit: ${MYSQL_MEM_LIMIT:-1g}
+
+  redis:
+    image: redis:7-alpine
+    init: true
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-384mb}
+    # AOF every second; `noeviction` on purpose (an evicted key reads as an agent who went offline, a lost queue job is a lost reply);
+    # no RDB snapshots (the AOF is the persistence).
+    command:
+      - sh
+      - -c
+      - exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes --appendfsync everysec --save "" --maxmemory "$$REDIS_MAXMEMORY" --maxmemory-policy noeviction
+    volumes:
+      - redis-data:/data
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    logging: *logging
+    mem_limit: ${REDIS_MEM_LIMIT:-512m}
+
+  # ------------------------------------------------------------------------------------------------------- optional
+  # WhatsApp gateway (profile `whatsapp`): docs/whatsapp-openwa.md. Internal only (no `ports:`); its dashboard is reached
+  # through an SSH tunnel. The image is pinned by digest (OpenWA 0.23.7, the one the fixtures were recorded from).
+  openwa:
+    profiles: ["whatsapp"]
+    image: ${OPENWA_IMAGE:-ghcr.io/rmyndharis/openwa@sha256:9a9eeee07de00902ca41b30c67cc4a3bb2b219df5c5e54357994f66a1808ee12}
+    init: true
+    restart: unless-stopped
+    environment:
+      ENGINE_TYPE: whatsapp-web.js
+      # OpenWA refuses webhook addresses that resolve to a private address UNLESS the exact host name is listed here. The app
+      # registers <APP_URL>/webhooks/openwa/<session>, and inside Docker the public name resolves to Caddy (network alias).
+      SSRF_ALLOWED_HOSTS: ${APP_DOMAIN}
+      RESOLVE_LID_TO_PHONE: "true"
+      AUTO_START_SESSIONS: "true"
+      # HMAC key for stored API-key hashes: set it BEFORE the first start (keys minted without it stay plain SHA-256).
+      API_KEY_PEPPER: ${OPENWA_API_KEY_PEPPER:-}
+      WEBHOOK_SHUTDOWN_DRAIN_MS: "10000"
+    volumes:
+      - openwa-data:/app/data # the WhatsApp login (a QR scan) and the gateway's API keys: back it up (scripts/backup.sh does)
+    networks:
+      - whatsapp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:2785/api/health/ready || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    pids_limit: 512
+    cpus: ${OPENWA_CPUS:-1.0}
+    mem_limit: ${OPENWA_MEM_LIMIT:-1536m}
+    logging: *logging
+
+  # A NATS JetStream server for the pizzasys user/role events (profile `nats`), only if you do not use the one of your auth
+  # portal. Internal only; nothing authenticates to it, so keep it off any shared network.
+  nats:
+    profiles: ["nats"]
+    image: nats:2.11-alpine
+    init: true
+    restart: unless-stopped
+    command: ["-js", "-sd", "/data"]
+    volumes:
+      - nats-data:/data
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+    mem_limit: ${NATS_MEM_LIMIT:-256m}
+
+networks:
+  # Caddy's published side. Nothing else is attached, so nothing else is reachable from the internet.
+  edge: {}
+  # Everything talks here: caddy <-> reverb, app/queue/scheduler/reverb/nats-consumer <-> mysql, redis, nats. No ports are published.
+  internal: {}
+  # Only the services that talk to OpenWA (app, queue, scheduler), Caddy (for the public address) and OpenWA itself. The gateway
+  # needs outbound internet for WhatsApp Web, and it must NOT share a network with MySQL or Redis.
+  whatsapp: {}
+
+volumes:
+  mysql-data: {}
+  redis-data: {}
+  # attachments, installed.lock, install-state.json, the WhatsApp media: MUST persist (see the guide: what happens if it is lost)
+  storage: {}
+  openwa-data: {}
+  caddy-data: {}
+  caddy-config: {}
+  # the php-fpm unix socket shared by `app` and `caddy` (FastCGI has no authentication: no TCP listener)
+  fpm-socket: {}
+  nats-data: {}
