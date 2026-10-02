@@ -13,6 +13,8 @@
  *   web servers      8110-8129 (8120-8129: mode 2)   8230-8249 (P3)   8260-8279 (P4)
  *   customer sites   8240-8247 (P3)                  8280-8289, 8292-8293 (P4; `p4-poll`: 8291 / 8296)
  *   Reverb (P4)      8340-8348, 8350-8351 (`p4-staff`: 8344 / 8348)
+ *   P6 (WhatsApp)    8360-8379: `p6-wa` web 8360 / 8361, customer site 8362 / 8363, Reverb 8364 / 8365, mock OpenWA 8366 / 8367 (desktop / mobile);
+ *                    8368-8379 are free for the next WhatsApp scenarios and for scripts/openwa-record.mjs (its webhook receiver uses 8368) / the mock's own test (8379)
  * P4 layout: a stateful scenario takes web `8260 + n` (desktop) and `8270 + n` (mobile twin), a customer site `8280 + n` / `8285 + n`
  * and Reverb `8340 + n` / `8345 + n`; `p4-chat` is n = 0, `p4-chat-views` n = 2, `p4-chat-views-rtl` n = 3. 8264-8269, 8274-8279,
  * 8284, 8289 and 8344/8348 are free for more P4 scenarios. The deck-screenshot scenario `p4-shots` (n = 6) uses 8266 / 8276, customer
@@ -62,7 +64,9 @@ export type ScenarioName =
     | 'p4-shots'
     // P4 staff side (E2): the inbox, the permission matrices and the realtime resilience specs.
     | 'p4-staff'
-    | 'p4-poll';
+    | 'p4-poll'
+    // P6 (WhatsApp via OpenWA, tested against the stateful mock `e2e/support/openwa-mock.mjs`). Ports 8360-8379.
+    | 'p6-wa';
 
 export type ProjectName = 'desktop' | 'mobile' | 'pizzasys-outage';
 
@@ -83,6 +87,8 @@ type Definition = {
         mobileHostPort?: number;
         /** Scenarios with a Reverb server: the mobile project's own Reverb port. */
         mobileReverbPort?: number;
+        /** Scenarios with a mock OpenWA: the mobile project's own mock port. */
+        mobileOpenWaPort?: number;
     };
     /**
      * Test data created right after the install (see `SEED_P3` in global-setup.ts): `staff` adds the staff accounts and
@@ -103,6 +109,13 @@ type Definition = {
      * `sync` (docs/testing.md, "Realtime and the queue").
      */
     reverbPort?: number;
+    /**
+     * Port of the stateful OpenWA mock (`e2e/support/openwa-mock.mjs`, started by Playwright's `webServer` next to the app). The seed points the
+     * app at it (`whatsapp.openwa.base_url` / `whatsapp.openwa.api_key` settings, `whatsapp.enabled`), so the app's real HTTP client talks to the
+     * mock; the mock delivers its signed webhooks to the app's `/webhooks/openwa/{session}` route. The instance needs `PORTAL_ALLOW_PRIVATE_HOSTS=true`
+     * (loopback address) and `TRUSTED_PROXIES=*`, see `env`.
+     */
+    openWaPort?: number;
     /** Extra environment of the instance's server and artisan calls (after the defaults). */
     env?: Record<string, string>;
     /** Only started when E2E_SCREENSHOTS=1. */
@@ -386,6 +399,27 @@ const DEFINITIONS: Record<ScenarioName, Definition> = {
             mobileHostPort: 8296,
         },
     },
+    // P6: WhatsApp. The `chat` seed (admin, Alice, Bob, categories, the widget "Acme Storefront"), a real Reverb, the customer site, and the OpenWA mock
+    // the app is configured to use. Stateful: its own server (and mock) per project. Everything WhatsApp is admin-only (agents get 403).
+    'p6-wa': {
+        kind: 'installed',
+        port: 8360,
+        dbSuffix: '_p6_wa',
+        mode: 'local',
+        seed: 'chat',
+        hostPort: 8362,
+        reverbPort: 8364,
+        openWaPort: 8366,
+        // PORTAL_ALLOW_PRIVATE_HOSTS: the OpenWA address is a loopback one (the base-URL rule only accepts it with this switch or APP_ENV=local).
+        env: { TRUSTED_PROXIES: '*', PORTAL_ALLOW_PRIVATE_HOSTS: 'true' },
+        perProject: {
+            mobilePort: 8361,
+            mobileDbSuffix: '_p6_wa_mobile',
+            mobileHostPort: 8363,
+            mobileReverbPort: 8365,
+            mobileOpenWaPort: 8367,
+        },
+    },
     // Real wizard runs, in token mode, that the screenshot spec walks through for the deck.
     'shots-desktop': {
         kind: 'fresh',
@@ -422,6 +456,14 @@ export type ReverbServer = {
     secret: string;
 };
 
+export type OpenWaServer = {
+    port: number;
+    /** What the app is configured with (`whatsapp.openwa.base_url`) and what specs drive (`/__mock/*`). */
+    url: string;
+    /** The mock's admin API key (a test value, the app stores it as `whatsapp.openwa.api_key`). */
+    apiKey: string;
+};
+
 export type Instance = {
     /** Unique key; `fresh-local` for desktop, `fresh-local-mobile` for the mobile project. */
     key: string;
@@ -450,6 +492,8 @@ export type Instance = {
     hostUrl: string | null;
     /** The instance's Reverb server (P4), or null: the app then broadcasts to nothing (`BROADCAST_CONNECTION=null`). */
     reverb: ReverbServer | null;
+    /** The instance's OpenWA mock (P6), or null. */
+    openWa: OpenWaServer | null;
     /** Environment shared by the web server and every artisan call made for this instance. */
     env: Record<string, string>;
 };
@@ -462,6 +506,7 @@ function build(
     dbSuffix: string,
     hostPort: number | null = definition.hostPort ?? null,
     reverbPort: number | null = definition.reverbPort ?? null,
+    openWaPort: number | null = definition.openWaPort ?? null,
 ): Instance {
     const url = `http://127.0.0.1:${port}`;
     const dir = `${ROOT}storage/e2e-${key}`;
@@ -548,6 +593,14 @@ function build(
         hostPort,
         hostUrl: hostPort === null ? null : `http://localhost:${hostPort}`,
         reverb,
+        openWa:
+            openWaPort === null
+                ? null
+                : {
+                      port: openWaPort,
+                      url: `http://127.0.0.1:${openWaPort}`,
+                      apiKey: `owa_k1_e2e-mock-key-${openWaPort}`,
+                  },
         env,
     };
 }
@@ -576,6 +629,9 @@ function expand(): Instance[] {
                         null,
                     definition.perProject.mobileReverbPort ??
                         definition.reverbPort ??
+                        null,
+                    definition.perProject.mobileOpenWaPort ??
+                        definition.openWaPort ??
                         null,
                 ),
             );

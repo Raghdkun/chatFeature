@@ -14,6 +14,8 @@
  * - P3: scenarios with a `hostPort` also start a static "customer site" on another origin (e2e/support/host-server.mjs).
  * - P4: scenarios with a `reverbPort` also start a real Reverb server (`php artisan reverb:start`) with the instance's environment,
  *   waited for on its `/up` route; the queue stays `sync` (docs/testing.md, "Realtime and the queue").
+ * - P6: scenarios with an `openWaPort` also start the stateful OpenWA mock (`node e2e/support/openwa-mock.mjs`, waited for on its `/__mock/health`);
+ *   the seed points the app at it (settings `whatsapp.openwa.*`), `e2e/support/openwa.ts` drives it from the specs. Ports 8360-8379.
  * - `E2E_SCREENSHOTS=1` additionally starts the screenshot scenarios and runs
  *   e2e/screenshots/p1.spec.ts, p2.spec.ts and p3.spec.ts (write docs/screenshots/p1|p2|p3/*.png).
  */
@@ -104,6 +106,26 @@ export default defineConfig({
                           env: instance.env,
                           reuseExistingServer: false,
                           timeout: 60_000,
+                          stdout: 'ignore' as const,
+                          stderr: 'ignore' as const,
+                          gracefulShutdown: {
+                              signal: 'SIGTERM' as const,
+                              timeout: 5_000,
+                          },
+                      },
+                  ],
+        ),
+        // The OpenWA mock of the WhatsApp specs (one per instance that has an `openWa`): the app's HTTP client talks to it, and it delivers
+        // its signed webhooks to the app. A short retry back-off keeps the delivery-retry specs fast (the real image waits 5 s, doubling).
+        ...ACTIVE_INSTANCES.flatMap((instance) =>
+            instance.openWa === null
+                ? []
+                : [
+                      {
+                          command: `node e2e/support/openwa-mock.mjs --port=${instance.openWa.port} --key=${instance.openWa.apiKey} --retry-base-ms=300`,
+                          url: `${instance.openWa.url}/__mock/health`,
+                          reuseExistingServer: false,
+                          timeout: 30_000,
                           stdout: 'ignore' as const,
                           stderr: 'ignore' as const,
                           gracefulShutdown: {
