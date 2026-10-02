@@ -1,6 +1,6 @@
 # Realtime
 
-> Status: **implemented in P4 (track 4B)**: channels and their authorisation, the visitor authorisation endpoint, every server event of [contracts/realtime-events.md](contracts/realtime-events.md), failure isolation, the Reverb configuration and the `StaffSessionRevoked` hooks. Presence storage, auto-away and the sweep are documented in "Presence" below (P5, track 5A); push (P5, track 5B) and the WhatsApp admin channel (P6) extend it. Load numbers (about 1k sockets) arrive with the P7 k6 test.
+> Status: **implemented in P4 (track 4B)**: channels and their authorisation, the visitor authorisation endpoint, every server event of [contracts/realtime-events.md](contracts/realtime-events.md), failure isolation, the Reverb configuration and the `StaffSessionRevoked` hooks. Presence storage, auto-away and the sweep are documented in "Presence" below (P5, track 5A); push (P5, track 5B) and the WhatsApp admin channel (P6) extend it. The stale-socket cut-off (P7, track 7C) is described in "Cutting a socket off"; load numbers (about 1k sockets) are in [runbook.md](runbook.md) "Load test results".
 > Contracts: [contracts/realtime-events.md](contracts/realtime-events.md) (channels, events, payloads), [contracts/chat-data-p4.md](contracts/chat-data-p4.md) (domain events and payload classes), [contracts/chat-tracks-p4.md](contracts/chat-tracks-p4.md) (who owns what).
 
 Laravel **Reverb** 1.12 (Pusher protocol, self-hosted) with `laravel-echo` / `pusher-js` on the clients. The **widget opens no websocket until the visitor starts a chat.** Realtime is an add-on to REST: every event also exists as a REST read, clients resync with `GET …/messages?after_seq=N`, and **nothing in the HTTP request that stores a message depends on Reverb being up**.
@@ -26,7 +26,7 @@ flowchart LR
 
 ## Channels and who may join
 
-`routes/channels.php` + `App\Domain\Chat\Realtime\Channels\*`. A channel without an entry is refused: there is no default allow. A client must ask for the right kind (`private-` / `presence-`); the other kind of the same name is refused (`presence-conversation.{ulid}`, `private-staff`, ...).
+`routes/channels.php` + `App\Domain\Chat\Realtime\Channels\*`. A channel without an entry is refused: there is no default allow. A client must ask for the right kind (`private-` / `presence-`); the other kind of the same name is refused (`presence-conversation.{ulid}`, `private-staff`, ...). **Every private subscription is signed together with the principal's socket tag** (`channel_data` = `{"user_id": "<tag>"}`, see "Cutting a socket off"): `pusher-js` forwards it untouched, a client cannot drop or change it (the signature covers it).
 
 | Channel | Who | Rule |
 |---|---|---|
@@ -48,7 +48,7 @@ Laravel's standard route in the `web` group, so the session cookie goes through 
 
 | Case | Answer |
 |---|---|
-| valid | `200 {"auth": "key:signature"}` (signed by the configured broadcaster; `Cache-Control: no-store`, no `Set-Cookie`) |
+| valid | `200 {"auth": "key:signature", "channel_data": "{\"user_id\":\"v_…\"}"}` (signed by the configured broadcaster together with the session's socket tag; `Cache-Control: no-store`, no `Set-Cookie`). The first valid answer for a session also stamps `visitor_sessions.socket_authorized_at` |
 | missing / malformed `socket_id` or `channel_name` | `422 validation_failed` |
 | another visitor's conversation, another session's, an unknown ulid, any other channel or spelling | `403 channel_forbidden` (never `404`: a Pusher client treats any non-200 as a refusal) |
 | no / unknown token | `401 unauthenticated`; revoked or expired session: `401 session_revoked` |
@@ -140,6 +140,7 @@ Tests: `tests/Feature/Realtime/RealtimeFailureIsolationTest.php`.
 | `REVERB_SCALING_ENABLED`, `REVERB_SCALING_CHANNEL` | `false`, `reverb` | Redis pub/sub between several Reverb instances (uses `REDIS_*`) |
 | `REALTIME_QUEUE` | none | Queue of the queued broadcasts |
 | `REALTIME_AUTH_PER_TOKEN`, `REALTIME_AUTH_PER_NETWORK` | `30`, `120` | Visitor auth attempts a minute |
+| `REALTIME_TAG_PRIVATE_CHANNELS` | `true` | Sign the socket tag into private subscriptions (the stale-socket cut-off, see below). Off only for a client library that drops `channel_data` on private channels |
 
 `VITE_REVERB_*` mirror `REVERB_HOST` / `PORT` / `SCHEME` for the dashboard's Echo (set in the example file).
 
@@ -149,6 +150,8 @@ Tests: `tests/Feature/Realtime/RealtimeFailureIsolationTest.php`.
 php artisan reverb:start --host=127.0.0.1 --port=8312     # the websocket server (dev runner: `php artisan dev` starts it with the config values)
 php artisan queue:work            # (or queue:listen) the worker for the queued broadcasts; QUEUE_CONNECTION=sync runs them inline
 node e2e/support/realtime-smoke.mjs                      # the real-socket smoke test, see below
+node e2e/support/realtime-cutoff-smoke.mjs               # the stale-socket cut-off against a real Reverb (P7)
+php artisan chat:realtime-sweep                          # the cut-off's follow-ups, retries and visitor-token expiry (scheduled every minute)
 ```
 
 - **Tests** never open a socket: `phpunit.xml` uses `BROADCAST_CONNECTION=null` and `QUEUE_CONNECTION=sync`; feature tests record what would be published with `Tests\Support\InteractsWithRealtime::recordBroadcasts()` (the whole pipeline runs for real, up to the broadcaster).
@@ -167,7 +170,7 @@ node e2e/support/realtime-smoke.mjs                      # the real-socket smoke
 | `ExternalSessionStore::revoke` (every portal session revocation) | `deactivated` for `deactivated`; `auth_revoked` for every other reason except `logout`, `expired`, `no_chat_access` and `upstream_deleted` (silent here, see the other rows) |
 | `ExternalIdentityInvalidator::deactivateExternalId` (NATS `user.deleted`) | `deactivated`, once per identity even when no session is open |
 
-A mode 1 deactivation seen by `EnsureSessionIsValid` needs no hook of its own: it already went through `UpdateAgent`. The event is delivered to **all** open tabs of that person (the payload names no session), so a client that gets it checks with REST (`401` means signed out) before dropping everything.
+A mode 1 deactivation seen by `EnsureSessionIsValid` needs no hook of its own: it already went through `UpdateAgent`. The event is delivered to **all** open tabs of that person (the payload names no session), so a client that gets it checks with REST (`401` means signed out) before dropping everything. Since P7 the same hooks also CLOSE that person's sockets right after the frame was published ("Cutting a socket off"): a client that never hears the frame still finds out through its failed reconnect and the `401` of its next REST call.
 
 ## Presence (P5, track 5A)
 
@@ -207,11 +210,47 @@ Time alone changes an agent's status (silence, auto-away), so the scheduler re-e
 
 The host sends `visible` with every beat and, after a gap longer than 90 s (a sleeping laptop, a long hidden tab, suspended timers), re-reads `GET /me/presence` once the beat is out, so the selector never keeps saying "Online" for an agent the server already considers offline (the events sent while the socket was down are not replayed). `presence.changed` for anybody is also remembered in the staff store (`seenPresence`, with the time it was heard): the agents page uses it for its status dots and its "N online" figure, whether or not the person is on the roster. With no websocket (polling mode) the dots and the agent's own selector follow the next page load.
 
+## Cutting a socket off (P7, track 7C)
+
+Authorisation happens when a client SUBSCRIBES, so before P7 an open socket kept receiving after its right ended (a deactivated or demoted staff member, an agent a chat was taken from, a visitor whose token was revoked, rotated or expired). Now the server closes the socket: the client reconnects, authorises again against the CURRENT state and is refused what it lost. Proven with real sockets by `node e2e/support/realtime-cutoff-smoke.mjs` (11 checks against a real Reverb and `pusher-js`) and pinned by `tests/Feature/Realtime/SocketCutOffTest.php` / `ReverbSocketTerminatorTest.php`.
+
+**Why this design.** Reverb 1.12 has exactly one supported control surface for closing sockets: the Pusher HTTP call `POST /apps/{id}/users/{userId}/terminate_connections`, which closes every connection whose subscription carried `user_id = {userId}` in its signed `channel_data` (Reverb has no `pusher:signin`, so `channel_data` is the only way a connection gets a `user_id`; with several Reverb instances the call is fanned out over Redis). Per-recipient channel names were rejected: the conversation channel is shared by the visitor and the agent because the `client-typing` whisper only travels inside one channel, and a name per recipient would also need a database read on every publish.
+
+**The tag (`SocketTags`).** Channel authorisation signs a tag into every PRIVATE subscription (`RedactedReverbBroadcaster::validAuthenticationResponse`; a private channel for which no principal can be named is not signed at all):
+
+| Principal | Tag | Where |
+|---|---|---|
+| a staff member | `s_` + 24 hex (an HMAC of the user id under `APP_KEY`) | every private channel (`staff.{id}`, `admin`, `whatsapp-admin`, `conversation.{ulid}`, `App.Models.User.{id}`) |
+| the roster | the plain user id (Laravel's broadcast identifier) | `presence-staff` |
+| a visitor session (one bearer token) | `v_` + 24 hex (an HMAC of the session id) | `private-conversation.{ulid}` |
+
+The tag is an HMAC because Reverb re-broadcasts a whisper WITH the sender's `user_id`: a visitor must not learn an agent's integer id, nor an agent a visitor's session id, from the frames of a conversation channel. A staff member's sockets carry the opaque tag or the plain id (Reverb reads the first subscription that has one), so a cut terminates both. `broadcasting.realtime.tag_private_channels` (`REALTIME_TAG_PRIVATE_CHANNELS`, default on) switches the tagging off for a client library that drops `channel_data` on private channels (the subscription is refused then); without it the visitor cut-off and the staff cut-off of sockets that do not join `presence-staff` are gone.
+
+**What cuts (`SocketCutOff`).**
+
+| Trigger | Who is cut | Where |
+|---|---|---|
+| a staff account is deactivated, loses `is_admin` or `is_agent`, or is deleted | every socket of that member | Eloquent hooks on `User` in `RealtimeServiceProvider`, after the transaction commits, whichever path made the change (agents API, mode 2 role resolver, NATS, console) |
+| `StaffSessionRevoked` (mode 2 portal revocation, `auth_revoked`) | that member | `SocketCutOffSubscriber`, registered after `ChatEventSubscriber`: `session.revoked` is published first, then the sockets are closed (the smoke test sees the frame arrive before the close) |
+| a staff member signs out | that member's sockets (every tab and device; the others reconnect) | `Logout` listener |
+| a conversation is transferred, assigned, claimed by somebody else, or handed back to the queue | agents that hold a **grant** for it and no longer pass `ConversationPolicy::viewAsStaff()` | `ConversationGrants::revalidate()` on `ConversationQueued/Claimed/Assigned/Transferred` |
+| a visitor token is revoked (`DELETE /public/sessions`, a chat moved to a newer token) or rotated | the sockets of that token | `VisitorSessionsEnded`, after commit |
+| a visitor token expires | the sockets of that token | `chat:realtime-sweep` (columns `visitor_sessions.socket_authorized_at` / `sockets_cut_at`: only sessions that were ever handed a signed subscription are looked at, once each) |
+
+A **grant** (`realtime_grants`) is written when `POST /broadcasting/auth` signs an agent's subscription to a conversation channel (administrators are not recorded: their access follows the role, which has its own cut). It means "this member's sockets MAY be subscribed", so a transfer costs an agent who never opened the chat nothing, and an agent who did gets one reconnect (their other channels come straight back). Rows live `chat.realtime.grant_ttl_days` (14) after the last grant and are dropped when the access is judged lost.
+
+**Reliability.** `SocketCutOff` never throws: Reverb being unreachable is reported and the tag is parked in `socket_cutoffs` for `chat:realtime-sweep` to retry (5 s, 15 s, 1 min, 3 min, 10 min, then given up and reported). Every cut is also repeated `SocketCutOff::FOLLOW_UP_SECONDS` (20 s) later, which closes the window between "the authorisation was granted" and "the subscription frame arrived" (a client that authorised just before the change subscribes a few milliseconds AFTER the first call). The sweep also judges again the grants of conversations that changed in the last 10 minutes (a lost or failed event only delays the cut) and prunes old grants. **The scheduler must run** (`chat:realtime-sweep` every minute, `withoutOverlapping` + `onOneServer`): without it the follow-ups, retries and the natural expiry of visitor tokens are not done (the immediate cuts still are).
+
+**What the legitimate client sees.** Its socket drops, pusher-js reconnects within about a second and re-subscribes every channel through the normal authorisation endpoint: the ones it may still have come back, the ones it lost answer `403` (staff) or `401`/`403` (visitor; the panel's `onAuthFailure` path), and the client resyncs over REST (`after_seq`) like after any drop. Measured end to end with the smoke test (PHP change to the client noticing the loss, localhost): about 1 to 1.5 s, most of it pusher-js' own reconnect delay.
+
+**Residual limits.**
+- A pre-signed subscription: a staff member who anticipates losing access can ask `/broadcasting/auth` for signatures for their own open socket and send the `pusher:subscribe` frame LATER; the signature has no expiry (Reverb verifies only the HMAC), the socket carries no tag until it subscribes, so the cut that happened in between did not see it and the follow-up (20 s) only covers a short delay. A hard cut-off for that case is `php artisan reverb:restart` (every client reconnects and authorises again).
+- A cut asks Reverb through the same signed internal API as a publish: if the application cannot reach Reverb at all, sockets that Reverb still holds stay until the retries get through (realistically Reverb being down means there are no sockets).
+- Native Pusher SDKs that do not forward `channel_data` for private channels cannot subscribe (see the switch above); `pusher-js` and Echo do. Mobile bearer clients that sign out without the web `Logout` event (a deleted Sanctum token) are cut only by the account-level triggers; call `SocketCutOff::cutStaff($userId, 'token_revoked')` from a token-revocation endpoint if one is added.
+- Agents who lost an OFFER (not an assignment) keep a conversation channel only if they previewed the chat; they are cut when another agent claims it (they hold a grant), never otherwise.
+
 ## Known limits
 
-- **A socket cannot be closed from the server.** Authorisation happens when a client subscribes. A staff member who is deactivated or demoted keeps an already open socket until it disconnects: the legitimate client drops it on `session.revoked`, events addressed to them are filtered (`ActiveStaff`), but `private-conversation.{ulid}` / `private-admin` events are published to the channel, not to the person. Likewise an agent a chat was transferred away from stays subscribed to its conversation channel (visitor-safe payloads only) until their client unsubscribes. A hard cut-off is `php artisan reverb:restart` (every client reconnects and re-authorises).
-- **`private-whatsapp-admin` has the same limit.** An administrator who is demoted or deactivated keeps receiving the WhatsApp events (messages, chats, session status) on an already open socket until it closes: authorisation happens at subscribe time, exactly as for `private-admin` and the conversation channels above, and the events are published to the channel, not to the person. Not changed in the P5/P6 fix round: a Reverb control-API / per-user-channel design is scheduled for P7. A hard cut-off is `php artisan reverb:restart`.
-- **A visitor's socket outlives its token.** Authorisation happens at subscribe time. When a visitor token is rotated (the previous one lives 60 more seconds), revoked (`DELETE /public/sessions`) or expires, a websocket that is already subscribed to `private-conversation.{ulid}` keeps receiving that conversation's visitor-safe events until it disconnects (and a revoked token cannot subscribe again). The legitimate panel reconnects with the new token; a stolen token's socket is the one that lingers, and what it sees is exactly what the visitor saw. Not changed in this round (the channel scheme stays); closing visitor sockets on revocation, or binding channels to the session, is P7. A hard cut-off is `php artisan reverb:restart`.
 - Only the visitor-safe `MessageData` goes over the shared conversation channel; staff-only message fields (the agent's user id) are available over REST only.
 - Offer, claim and rating rules live in REST (4A); realtime only announces them.
 
@@ -220,7 +259,7 @@ The host sends `visible` with every beat and, after a gap longer than 90 s (a sl
 - Redis scaling for several Reverb instances (`REVERB_SCALING_ENABLED=true`); install `ext-uv`; raise the `nofile` ulimit of the Reverb container.
 - No socket until a chat starts keeps idle visitors off Reverb; a visitor holds one socket for the length of the chat.
 - The queue-count job reads one count per staff member (`Conversation::visibleTo`); fine for tens of agents, revisit with the P7 load test.
-- k6 test of about 1k concurrent sockets is planned in P7; results go to [runbook.md](runbook.md).
+- The load test of about 1k concurrent sockets and its numbers are in [runbook.md](runbook.md) "Load test results".
 - See [architecture.md](architecture.md) for the end-to-end flow.
 
 ## Sequence, sync, reconnect
