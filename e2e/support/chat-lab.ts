@@ -77,9 +77,21 @@ const suffix = (): string => Math.random().toString(36).slice(2, 6);
 const CATEGORY_NAMES = ['Billing', 'Sales', 'Technical support'];
 const AGENT_NAMES = ['Alice Carter', 'Bob Mitchell', 'Carla Duarte'];
 
-function phone(testInfo: TestInfo, device: 'project' | 'desktop' | undefined) {
+function phone(
+    testInfo: TestInfo,
+    device: 'project' | 'desktop' | 'phone' | undefined,
+) {
     if (device === 'desktop') {
         return { viewport: { width: 1280, height: 800 } };
+    }
+
+    if (device === 'phone') {
+        return {
+            viewport: { width: 375, height: 812 },
+            deviceScaleFactor: 2,
+            isMobile: true,
+            hasTouch: true,
+        };
     }
 
     const use = testInfo.project.use;
@@ -781,7 +793,7 @@ type Described = {
  * (what was found: after the first scan, a click below about 760 px of an 839 px screen never arrives). Legacy mode needs no second page;
  * its restriction (cross-origin frames are not entered) is why the visitor panel's iframe is analysed as a document of its own.
  */
-async function runAxe(
+export async function runAxe(
     target: Page | Frame,
     scope: { include?: string; exclude?: string } = {},
 ): Promise<{
@@ -838,7 +850,7 @@ async function runAxe(
     };
 }
 
-async function reportAxe(
+export async function reportAxe(
     testInfo: TestInfo,
     label: string,
     found: Awaited<ReturnType<typeof runAxe>>,

@@ -5,11 +5,13 @@ namespace Tests\Feature\Notifications;
 use App\Models\PushSubscription;
 use App\Models\User;
 use Illuminate\Auth\Events\Logout;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
+use PDOException;
 use Tests\Support\InteractsWithWebPush;
 use Tests\Support\WidgetFixtures;
 use Tests\TestCase;
@@ -73,6 +75,32 @@ class PushSubscriptionApiTest extends TestCase
         $this->assertSame($this->agent->id, $row->user_id);
         $this->assertSame($body['endpoint'], $row->endpoint);
         $this->assertSame($body['keys']['p256dh'], $row->p256dh);
+    }
+
+    public function test_a_deadlock_victim_registering_for_the_first_time_runs_again_instead_of_answering_500(): void
+    {
+        $thrown = 0;
+
+        // Two browsers registering at once lock the same gap of the unique `endpoint_hash` index and one INSERT is chosen as the
+        // deadlock victim (MySQL 1213, found by the e2e suite): the registration must run again, not become a 500.
+        DB::beforeExecuting(function (string $query) use (&$thrown): void {
+            if ($thrown < 2 && str_starts_with($query, 'insert into "push_subscriptions"')) {
+                $thrown++;
+
+                $previous = new PDOException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock; try restarting transaction');
+                $previous->errorInfo = ['40001', 1213, 'Deadlock found when trying to get lock; try restarting transaction'];
+
+                $exception = new QueryException('mysql', $query, [], $previous);
+                $exception->errorInfo = $previous->errorInfo;
+
+                throw $exception;
+            }
+        });
+
+        $this->register($this->browserSubscription())->assertCreated();
+
+        $this->assertSame(2, $thrown);
+        $this->assertSame(1, PushSubscription::query()->count());
     }
 
     public function test_the_keys_are_encrypted_at_rest(): void

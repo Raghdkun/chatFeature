@@ -18,6 +18,7 @@ final class RegisterDeviceToken
     {
         for ($attempt = 1; ; $attempt++) {
             try {
+                // The same first-registration deadlock as a push subscription (a SELECT ... FOR UPDATE on a row that does not exist yet): run again.
                 return DeadlockRetry::transaction(fn (): DeviceToken => $this->upsert($user, $platform, $token));
             } catch (UniqueConstraintViolationException $exception) {
                 if ($attempt >= 2) {

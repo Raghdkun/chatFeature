@@ -16,9 +16,11 @@ use App\Domain\Presence\Stores\DatabasePresenceStore;
 use App\Domain\Presence\Stores\FailoverPresenceStore;
 use App\Domain\Presence\Stores\RedisPresenceStore;
 use App\Domain\Widgets\Contracts\PresenceReader;
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Redis\Factory as RedisFactory;
 use Illuminate\Support\ServiceProvider;
+use Throwable;
 
 /**
  * Agent presence and availability (P4 minimal, P5: Redis store, auto-away, sweep).
@@ -70,6 +72,20 @@ class PresenceServiceProvider extends ServiceProvider
             ),
             $database,
             max(0, (int) config('presence.failure_cooldown_seconds', 15)),
+            $this->cooldownCache($app),
         );
+    }
+
+    /**
+     * Where the failure cooldown is remembered across requests (every request boots a fresh application): a cache store that does not
+     * need Redis, since Redis is what is down. `null` when that store cannot be built.
+     */
+    private function cooldownCache(Application $app): ?CacheRepository
+    {
+        try {
+            return $app->make('cache')->store((string) config('presence.failure_store', 'file'));
+        } catch (Throwable) {
+            return null;
+        }
     }
 }

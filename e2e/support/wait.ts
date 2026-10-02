@@ -12,6 +12,8 @@ export type EventuallyOptions = {
     message?: string;
     /** Pauses between two reads; the last one repeats (default 100, 250, 500, 1000 ms). */
     intervals?: number[];
+    /** An error of this class thrown by `read` / `until` ends the wait at once and is rethrown as it is (a verdict, not a failed read). */
+    stopOn?: new (...args: never[]) => Error;
 };
 
 /**
@@ -39,6 +41,10 @@ export async function expectEventually<T>(
                 return last;
             }
         } catch (error) {
+            if (options.stopOn && error instanceof options.stopOn) {
+                throw error;
+            }
+
             failure = error;
         }
 

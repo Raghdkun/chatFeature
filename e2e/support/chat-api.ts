@@ -89,10 +89,24 @@ export class StaffApi {
     constructor(readonly api: Api) {}
 
     presence = () => this.api.get('/api/v1/me/presence');
-    /** `PUT /me/presence`: `online` / `away` also count as a heartbeat; `offline` is explicit. */
-    setPresence = (status: PresenceStatus) =>
-        this.api.put('/api/v1/me/presence', { status });
-    heartbeat = () => this.api.post('/api/v1/me/presence/heartbeat');
+    /**
+     * `PUT /me/presence`: `online` / `away` also count as a heartbeat; `offline` is explicit. Without `automatic` the status is PINNED (P5:
+     * heartbeats never move it); `automatic: true` (only for `online`, what the dashboard's selector sends) hands it back to the dashboard.
+     */
+    setPresence = (
+        status: PresenceStatus,
+        options: { automatic?: boolean } = {},
+    ) =>
+        this.api.put(
+            '/api/v1/me/presence',
+            options.automatic ? { status, automatic: true } : { status },
+        );
+    /** `POST /me/presence/heartbeat`; `visible` is whether the beating tab is in the foreground (default: said nothing, which counts as visible). */
+    heartbeat = (visible?: boolean) =>
+        this.api.post(
+            '/api/v1/me/presence/heartbeat',
+            visible === undefined ? undefined : { visible },
+        );
 
     /** `GET /conversations` (filters: `status`, `category`, `widget`, `agent`, `type`, `q`, `from`, `to`, `limit`, ...). */
     conversations = (query: Record<string, string | number> = {}) =>

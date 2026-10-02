@@ -9,7 +9,9 @@ use App\Domain\Presence\Stores\DatabasePresenceStore;
 use App\Domain\Presence\Stores\FailoverPresenceStore;
 use App\Models\User;
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Tests\Support\FlakyPresenceStore;
@@ -95,5 +97,53 @@ class PresenceFailoverTest extends TestCase
         $store->find(1, now());
 
         $this->assertSame(2, $primary->calls);
+    }
+
+    public function test_the_cooldown_outlives_the_object_because_every_request_boots_a_new_application(): void
+    {
+        Log::spy();
+        $this->travelTo(CarbonImmutable::parse('2026-10-01 12:00:00', 'UTC'));
+        $shared = Cache::store('array');
+        $user = User::factory()->agent()->create();
+
+        // Request one finds Redis down: one warning, and the cooldown is written where the next request can read it.
+        $first = FlakyPresenceStore::down($this->database());
+        (new FailoverPresenceStore($first, $this->database(), 15, $shared))->find($user->id, now());
+
+        // Requests two and three are new objects (a new application each, as under PHP-FPM): they never ask Redis, and say nothing.
+        $second = FlakyPresenceStore::down($this->database());
+        $third = FlakyPresenceStore::down($this->database());
+        (new FailoverPresenceStore($second, $this->database(), 15, $shared))->find($user->id, now());
+        $this->travel(10)->seconds();
+        (new FailoverPresenceStore($third, $this->database(), 15, $shared))->beat($user->id, true, now());
+
+        $this->assertSame(1, $first->calls);
+        $this->assertSame(0, $second->calls, 'a new request does not ask a Redis that failed 0 s ago');
+        $this->assertSame(0, $third->calls, 'nor 10 s later');
+        Log::shouldHaveReceived('warning')->once();
+
+        // After the cooldown the next request tries Redis again (and warns again, once).
+        $this->travel(6)->seconds();
+        $fourth = FlakyPresenceStore::down($this->database());
+        (new FailoverPresenceStore($fourth, $this->database(), 15, $shared))->find($user->id, now());
+
+        $this->assertSame(1, $fourth->calls);
+        Log::shouldHaveReceived('warning')->twice();
+    }
+
+    public function test_a_shared_cache_that_cannot_be_reached_only_costs_the_cooldown(): void
+    {
+        Log::spy();
+        $broken = \Mockery::mock(Repository::class);
+        $broken->shouldReceive('get')->andThrow(new RuntimeException('cache is down'));
+        $broken->shouldReceive('put')->andThrow(new RuntimeException('cache is down'));
+        $primary = FlakyPresenceStore::down($this->database());
+        $store = new FailoverPresenceStore($primary, $this->database(), 15, $broken);
+        $user = User::factory()->agent()->create();
+
+        $store->find($user->id, now());
+        $store->find($user->id, now());
+
+        $this->assertSame(1, $primary->calls, 'the in-memory cooldown still applies to this object');
     }
 }

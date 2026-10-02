@@ -12,7 +12,6 @@ use App\Models\AgentPresence;
 use App\Support\Database\DeadlockRetry;
 use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Presence kept in the `agent_presence` table itself (the P4 behaviour): every heartbeat is one UPDATE of the user's row, locked for the
@@ -87,7 +86,7 @@ final class DatabasePresenceStore implements PresenceStore
 
     public function reconcile(int $userId, CarbonInterface $now): PresenceTransition
     {
-        return DB::transaction(function () use ($userId, $now): PresenceTransition {
+        return DeadlockRetry::transaction(function () use ($userId, $now): PresenceTransition {
             $row = AgentPresence::query()->where('user_id', $userId)->lockForUpdate()->first();
 
             if ($row === null) {
@@ -124,6 +123,9 @@ final class DatabasePresenceStore implements PresenceStore
     }
 
     /**
+     * A first write for a user locks the (missing) row's gap and then inserts into it, so two agents going online at the same moment
+     * can pick each other as the deadlock victim (MySQL 1213): the transaction is run again, it never fails the request.
+     *
      * @param  callable(AgentPresence): void  $change
      */
     private function write(int $userId, CarbonInterface $now, bool $create, callable $change): PresenceTransition

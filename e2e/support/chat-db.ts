@@ -18,7 +18,8 @@ export type Sweep =
     | 'chat:close-idle'
     | 'chat:close-unrated'
     | 'chat:offer-waves'
-    | 'chat:prune-visitor-sessions';
+    | 'chat:prune-visitor-sessions'
+    | 'chat:presence-sweep';
 
 /** Any artisan command against the instance (its database, storage and Reverb environment); returns stdout. */
 export const runArtisan = (
