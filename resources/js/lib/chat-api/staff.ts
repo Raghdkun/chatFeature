@@ -53,6 +53,13 @@ export const staffRoutes = {
         presence: () => `${API}/me/presence`,
         heartbeat: () => `${API}/me/presence/heartbeat`,
     },
+    /**
+     * The one page request a staff session sends from the background: `GET /session/keepalive` (204) extends the session lifetime, which
+     * the management API does not (it never writes the session).
+     */
+    session: {
+        keepAlive: () => '/session/keepalive',
+    },
     /** Pusher auth for the private / presence channels (standard Laravel route). */
     broadcastingAuth: () => '/broadcasting/auth',
 } as const;
@@ -371,6 +378,9 @@ export function createStaffApi(client: ApiClient = api) {
             client.put<PresenceData>(staffRoutes.api.presence(), { status }),
 
         heartbeat: () => client.post<null>(staffRoutes.api.heartbeat()),
+
+        /** `GET /session/keepalive`: `null` on 204; a `401` means the session is over. */
+        keepAlive: () => client.get<null>(staffRoutes.session.keepAlive()),
     };
 }
 

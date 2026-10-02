@@ -398,6 +398,56 @@ describe('lifecycle', () => {
         );
     });
 
+    it('keeps the session alive when a tab that was hidden for a long time comes back, and not after a short absence', async () => {
+        let clock = Date.now();
+
+        await render(
+            <StaffRealtimeHost
+                initialPage={page(staffUser)}
+                sockets
+                sound={fakeSound()}
+                now={() => clock}
+            >
+                <Probe />
+            </StaffRealtimeHost>,
+        );
+        await waitFor(() =>
+            expect(
+                backend.current.calls('GET', '/api/v1/conversations/queue')
+                    .length,
+            ).toBeGreaterThanOrEqual(1),
+        );
+
+        const setVisibility = async (state: 'hidden' | 'visible') => {
+            Object.defineProperty(document, 'visibilityState', {
+                value: state,
+                configurable: true,
+            });
+            await act(async () =>
+                document.dispatchEvent(new Event('visibilitychange')),
+            );
+        };
+        const queueReads = () =>
+            backend.current.calls('GET', '/api/v1/conversations/queue').length;
+        const keepAlives = () =>
+            backend.current.calls('GET', '/session/keepalive').length;
+
+        await setVisibility('hidden');
+        clock += 60_000;
+        const before = queueReads();
+        await setVisibility('visible');
+        // The lists are re-read at once, the session is not touched after a minute away.
+        await waitFor(() => expect(queueReads()).toBe(before + 1));
+        expect(keepAlives()).toBe(0);
+
+        await setVisibility('hidden');
+        clock += 11 * 60_000;
+        await setVisibility('visible');
+        await waitFor(() => expect(keepAlives()).toBe(1));
+
+        await setVisibility('visible');
+    });
+
     it('takes the first snapshot over REST on a page that did not bring one', async () => {
         const waiting = makeConversationStaff();
         const mine = makeActiveConversationStaff({

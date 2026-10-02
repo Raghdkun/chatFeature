@@ -142,6 +142,8 @@ export type StaffSessionOptions = {
     api?: StaffApi;
     effects?: Partial<StaffEffects>;
     initial?: Partial<InboxState>;
+    /** The clock of the controller (tests). */
+    now?: () => number;
 };
 
 /** Build the store, the controller and the "which chat is open" switch for one signed-in member of staff. */
@@ -159,6 +161,7 @@ export function createStaffSession(
     const controller = createStaffController({
         store,
         api: options.api ?? staffApi,
+        now: options.now,
         viewer,
         t: options.translate,
         isViewing: (ulid) =>
@@ -210,6 +213,7 @@ export type StaffRealtimeHostProps = {
     api?: StaffApi;
     effects?: Partial<StaffEffects>;
     initial?: Partial<InboxState>;
+    now?: () => number;
 };
 
 export function StaffRealtimeHost({
@@ -223,6 +227,7 @@ export function StaffRealtimeHost({
     api,
     effects,
     initial,
+    now,
 }: StaffRealtimeHostProps) {
     const [identity, setIdentity] = useState(() => identityOf(initialPage));
 
@@ -273,6 +278,7 @@ export function StaffRealtimeHost({
                       api,
                       effects,
                       initial,
+                      now,
                   }),
         // The session is rebuilt only when somebody else signs in; callers pass stable doubles.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -293,6 +299,8 @@ export function StaffRealtimeHost({
         const wake = (): void => {
             if (document.visibilityState === 'visible') {
                 session.controller.wake();
+            } else {
+                session.controller.sleep();
             }
         };
 
