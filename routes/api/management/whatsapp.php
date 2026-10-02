@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Api\V1\Management\WhatsAppChatController;
+use App\Http\Controllers\Api\V1\Management\WhatsAppMessageController;
 use App\Http\Controllers\Api\V1\Management\WhatsAppSessionControlController;
 use App\Http\Controllers\Api\V1\Management\WhatsAppSessionController;
 use App\Http\Controllers\Api\V1\Management\WhatsAppSettingsController;
@@ -31,4 +33,15 @@ Route::middleware(['auth:sanctum', 'session.valid', 'chat.access', 'wa.admin', C
     Route::get('settings', [WhatsAppSettingsController::class, 'show'])->name('api.whatsapp.settings.show');
     Route::put('settings', [WhatsAppSettingsController::class, 'update'])->name('api.whatsapp.settings.update');
     Route::post('settings/test', [WhatsAppSettingsController::class, 'test'])->middleware(ChatThrottle::class.':wa-test')->name('api.whatsapp.settings.test');
+
+    Route::get('chats', [WhatsAppChatController::class, 'index'])->name('api.whatsapp.chats.index');
+
+    Route::prefix('chats/{chat}')->whereUlid('chat')->group(function () {
+        Route::get('/', [WhatsAppChatController::class, 'show'])->name('api.whatsapp.chats.show');
+        Route::get('messages', [WhatsAppMessageController::class, 'index'])->name('api.whatsapp.chats.messages.index');
+        Route::post('messages', [WhatsAppMessageController::class, 'store'])->name('api.whatsapp.chats.messages.store');
+        Route::post('read', [WhatsAppChatController::class, 'read'])->name('api.whatsapp.chats.read');
+        Route::post('archive', [WhatsAppChatController::class, 'archive'])->name('api.whatsapp.chats.archive');
+        Route::post('unarchive', [WhatsAppChatController::class, 'unarchive'])->name('api.whatsapp.chats.unarchive');
+    });
 });

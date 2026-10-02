@@ -4,7 +4,10 @@ namespace App\Providers;
 
 use App\Domain\WhatsApp\Contracts\OpenWaClient;
 use App\Domain\WhatsApp\Contracts\WaMediaUrls;
+use App\Domain\WhatsApp\Events\WaSessionStatusChanged;
 use App\Domain\WhatsApp\Policies\WhatsAppPolicy;
+use App\Domain\WhatsApp\Realtime\RefreshWidgetAvailability;
+use App\Domain\WhatsApp\Realtime\WhatsAppEventSubscriber;
 use App\Domain\WhatsApp\Support\SignedWaMediaUrls;
 use App\Domain\Widgets\Support\ClientNetwork;
 use App\Infrastructure\OpenWa\OpenWaHttpClient;
@@ -13,6 +16,7 @@ use App\Models\WaMessage;
 use App\Models\WhatsAppSession;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -38,6 +42,10 @@ class WhatsAppServiceProvider extends ServiceProvider
         foreach ([WaChat::class, WaMessage::class, WhatsAppSession::class] as $model) {
             Gate::policy($model, WhatsAppPolicy::class);
         }
+
+        // Admin-only realtime (`private-whatsapp-admin`) and the widgets' availability cache follow the domain events.
+        Event::subscribe(WhatsAppEventSubscriber::class);
+        Event::listen(WaSessionStatusChanged::class, RefreshWidgetAvailability::class);
 
         $this->configureRateLimiting();
     }
