@@ -31,6 +31,8 @@ class PushDispatcherTest extends TestCase
         parent::setUp();
 
         $this->useVapid();
+        // The retry tests need a queue that can delay a job (on `sync` no retry is scheduled, see test_nothing_is_retried_on_the_sync_queue).
+        config(['queue.default' => 'database']);
         $this->agent = User::factory()->agent()->create();
     }
 
@@ -39,9 +41,12 @@ class PushDispatcherTest extends TestCase
         return new PushMessage(PushType::Offer, 'offer-01JTAG', 'New chat request', 'Billing', '/inbox/01JTAG', $ttl, 'high');
     }
 
+    /** A message push (not an offer: an offer is dropped when its chat is not waiting any more, which these tests do not set up). */
     private function job(?array $targets = null, int $attempt = 1, ?int $queuedAt = null, int $ttl = 90): SendPushToUser
     {
-        return new SendPushToUser($this->agent->id, $this->message($ttl)->toArray(), $queuedAt ?? now()->getTimestamp(), $targets, $attempt);
+        $message = new PushMessage(PushType::Message, 'chat-01JTAG', 'New message', 'Hello', '/inbox/01JTAG', $ttl, 'normal');
+
+        return new SendPushToUser($this->agent->id, $message->toArray(), $queuedAt ?? now()->getTimestamp(), $targets, $attempt);
     }
 
     public function test_it_queues_one_job_per_user_with_the_message_and_the_time_it_was_queued(): void
@@ -183,7 +188,7 @@ class PushDispatcherTest extends TestCase
                 return true;
             }
 
-            public function deliver(int $userId, PushMessage $message, ?array $targetIds = null, ?int $timeoutSeconds = null): PushResult
+            public function deliver(int $userId, PushMessage $message, ?array $targetIds = null, ?int $timeoutSeconds = null, ?int $deadlineSeconds = null): PushResult
             {
                 throw new RuntimeException('channel exploded');
             }
@@ -192,6 +197,19 @@ class PushDispatcherTest extends TestCase
         $this->job()->handle(new PushDispatcher([$exploding]));
 
         $this->assertTrue(true);
+    }
+
+    public function test_nothing_is_retried_on_the_sync_queue(): void
+    {
+        config(['queue.default' => 'sync']);
+        $this->subscribe($this->agent);
+        $this->fakePushService(503);
+        Bus::fake([SendPushToUser::class]);
+
+        $this->job()->handle(app(PushDispatcher::class));
+
+        Bus::assertNotDispatched(SendPushToUser::class);
+        $this->assertCount(1, $this->pushRequests(), 'one attempt, not a nested loop of retries');
     }
 
     public function test_the_job_does_not_retry_by_itself_in_the_queue(): void
@@ -215,7 +233,7 @@ class PushDispatcherTest extends TestCase
                 return true;
             }
 
-            public function deliver(int $userId, PushMessage $message, ?array $targetIds = null, ?int $timeoutSeconds = null): PushResult
+            public function deliver(int $userId, PushMessage $message, ?array $targetIds = null, ?int $timeoutSeconds = null, ?int $deadlineSeconds = null): PushResult
             {
                 $this->calls++;
 
@@ -236,7 +254,7 @@ class PushDispatcherTest extends TestCase
                 return false;
             }
 
-            public function deliver(int $userId, PushMessage $message, ?array $targetIds = null, ?int $timeoutSeconds = null): PushResult
+            public function deliver(int $userId, PushMessage $message, ?array $targetIds = null, ?int $timeoutSeconds = null, ?int $deadlineSeconds = null): PushResult
             {
                 $this->calls++;
 

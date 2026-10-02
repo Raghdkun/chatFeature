@@ -54,11 +54,13 @@ final class PushVisitorMessage
 
         $push = $this->messages->visitorMessage($conversation, $message, $recipient->user, $this->preferences->includesPreview($recipient->setting));
 
+        $this->ledger->remember($push->tag, $recipient->user->id);
+
         if ($this->push->queue([$recipient->user->id], $push) === 0) {
+            $this->ledger->forget($push->tag, $recipient->user->id);
+
             return false;
         }
-
-        $this->ledger->remember($push->tag, $recipient->user->id);
 
         return true;
     }

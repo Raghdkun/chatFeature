@@ -64,7 +64,7 @@ class PushFailureIsolationTest extends TestCase
         $this->assertCount(1, $this->pushRequests());
     }
 
-    public function test_a_push_service_that_is_down_does_not_fail_the_request_and_the_retries_are_bounded(): void
+    public function test_a_push_service_that_is_down_does_not_fail_the_request_and_nothing_retries_in_a_loop_on_the_sync_queue(): void
     {
         $attempts = 0;
         Http::fake(function (Request $request) use (&$attempts) {
@@ -75,8 +75,8 @@ class PushFailureIsolationTest extends TestCase
 
         $this->startChat()->assertCreated();
 
-        // First try plus the configured retries (sync queue: each retry runs at once), then it gives up.
-        $this->assertSame((int) config('push.job.tries'), $attempts);
+        // The sync queue runs a delayed retry at once (the pause is ignored), so nothing is retried there: one try, and the request is fine.
+        $this->assertSame(1, $attempts);
         $this->assertSame(1, PushSubscription::query()->count());
     }
 

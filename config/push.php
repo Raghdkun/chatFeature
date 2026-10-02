@@ -26,6 +26,27 @@ return [
         'timeout' => 10,
     ],
 
+    /*
+     * Which push services a browser's subscription may point at (the server POSTs to that URL, so it is a request-forgery target). A
+     * list of host patterns: `fcm.googleapis.com`, `*.push.services.mozilla.com` (any sub-domain), `web.push.apple.com:8443` (another
+     * port than 443). EMPTY = any PUBLIC host on port 443. Loopback, private, link-local and metadata addresses are refused whatever
+     * this says and whatever PORTAL_ALLOW_PRIVATE_HOSTS is. The vendors' hosts today: fcm.googleapis.com (Chrome, Edge, Opera, Brave),
+     * *.push.services.mozilla.com (Firefox), web.push.apple.com (Safari), *.notify.windows.com (Edge on Windows). `PUSH_ALLOWED_HOSTS`
+     * is a comma separated list. `dns_cache_seconds`: how long the judgement of a host (its resolved addresses) is reused; the
+     * connection is pinned to it.
+     */
+    'allowed_hosts' => array_values(array_filter(array_map('trim', explode(',', (string) env('PUSH_ALLOWED_HOSTS', ''))), fn (string $host): bool => $host !== '')),
+    'dns_cache_seconds' => 60,
+
+    /*
+     * "Send a test notification" is synchronous: at most `max_devices` of the member's browsers (the most recently used first), and
+     * `deadline_seconds` for ALL of them together (a push service that hangs must not hold a PHP worker for minutes).
+     */
+    'test' => [
+        'max_devices' => 5,
+        'deadline_seconds' => 10,
+    ],
+
     /* FCM (a future mobile app): a stub that only logs while `enabled` is false; nothing is sent over the network either way. */
     'fcm' => [
         'enabled' => (bool) env('PUSH_FCM_ENABLED', false),
@@ -34,10 +55,15 @@ return [
     /* The queue the push jobs run on (null = the default queue). */
     'queue' => env('PUSH_QUEUE'),
 
-    /* Tries / pauses (seconds) of one push job: a push service that answers 5xx or times out is retried, 404/410 never. */
+    /*
+     * Tries / pauses (seconds) of one push job: a push service that answers 5xx or times out is retried, 404/410 never. `deadline_seconds`:
+     * the time budget of ONE job across all the devices of the member (each device keeps `web.timeout`); what it did not get to is retried.
+     * Retries are never scheduled on the `sync` queue (the pause would be ignored and they would run nested, back to back).
+     */
     'job' => [
         'tries' => 3,
         'backoff' => [5, 30],
+        'deadline_seconds' => 60,
     ],
 
     /*

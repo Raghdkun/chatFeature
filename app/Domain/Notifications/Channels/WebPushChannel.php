@@ -4,12 +4,12 @@ namespace App\Domain\Notifications\Channels;
 
 use App\Domain\Notifications\Contracts\PushChannel;
 use App\Domain\Notifications\Support\PushEndpointGuard;
+use App\Domain\Notifications\Support\PushHttpClient;
 use App\Domain\Notifications\Support\PushMessage;
 use App\Domain\Notifications\Support\PushResult;
 use App\Models\PushSubscription;
 use GuzzleHttp\Psr7\HttpFactory;
 use Illuminate\Contracts\Encryption\DecryptException;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Minishlink\WebPush\MessageSentReport;
 use Minishlink\WebPush\Subscription;
@@ -20,7 +20,9 @@ use Throwable;
  * Web Push (RFC 8030, VAPID RFC 8292) to the browsers a staff member subscribed (`push_subscriptions`), through `minishlink/web-push`
  * (the library behind laravel-notification-channels/webpush; this app's subscription table keeps its keys encrypted, so it does not use
  * that package's model). One call sends one message to every subscription of one user; the HTTP client is Laravel's, so `Http::fake`
- * covers it and a push service that hangs costs at most the configured timeout per request. Redirects are never followed.
+ * covers it and a push service that hangs costs at most the configured timeout per request (and, with a deadline, at most that much for the
+ * whole call). Redirects are never followed, and every connection is pinned to the addresses the endpoint guard judged just before
+ * ({@see PushHttpClient}); an endpoint the guard refuses is never contacted.
  *
  * What happens to the answer of a push service:
  *  - 2xx: delivered (`last_used_at` is refreshed);
@@ -50,14 +52,14 @@ final class WebPushChannel implements PushChannel
         return (string) config('push.vapid.public_key', '') !== '' && (string) config('push.vapid.private_key', '') !== '';
     }
 
-    public function deliver(int $userId, PushMessage $message, ?array $targetIds = null, ?int $timeoutSeconds = null): PushResult
+    public function deliver(int $userId, PushMessage $message, ?array $targetIds = null, ?int $timeoutSeconds = null, ?int $deadlineSeconds = null): PushResult
     {
         if (! $this->isEnabled()) {
             return PushResult::disabled();
         }
 
         try {
-            return $this->send($userId, $message, $targetIds, $timeoutSeconds);
+            return $this->send($userId, $message, $targetIds, $timeoutSeconds, $deadlineSeconds);
         } catch (Throwable $exception) {
             // The push service being down (or a library error) must never reach the caller.
             Log::warning('push.web.failed', ['user' => $userId, 'type' => $message->type->value, 'error' => $exception::class.': '.$this->scrub($exception->getMessage())]);
@@ -69,7 +71,7 @@ final class WebPushChannel implements PushChannel
     /**
      * @param  list<int>|null  $targetIds
      */
-    private function send(int $userId, PushMessage $message, ?array $targetIds, ?int $timeoutSeconds): PushResult
+    private function send(int $userId, PushMessage $message, ?array $targetIds, ?int $timeoutSeconds, ?int $deadlineSeconds): PushResult
     {
         $subscriptions = PushSubscription::query()
             ->ownedBy($userId)
@@ -80,21 +82,46 @@ final class WebPushChannel implements PushChannel
             return new PushResult;
         }
 
-        $webPush = $this->client($timeoutSeconds);
+        $deadlineAt = $deadlineSeconds === null ? null : microtime(true) + max(1, $deadlineSeconds);
         $payload = json_encode($message->payload(), JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $options = ['TTL' => max(0, $message->ttl), 'urgency' => $message->urgency, 'topic' => $message->topic()];
 
-        /** @var list<PushSubscription> $queued in the order they were queued: the library reports in that order */
-        $queued = [];
+        /** @var list<PushSubscription> $eligible the subscriptions whose endpoint the guard let through */
+        $eligible = [];
+        $pins = [];
         $failed = 0;
+        $retry = [];
 
         foreach ($subscriptions as $subscription) {
-            if (! $this->endpoints->allows($subscription->endpoint)) {
+            // The time budget also covers the DNS lookups of the guard: what cannot be started in time is tried again later.
+            if ($deadlineAt !== null && microtime(true) >= $deadlineAt) {
+                $retry[] = $subscription->id;
+
+                continue;
+            }
+
+            // One judgement per host (cached): its addresses are what the connection is pinned to.
+            $target = $this->endpoints->inspect($subscription->endpoint);
+
+            if (! $target->ok) {
                 $failed++;
 
                 continue;
             }
 
+            if (($pin = $target->curlResolveEntry()) !== null) {
+                $pins[$pin] = true;
+            }
+
+            $eligible[] = $subscription;
+        }
+
+        $webPush = $this->client($timeoutSeconds, array_map(strval(...), array_keys($pins)), $deadlineAt);
+
+        /** @var list<PushSubscription> $queued in the order they were queued: the library reports in that order */
+        $queued = [];
+
+        foreach ($eligible as $subscription) {
             try {
                 $webPush->queueNotification(
                     new Subscription($subscription->endpoint, $subscription->p256dh, $subscription->auth, $subscription->content_encoding),
@@ -113,7 +140,6 @@ final class WebPushChannel implements PushChannel
 
         $sent = 0;
         $pruned = 0;
-        $retry = [];
         $deliveredIds = [];
 
         foreach ($webPush->flush() as $position => $report) {
@@ -155,11 +181,14 @@ final class WebPushChannel implements PushChannel
         return $status === null || $status === 429 || $status >= 500;
     }
 
-    private function client(?int $timeoutSeconds): WebPush
+    /**
+     * @param  list<string>  $pins  `host:port:address` entries the connections are pinned to
+     */
+    private function client(?int $timeoutSeconds, array $pins, ?float $deadlineAt): WebPush
     {
         $timeout = max(1, $timeoutSeconds ?? (int) config('push.web.timeout', 10));
 
-        $client = Http::timeout($timeout)->withOptions(['allow_redirects' => false])->buildClient();
+        $client = new PushHttpClient($timeout, $pins, $deadlineAt);
         $webPush = new WebPush(['VAPID' => $this->vapid()], [], $client, new HttpFactory, new HttpFactory);
 
         return $webPush->setReuseVAPIDHeaders(true)->setAutomaticPadding(true);

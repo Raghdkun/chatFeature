@@ -111,6 +111,20 @@ class OutboundUrlGuard
      */
     public function checkHost(string $host, int $port, string $scheme = 'https'): OutboundTarget
     {
+        return $this->evaluate($host, $port, $scheme, publicOnly: false);
+    }
+
+    /**
+     * Like {@see self::checkHost()} but for destinations an UNTRUSTED party chose (a browser's push endpoint): the private-network switch
+     * (`PORTAL_ALLOW_PRIVATE_HOSTS`, `APP_ENV=local`) is never honoured, so only a name or address that is public in every answer passes.
+     */
+    public function checkPublicHost(string $host, int $port, string $scheme = 'https'): OutboundTarget
+    {
+        return $this->evaluate($host, $port, $scheme, publicOnly: true);
+    }
+
+    private function evaluate(string $host, int $port, string $scheme, bool $publicOnly): OutboundTarget
+    {
         $host = $this->normaliseHost($host);
 
         if ($host === null || $port < 1 || $port > 65535) {
@@ -124,7 +138,7 @@ class OutboundUrlGuard
         $literal = $this->literalAddress($host);
 
         if ($literal !== null) {
-            return $this->judge($scheme, $host, $port, [$literal], ipLiteral: true, internalName: false);
+            return $this->judge($scheme, $host, $port, [$literal], ipLiteral: true, internalName: false, publicOnly: $publicOnly);
         }
 
         if (! self::isValidHostName($host)) {
@@ -133,7 +147,7 @@ class OutboundUrlGuard
 
         $internalName = ! str_contains($host, '.') || $this->hasInternalSuffix($host);
 
-        if ($internalName && ! $this->allowsPrivateHosts()) {
+        if ($internalName && ($publicOnly || ! $this->allowsPrivateHosts())) {
             return OutboundTarget::blocked('internal_name');
         }
 
@@ -143,13 +157,13 @@ class OutboundUrlGuard
             return OutboundTarget::blocked('unresolvable');
         }
 
-        return $this->judge($scheme, $host, $port, $addresses, ipLiteral: false, internalName: $internalName);
+        return $this->judge($scheme, $host, $port, $addresses, ipLiteral: false, internalName: $internalName, publicOnly: $publicOnly);
     }
 
     /**
      * @param  list<string>  $addresses
      */
-    private function judge(string $scheme, string $host, int $port, array $addresses, bool $ipLiteral, bool $internalName): OutboundTarget
+    private function judge(string $scheme, string $host, int $port, array $addresses, bool $ipLiteral, bool $internalName, bool $publicOnly = false): OutboundTarget
     {
         $private = $internalName;
         $canonical = [];
@@ -168,7 +182,7 @@ class OutboundUrlGuard
             $canonical[] = $address;
         }
 
-        if ($private && ! $this->allowsPrivateHosts()) {
+        if ($private && ($publicOnly || ! $this->allowsPrivateHosts())) {
             return OutboundTarget::blocked('private_address');
         }
 

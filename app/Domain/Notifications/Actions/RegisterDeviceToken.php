@@ -4,8 +4,8 @@ namespace App\Domain\Notifications\Actions;
 
 use App\Models\DeviceToken;
 use App\Models\User;
+use App\Support\Database\DeadlockRetry;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Stores a mobile device's FCM token (`POST /me/devices`): a stub for the future mobile app (decision P5-D4), nothing is sent to it yet.
@@ -18,7 +18,7 @@ final class RegisterDeviceToken
     {
         for ($attempt = 1; ; $attempt++) {
             try {
-                return DB::transaction(fn (): DeviceToken => $this->upsert($user, $platform, $token));
+                return DeadlockRetry::transaction(fn (): DeviceToken => $this->upsert($user, $platform, $token));
             } catch (UniqueConstraintViolationException $exception) {
                 if ($attempt >= 2) {
                     throw $exception;

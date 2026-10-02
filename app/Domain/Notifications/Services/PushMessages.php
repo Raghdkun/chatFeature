@@ -24,6 +24,12 @@ class PushMessages
         return 'offer-'.$conversationUlid;
     }
 
+    /** The conversation an offer tag belongs to, or null when the tag is not an offer's. */
+    public static function conversationOfOfferTag(string $tag): ?string
+    {
+        return str_starts_with($tag, 'offer-') && strlen($tag) > 6 ? substr($tag, 6) : null;
+    }
+
     /** The notification of a chat's messages (one per chat: the newest message replaces the previous one). */
     public static function chatTag(string $conversationUlid): string
     {
