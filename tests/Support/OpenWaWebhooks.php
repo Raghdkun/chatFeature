@@ -32,6 +32,11 @@ trait OpenWaWebhooks
      */
     protected function deliver(WhatsAppSession $session, array|string $body, ?string $secret = null, array $headers = []): TestResponse
     {
+        // The envelope helpers name the session `support-main`; OpenWA names it by its UUID: the one of THIS session unless a test says otherwise.
+        if (is_array($body) && ($body['sessionId'] ?? null) === 'support-main' && $session->openwa_session_id !== null) {
+            $body['sessionId'] = $session->openwa_session_id;
+        }
+
         $raw = is_string($body) ? $body : json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $secret ??= $session->webhook_secret ?? '';
         $payload = is_array($body) ? $body : (json_decode($body, true) ?: []);
@@ -53,6 +58,21 @@ trait OpenWaWebhooks
         }
 
         return $this->call('POST', '/webhooks/openwa/'.$session->ulid, [], [], [], $server, (string) $raw);
+    }
+
+    /**
+     * The body as the exact string `deliver()` would send for it (the placeholder session name replaced by the session's OpenWA UUID), for
+     * tests that need the bytes themselves (a repeat, a re-encoding, a signature by hand).
+     *
+     * @param  array<string, mixed>  $body
+     */
+    protected function rawBody(WhatsAppSession $session, array $body, int $flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE): string
+    {
+        if (($body['sessionId'] ?? null) === 'support-main' && $session->openwa_session_id !== null) {
+            $body['sessionId'] = $session->openwa_session_id;
+        }
+
+        return (string) json_encode($body, $flags);
     }
 
     /**

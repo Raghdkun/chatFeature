@@ -146,8 +146,7 @@ class AckProcessingTest extends TestCase
 
     public function test_an_ack_that_overtakes_its_message_is_retried_later_and_applies_once_the_message_is_there(): void
     {
-        $body = $this->messageAck('true_4915123456789@c.us_LATER', 'delivered');
-        $raw = (string) json_encode($body);
+        $raw = $this->rawBody($this->session, $this->messageAck('true_4915123456789@c.us_LATER', 'delivered'));
         $delivery = WaWebhookDelivery::query()->create([
             'session_id' => $this->session->id, 'idempotency_key' => 'ack-key', 'event' => 'message.ack', 'received_at' => now(),
         ]);
@@ -176,7 +175,7 @@ class AckProcessingTest extends TestCase
 
     public function test_an_ack_that_never_finds_its_message_is_dropped_after_the_schedule(): void
     {
-        $raw = (string) json_encode($this->messageAck('true_never_1', 'read'));
+        $raw = $this->rawBody($this->session, $this->messageAck('true_never_1', 'read'));
         $delivery = WaWebhookDelivery::query()->create([
             'session_id' => $this->session->id, 'idempotency_key' => 'ack-key-2', 'event' => 'message.ack', 'received_at' => now(),
         ]);

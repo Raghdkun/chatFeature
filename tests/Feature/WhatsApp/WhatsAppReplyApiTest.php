@@ -2,11 +2,13 @@
 
 namespace Tests\Feature\WhatsApp;
 
+use App\Domain\WhatsApp\Actions\SyncWhatsAppSession;
 use App\Domain\WhatsApp\Contracts\OpenWaClient;
 use App\Domain\WhatsApp\Enums\SessionStatus;
 use App\Domain\WhatsApp\Enums\WaMessageStatus;
 use App\Domain\WhatsApp\Events\WaMessageSent;
 use App\Domain\WhatsApp\Events\WaMessageStatusChanged;
+use App\Domain\WhatsApp\Jobs\ReconcileWhatsAppSession;
 use App\Domain\WhatsApp\Jobs\SendWhatsAppMessage;
 use App\Domain\WhatsApp\Services\SendCounter;
 use App\Domain\WhatsApp\Services\SendPacer;
@@ -403,7 +405,7 @@ class WhatsAppReplyApiTest extends TestCase
     public static function refusals(): iterable
     {
         yield 'key refused' => [new OpenWaRejected('unauthorized', 401, 'Invalid API key'), 'OpenWA did not accept the API key.'];
-        yield 'session not active' => [new OpenWaRejected('bad_request', 400, 'Session is not active'), 'OpenWA refused the request: Session is not active'];
+        yield 'a validation refusal' => [new OpenWaRejected('bad_request', 400, 'text must be shorter than or equal to 4096 characters'), 'OpenWA refused the request: text must be shorter than or equal to 4096 characters'];
         yield 'unknown session' => [new OpenWaRejected('not_found', 404, "Session 'x' not found"), "OpenWA refused the request: Session 'x' not found"];
     }
 
@@ -419,6 +421,55 @@ class WhatsAppReplyApiTest extends TestCase
         $this->assertSame(WaMessageStatus::Failed, $message->status);
         $this->assertSame($reason, $message->error);
         $this->assertSame(0, app(SendCounter::class)->used($this->session));
+    }
+
+    public function test_a_409_not_connected_is_a_state_that_passes_and_is_retried_not_failed(): void
+    {
+        $message = $this->pending();
+        $this->openWa()->willThrow('sendText', new OpenWaRejected('conflict', 409, 'Session is not connected. The WhatsApp client is not ready.'), null);
+
+        $this->runJob($message, expectRelease: 10, attempts: 1);
+        $this->runJob($message, expectRelease: 20, attempts: 2);
+        $this->runJob($message, expectRelease: 60, attempts: 9);
+
+        $this->assertSame(WaMessageStatus::Pending, $message->refresh()->status);
+        $this->assertSame(1, app(SendCounter::class)->used($this->session), 'still waiting: the slot stays taken');
+    }
+
+    public function test_a_409_that_never_clears_fails_the_message_with_openwas_reason_when_the_job_cannot_wait_any_more(): void
+    {
+        $message = $this->pending();
+        $this->openWa()->willThrow('sendText', new OpenWaRejected('conflict', 409, 'Session is not connected. The WhatsApp client is not ready.'));
+
+        // Run without a queue job (the sync queue / a direct call cannot release): nothing to wait with.
+        $job = new SendWhatsAppMessage($message->id);
+        $job->handle(app(OpenWaClient::class), app(SendPacer::class), app(SendCounter::class));
+
+        $message->refresh();
+        $this->assertSame(WaMessageStatus::Failed, $message->status);
+        $this->assertSame('OpenWA refused the request: Session is not connected. The WhatsApp client is not ready.', $message->error);
+        $this->assertSame(0, app(SendCounter::class)->used($this->session));
+    }
+
+    public function test_a_400_session_not_active_fails_the_message_and_reconciles_the_session(): void
+    {
+        $openWa = $this->openWa();
+        $remote = $openWa->makeSession($this->session->openwa_session_id, SessionStatus::Disconnected, 'support-main');
+        $openWa->withSession($remote);
+        $message = $this->pending();
+        $openWa->willThrow('sendText', new OpenWaRejected('bad_request', 400, "Session '".$this->session->openwa_session_id."' is not active. Start the session first."));
+
+        $this->runJob($message);
+
+        $message->refresh();
+        $this->assertSame(WaMessageStatus::Failed, $message->status);
+        $this->assertStringContainsString('no running engine', (string) $message->error);
+        $this->assertSame(0, app(SendCounter::class)->used($this->session));
+
+        Queue::assertPushed(ReconcileWhatsAppSession::class, fn (ReconcileWhatsAppSession $job): bool => $job->sessionId === $this->session->id);
+        (new ReconcileWhatsAppSession($this->session->id))->handle(app(SyncWhatsAppSession::class));
+        $openWa->assertCalled('getSession', fn (array $args): bool => $args['sessionId'] === $this->session->openwa_session_id, 1);
+        $this->assertSame(SessionStatus::Disconnected, $this->session->refresh()->status, 'the session follows what OpenWA says');
     }
 
     public function test_an_openwa_that_cannot_be_reached_is_retried_with_backoff_and_then_failed(): void

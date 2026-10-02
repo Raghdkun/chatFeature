@@ -103,6 +103,18 @@ class WhatsAppCommandsTest extends TestCase
         $this->assertCount(1, $this->openWa()->calls('getSession'));
     }
 
+    public function test_openwas_throttle_stops_the_run_quietly_without_calling_it_a_fault(): void
+    {
+        Log::spy();
+        WhatsAppSession::factory()->ready()->count(2)->create();
+        $this->openWa()->willThrow('getSession', new OpenWaRejected('rate_limited', 429, 'ThrottlerException: Too Many Requests'), null);
+
+        $this->artisan('whatsapp:reconcile-sessions')->assertSuccessful()->doesntExpectOutputToContain('could not be reached');
+
+        $this->assertCount(1, $this->openWa()->calls('getSession'));
+        Log::shouldNotHaveReceived('warning');
+    }
+
     public function test_replies_nobody_confirmed_are_failed_after_the_wait_and_give_their_slot_back(): void
     {
         $session = WhatsAppSession::factory()->ready()->create();

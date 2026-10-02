@@ -1,0 +1,30 @@
+{
+    "source": "documented",
+    "documentedIn": "docs/reference/openwa-api.md 6.4",
+    "description": "GET /api/sessions/{id} of a session whose engine failed (`lastError` set).",
+    "verified": false,
+    "request": {
+        "method": "GET",
+        "path": "/api/sessions/{sessionId}"
+    },
+    "response": {
+        "status": 200,
+        "headers": {
+            "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+            "id": "4c242668-d340-4a4d-ae15-f36f9809f8d7",
+            "name": "support-main",
+            "status": "failed",
+            "phone": null,
+            "pushName": null,
+            "connectedAt": null,
+            "lastActive": null,
+            "createdAt": "2026-10-02T09:00:00.000Z",
+            "updatedAt": "2026-10-02T09:20:00.000Z",
+            "lastError": "Engine failed to launch",
+            "restriction": null,
+            "engineLoaded": false
+        }
+    }
+}

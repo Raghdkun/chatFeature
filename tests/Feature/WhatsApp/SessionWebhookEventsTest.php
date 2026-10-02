@@ -2,10 +2,13 @@
 
 namespace Tests\Feature\WhatsApp;
 
+use App\Domain\WhatsApp\Actions\ApplySessionState;
 use App\Domain\WhatsApp\Enums\SessionStatus;
 use App\Domain\WhatsApp\Enums\WebhookOutcome;
 use App\Domain\WhatsApp\Events\WaSessionQrUpdated;
 use App\Domain\WhatsApp\Events\WaSessionStatusChanged;
+use App\Domain\WhatsApp\Jobs\RunWhatsAppSessionStart;
+use App\Domain\WhatsApp\Support\OpenWa\Exceptions\OpenWaUnavailable;
 use App\Models\WaWebhookDelivery;
 use App\Models\WhatsAppSession;
 use Database\Factories\WhatsAppSessionFactory;
@@ -14,6 +17,7 @@ use Illuminate\Support\Facades\Event;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\OpenWaFixtures;
 use Tests\Support\OpenWaWebhooks;
+use Tests\Support\WhatsAppFixtures;
 use Tests\TestCase;
 
 /**
@@ -22,7 +26,7 @@ use Tests\TestCase;
  */
 class SessionWebhookEventsTest extends TestCase
 {
-    use OpenWaWebhooks, RefreshDatabase;
+    use OpenWaWebhooks, RefreshDatabase, WhatsAppFixtures;
 
     /**
      * @return iterable<string, array{string, SessionStatus}>
@@ -236,5 +240,112 @@ class SessionWebhookEventsTest extends TestCase
         $this->deliver($session, $body, headers: ['X-OpenWA-Event' => 'session.status'])->assertOk();
 
         $this->assertSame(SessionStatus::Ready, $session->refresh()->status);
+    }
+
+    // ---- ordering ----------------------------------------------------------------------------------------------------------
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function statusAt(string $status, string $when): array
+    {
+        return ['timestamp' => $when] + $this->envelope('session.status', ['status' => $status]);
+    }
+
+    public function test_an_older_event_that_overtook_a_newer_one_is_not_applied(): void
+    {
+        $session = $this->webhookSession(state: 'starting');
+
+        // Deliveries are independent and not ordered (recorded): `ready` raised at :05.000 arrives before the `qr_ready` raised at :04.500.
+        $this->deliver($session, $this->statusAt('ready', '2026-10-02T02:11:05.000Z'))->assertOk();
+        $this->deliver($session, $this->statusAt('qr_ready', '2026-10-02T02:11:04.500Z'))->assertOk();
+
+        $this->assertSame(SessionStatus::Ready, $session->refresh()->status);
+        $outcomes = WaWebhookDelivery::query()->orderBy('id')->get();
+        $this->assertSame(WebhookOutcome::Processed, $outcomes[0]->outcome);
+        $this->assertSame(WebhookOutcome::Ignored, $outcomes[1]->outcome);
+        $this->assertSame('Older than what was already applied to this session.', $outcomes[1]->error);
+    }
+
+    public function test_events_of_the_same_moment_and_newer_ones_apply(): void
+    {
+        $session = $this->webhookSession(state: 'starting');
+
+        $this->deliver($session, $this->statusAt('qr_ready', '2026-10-02T02:11:05.000Z'))->assertOk();
+        $this->deliver($session, $this->statusAt('authenticating', '2026-10-02T02:11:05.000Z'))->assertOk();
+        $this->assertSame(SessionStatus::Starting, $session->refresh()->status);
+
+        $this->deliver($session, $this->statusAt('ready', '2026-10-02T02:11:06.000Z'))->assertOk();
+        $this->assertSame(SessionStatus::Ready, $session->refresh()->status);
+    }
+
+    public function test_a_stale_qr_never_undoes_a_session_that_became_ready(): void
+    {
+        $session = $this->webhookSession(state: 'starting');
+
+        $this->deliver($session, $this->statusAt('ready', '2026-10-02T02:11:05.000Z'))->assertOk();
+        $this->deliver($session, ['timestamp' => '2026-10-02T02:11:04.900Z'] + $this->envelope('session.qr', ['qr' => OpenWaFixtures::PNG_DATA_URL]))->assertOk();
+
+        $session->refresh();
+        $this->assertSame(SessionStatus::Ready, $session->status);
+        $this->assertNull($session->last_qr);
+    }
+
+    public function test_each_session_has_its_own_clock(): void
+    {
+        $one = $this->webhookSession(state: 'starting');
+        $two = $this->webhookSession('the-other-sessions-secret-of-forty-chars-02', 'starting');
+
+        $this->deliver($one, $this->statusAt('ready', '2026-10-02T02:11:05.000Z'))->assertOk();
+        $this->deliver($two, $this->statusAt('qr_ready', '2026-10-02T02:11:01.000Z'))->assertOk();
+
+        $this->assertSame(SessionStatus::Qr, $two->refresh()->status);
+    }
+
+    public function test_the_answer_of_a_blocked_start_call_never_overwrites_what_a_webhook_said_meanwhile(): void
+    {
+        $openWa = $this->openWa();
+        $session = $this->webhookSession(state: 'qr');
+        $session->forceFill(['status' => SessionStatus::Starting, 'last_qr' => null, 'last_qr_at' => null])->save();
+        $remote = $openWa->makeSession((string) $session->openwa_session_id, SessionStatus::Created, 'support-main');
+        $openWa->withSession($remote);
+
+        // The start call blocks; while it runs the QR was scanned and `ready` arrived. Its answer, built earlier, still says `qr_ready`.
+        $openWa->will('startSession', function () use ($session, $openWa, $remote) {
+            $this->deliver($session, $this->statusAt('ready', now()->toIso8601ZuluString('millisecond')))->assertOk();
+
+            return $openWa->makeSession($remote->id, SessionStatus::Qr, 'support-main');
+        });
+
+        (new RunWhatsAppSessionStart($session->id))->handle($openWa, app(ApplySessionState::class));
+
+        $this->assertSame(SessionStatus::Ready, $session->refresh()->status);
+    }
+
+    public function test_the_answer_of_the_start_call_does_move_a_session_that_is_still_starting(): void
+    {
+        $openWa = $this->openWa();
+        $session = WhatsAppSession::factory()->starting()->create(['name' => 'support-main']);
+        $openWa->withSession($openWa->makeSession((string) $session->openwa_session_id, SessionStatus::Created, 'support-main'));
+        $openWa->will('startSession', $openWa->makeSession((string) $session->openwa_session_id, SessionStatus::Qr, 'support-main'));
+
+        (new RunWhatsAppSessionStart($session->id))->handle($openWa, app(ApplySessionState::class));
+
+        $this->assertSame(SessionStatus::Qr, $session->refresh()->status);
+    }
+
+    public function test_a_failed_start_does_not_fail_a_session_that_a_webhook_already_moved(): void
+    {
+        $openWa = $this->openWa();
+        $session = $this->webhookSession(state: 'starting');
+        $openWa->will('startSession', function () use ($session) {
+            $this->deliver($session, $this->statusAt('qr_ready', now()->toIso8601ZuluString('millisecond')))->assertOk();
+
+            throw new OpenWaUnavailable('OpenWA answered HTTP 504.');
+        });
+
+        (new RunWhatsAppSessionStart($session->id))->handle($openWa, app(ApplySessionState::class));
+
+        $this->assertSame(SessionStatus::Qr, $session->refresh()->status, 'OpenWA said qr_ready: the call timing out afterwards changes nothing');
     }
 }

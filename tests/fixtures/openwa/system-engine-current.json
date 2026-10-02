@@ -1,0 +1,32 @@
+{
+    "source": "recorded",
+    "recordedAt": "2026-10-02T01:55:19.020Z",
+    "openwa": {
+        "version": "0.23.7",
+        "image": "ghcr.io/rmyndharis/openwa@sha256:9a9eeee07de00902ca41b30c67cc4a3bb2b219df5c5e54357994f66a1808ee12",
+        "engine": "whatsapp-web.js"
+    },
+    "description": "GET /api/infra/engines/current (admin).",
+    "request": {
+        "method": "GET",
+        "path": "/api/infra/engines/current",
+        "headers": {
+            "X-API-Key": "REDACTED (admin)"
+        },
+        "body": null
+    },
+    "response": {
+        "status": 200,
+        "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "x-ratelimit-limit-short": "10",
+            "x-ratelimit-limit-medium": "100",
+            "x-ratelimit-limit-long": "1000",
+            "x-content-type-options": "nosniff"
+        },
+        "body": {
+            "engineType": "whatsapp-web.js"
+        },
+        "durationMs": 3
+    }
+}

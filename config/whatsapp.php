@@ -10,15 +10,16 @@
 return [
 
     /*
-     * Calls to the OpenWA gateway (seconds). `connect` is the TCP connect, the others the whole call. Starting a session blocks
-     * at OpenWA until the engine is up (it answers 504 after about 30 s), a send simulates typing first (up to 5 s).
+     * Calls to the OpenWA gateway (seconds). `connect` is the TCP connect, the others the whole call. Starting a session BLOCKS at
+     * OpenWA until the engine waits for a scan (recorded: 6-25 s, a stuck engine answers 504 after its own timeout); a send simulates
+     * typing first (up to 5 s).
      */
     'http' => [
         'connect_timeout' => 3,
         'timeout' => 15,
         'qr_timeout' => 20,
         'stop_timeout' => 30,
-        'start_timeout' => 60,
+        'start_timeout' => 90,
         'send_timeout' => 30,
         'media_timeout' => 30,
     ],

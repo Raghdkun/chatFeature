@@ -123,7 +123,7 @@ final class StartWhatsAppSession
                 array_values(array_filter((array) config('whatsapp.webhook_events', []), is_string(...))),
             );
         } catch (OpenWaRejected $rejected) {
-            throw $rejected->status === 400 ? $this->webhookRejected($session, $rejected) : OpenWaProblem::from($rejected);
+            throw $rejected->status === 400 ? $this->webhookRefusal($session, $rejected) : OpenWaProblem::from($rejected);
         } catch (Throwable $exception) {
             throw OpenWaProblem::from($exception);
         }
@@ -133,18 +133,38 @@ final class StartWhatsAppSession
         return $session;
     }
 
-    private function webhookRejected(WhatsAppSession $session, OpenWaRejected $rejected): ApiProblemException
+    /**
+     * OpenWA refused the registration with a 400. In production its validation errors are a bare "Bad Request" (field detail is off), so the
+     * cause is recognised by the MESSAGE when there is one: its SSRF guard says "Destination address is not allowed"; the per-session limit
+     * says "Webhook limit reached ... (16/16)". A bare 400 is treated as the (by far) most likely cause, the address, and says what else it
+     * could be.
+     */
+    private function webhookRefusal(WhatsAppSession $session, OpenWaRejected $rejected): ApiProblemException
     {
+        $message = $rejected->getMessage();
+
+        if (stripos($message, 'limit reached') !== false) {
+            return new ApiProblemException(
+                409,
+                'webhook_limit_reached',
+                __('OpenWA already holds the maximum number of webhooks for this session (:reason). Delete the old ones in OpenWA (or delete the session there), then start again.', ['reason' => mb_substr($message, 0, 160)]),
+                ['reason' => mb_substr($message, 0, 160)],
+            );
+        }
+
         $host = (string) parse_url($session->webhookUrl(), PHP_URL_HOST);
+        $guard = stripos($message, 'Destination address is not allowed') !== false;
+        // (`OpenWaRejected` supplies "OpenWA refused the request (<code>)." when the body had no message at all.)
+        $bare = $message === '' || strcasecmp(trim($message), 'Bad Request') === 0 || str_starts_with($message, 'OpenWA refused the request (');
+
+        $cause = $guard || $bare
+            ? __('OpenWA only calls addresses that resolve to public IPs and never follows a redirect: when this app is on a private network (or in development) add its exact host name (:host) to OpenWA\'s SSRF_ALLOWED_HOSTS and restart OpenWA; use the final https address as the application URL (a http address that is redirected to https counts as a failed delivery); in development with OpenWA in Docker the application URL must be http://host.docker.internal:<port> or a tunnel, never 127.0.0.1.', ['host' => $host])
+            : __('OpenWA said: :reason', ['reason' => mb_substr($message, 0, 200)]);
 
         return new ApiProblemException(
             422,
             'webhook_rejected',
-            __('OpenWA refused the webhook address :url (:reason). OpenWA only calls addresses that resolve to public IPs: when this app is on a private network, add its host (:host) to OpenWA\'s SSRF_ALLOWED_HOSTS and restart OpenWA.', [
-                'url' => $session->webhookUrl(),
-                'reason' => mb_substr($rejected->getMessage(), 0, 160),
-                'host' => $host,
-            ]),
+            __('OpenWA refused the webhook address :url. :cause', ['url' => $session->webhookUrl(), 'cause' => $cause]),
             ['host' => $host, 'url' => $session->webhookUrl()],
         );
     }

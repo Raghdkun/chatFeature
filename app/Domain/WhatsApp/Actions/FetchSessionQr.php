@@ -17,11 +17,13 @@ use Illuminate\Support\Facades\Gate;
  * The QR code of a session that is waiting for a scan, for the administrator who is looking at it. Only while the status is `qr` (a QR is a
  * login credential: nothing else ever gets it). The last one the `session.qr` webhook delivered is served while it is younger than
  * {@see self::FRESH_SECONDS}; otherwise (the webhook never arrived: a private callback address OpenWA refuses, for example) it is
- * fetched from OpenWA and stored. WhatsApp rotates the code about every 20 seconds, and the page polls.
+ * fetched from OpenWA and stored. The page polls every few seconds and OpenWA's own throttler (10 requests a second per client address)
+ * must never become the administrator's problem: a throttled fetch serves the last known code.
  */
 final class FetchSessionQr
 {
-    public const FRESH_SECONDS = 15;
+    /** A QR lives about 60 s at OpenWA (recorded) and the `session.qr` webhook refreshes the stored one: serve it for most of that. */
+    public const FRESH_SECONDS = 45;
 
     public function __construct(
         private readonly OpenWaClient $openWa,
@@ -53,8 +55,8 @@ final class FetchSessionQr
             $remote = $this->openWa->getQr($session->openwa_session_id);
         } catch (OpenWaRejected $rejected) {
             // 400: OpenWA is not (or no longer) waiting for a scan: hand back whatever the last QR was, else say there is none yet.
-            if ($rejected->status === 400) {
-                return $this->lastKnown($session);
+            if ($rejected->status === 400 || $rejected->status === 429) {
+                return $this->lastKnown($session, throttled: $rejected->status === 429);
             }
 
             throw OpenWaProblem::from($rejected);
@@ -74,9 +76,13 @@ final class FetchSessionQr
     /**
      * @return array{qr: string, updatedAt: CarbonInterface}
      */
-    private function lastKnown(WhatsAppSession $session): array
+    private function lastKnown(WhatsAppSession $session, bool $throttled = false): array
     {
         if (! $session->hasQr() || $session->last_qr_at === null) {
+            if ($throttled) {
+                throw ApiProblemException::rateLimited(__('OpenWA is busy. Try again in a moment.'), 2);
+            }
+
             throw new ApiProblemException(409, 'qr_not_available', __('The QR code is not ready yet. Try again in a moment.'), ['status' => $session->status->value]);
         }
 

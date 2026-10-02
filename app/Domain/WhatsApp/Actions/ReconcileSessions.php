@@ -57,8 +57,12 @@ final class ReconcileSessions
             try {
                 $after = $this->sync->reconcile($session);
             } catch (OpenWaUnavailable|OpenWaRejected $exception) {
-                $unreachable = true;
-                $this->warn($exception instanceof OpenWaRejected && $exception->isUnauthorized() ? 'OpenWA did not accept the API key.' : 'OpenWA could not be reached.');
+                // Everything that stops the run stops it for every session after this one: an unreachable OpenWA, a refused key, or OpenWA's
+                // own throttler (10 requests a second per client address). The throttle is not a fault: the next minute carries on.
+                if (! ($exception instanceof OpenWaRejected && $exception->status === 429)) {
+                    $unreachable = true;
+                    $this->warn($exception instanceof OpenWaRejected && $exception->isUnauthorized() ? 'OpenWA did not accept the API key.' : 'OpenWA could not be reached.');
+                }
 
                 break;
             }

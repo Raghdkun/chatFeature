@@ -65,6 +65,11 @@ final class OpenWaProblem
 
     private static function rejected(OpenWaRejected $exception): ApiProblemException
     {
+        // OpenWA's own throttler (10 requests a second, 100 a minute per client address) clears in about a second.
+        if ($exception->status === 429) {
+            return ApiProblemException::rateLimited(__('OpenWA is busy. Try again in a moment.'), 2);
+        }
+
         if (self::isTeardownPending($exception)) {
             return new ApiProblemException(409, 'session_name_teardown_pending', __('OpenWA is still cleaning up a session with that name. Try again in a few seconds.'));
         }

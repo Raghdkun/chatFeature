@@ -1,0 +1,30 @@
+{
+    "source": "documented",
+    "documentedIn": "docs/reference/openwa-api.md 6.4.2 Send pacing",
+    "description": "Send pacing refused the send (opt-in, SEND_PACING_ENABLED=true): 429 WITH a `code` and `retryAfterSeconds` (hours possible). The plain throttler 429 has no code (see ratelimit-throttled, recorded).",
+    "verified": false,
+    "request": {
+        "method": "POST",
+        "path": "/api/sessions/{sessionId}/messages/send-text",
+        "body": {
+            "chatId": "4915112345678@c.us",
+            "text": "hello"
+        }
+    },
+    "response": {
+        "status": 429,
+        "headers": {
+            "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+            "statusCode": 429,
+            "error": "Too Many Requests",
+            "message": "Daily allowance of 5 new conversation(s) reached for a session 0 day(s) old",
+            "code": "SEND_PACING_LIMITED",
+            "retryAfterSeconds": 34521
+        }
+    },
+    "notes": [
+        "Do not retry before retryAfterSeconds. Honour the `Retry-After` header when present."
+    ]
+}

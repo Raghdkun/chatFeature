@@ -36,8 +36,10 @@ use Throwable;
  *    as acks arrive;
  *  - `429 SEND_PACING_LIMITED` is NOT retried blindly: a wait of at most `whatsapp.send.max_defer_seconds` reschedules the job after it,
  *    a longer one fails the message with a reason that says how long (it can be hours);
- *  - the plain throttler `429` clears in seconds: retried shortly; an OpenWA that cannot be reached is retried with backoff for
- *    `whatsapp.send.retry_for_minutes`, then the message fails; any other refusal fails it at once with OpenWA's reason;
+ *  - the plain throttler `429` clears in seconds and a `409` (the engine is up but WhatsApp is not connected: reconnecting) passes by itself:
+ *    both are retried; an OpenWA that cannot be reached is retried with backoff for `whatsapp.send.retry_for_minutes`, then the message
+ *    fails; a `400` "session is not active" (OpenWA has no engine) fails it with that reason and reconciles the session; any other
+ *    refusal fails it at once with OpenWA's reason;
  *  - a request that was sent but never answered ({@see OpenWaRequestNotConfirmed}) is NOT repeated (the customer could get the message
  *    twice): the row stays `pending` and OpenWA's `message.sent` webhook confirms it; the reconciliation fails it after
  *    `whatsapp.send.unconfirmed_after_minutes` if nothing ever does.
@@ -200,6 +202,23 @@ class SendWhatsAppMessage implements ShouldQueue
         // The plain throttler's 429 (no `code`) clears within seconds.
         if ($rejected->status === 429 && $this->canRelease()) {
             $this->release(5 + random_int(0, 10));
+
+            return;
+        }
+
+        // 409: the engine runs but WhatsApp is not connected right now (reconnecting, or our `ready` is ahead of the reconciliation): a state
+        // that passes. Retried within the budget; if it does not, the message fails with that reason.
+        if ($rejected->isConflict() && $this->canRelease() && time() < $this->deadline) {
+            $this->release(min(60, 10 * max(1, $this->attempts())));
+
+            return;
+        }
+
+        // 400 "Session ... is not active. Start the session first.": OpenWA has no engine for this number, so our `ready` is wrong. The message
+        // fails with the reason and the session is reconciled at once (it becomes `disconnected` or whatever OpenWA reports).
+        if ($rejected->status === 400 && preg_match('/not active|not started|start the session/i', $rejected->getMessage()) === 1) {
+            $this->fail($message, $counter, __('OpenWA has no running engine for this number (the session is not active). The session status is being refreshed: start it again if needed.'));
+            ReconcileWhatsAppSession::dispatch($message->chat->session_id);
 
             return;
         }

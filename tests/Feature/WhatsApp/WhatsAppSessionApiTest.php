@@ -312,23 +312,57 @@ class WhatsAppSessionApiTest extends TestCase
         $this->openWa()->assertCalled('registerWebhook', fn (array $args): bool => $args['sessionId'] === $session->openwa_session_id, 1);
     }
 
-    public function test_a_private_callback_address_openwa_refuses_is_explained(): void
+    /**
+     * @return iterable<string, array{string, bool}>
+     */
+    public static function webhookRefusals(): iterable
+    {
+        // The real text of OpenWA's SSRF guard (recorded), and the bare body production answers with.
+        yield 'the SSRF guard' => ['Destination address is not allowed', true];
+        yield 'a bare 400' => ['Bad Request', true];
+        yield 'an empty message' => ['', true];
+        yield 'something else' => ['Webhook URL must not contain credentials (userinfo)', false];
+    }
+
+    #[DataProvider('webhookRefusals')]
+    public function test_a_webhook_address_openwa_refuses_is_explained(string $message, bool $hint): void
     {
         $openWa = $this->openWa();
         $remote = $openWa->makeSession('00000000-0000-4000-8000-0000000000b5', SessionStatus::Created, 'support-main');
         $openWa->withSession($remote);
         $session = WhatsAppSession::factory()->create(['name' => 'support-main', 'openwa_session_id' => $remote->id]);
-        $openWa->willThrow('registerWebhook', new OpenWaRejected('bad_request', 400, 'url must not resolve to a private address'));
+        $openWa->willThrow('registerWebhook', new OpenWaRejected('bad_request', 400, $message));
 
         $response = $this->api()->postJson('/api/v1/whatsapp/sessions/'.$session->ulid.'/start')->assertStatus(422)->assertJsonPath('error.code', 'webhook_rejected');
 
-        $this->assertStringContainsString('SSRF_ALLOWED_HOSTS', $response->json('error.message'));
-        $this->assertStringContainsString($session->webhookUrl(), $response->json('error.message'));
+        $text = $response->json('error.message');
+        $this->assertStringContainsString($session->webhookUrl(), $text);
+        $this->assertSame($hint, str_contains($text, 'SSRF_ALLOWED_HOSTS'));
+
+        if ($hint) {
+            $this->assertStringContainsString('host.docker.internal', $text);
+            $this->assertStringContainsString('redirect', $text);
+            $this->assertStringContainsString('127.0.0.1', $response->json('error.details.host'));
+        } else {
+            $this->assertStringContainsString($message, $text);
+        }
+
         $session->refresh();
         $this->assertSame(SessionStatus::Created, $session->status, 'nothing moved');
         $this->assertNull($session->openwa_webhook_id);
         $this->assertNull($session->webhook_registered_at);
         $openWa->assertNotCalled('startSession');
+    }
+
+    public function test_the_per_session_webhook_limit_is_its_own_error(): void
+    {
+        $openWa = $this->openWa();
+        $remote = $openWa->makeSession('00000000-0000-4000-8000-0000000000b8', SessionStatus::Created, 'support-main');
+        $openWa->withSession($remote);
+        $session = WhatsAppSession::factory()->create(['name' => 'support-main', 'openwa_session_id' => $remote->id]);
+        $openWa->willThrow('registerWebhook', new OpenWaRejected('bad_request', 400, 'Webhook limit reached for this session (16/16); delete one before registering another'));
+
+        $this->api()->postJson('/api/v1/whatsapp/sessions/'.$session->ulid.'/start')->assertStatus(409)->assertJsonPath('error.code', 'webhook_limit_reached');
     }
 
     public function test_a_start_that_cannot_reach_openwa_is_answered_and_changes_nothing(): void
@@ -475,6 +509,46 @@ class WhatsAppSessionApiTest extends TestCase
         }
 
         $this->openWa()->assertNothingCalled();
+    }
+
+    public function test_openwas_throttle_serves_the_last_known_qr_or_says_to_retry_shortly(): void
+    {
+        $throttle = new OpenWaRejected('rate_limited', 429, 'ThrottlerException: Too Many Requests');
+
+        // A QR we already have (older than the fresh window): served instead of the error.
+        $known = WhatsAppSession::factory()->qr()->create(['last_qr_at' => now()->subSeconds(50)]);
+        $this->openWa()->willThrow('getQr', $throttle);
+        $this->api()->getJson('/api/v1/whatsapp/sessions/'.$known->ulid.'/qr')->assertOk()->assertJsonPath('data.qr', WhatsAppSessionFactory::FAKE_QR);
+
+        // None at all yet: a retry hint, never a 5xx and never a dashboard logout.
+        $none = WhatsAppSession::factory()->qr()->create(['last_qr' => null, 'last_qr_at' => null]);
+        $this->openWa()->willThrow('getQr', $throttle);
+        $response = $this->api()->getJson('/api/v1/whatsapp/sessions/'.$none->ulid.'/qr')->assertStatus(429)->assertJsonPath('error.code', 'rate_limited');
+        $this->assertSame('2', $response->headers->get('Retry-After'));
+    }
+
+    public function test_openwas_plain_throttle_on_an_admin_action_is_a_retry_hint(): void
+    {
+        $this->openWa()->willThrow('createSession', new OpenWaRejected('rate_limited', 429, 'ThrottlerException: Too Many Requests'));
+
+        $this->api()->postJson('/api/v1/whatsapp/sessions', ['name' => 'support-main'])->assertStatus(429)->assertJsonPath('error.code', 'rate_limited');
+
+        $this->assertSame(0, WhatsAppSession::query()->count());
+    }
+
+    public function test_a_qr_older_than_the_fresh_window_is_fetched_but_a_fresh_one_is_not(): void
+    {
+        $openWa = $this->openWa();
+        $remote = $openWa->makeSession('00000000-0000-4000-8000-0000000000d2', SessionStatus::Qr, 'support-main');
+        $openWa->withSession($remote);
+        $session = WhatsAppSession::factory()->qr()->create(['name' => 'support-main', 'openwa_session_id' => $remote->id, 'last_qr_at' => now()->subSeconds(40)]);
+
+        $this->api()->getJson('/api/v1/whatsapp/sessions/'.$session->ulid.'/qr')->assertOk();
+        $openWa->assertNotCalled('getQr');
+
+        $session->forceFill(['last_qr_at' => now()->subSeconds(50)])->save();
+        $this->api()->getJson('/api/v1/whatsapp/sessions/'.$session->ulid.'/qr')->assertOk();
+        $openWa->assertCalled('getQr', null, 1);
     }
 
     public function test_a_qr_openwa_is_not_ready_to_give_is_a_409_not_a_failure(): void

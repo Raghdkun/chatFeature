@@ -27,7 +27,7 @@ class RunWhatsAppSessionStart implements ShouldQueue
 
     public int $tries = 1;
 
-    public int $timeout = 120;
+    public int $timeout = 150;
 
     public function __construct(public readonly int $sessionId) {}
 
@@ -40,7 +40,10 @@ class RunWhatsAppSessionStart implements ShouldQueue
         }
 
         try {
-            $state->observe($session, $openWa->startSession($session->openwa_session_id));
+            // The call BLOCKS for 6-25 s while the engine comes up, and the webhooks (`initializing`, `qr_ready`, `session.qr`, even `ready`
+            // for a fast scan) land during it: its answer describes the moment OpenWA built it, so it may only move a session that is still
+            // `starting` (it never overwrites what a newer webhook said).
+            $state->observe($session, $openWa->startSession($session->openwa_session_id), onlyFrom: SessionStatus::Starting);
         } catch (OpenWaRejected $rejected) {
             // "Already started / starting" is a 400: the engine is running, so look at what it reports instead of failing.
             if ($rejected->status === 400 && $this->reconcile($openWa, $state, $session)) {
@@ -65,7 +68,7 @@ class RunWhatsAppSessionStart implements ShouldQueue
     private function reconcile(OpenWaClient $openWa, ApplySessionState $state, WhatsAppSession $session): bool
     {
         try {
-            $state->observe($session, $openWa->getSession((string) $session->openwa_session_id));
+            $state->observe($session, $openWa->getSession((string) $session->openwa_session_id), onlyFrom: SessionStatus::Starting);
 
             return true;
         } catch (Throwable) {
@@ -75,6 +78,6 @@ class RunWhatsAppSessionStart implements ShouldQueue
 
     private function fail(ApplySessionState $state, WhatsAppSession $session, string $reason): void
     {
-        $state->transition($session, SessionStatus::Failed, ['last_error' => mb_substr($reason, 0, 900)]);
+        $state->transition($session, SessionStatus::Failed, ['last_error' => mb_substr($reason, 0, 900)], onlyFrom: SessionStatus::Starting);
     }
 }

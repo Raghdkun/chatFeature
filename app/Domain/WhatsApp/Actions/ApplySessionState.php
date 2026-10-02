@@ -28,8 +28,10 @@ final class ApplySessionState
      * Leaving `qr` drops the QR image; arriving at `ready` stamps `ready_at` and, unless an error is given, clears the last one.
      *
      * @param  array<string, string|null>  $attributes
+     * @param  SessionStatus|null  $onlyFrom  Write only while the session still has this status (an answer to an earlier question must
+     *                                        not overwrite what a newer webhook has said since).
      */
-    public function transition(WhatsAppSession $session, SessionStatus $to, array $attributes = []): WhatsAppSession
+    public function transition(WhatsAppSession $session, SessionStatus $to, array $attributes = [], ?SessionStatus $onlyFrom = null): WhatsAppSession
     {
         for ($attempt = 1; $attempt <= self::ATTEMPTS; $attempt++) {
             $current = WhatsAppSession::withTrashed()->find($session->id);
@@ -40,6 +42,10 @@ final class ApplySessionState
 
             $from = $current->status;
             $changes = [];
+
+            if ($onlyFrom !== null && $from !== $onlyFrom) {
+                return $current;
+            }
 
             foreach ($attributes as $column => $value) {
                 if ($current->getAttribute($column) !== $value) {
@@ -92,7 +98,7 @@ final class ApplySessionState
      * What OpenWA reports for the session (`GET /sessions/{id}`, a sync): the status when it is one we know, the number and push name
      * when given, the last error (cleared while the session is healthy, kept while it is down and OpenWA names none).
      */
-    public function observe(WhatsAppSession $session, OpenWaSession $remote): WhatsAppSession
+    public function observe(WhatsAppSession $session, OpenWaSession $remote, ?SessionStatus $onlyFrom = null): WhatsAppSession
     {
         $current = WhatsAppSession::withTrashed()->find($session->id) ?? $session;
         $to = $remote->status ?? $current->status;
@@ -108,7 +114,7 @@ final class ApplySessionState
             $attributes['push_name'] = $remote->pushName;
         }
 
-        return $this->transition($current, $to, $attributes);
+        return $this->transition($current, $to, $attributes, $onlyFrom);
     }
 
     /**

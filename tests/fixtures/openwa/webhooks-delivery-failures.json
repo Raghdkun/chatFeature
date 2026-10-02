@@ -1,0 +1,151 @@
+{
+    "source": "recorded",
+    "recordedAt": "2026-10-02T02:11:03.329Z",
+    "openwa": {
+        "version": "0.23.7",
+        "image": "ghcr.io/rmyndharis/openwa@sha256:9a9eeee07de00902ca41b30c67cc4a3bb2b219df5c5e54357994f66a1808ee12",
+        "engine": "whatsapp-web.js"
+    },
+    "description": "GET /api/webhooks/delivery-failures (admin): what ran out of retries (a 500, a 302, a receiver that never answered). Filtered to this recording's session; the real list is instance-wide.",
+    "request": {
+        "method": "GET",
+        "path": "/api/webhooks/delivery-failures",
+        "headers": {
+            "X-API-Key": "REDACTED (admin)"
+        },
+        "body": null
+    },
+    "response": {
+        "status": 200,
+        "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "x-ratelimit-limit-short": "10",
+            "x-ratelimit-limit-medium": "100",
+            "x-ratelimit-limit-long": "1000",
+            "x-content-type-options": "nosniff"
+        },
+        "body": [
+            {
+                "id": "6eb3b0dc-cbdb-4568-a155-2979cede8ee3",
+                "webhookId": "476c2182-1a41-451f-820f-a7533e561322",
+                "sessionId": "0e229df2-8c73-4536-a49c-22cb510a5702",
+                "event": "session.status",
+                "url": "http://host.docker.internal:8368/fail",
+                "idempotencyKey": "sess_0e229df2-8c73-4536-a49c-22cb510a5702_disconnected_2026-10-02T02:11:29.067Z_476c2182-1a41-451f-820f-a7533e561322",
+                "deliveryId": "dlv_56a6e151-7ec3-4fa1-86da-b3eec90b7b32",
+                "attempts": 3,
+                "lastStatusCode": 500,
+                "lastError": "HTTP 500: Internal Server Error",
+                "createdAt": "2026-10-02T02:11:44.000Z"
+            },
+            {
+                "id": "16c4fbf3-edab-4454-8111-3332cc87a740",
+                "webhookId": "476c2182-1a41-451f-820f-a7533e561322",
+                "sessionId": "0e229df2-8c73-4536-a49c-22cb510a5702",
+                "event": "session.status",
+                "url": "http://host.docker.internal:8368/fail",
+                "idempotencyKey": "sess_0e229df2-8c73-4536-a49c-22cb510a5702_qr_ready_2026-10-02T02:11:28.985Z_476c2182-1a41-451f-820f-a7533e561322",
+                "deliveryId": "dlv_9a47d0ff-747d-4b2f-a652-e660063037ba",
+                "attempts": 3,
+                "lastStatusCode": 500,
+                "lastError": "HTTP 500: Internal Server Error",
+                "createdAt": "2026-10-02T02:11:44.000Z"
+            },
+            {
+                "id": "5a04e64e-2e0a-400f-a68f-c2242d20ea94",
+                "webhookId": "3c79ed50-18f3-41ad-99d1-cdf2516e0ec5",
+                "sessionId": "0e229df2-8c73-4536-a49c-22cb510a5702",
+                "event": "session.status",
+                "url": "http://host.docker.internal:8368/slow",
+                "idempotencyKey": "sess_0e229df2-8c73-4536-a49c-22cb510a5702_disconnected_2026-10-02T02:11:29.067Z_3c79ed50-18f3-41ad-99d1-cdf2516e0ec5",
+                "deliveryId": "dlv_c803f059-1ae4-46ca-b25c-fc00a711307d",
+                "attempts": 1,
+                "lastStatusCode": null,
+                "lastError": "The operation was aborted due to timeout",
+                "createdAt": "2026-10-02T02:11:39.000Z"
+            },
+            {
+                "id": "21a50306-08bc-4153-b363-1a0cc731184a",
+                "webhookId": "3c79ed50-18f3-41ad-99d1-cdf2516e0ec5",
+                "sessionId": "0e229df2-8c73-4536-a49c-22cb510a5702",
+                "event": "session.status",
+                "url": "http://host.docker.internal:8368/slow",
+                "idempotencyKey": "sess_0e229df2-8c73-4536-a49c-22cb510a5702_qr_ready_2026-10-02T02:11:28.985Z_3c79ed50-18f3-41ad-99d1-cdf2516e0ec5",
+                "deliveryId": "dlv_03dfe18b-7b76-41bf-9794-7d7b5fa27a45",
+                "attempts": 1,
+                "lastStatusCode": null,
+                "lastError": "The operation was aborted due to timeout",
+                "createdAt": "2026-10-02T02:11:38.000Z"
+            },
+            {
+                "id": "a6f5fc7c-1171-43a4-bcd7-b66fffcf5855",
+                "webhookId": "f5325d6e-2c2c-427a-a8cb-6ffb4d457d4c",
+                "sessionId": "0e229df2-8c73-4536-a49c-22cb510a5702",
+                "event": "session.status",
+                "url": "http://host.docker.internal:8368/redirect",
+                "idempotencyKey": "sess_0e229df2-8c73-4536-a49c-22cb510a5702_disconnected_2026-10-02T02:11:29.067Z_f5325d6e-2c2c-427a-a8cb-6ffb4d457d4c",
+                "deliveryId": "dlv_5ce8b4e6-d062-4a8e-ab0f-0356a9a021ad",
+                "attempts": 1,
+                "lastStatusCode": null,
+                "lastError": "Destination address is not allowed",
+                "createdAt": "2026-10-02T02:11:29.000Z"
+            },
+            {
+                "id": "5777c85e-80f4-428a-bb18-115652650603",
+                "webhookId": "f5325d6e-2c2c-427a-a8cb-6ffb4d457d4c",
+                "sessionId": "0e229df2-8c73-4536-a49c-22cb510a5702",
+                "event": "session.status",
+                "url": "http://host.docker.internal:8368/redirect",
+                "idempotencyKey": "sess_0e229df2-8c73-4536-a49c-22cb510a5702_qr_ready_2026-10-02T02:11:28.985Z_f5325d6e-2c2c-427a-a8cb-6ffb4d457d4c",
+                "deliveryId": "dlv_e91b646b-4bd9-4d1b-8597-9009e72f7424",
+                "attempts": 1,
+                "lastStatusCode": null,
+                "lastError": "Destination address is not allowed",
+                "createdAt": "2026-10-02T02:11:28.000Z"
+            },
+            {
+                "id": "5cd41cc4-d0be-4be3-92d5-21e72ac77b03",
+                "webhookId": "476c2182-1a41-451f-820f-a7533e561322",
+                "sessionId": "0e229df2-8c73-4536-a49c-22cb510a5702",
+                "event": "session.status",
+                "url": "http://host.docker.internal:8368/fail",
+                "idempotencyKey": "sess_0e229df2-8c73-4536-a49c-22cb510a5702_initializing_2026-10-02T02:11:06.580Z_476c2182-1a41-451f-820f-a7533e561322",
+                "deliveryId": "dlv_2ff5ab4b-1f57-4690-8d5a-e707a323009b",
+                "attempts": 3,
+                "lastStatusCode": 500,
+                "lastError": "HTTP 500: Internal Server Error",
+                "createdAt": "2026-10-02T02:11:21.000Z"
+            },
+            {
+                "id": "be152106-1e21-4b8b-b932-9c4ef090439c",
+                "webhookId": "3c79ed50-18f3-41ad-99d1-cdf2516e0ec5",
+                "sessionId": "0e229df2-8c73-4536-a49c-22cb510a5702",
+                "event": "session.status",
+                "url": "http://host.docker.internal:8368/slow",
+                "idempotencyKey": "sess_0e229df2-8c73-4536-a49c-22cb510a5702_initializing_2026-10-02T02:11:06.580Z_3c79ed50-18f3-41ad-99d1-cdf2516e0ec5",
+                "deliveryId": "dlv_73848ee5-5e6f-48e7-9167-c1b3c9f115ff",
+                "attempts": 1,
+                "lastStatusCode": null,
+                "lastError": "The operation was aborted due to timeout",
+                "createdAt": "2026-10-02T02:11:16.000Z"
+            },
+            {
+                "id": "a0d135a4-bc52-4f90-a7aa-7100bad43d2b",
+                "webhookId": "f5325d6e-2c2c-427a-a8cb-6ffb4d457d4c",
+                "sessionId": "0e229df2-8c73-4536-a49c-22cb510a5702",
+                "event": "session.status",
+                "url": "http://host.docker.internal:8368/redirect",
+                "idempotencyKey": "sess_0e229df2-8c73-4536-a49c-22cb510a5702_initializing_2026-10-02T02:11:06.580Z_f5325d6e-2c2c-427a-a8cb-6ffb4d457d4c",
+                "deliveryId": "dlv_4ed2fad7-65c5-41dc-b37b-4c19d2b97a27",
+                "attempts": 1,
+                "lastStatusCode": null,
+                "lastError": "Destination address is not allowed",
+                "createdAt": "2026-10-02T02:11:06.000Z"
+            }
+        ],
+        "durationMs": 7
+    },
+    "notes": [
+        "`lastStatusCode` is null for a timeout (lastError \"The operation was aborted due to timeout\") and for a redirect (lastError \"Destination address is not allowed\": a 302 is not followed and counts as a failure)."
+    ]
+}

@@ -28,9 +28,13 @@ final class AckRecorder
      */
     public function record(WhatsAppSession $session, array $data, string $event): WebhookResult
     {
-        $waMessageId = Payload::string($data, 'messageId', 129) ?? Payload::string($data, 'id', 129);
+        // `id` and `messageId` are both in the payload and whether they are the same value is unverified: try both.
+        $candidates = array_values(array_unique(array_filter(
+            [Payload::string($data, 'messageId', 129), Payload::string($data, 'id', 129)],
+            static fn (?string $id): bool => $id !== null && strlen($id) <= 128,
+        )));
 
-        if ($waMessageId === null || strlen($waMessageId) > 128) {
+        if ($candidates === []) {
             return WebhookResult::ignored('The ack names no message.');
         }
 
@@ -43,7 +47,7 @@ final class AckRecorder
         }
 
         for ($attempt = 1; $attempt <= self::ATTEMPTS; $attempt++) {
-            $message = $this->find($session, $waMessageId);
+            $message = $this->find($session, $candidates);
 
             if ($message === null) {
                 throw new AckBeforeMessage('No message with this id yet.');
@@ -74,13 +78,17 @@ final class AckRecorder
         return WebhookResult::processed();
     }
 
-    private function find(WhatsAppSession $session, string $waMessageId): ?WaMessage
+    /**
+     * @param  list<string>  $waMessageIds
+     */
+    private function find(WhatsAppSession $session, array $waMessageIds): ?WaMessage
     {
         return WaMessage::query()
             ->select('wa_messages.*')
             ->join('wa_chats', 'wa_chats.id', '=', 'wa_messages.wa_chat_id')
             ->where('wa_chats.session_id', $session->id)
-            ->where('wa_messages.wa_message_id', $waMessageId)
+            ->whereIn('wa_messages.wa_message_id', $waMessageIds)
+            ->orderBy('wa_messages.id')
             ->first();
     }
 

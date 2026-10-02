@@ -9,6 +9,8 @@ use App\Domain\WhatsApp\Support\OpenWa\OpenWaQr;
 use App\Domain\WhatsApp\Support\Payload;
 use App\Domain\WhatsApp\Support\PhoneNumber;
 use App\Models\WhatsAppSession;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * The `session.*` webhooks: `session.status` (`{sessionId, status}`, OpenWA's wire values), `session.qr` (`{sessionId, qr}`, a PNG data
@@ -21,9 +23,15 @@ final class SessionEventApplier
 
     /**
      * @param  array<array-key, mixed>  $data
+     * @param  CarbonImmutable|null  $at  When OpenWA raised the event (the envelope's `timestamp`, millisecond precision)
      */
-    public function apply(WhatsAppSession $session, string $event, array $data): WebhookResult
+    public function apply(WhatsAppSession $session, string $event, array $data, ?CarbonImmutable $at = null): WebhookResult
     {
+        // Deliveries are independent and not ordered (recorded): a `qr_ready` that overtook the `ready` after it must not undo it.
+        if ($this->isStale($session, $at)) {
+            return WebhookResult::ignored('Older than what was already applied to this session.');
+        }
+
         switch ($event) {
             case 'session.status':
                 $status = SessionStatus::fromOpenWa(Payload::string($data, 'status', 32));
@@ -75,5 +83,28 @@ final class SessionEventApplier
         }
 
         return WebhookResult::ignored('Not a session event.');
+    }
+
+    /**
+     * Whether an event is older than the newest one already applied to this session (kept in the cache, millisecond precision, for an
+     * hour: the window in which deliveries can swap places; the scheduled reconciliation repairs anything beyond it).
+     */
+    private function isStale(WhatsAppSession $session, ?CarbonImmutable $at): bool
+    {
+        if ($at === null) {
+            return false;
+        }
+
+        $key = 'wa:session-event:'.$session->id;
+        $moment = (int) $at->getPreciseTimestamp(3);
+        $latest = (int) Cache::get($key, 0);
+
+        if ($moment < $latest) {
+            return true;
+        }
+
+        Cache::put($key, $moment, 3600);
+
+        return false;
     }
 }

@@ -1,0 +1,34 @@
+{
+    "source": "recorded",
+    "recordedAt": "2026-10-02T02:11:03.329Z",
+    "openwa": {
+        "version": "0.23.7",
+        "image": "ghcr.io/rmyndharis/openwa@sha256:9a9eeee07de00902ca41b30c67cc4a3bb2b219df5c5e54357994f66a1808ee12",
+        "engine": "whatsapp-web.js"
+    },
+    "description": "GET .../qr while the engine starts: 400 \"not ready yet\".",
+    "request": {
+        "method": "GET",
+        "path": "/api/sessions/{sessionId}/qr",
+        "headers": {
+            "X-API-Key": "REDACTED (admin)"
+        },
+        "body": null
+    },
+    "response": {
+        "status": 400,
+        "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "x-ratelimit-limit-short": "10",
+            "x-ratelimit-limit-medium": "100",
+            "x-ratelimit-limit-long": "1000",
+            "x-content-type-options": "nosniff"
+        },
+        "body": {
+            "message": "QR code is not ready yet. Please wait...",
+            "error": "Bad Request",
+            "statusCode": 400
+        },
+        "durationMs": 2
+    }
+}

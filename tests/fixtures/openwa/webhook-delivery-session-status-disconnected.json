@@ -1,0 +1,30 @@
+{
+    "source": "recorded",
+    "recordedAt": "2026-10-02T02:11:03.329Z",
+    "openwa": {
+        "version": "0.23.7",
+        "image": "ghcr.io/rmyndharis/openwa@sha256:9a9eeee07de00902ca41b30c67cc4a3bb2b219df5c5e54357994f66a1808ee12",
+        "engine": "whatsapp-web.js"
+    },
+    "description": "Signed `session.status` delivery after an API stop (OpenWA sends session.status but NOT session.disconnected for API-initiated stops).",
+    "request": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8368/hook",
+        "headers": {
+            "content-type": "application/json",
+            "user-agent": "OpenWA-Webhook/1.0.0",
+            "x-openwa-event": "session.status",
+            "x-openwa-idempotency-key": "sess_0e229df2-8c73-4536-a49c-22cb510a5702_disconnected_2026-10-02T02:11:29.067Z_07bddd6b-1947-46aa-8237-e591c6b9be5d",
+            "x-openwa-delivery-id": "dlv_54a6ed66-02dc-45bb-8e57-20e20750952b",
+            "x-openwa-retry-count": "0",
+            "x-openwa-signature": "sha256=312ae44914b9886304c6be824dc6ac96f9af8854040a9177f02efab48f3ca8b1"
+        },
+        "rawBody": "{\"event\":\"session.status\",\"timestamp\":\"2026-10-02T02:11:29.074Z\",\"sessionId\":\"0e229df2-8c73-4536-a49c-22cb510a5702\",\"idempotencyKey\":\"sess_0e229df2-8c73-4536-a49c-22cb510a5702_disconnected_2026-10-02T02:11:29.067Z_07bddd6b-1947-46aa-8237-e591c6b9be5d\",\"deliveryId\":\"dlv_54a6ed66-02dc-45bb-8e57-20e20750952b\",\"data\":{\"sessionId\":\"0e229df2-8c73-4536-a49c-22cb510a5702\",\"status\":\"disconnected\"}}"
+    },
+    "verification": {
+        "rule": "X-OpenWA-Signature = \"sha256=\" + hex(HMAC-SHA256(secret, rawBody)); rawBody is the exact request body",
+        "secret": "test-webhook-secret-0123456789abcdef",
+        "signatureMatchedWhenReceived": true,
+        "reverifiableFromThisFile": true
+    }
+}

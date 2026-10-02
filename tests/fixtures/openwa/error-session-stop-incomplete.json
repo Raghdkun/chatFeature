@@ -1,0 +1,25 @@
+{
+    "source": "documented",
+    "documentedIn": "docs/reference/openwa-api.md 6.2 Error Response",
+    "description": "POST .../stop when the engine teardown did not complete: 502 with a stable code (retryable).",
+    "verified": false,
+    "request": {
+        "method": "POST",
+        "path": "/api/sessions/{sessionId}/stop"
+    },
+    "response": {
+        "status": 502,
+        "headers": {
+            "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+            "statusCode": 502,
+            "error": "Bad Gateway",
+            "message": "The engine did not confirm the stop",
+            "code": "SESSION_STOP_INCOMPLETE"
+        }
+    },
+    "notes": [
+        "The wording is illustrative; the code and status are documented."
+    ]
+}

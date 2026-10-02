@@ -62,15 +62,24 @@ class OpenWaHttpClientTest extends TestCase
         return Http::response($body, $status);
     }
 
+    /** OpenWA's recorded answer of a fixture: its status, its headers (`Retry-After` ...) and its body. */
+    private function recorded(string $fixture): PromiseInterface
+    {
+        $status = OpenWaFixtures::status($fixture);
+        $body = OpenWaFixtures::body($fixture);
+
+        return Http::response($body === [] && in_array($status, [204, 205], true) ? '' : $body, $status, OpenWaFixtures::headers($fixture));
+    }
+
     // ---- the happy path of every call --------------------------------------------------------------------------------------
 
     public function test_ping_posts_to_validate_with_the_key_header_and_reads_role_and_engine(): void
     {
-        Http::fake(['*' => $this->answer(OpenWaFixtures::load('ping', ['valid' => true, 'role' => 'operator', 'engineType' => 'whatsapp-web.js']))]);
+        Http::fake(['*' => $this->recorded('auth-validate-ok')]);
 
         $ping = $this->client()->ping();
 
-        $this->assertSame('operator', $ping->role);
+        $this->assertSame('admin', $ping->role);
         $this->assertSame('whatsapp-web.js', $ping->engine);
         $this->assertTrue($ping->canOperate());
         Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
@@ -81,25 +90,27 @@ class OpenWaHttpClientTest extends TestCase
 
     public function test_create_session_sends_the_name_and_returns_the_session(): void
     {
-        Http::fake(['*' => $this->answer(OpenWaFixtures::session('created'), 201)]);
+        Http::fake(['*' => $this->recorded('sessions-create')]);
 
-        $session = $this->client()->createSession('support-main');
+        $session = $this->client()->createSession('rec-plain-0svf2');
 
-        $this->assertSame(self::SESSION, $session->id);
+        $this->assertSame('9460cf41-134f-40de-b6d6-b2322a32dd31', $session->id);
         $this->assertSame(SessionStatus::Created, $session->status);
+        $this->assertFalse($session->engineLoaded);
         Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
             && $request->url() === 'http://127.0.0.1:2785/api/sessions'
-            && $request->data() === ['name' => 'support-main']);
+            && $request->data() === ['name' => 'rec-plain-0svf2']);
     }
 
     public function test_start_and_stop_post_without_a_body_and_map_the_wire_status(): void
     {
+        // Recorded: starting BLOCKS until the engine waits for a scan and answers `qr_ready`, stopping answers `disconnected`.
         Http::fake([
-            '*/start' => $this->answer(OpenWaFixtures::session('initializing')),
-            '*/stop' => $this->answer(OpenWaFixtures::session('disconnected')),
+            '*/start' => $this->recorded('sessions-start'),
+            '*/stop' => $this->recorded('sessions-stop'),
         ]);
 
-        $this->assertSame(SessionStatus::Starting, $this->client()->startSession(self::SESSION)->status);
+        $this->assertSame(SessionStatus::Qr, $this->client()->startSession(self::SESSION)->status);
         $this->assertSame(SessionStatus::Disconnected, $this->client()->stopSession(self::SESSION)->status);
 
         Http::assertSent(fn (Request $request): bool => $request->url() === 'http://127.0.0.1:2785/api/sessions/'.self::SESSION.'/start' && $request->body() === '');
@@ -108,13 +119,13 @@ class OpenWaHttpClientTest extends TestCase
 
     public function test_get_session_reads_phone_push_name_and_connection_time(): void
     {
-        Http::fake(['*' => $this->answer(OpenWaFixtures::session('ready'))]);
+        Http::fake(['*' => $this->recorded('sessions-get-ready')]);
 
         $session = $this->client()->getSession(self::SESSION);
 
         $this->assertSame(SessionStatus::Ready, $session->status);
-        $this->assertSame('+6281234567890', $session->phone);
-        $this->assertSame('Support', $session->pushName);
+        $this->assertSame('+4915100000000', $session->phone, 'OpenWA reports bare digits, the application keeps E.164');
+        $this->assertSame('PNE Support', $session->pushName);
         $this->assertTrue($session->engineLoaded);
         Http::assertSent(fn (Request $request): bool => $request->method() === 'GET' && $request->url() === 'http://127.0.0.1:2785/api/sessions/'.self::SESSION);
     }
@@ -130,7 +141,7 @@ class OpenWaHttpClientTest extends TestCase
 
     public function test_get_qr_returns_the_png_data_url(): void
     {
-        Http::fake(['*' => $this->answer(OpenWaFixtures::load('qr', ['qrCode' => OpenWaFixtures::PNG_DATA_URL, 'status' => 'qr_ready']))]);
+        Http::fake(['*' => $this->recorded('sessions-qr')]);
 
         $qr = $this->client()->getQr(self::SESSION);
 
@@ -141,15 +152,13 @@ class OpenWaHttpClientTest extends TestCase
 
     public function test_register_webhook_sends_url_events_and_secret_and_reads_only_the_id_back(): void
     {
-        Http::fake(['*' => $this->answer(OpenWaFixtures::load('webhook-created', [
-            'id' => 'f1e2d3c4-b5a6-7890-1234-567890abcdef', 'sessionId' => 'support-main', 'url' => 'https://chat.example/webhooks/openwa/01J', 'events' => ['message.received'],
-            'filters' => null, 'active' => true, 'retryCount' => 3, 'lastTriggeredAt' => null,
-        ]), 201)]);
+        Http::fake(['*' => $this->recorded('webhooks-create')]);
 
         $webhook = $this->client()->registerWebhook(self::SESSION, 'https://chat.example/webhooks/openwa/01J', 'a-webhook-secret-of-40-characters-0123456789', ['message.received', 'message.ack']);
 
-        $this->assertSame('f1e2d3c4-b5a6-7890-1234-567890abcdef', $webhook->id);
+        $this->assertSame('07bddd6b-1947-46aa-8237-e591c6b9be5d', $webhook->id);
         $this->assertTrue($webhook->active);
+        $this->assertStringNotContainsString('secret', json_encode((array) $webhook), 'OpenWA never returns the secret');
         Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
             && str_ends_with($request->url(), '/api/sessions/'.self::SESSION.'/webhooks')
             && $request->data() === [
@@ -170,12 +179,12 @@ class OpenWaHttpClientTest extends TestCase
 
     public function test_send_text_posts_chat_and_text_and_reads_the_message_id_and_epoch_seconds(): void
     {
-        Http::fake(['*' => $this->answer(OpenWaFixtures::load('send-text', ['messageId' => 'true_628123456789@c.us_3EB0ABCD', 'timestamp' => 1719312000]), 201)]);
+        Http::fake(['*' => $this->recorded('messages-send-text-ok')]);
 
         $result = $this->client()->sendText(self::SESSION, '628123456789@c.us', 'Hello from OpenWA!');
 
-        $this->assertSame('true_628123456789@c.us_3EB0ABCD', $result->messageId);
-        $this->assertSame(1719312000, $result->timestamp->getTimestamp());
+        $this->assertSame('true_4915112345678@c.us_3EB0AB12CD34', $result->messageId);
+        $this->assertSame(1790932560, $result->timestamp->getTimestamp());
         Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
             && str_ends_with($request->url(), '/api/sessions/'.self::SESSION.'/messages/send-text')
             && $request->data() === ['chatId' => '628123456789@c.us', 'text' => 'Hello from OpenWA!']);
@@ -270,9 +279,7 @@ class OpenWaHttpClientTest extends TestCase
 
     public function test_the_pacing_limit_carries_the_wait_and_is_not_an_ordinary_throttle(): void
     {
-        Http::fake(['*' => $this->answer(OpenWaFixtures::load('error-pacing-limited', [
-            'statusCode' => 429, 'error' => 'Too Many Requests', 'message' => 'Daily allowance of 5 new conversation(s) reached', 'code' => 'SEND_PACING_LIMITED', 'retryAfterSeconds' => 34521,
-        ]), 429)]);
+        Http::fake(['*' => $this->recorded('error-send-pacing-limited')]);
 
         try {
             $this->client()->sendText(self::SESSION, '1@c.us', 'hi');
@@ -387,7 +394,7 @@ class OpenWaHttpClientTest extends TestCase
     {
         Http::fake(['*' => Http::sequence()
             ->pushFailedConnection()
-            ->push(OpenWaFixtures::session('ready'), 200)]);
+            ->push(OpenWaFixtures::body('sessions-get-ready'), 200)]);
 
         $this->assertSame(SessionStatus::Ready, $this->client()->getSession(self::SESSION)->status);
         Http::assertSentCount(2);
@@ -395,7 +402,7 @@ class OpenWaHttpClientTest extends TestCase
 
     public function test_a_get_gives_up_after_one_repeat(): void
     {
-        Http::fake(['*' => Http::sequence()->pushFailedConnection()->pushFailedConnection()->push(OpenWaFixtures::session('ready'), 200)]);
+        Http::fake(['*' => Http::sequence()->pushFailedConnection()->pushFailedConnection()->push(OpenWaFixtures::body('sessions-get-ready'), 200)]);
 
         $this->expectException(OpenWaUnavailable::class);
 
@@ -598,5 +605,144 @@ class OpenWaHttpClientTest extends TestCase
         Log::shouldNotHaveReceived('info');
         Log::shouldNotHaveReceived('debug');
         Log::shouldNotHaveReceived('warning');
+    }
+
+    // ---- every recorded answer, through the client --------------------------------------------------------------------------
+
+    /**
+     * Fixture => what the client must make of it: a Closure that makes the call and returns something to compare, and the expectation
+     * (a class-string of the exception it must throw, or a Closure that checks the result).
+     *
+     * @return iterable<string, array{string, Closure(OpenWaHttpClient): mixed, string|Closure(mixed): void}>
+     */
+    public static function recordedAnswers(): iterable
+    {
+        $id = '0e229df2-8c73-4536-a49c-22cb510a5702';
+
+        yield 'ping, admin key' => ['auth-validate-ok', fn (OpenWaHttpClient $c) => $c->ping(), fn ($r) => self::assertTrue($r->canOperate())];
+        yield 'ping, viewer key' => ['auth-validate-viewer', fn (OpenWaHttpClient $c) => $c->ping(), fn ($r) => self::assertFalse($r->canOperate())];
+        yield 'ping, invalid key' => ['auth-validate-invalid-key', fn (OpenWaHttpClient $c) => $c->ping(), OpenWaRejected::class];
+        yield 'ping, missing key' => ['auth-validate-missing-key', fn (OpenWaHttpClient $c) => $c->ping(), OpenWaRejected::class];
+        yield 'create, operator key' => ['auth-operator-create-session-ok', fn (OpenWaHttpClient $c) => $c->createSession('rec-operator-0svf2'), fn ($r) => self::assertSame(SessionStatus::Created, $r->status)];
+        yield 'create, scoped key refused' => ['auth-scoped-create-session-forbidden', fn (OpenWaHttpClient $c) => $c->createSession('abc'), OpenWaRejected::class];
+        yield 'create, viewer refused' => ['auth-viewer-create-session-forbidden', fn (OpenWaHttpClient $c) => $c->createSession('abc'), OpenWaRejected::class];
+        yield 'create, scoped key on another session is 401' => ['auth-scoped-other-session', fn (OpenWaHttpClient $c) => $c->getSession($id), fn () => null];
+        yield 'create, duplicate name' => ['sessions-create-duplicate', fn (OpenWaHttpClient $c) => $c->createSession('rec-plain-0svf2'), OpenWaRejected::class];
+        yield 'create, bad name' => ['sessions-create-name-characters', fn (OpenWaHttpClient $c) => $c->createSession('bad name'), OpenWaRejected::class];
+        yield 'create, malformed JSON is a 404' => ['sessions-create-malformed-json', fn (OpenWaHttpClient $c) => $c->createSession('abc'), OpenWaRejected::class];
+        yield 'get' => ['sessions-get', fn (OpenWaHttpClient $c) => $c->getSession($id), fn ($r) => self::assertSame(SessionStatus::Created, $r->status)];
+        yield 'get, initializing' => ['sessions-get-initializing', fn (OpenWaHttpClient $c) => $c->getSession($id), fn ($r) => self::assertSame(SessionStatus::Starting, $r->status)];
+        yield 'get, qr_ready' => ['sessions-get-qr-ready', fn (OpenWaHttpClient $c) => $c->getSession($id), fn ($r) => self::assertSame(SessionStatus::Qr, $r->status)];
+        yield 'get, failed' => ['sessions-get-failed', fn (OpenWaHttpClient $c) => $c->getSession($id), fn ($r) => self::assertSame(SessionStatus::Failed, $r->status)];
+        yield 'get, unknown id' => ['sessions-get-not-found', fn (OpenWaHttpClient $c) => $c->getSession($id), OpenWaRejected::class];
+        yield 'get, not a uuid' => ['sessions-get-not-uuid', fn (OpenWaHttpClient $c) => $c->getSession('nope'), OpenWaRejected::class];
+        yield 'start' => ['sessions-start', fn (OpenWaHttpClient $c) => $c->startSession($id), fn ($r) => self::assertSame(SessionStatus::Qr, $r->status)];
+        yield 'start twice' => ['sessions-start-twice', fn (OpenWaHttpClient $c) => $c->startSession($id), OpenWaRejected::class];
+        yield 'stop' => ['sessions-stop', fn (OpenWaHttpClient $c) => $c->stopSession($id), fn ($r) => self::assertSame(SessionStatus::Disconnected, $r->status)];
+        yield 'stop twice' => ['sessions-stop-twice', fn (OpenWaHttpClient $c) => $c->stopSession($id), fn ($r) => self::assertSame(SessionStatus::Disconnected, $r->status)];
+        yield 'stop, never started' => ['sessions-stop-never-started', fn (OpenWaHttpClient $c) => $c->stopSession($id), fn ($r) => self::assertSame(SessionStatus::Disconnected, $r->status)];
+        yield 'delete' => ['sessions-delete', fn (OpenWaHttpClient $c) => $c->deleteSession($id), fn () => null];
+        yield 'delete a running session' => ['sessions-delete-running', fn (OpenWaHttpClient $c) => $c->deleteSession($id), fn () => null];
+        yield 'delete twice' => ['sessions-delete-twice', fn (OpenWaHttpClient $c) => $c->deleteSession($id), fn ($r) => null];
+        yield 'qr' => ['sessions-qr', fn (OpenWaHttpClient $c) => $c->getQr($id), fn ($r) => self::assertSame(OpenWaFixtures::PNG_DATA_URL, $r->dataUrl)];
+        yield 'qr, not started' => ['sessions-qr-before-start', fn (OpenWaHttpClient $c) => $c->getQr($id), OpenWaRejected::class];
+        yield 'qr, still initializing' => ['sessions-qr-initializing', fn (OpenWaHttpClient $c) => $c->getQr($id), OpenWaRejected::class];
+        yield 'webhook, created' => ['webhooks-create', fn (OpenWaHttpClient $c) => $c->registerWebhook($id, 'https://x.test/h', str_repeat('s', 40), ['message.received']), fn ($r) => self::assertSame('07bddd6b-1947-46aa-8237-e591c6b9be5d', $r->id)];
+        yield 'webhook, default events' => ['webhooks-create-default-events', fn (OpenWaHttpClient $c) => $c->registerWebhook($id, 'https://x.test/h', str_repeat('s', 40), []), fn ($r) => self::assertSame(['message.received'], $r->events)];
+        yield 'webhook, private address (SSRF)' => ['webhooks-create-ssrf-private-ip', fn (OpenWaHttpClient $c) => $c->registerWebhook($id, 'http://10.0.0.5/h', str_repeat('s', 40), ['message.received']), OpenWaRejected::class];
+        yield 'webhook, loopback (SSRF)' => ['webhooks-create-ssrf-loopback', fn (OpenWaHttpClient $c) => $c->registerWebhook($id, 'http://127.0.0.1/h', str_repeat('s', 40), ['message.received']), OpenWaRejected::class];
+        yield 'webhook, limit of 16' => ['webhooks-create-limit', fn (OpenWaHttpClient $c) => $c->registerWebhook($id, 'https://x.test/h', str_repeat('s', 40), ['message.received']), OpenWaRejected::class];
+        yield 'webhook, unknown session' => ['webhooks-create-unknown-session', fn (OpenWaHttpClient $c) => $c->registerWebhook($id, 'https://x.test/h', str_repeat('s', 40), ['message.received']), OpenWaRejected::class];
+        yield 'webhook, deleted' => ['webhooks-delete', fn (OpenWaHttpClient $c) => $c->deleteWebhook($id, 'w'), fn () => null];
+        yield 'webhook, deleting what is gone' => ['webhooks-get-not-found', fn (OpenWaHttpClient $c) => $c->deleteWebhook($id, 'w'), OpenWaRejected::class];
+        yield 'send, accepted' => ['messages-send-text-ok', fn (OpenWaHttpClient $c) => $c->sendText($id, '4915112345678@c.us', 'hi'), fn ($r) => self::assertSame('true_4915112345678@c.us_3EB0AB12CD34', $r->messageId)];
+        yield 'send, engine not connected (409)' => ['messages-send-text-session-not-ready', fn (OpenWaHttpClient $c) => $c->sendText($id, 'c@c.us', 'hi'), OpenWaRejected::class];
+        yield 'send, not active (400)' => ['messages-send-text-session-not-started', fn (OpenWaHttpClient $c) => $c->sendText($id, 'c@c.us', 'hi'), OpenWaRejected::class];
+        yield 'send, too long' => ['messages-send-text-too-long', fn (OpenWaHttpClient $c) => $c->sendText($id, 'c@c.us', 'hi'), OpenWaRejected::class];
+        yield 'send, pacing limited' => ['error-send-pacing-limited', fn (OpenWaHttpClient $c) => $c->sendText($id, 'c@c.us', 'hi'), OpenWaPacingLimited::class];
+        yield 'any call, throttled' => ['ratelimit-throttled', fn (OpenWaHttpClient $c) => $c->getSession($id), OpenWaRejected::class];
+        yield 'create, name still being torn down' => ['error-session-name-teardown-pending', fn (OpenWaHttpClient $c) => $c->createSession('abc'), OpenWaRejected::class];
+        yield 'start, engine did not come up (504)' => ['error-session-start-timeout', fn (OpenWaHttpClient $c) => $c->startSession($id), OpenWaUnavailable::class];
+        yield 'stop, engine did not confirm (502)' => ['error-session-stop-incomplete', fn (OpenWaHttpClient $c) => $c->stopSession($id), OpenWaUnavailable::class];
+        yield 'media, nothing stored' => ['messages-media-not-found', fn (OpenWaHttpClient $c) => $c->downloadMedia($id, 'c@c.us', 'm'), fn ($r) => self::assertNull($r)];
+    }
+
+    /**
+     * @param  Closure(OpenWaHttpClient): mixed  $call
+     * @param  string|Closure(mixed): void  $expect
+     */
+    #[DataProvider('recordedAnswers')]
+    public function test_every_recorded_answer_is_understood_by_the_client(string $fixture, Closure $call, string|Closure $expect): void
+    {
+        Http::fake(['*' => $this->recorded($fixture)]);
+
+        if (is_string($expect)) {
+            try {
+                $call($this->client());
+                $this->fail("{$fixture} was accepted");
+            } catch (OpenWaUnavailable|OpenWaRejected $exception) {
+                $this->assertInstanceOf($expect, $exception, $fixture);
+
+                if ($exception instanceof OpenWaRejected) {
+                    $this->assertSame(OpenWaFixtures::status($fixture), $exception->status, $fixture);
+                }
+            }
+
+            return;
+        }
+
+        try {
+            $expect($call($this->client()));
+        } catch (OpenWaRejected $rejected) {
+            // The fixtures that only describe an odd answer (a scoped key's 401, deleting what is gone) just need to be understood.
+            $this->assertContains($rejected->status, [401, 404], $fixture);
+        }
+
+        $this->addToAssertionCount(1);
+    }
+
+    public function test_the_error_codes_and_texts_of_the_recordings_reach_the_exceptions(): void
+    {
+        $current = null;
+        Http::fake(['*' => function () use (&$current) {
+            return $this->recorded((string) $current);
+        }]);
+        $by = function (string $fixture, Closure $call) use (&$current): OpenWaRejected {
+            $current = $fixture;
+
+            try {
+                $call($this->client());
+            } catch (OpenWaRejected $rejected) {
+                return $rejected;
+            }
+
+            $this->fail("{$fixture} was accepted");
+        };
+
+        $teardown = $by('error-session-name-teardown-pending', fn (OpenWaHttpClient $c) => $c->createSession('abc'));
+        $this->assertSame('SESSION_NAME_TEARDOWN_PENDING', $teardown->errorCode);
+        $this->assertTrue($teardown->isConflict());
+
+        $this->assertSame('SEND_PACING_LIMITED', $by('error-send-pacing-limited', fn (OpenWaHttpClient $c) => $c->sendText('s', 'c', 't'))->errorCode);
+        $this->assertSame('rate_limited', $by('ratelimit-throttled', fn (OpenWaHttpClient $c) => $c->getSession('s'))->errorCode, 'the throttler has no code of its own');
+        $this->assertSame('Destination address is not allowed', $by('webhooks-create-ssrf-private-ip', fn (OpenWaHttpClient $c) => $c->registerWebhook('s', 'http://10.0.0.5', str_repeat('s', 40), []))->getMessage());
+        $this->assertStringContainsString('Webhook limit reached', $by('webhooks-create-limit', fn (OpenWaHttpClient $c) => $c->registerWebhook('s', 'https://x.test', str_repeat('s', 40), []))->getMessage());
+        $this->assertStringContainsString('is not active', $by('messages-send-text-session-not-started', fn (OpenWaHttpClient $c) => $c->sendText('s', 'c', 't'))->getMessage());
+        $this->assertTrue($by('messages-send-text-session-not-ready', fn (OpenWaHttpClient $c) => $c->sendText('s', 'c', 't'))->isConflict());
+        $this->assertTrue($by('auth-scoped-other-session', fn (OpenWaHttpClient $c) => $c->getSession('s'))->isUnauthorized(), 'a scoped key outside its scope is a 401, and still "unauthorized"');
+        $this->assertTrue($by('auth-viewer-create-session-forbidden', fn (OpenWaHttpClient $c) => $c->createSession('abc'))->isUnauthorized());
+    }
+
+    public function test_the_media_download_returns_the_documented_inert_bytes(): void
+    {
+        $file = OpenWaFixtures::file('messages-media-download-ok');
+        $headers = (array) ($file['response']['headers'] ?? []);
+        Http::fake(['*' => Http::response('JPEGBYTES', 200, ['Content-Type' => $headers['content-type'] ?? 'image/jpeg', 'Content-Disposition' => $headers['content-disposition'] ?? 'attachment'])]);
+
+        $media = $this->client()->downloadMedia(self::SESSION, '4915112345678@c.us', '3EB0F00D0001');
+
+        $this->assertNotNull($media);
+        $this->assertSame('JPEGBYTES', $media->contents);
+        $this->assertNotSame('', $media->mime);
     }
 }

@@ -69,7 +69,7 @@ class WebhookEndpointTest extends TestCase
     public function test_the_signature_is_over_the_raw_bytes_not_over_a_re_encoded_body(): void
     {
         // Same JSON value, different bytes (pretty printed, with a unicode escape): signed as sent, so it verifies.
-        $raw = json_encode($this->messageReceived(['body' => 'Grüße 👋']), JSON_PRETTY_PRINT);
+        $raw = $this->rawBody($this->session, $this->messageReceived(['body' => 'Grüße 👋']), JSON_PRETTY_PRINT);
 
         $this->deliver($this->session, $raw)->assertOk();
         $this->assertSame(1, WaMessage::query()->count());
@@ -112,7 +112,7 @@ class WebhookEndpointTest extends TestCase
     public function test_the_hex_must_be_lower_case_as_openwa_writes_it(): void
     {
         $body = $this->messageReceived();
-        $raw = (string) json_encode($body);
+        $raw = $this->rawBody($this->session, $body);
         $upper = 'sha256='.strtoupper(substr(WebhookSignature::sign($raw, self::SECRET), 7));
 
         $this->assertRefusedAlike($this->deliver($this->session, $raw, headers: ['X-OpenWA-Signature' => $upper]));
@@ -141,7 +141,7 @@ class WebhookEndpointTest extends TestCase
     public function test_a_session_that_never_registered_a_webhook_refuses_everything_even_an_empty_secret_signature(): void
     {
         $unregistered = WhatsAppSession::factory()->create();
-        $raw = (string) json_encode($this->messageReceived());
+        $raw = $this->rawBody($this->session, $this->messageReceived());
 
         foreach (['', 'x', 'no-webhook-secret-registered'] as $guess) {
             $this->assertRefusedAlike($this->deliver($unregistered, $raw, headers: ['X-OpenWA-Signature' => WebhookSignature::sign($raw, $guess)]));
@@ -169,8 +169,7 @@ class WebhookEndpointTest extends TestCase
 
     public function test_a_valid_signature_replayed_is_a_200_no_op(): void
     {
-        $body = $this->messageReceived();
-        $raw = (string) json_encode($body);
+        $raw = $this->rawBody($this->session, $this->messageReceived());
 
         $this->deliver($this->session, $raw)->assertOk()->assertExactJson(['status' => 'accepted']);
         $this->deliver($this->session, $raw)->assertOk()->assertExactJson(['status' => 'duplicate']);
@@ -241,7 +240,7 @@ class WebhookEndpointTest extends TestCase
     {
         $body = $this->messageReceived();
         unset($body['idempotencyKey']);
-        $raw = (string) json_encode($body);
+        $raw = $this->rawBody($this->session, $body);
 
         $this->deliver($this->session, $raw, headers: ['X-OpenWA-Idempotency-Key' => false])->assertExactJson(['status' => 'accepted']);
         $this->deliver($this->session, $raw, headers: ['X-OpenWA-Idempotency-Key' => false])->assertExactJson(['status' => 'duplicate']);
@@ -293,7 +292,7 @@ class WebhookEndpointTest extends TestCase
     {
         Queue::fake();
         $body = $this->messageReceived();
-        $raw = (string) json_encode($body);
+        $raw = $this->rawBody($this->session, $body);
 
         $this->deliver($this->session, $raw)->assertExactJson(['status' => 'accepted']);
         Queue::assertPushed(ProcessWebhookDelivery::class, 1);
@@ -314,7 +313,7 @@ class WebhookEndpointTest extends TestCase
 
     public function test_a_processed_delivery_is_never_queued_again(): void
     {
-        $raw = (string) json_encode($this->messageReceived());
+        $raw = $this->rawBody($this->session, $this->messageReceived());
         $this->deliver($this->session, $raw)->assertExactJson(['status' => 'accepted']);
         WaWebhookDelivery::query()->update(['received_at' => now()->subDay()]);
 
