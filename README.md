@@ -82,7 +82,7 @@ Goal: starter kit and tooling. Exit: stock kit boots; SQLite (tests) and MySQL b
 - [x] 4D embed panel: pre-chat, topics, queue, chat, rating, offline form, attachments, protocol with the loader
 - [x] Independent reviews (backend correctness, security, frontend, front/back audit) and their fix rounds; real-stack e2e (visitor flows, staff and permission matrices, a11y/responsive/RTL/keyboard/perf, polling-only mode) and the deck screenshots
 - Exit met: two-browser (here: five-actor) Playwright lifecycle against a real Reverb; MySQL concurrent-accept race test; idle auto-close; queue timeout to offline ticket; upload abuse tests; reconnect sync; IDOR/channel matrices.
-- Gate at `v0.4.0`: `composer ci:check` green with PHPUnit **<<PHPUNIT>>** (14 skip without a harness, NATS or MySQL) and Vitest **<<VITEST>>**; Playwright **<<PW>>**.
+- Gate at `v0.4.0`: `composer ci:check` green with PHPUnit **2418** (14 skip without a harness, NATS or MySQL) and Vitest **2183**; Playwright **803 specs: 787 passed, 16 skipped, 0 failed**.
 - Known gaps: see the changelog (animated GIFs refused, stale sockets after revocation until reconnect, English-only inbox strings and system lines, no captcha hook, loader at 15.8 of 16 KB).
 
 ### P5 Presence + notifications (parallel with P6)
