@@ -454,7 +454,7 @@
         {
             "file": "webhook-delivery-test.json",
             "source": "recorded",
-            "description": "The `test` event delivery (a content-derived idempotency key does not apply: `test_<deliveryId>_<webhookId>`)."
+            "description": "The `test` event delivery of POST .../webhooks/{id}/test."
         },
         {
             "file": "webhooks-create-default-events.json",
