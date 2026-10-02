@@ -15,6 +15,7 @@ use App\Support\ApiDocs\ApiAudience;
 use App\Support\ApiDocs\ApiRoutes;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\RateLimiter;
 use Laravel\Fortify\LoginRateLimiter;
 use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
@@ -157,11 +158,28 @@ class StaffSignInTest extends TestCase
             ['visitor@example.test', self::PASSWORD],
             ['portal@example.test', self::PASSWORD],
         ] as $index => [$email, $password]) {
-            $before = $hasher->checks;
+            $before = $hasher->work();
             $this->signIn($email, $password);
 
-            $this->assertSame(1, $hasher->checks - $before, "attempt #{$index} ({$email}) must run exactly one password hash check, a real one or the stand-in");
+            $this->assertSame(1, $hasher->work() - $before, "attempt #{$index} ({$email}) must do exactly one slow hash operation: a real check, the stand-in check, or (cold cache) making the stand-in");
         }
+    }
+
+    public function test_the_stand_in_hash_is_made_once_kept_and_then_only_checked(): void
+    {
+        $hasher = $this->countHashChecks();
+
+        $this->signIn('nobody@example.test', 'x')->assertUnauthorized();
+        $this->assertSame([0, 1], [$hasher->checks, $hasher->makes], 'cold: the stand-in is made (one hash)');
+        $this->assertNotNull(Cache::get('auth:stand-in-password-hash'));
+
+        $this->signIn('nobody@example.test', 'x')->assertUnauthorized();
+        $this->assertSame([1, 1], [$hasher->checks, $hasher->makes], 'warm: one check, nothing is hashed again');
+
+        // A change of the hashing cost renews it (a stand-in of the old cost would show in the clock).
+        Cache::forever('auth:stand-in-password-hash', password_hash('x', PASSWORD_BCRYPT, ['cost' => 5]));
+        $this->signIn('nobody@example.test', 'x')->assertUnauthorized();
+        $this->assertSame([1, 2], [$hasher->checks, $hasher->makes]);
     }
 
     public function test_the_driver_never_hands_out_a_token_to_an_account_that_cannot_have_one(): void
@@ -257,7 +275,7 @@ class StaffSignInTest extends TestCase
 
         $this->assertSame('rate_limited', $response->json('error.code'));
         $this->assertGreaterThan(0, (int) $response->headers->get('Retry-After'));
-        $this->assertSame(0, $hasher->checks, 'a locked key never reaches the password check');
+        $this->assertSame(0, $hasher->work(), 'a locked key never reaches the password check');
     }
 
     public function test_a_success_clears_the_failed_attempts_of_that_email_and_address(): void
