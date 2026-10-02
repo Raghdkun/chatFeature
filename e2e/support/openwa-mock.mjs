@@ -18,7 +18,7 @@
  *   POST /__mock/reset                        forget everything (sessions, webhooks, logs, scripts, config)
  *   GET  /__mock/state                        sessions, webhooks, config
  *   GET  /__mock/requests[?method=&path=&since=]  what the app called (API calls only, newest last); DELETE clears it
- *   GET  /__mock/deliveries[?event=&since=]   every delivery ATTEMPT to the app (status it answered, headers, raw body)
+ *   GET  /__mock/deliveries[?event=&since=&key=]  every delivery ATTEMPT to the app (status it answered, headers, raw body); `key` = a part of the idempotency key (e.g. a message id)
  *   POST /__mock/config                       { startDelayMs, retryBaseMs, deliveryTimeoutMs, ssrf, validationDetail, teardownPendingMs,
  *                                               acks:{mode:'auto'|'manual',steps,delayMs}, pacing:{minIntervalMs,dailyCap,coldDailyCap},
  *                                               resolveLid, mediaInlineMaxBytes, sentEcho }
@@ -1839,7 +1839,11 @@ export async function startOpenWaMock(options = {}) {
                     (entry) =>
                         entry.n > since &&
                         (query.get('event') === null ||
-                            entry.event === query.get('event')),
+                            entry.event === query.get('event')) &&
+                        (query.get('key') === null ||
+                            String(entry.idempotencyKey).includes(
+                                query.get('key'),
+                            )),
                 ),
             );
         }

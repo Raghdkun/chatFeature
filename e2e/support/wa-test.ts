@@ -25,7 +25,11 @@
  * The instance memoises settings for 2 s per PHP worker (`SettingsRepository::MEMO_TTL_SECONDS`, the app runs with four workers): after a
  * settings write the helpers below wait that long once, and so should a spec that writes settings itself (`settleSettings()`).
  */
+import type { PlaywrightWorkerArgs } from '@playwright/test';
+import { Api } from './api';
 import { test as base, expect } from './test';
+import { createAdminAgent } from './staff-db';
+import { PASSWORD } from './users';
 import { tinker } from './artisan';
 import type { OpenWaMock } from './openwa';
 import type { Instance } from './scenarios';
@@ -117,6 +121,63 @@ export async function wipeWhatsApp(instance: Instance): Promise<void> {
     }
 }
 
+const workerAdmins = new Map<string, Promise<Api>>();
+
+/**
+ * An administrator account of its own for the calling Playwright worker (created once per worker and instance, signed in over the login
+ * endpoint), so the staff API limiter (per user) does not see the whole suite as one person.
+ */
+function workerAdmin(
+    playwright: PlaywrightWorkerArgs['playwright'],
+    instance: Instance,
+): Promise<Api> {
+    const known = workerAdmins.get(instance.key);
+
+    if (known) {
+        return known;
+    }
+
+    const created = (async () => {
+        const account = {
+            name: `WhatsApp Admin ${process.pid}`,
+            email: `wa.admin.${process.pid}.${Date.now().toString(36)}@example.test`,
+            password: PASSWORD,
+        };
+
+        await createAdminAgent(instance, account);
+
+        const context = await playwright.request.newContext({
+            baseURL: instance.url,
+        });
+
+        await context.get('/login');
+
+        const xsrf = (await context.storageState()).cookies.find(
+            (cookie) => cookie.name === 'XSRF-TOKEN',
+        );
+        const login = await context.post('/login', {
+            headers: {
+                Accept: 'application/json',
+                'X-XSRF-TOKEN': decodeURIComponent(xsrf?.value ?? ''),
+            },
+            data: { email: account.email, password: account.password },
+            failOnStatusCode: false,
+        });
+
+        if (!login.ok()) {
+            throw new Error(
+                `Signing in the worker's administrator failed: HTTP ${login.status()} ${await login.text()}`,
+            );
+        }
+
+        return new Api(context, instance.url);
+    })();
+
+    workerAdmins.set(instance.key, created);
+
+    return created;
+}
+
 type Options = {
     waMode: 'shared' | 'exclusive';
     waWipe: boolean;
@@ -132,8 +193,10 @@ export const test = base.extend<Options & Fixtures>({
     waMode: ['shared', { option: true }],
     waWipe: [false, { option: true }],
 
-    wa: async ({ adminApi }, use) => {
-        await use(new WaAdminApi(adminApi));
+    // The WhatsApp API as an administrator of this worker's own (see `workerAdmin`): the specs poll and fire hundreds of calls, and the
+    // management API is limited per staff member (600 a minute) while four workers share the one saved administrator.
+    wa: async ({ instance, playwright }, use) => {
+        await use(new WaAdminApi(await workerAdmin(playwright, instance)));
     },
 
     waGuard: [

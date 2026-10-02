@@ -183,8 +183,14 @@ async function snapshot(
     openWa: Parameters<typeof populate>[3],
     fixture: Fixture,
 ) {
+    const mock = (await openWa.state()).sessions.find(
+        (candidate) => candidate.name === fixture.session.name,
+    )!;
     const state = JSON.stringify({
-        sessions: (await wa.sessions()).data,
+        // Only this test's session: other spec files create and change theirs at the same time.
+        sessions: (await wa.sessions()).data.filter(
+            (row: { ulid: string }) => row.ulid === fixture.session.ulid,
+        ),
         settings: (await wa.settings()).data,
         chats: (
             await wa.chats({ status: 'all', session: fixture.session.ulid })
@@ -193,11 +199,15 @@ async function snapshot(
         link: (
             await wa.api.get(`/api/v1/widgets/${fixture.widget.ulid}/whatsapp`)
         ).data,
-        openwaCalls: (await openWa.requests()).length,
+        openwaCalls: (await openWa.requests()).filter((call) =>
+            call.path.includes(`/${mock.id}`),
+        ).length,
     });
 
     // A signed link carries an expiry and a signature that are new on every read: they are not state.
-    return state.replace(/\?expires=\d+&signature=[0-9a-f]+/g, '');
+    return JSON.parse(
+        state.replace(/\?expires=\d+&signature=[0-9a-f]+/g, ''),
+    ) as Record<string, unknown>;
 }
 
 test('every WhatsApp page and API route refuses an agent with 403, a visitor token and a guest with 401 or a redirect, and a refused call changes nothing', async ({
@@ -353,7 +363,7 @@ test('every WhatsApp page and API route refuses an agent with 403, a visitor tok
     }
 
     // And nothing happened: not a setting, not a session, not a reply, not one call at OpenWA.
-    expect(await snapshot(wa, openWa, fixture)).toBe(before);
+    expect(await snapshot(wa, openWa, fixture)).toEqual(before);
     await visitor.dispose();
     await bearer.dispose();
     await guest.dispose();
@@ -767,8 +777,11 @@ test("the live channel is the administrators' only: agents, visitors, guests and
 
         // What the administrator hears: versioned payloads with the chat and message, never the raw object, the WhatsApp id or a QR.
         const heard = hearAdmin.events('private-whatsapp-admin');
-        const created = heard.find((event) =>
-            event.event.endsWith('wa.message.created'),
+        // The administrator hears every WhatsApp chat of the instance (other spec files run beside this one): this chat's event.
+        const created = heard.find(
+            (event) =>
+                event.event.endsWith('wa.message.created') &&
+                JSON.stringify(event.data).includes(chat.ulid),
         )!;
         const payload = (
             typeof created.data === 'string'

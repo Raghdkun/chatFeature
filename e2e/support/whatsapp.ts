@@ -148,6 +148,6 @@ export async function eventually<T>(
             );
         }
 
-        await new Promise((done) => setTimeout(done, 150));
+        await new Promise((done) => setTimeout(done, 300));
     }
 }

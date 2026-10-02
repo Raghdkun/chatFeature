@@ -1,4 +1,4 @@
-import { expect, test } from '../support/test';
+import { expect, test } from '../support/wa-test';
 import { tinker } from '../support/artisan';
 
 /**
@@ -6,11 +6,9 @@ import { tinker } from '../support/artisan';
  * customer site) is up, the stateful OpenWA mock that Playwright started next to it answers like OpenWA, the seed pointed the app at it,
  * and the control API drives a session and keeps a request log. The feature specs (`smoke.spec.ts`, then the 6A / 6B ones) build on it.
  */
-test.use({ scenario: 'p6-wa' });
-
-test.beforeEach(async ({ openWa }) => {
-    await openWa.reset();
-});
+// Exclusive: the control-API test asserts the mock's exact request log, so no other WhatsApp spec may be talking to the mock at the same time
+// (the lock of `wa-test.ts` also resets the mock before each test, which is what the old `beforeEach` did).
+test.use({ scenario: 'p6-wa', waMode: 'exclusive' });
 
 test('the instance is up and the OpenWA mock answers the API like OpenWA', async ({
     instance,

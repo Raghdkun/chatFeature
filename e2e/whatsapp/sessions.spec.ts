@@ -126,20 +126,24 @@ test('the session name is checked on the spot and by the server (too short, bad 
 
     await settings.goto();
 
-    // Client side: nothing is sent.
-    const before = (
-        await openWa.requests({ method: 'POST', path: '/api/sessions' })
-    ).length;
-
+    // Client side: nothing is sent (the mock's log is shared with other specs: look for these two names only).
     await settings.createSession('ab');
     await expect(field).toContainText('Use 3 to 50 characters.');
     await settings.sessionName.fill('has space!');
     await settings.create.click();
     await expect(field).toContainText('Use letters, digits and hyphens only.');
     expect(
-        (await openWa.requests({ method: 'POST', path: '/api/sessions' }))
-            .length,
-    ).toBe(before);
+        (
+            await openWa.requests({ method: 'POST', path: '/api/sessions' })
+        ).filter((call) =>
+            ['ab', 'has space!'].includes(
+                (call.body as { name?: string } | null)?.name ?? '',
+            ),
+        ),
+    ).toHaveLength(0);
+    expect(
+        (await wa.sessions()).data.map((row: WaSession) => row.name),
+    ).not.toContain('ab');
 
     // The same name twice: the second is refused by the server and the message lands on the field.
     const name = uniqueName('dup');
@@ -329,58 +333,68 @@ test('a code that is old is marked as possibly expired (the page clock moves two
     await expect(admin.page.getByTestId('wa-qr-stale')).toBeVisible();
 });
 
-test('a disconnected session shows up at once (webhook), and a lost webhook is repaired by the scheduled reconciliation', async ({
-    actors,
-    instance,
-    openWa,
-    wa,
-}) => {
-    const live = await readySession(wa, openWa);
-    const lost = await readySession(wa, openWa);
-    const admin = await actors.staff('admin');
-    const settings = new WaSettingsPage(admin.page);
+// Exclusive: the reconciliation asks OpenWA about EVERY running session of the app, so no other spec may have a session in flight.
+test.describe('the scheduled reconciliation', () => {
+    test.use({ waMode: 'exclusive' });
 
-    await settings.goto();
-    await settings.expectStatus(live.ulid, 'ready');
-    await settings.expectStatus(lost.ulid, 'ready');
+    test('a disconnected session shows up at once (webhook), and a lost webhook is repaired by the scheduled reconciliation', async ({
+        actors,
+        instance,
+        openWa,
+        wa,
+    }) => {
+        const live = await readySession(wa, openWa);
+        const lost = await readySession(wa, openWa);
+        const admin = await actors.staff('admin');
+        const settings = new WaSettingsPage(admin.page);
 
-    // 1. The phone logs out: `session.status` + `session.disconnected` arrive, the badge and the error line follow without a reload.
-    await openWa.setStatus(live.name, 'disconnected', { reason: 'LOGOUT' });
-    await settings.expectStatus(live.ulid, 'disconnected');
-    await expect(
-        admin.page.getByTestId(`wa-session-error-${live.ulid}`),
-    ).toContainText('LOGOUT');
-    await expect(settings.button('start', live.ulid)).toBeVisible();
+        await settings.goto();
+        await settings.expectStatus(live.ulid, 'ready');
+        await settings.expectStatus(lost.ulid, 'ready');
 
-    // 2. The same, but OpenWA's webhook is gone (it was edited / deleted there): nothing is delivered, so the app still believes `ready`...
-    const hook = (await openWa.webhooksOf(lost.name))[0];
-    const mockSession = (await openWa.state()).sessions.find(
-        (candidate) => candidate.name === lost.name,
-    )!;
-    const before = (await openWa.deliveries()).length;
+        // 1. The phone logs out: `session.status` + `session.disconnected` arrive, the badge and the error line follow without a reload.
+        await openWa.setStatus(live.name, 'disconnected', { reason: 'LOGOUT' });
+        await settings.expectStatus(live.ulid, 'disconnected');
+        await expect(
+            admin.page.getByTestId(`wa-session-error-${live.ulid}`),
+        ).toContainText('LOGOUT');
+        await expect(settings.button('start', live.ulid)).toBeVisible();
 
-    expect(
-        (
-            await openWa.api(
-                'DELETE',
-                `/api/sessions/${mockSession.id}/webhooks/${hook.id}`,
-            )
-        ).status,
-    ).toBe(204);
-    await openWa.setStatus(lost.name, 'disconnected', { reason: 'NAVIGATION' });
-    expect((await openWa.deliveries()).length).toBe(before);
-    expect(data<WaSession>(await wa.session(lost.ulid), 'read').status).toBe(
-        'ready',
-    );
+        // 2. The same, but OpenWA's webhook is gone (it was edited / deleted there): nothing is delivered, so the app still believes `ready`...
+        const hook = (await openWa.webhooksOf(lost.name))[0];
+        const mockSession = (await openWa.state()).sessions.find(
+            (candidate) => candidate.name === lost.name,
+        )!;
+        const before = (await openWa.deliveries()).length;
 
-    // ...until the reconciliation (every minute in production) asks OpenWA what it knows.
-    await runArtisan(instance, 'whatsapp:reconcile-sessions');
-    await eventually(async () => {
-        const session = data<WaSession>(await wa.session(lost.ulid), 'read');
+        expect(
+            (
+                await openWa.api(
+                    'DELETE',
+                    `/api/sessions/${mockSession.id}/webhooks/${hook.id}`,
+                )
+            ).status,
+        ).toBe(204);
+        await openWa.setStatus(lost.name, 'disconnected', {
+            reason: 'NAVIGATION',
+        });
+        expect((await openWa.deliveries()).length).toBe(before);
+        expect(
+            data<WaSession>(await wa.session(lost.ulid), 'read').status,
+        ).toBe('ready');
 
-        return session.status === 'disconnected' ? session : undefined;
-    }, 'the reconciliation to mark the session disconnected');
-    await settings.expectStatus(lost.ulid, 'disconnected');
+        // ...until the reconciliation (every minute in production) asks OpenWA what it knows.
+        await runArtisan(instance, 'whatsapp:reconcile-sessions');
+        await eventually(async () => {
+            const session = data<WaSession>(
+                await wa.session(lost.ulid),
+                'read',
+            );
+
+            return session.status === 'disconnected' ? session : undefined;
+        }, 'the reconciliation to mark the session disconnected');
+        await settings.expectStatus(lost.ulid, 'disconnected');
+    });
 });
 
 test("the per-session limits dialog sets the session's own pause and daily cap, and 'use the global limits' takes them back", async ({

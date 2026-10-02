@@ -1720,6 +1720,41 @@ describe('injected inbound messages', () => {
 });
 
 describe('control API', () => {
+    test('the delivery log can be asked for one message by a part of its idempotency key', async () => {
+        const session = await readySession('rec-key-kkkkk1');
+
+        await hook(session, { events: ['message.received'] });
+
+        const send = async (body) =>
+            ok(
+                await control(
+                    'POST',
+                    `/__mock/sessions/${session.id}/inbound`,
+                    {
+                        from: '4915112345678',
+                        body,
+                    },
+                ),
+                201,
+            ).message;
+        const first = await send('one');
+        const second = await send('two');
+
+        await waitFor(() => hits.length >= 2, 'two deliveries');
+
+        const found = ok(
+            await control(
+                'GET',
+                `/__mock/deliveries?event=message.received&key=${encodeURIComponent(first.id)}`,
+            ),
+        );
+
+        assert.equal(found.length, 1);
+        assert.ok(found[0].idempotencyKey.includes(first.id));
+        assert.ok(!found[0].idempotencyKey.includes(second.id));
+        assert.equal(found[0].status, 200);
+    });
+
     test('createSession in any state without events, state, reset', async () => {
         const created = ok(
             await control('POST', '/__mock/sessions', {

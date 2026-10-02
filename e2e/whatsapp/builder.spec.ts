@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { createWorld } from '../support/world';
 import { openCustomerSite } from '../support/panel';
-import { requestHandoff } from '../support/wa-flow';
+import { requestHandoff, handoffRefusal } from '../support/wa-flow';
 import {
     expect,
     readySession,
@@ -169,13 +169,7 @@ test('the tab links a connected number and switches the channel on: visitors get
 
     await without.expectState('offline');
     await expect(without.tid('channel-chooser')).toHaveCount(0);
-    expect(
-        String(
-            await requestHandoff(instance, world.widget).catch(
-                (error: Error) => error,
-            ),
-        ),
-    ).toMatch(/409|403/);
+    expect(await handoffRefusal(instance, world.widget)).toMatch(/409|403/);
     await page
         .getByTestId('builder-whatsapp-session')
         .selectOption(session.ulid);

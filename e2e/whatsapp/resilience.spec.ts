@@ -57,7 +57,10 @@ test("Reverb is cut for the administrator's browser: the page says so, polls for
     await admin.page.clock.install();
 
     const inbox = new WaInboxPage(admin.page);
-    const banner = admin.page.getByTestId(/^connection-banner/);
+    // The list column's banner, or on a phone (where an open chat hides the list) the compact one of the conversation: the visible one.
+    const banner = admin.page.locator(
+        '[data-testid^="connection-banner"]:visible',
+    );
 
     await inbox.goto(chat.ulid);
     await expect(banner).toHaveCount(0);
@@ -72,8 +75,8 @@ test("Reverb is cut for the administrator's browser: the page says so, polls for
     // The socket is cut and cannot come back: the banner says the page now checks every 15 seconds.
     await gate.block();
     await admin.page.clock.fastForward(3_000);
-    await expect(banner.first()).toBeVisible();
-    await expect(banner.first()).toContainText('every 15 seconds');
+    await expect(banner).toBeVisible();
+    await expect(banner).toContainText('every 15 seconds');
 
     // A message arrives meanwhile: nothing live, then the next poll tick brings it (the page's clock jumps a poll interval).
     await openWa.inboundText(session.name, customer, 'Said during the outage', {

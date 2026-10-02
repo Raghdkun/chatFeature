@@ -138,3 +138,29 @@ export async function linkedChat(
 
     return { chat, customer, handoff, visitor };
 }
+
+/** The answer of a hand-off that is REFUSED, as `"<status> <code>"` (e.g. `403 feature_disabled`); throws when the hand-off was granted. */
+export async function handoffRefusal(
+    instance: Instance,
+    widget: Pick<WhatsAppWidget, 'key'>,
+): Promise<string> {
+    const visitor = await VisitorApi.start(instance, { key: widget.key });
+
+    try {
+        const result = await visitor.request(
+            'POST',
+            `/widgets/${widget.key}/whatsapp-handoff`,
+            {},
+        );
+
+        if (result.ok) {
+            throw new Error(
+                'The hand-off was granted, a refusal was expected.',
+            );
+        }
+
+        return `${result.status} ${result.error?.code ?? ''}`.trim();
+    } finally {
+        await visitor.dispose();
+    }
+}

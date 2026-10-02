@@ -1,4 +1,4 @@
-import { expect, test } from '../support/test';
+import { expect, test } from '../support/wa-test';
 import { createWidget } from '../support/api';
 import { VisitorApi } from '../support/chat-api';
 import { P4_CATEGORIES } from '../support/users';
@@ -25,10 +25,6 @@ import {
  */
 test.use({ scenario: 'p6-wa' });
 
-test.beforeEach(async ({ openWa }) => {
-    await openWa.reset();
-});
-
 test("a customer's WhatsApp message with the hand-off code is linked, answered and acked; agents see nothing", async ({
     actors,
     adminApi,
@@ -46,7 +42,7 @@ test("a customer's WhatsApp message with the hand-off code is linked, answered a
     );
 
     expect(created.status).toBe('created');
-    await openWa.waitForSession(name);
+    const mockSession = await openWa.waitForSession(name);
 
     expect((await wa.startSession(created.ulid)).status).toBe(202);
 
@@ -215,8 +211,10 @@ test("a customer's WhatsApp message with the hand-off code is linked, answered a
         .fill('Hi Vera, I am looking at it now.');
     await admin.page.getByTestId('wa-composer-send').click();
 
-    const call = await openWa.waitForRequest((request) =>
-        request.path.endsWith('/messages/send-text'),
+    const call = await openWa.waitForRequest(
+        (request) =>
+            request.path.endsWith('/messages/send-text') &&
+            request.path.includes(`/${mockSession.id}/`),
     );
 
     expect(call.body).toMatchObject({

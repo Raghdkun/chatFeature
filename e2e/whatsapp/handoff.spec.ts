@@ -2,7 +2,12 @@ import type { BrowserContext } from '@playwright/test';
 import { tinker } from '../support/artisan';
 import { createWorld } from '../support/world';
 import { openCustomerSite } from '../support/panel';
-import { linkedChat, requestHandoff, whatsappWidget } from '../support/wa-flow';
+import {
+    linkedChat,
+    requestHandoff,
+    whatsappWidget,
+    handoffRefusal,
+} from '../support/wa-flow';
 import {
     expect,
     readySession,
@@ -342,24 +347,16 @@ test('the chooser only appears when the widget offers WhatsApp for real: feature
     await expect(off.panel.tid('channel-chooser')).toHaveCount(0);
     await expect(off.panel.tid('channel-whatsapp')).toHaveCount(0);
 
-    const refused = await requestHandoff(instance, featureOff.widget).catch(
-        (error: Error) => error,
-    );
+    const refused = await handoffRefusal(instance, featureOff.widget);
 
-    expect(String(refused)).toContain('403');
-    expect(String(refused)).toContain('feature_disabled');
+    expect(refused).toContain('403');
+    expect(refused).toContain('feature_disabled');
 
     // Feature on but no session linked: not offered either; the API says there is no number.
     const none = await look(unlinked.widget.key);
 
     await expect(none.panel.tid('channel-chooser')).toHaveCount(0);
-    expect(
-        String(
-            await requestHandoff(instance, unlinked.widget).catch(
-                (error: Error) => error,
-            ),
-        ),
-    ).toMatch(/409|403/);
+    expect(await handoffRefusal(instance, unlinked.widget)).toMatch(/409|403/);
 
     // The number goes away (the phone logs out): the widget stops offering WhatsApp within seconds, without anybody editing the widget.
     await openWa.setStatus(session.name, 'disconnected', { reason: 'LOGOUT' });
@@ -378,12 +375,10 @@ test('the chooser only appears when the widget offers WhatsApp for real: feature
         });
     }).toPass({ timeout: 20_000 });
 
-    const gone = await requestHandoff(instance, ready.widget).catch(
-        (error: Error) => error,
-    );
+    const gone = await handoffRefusal(instance, ready.widget);
 
-    expect(String(gone)).toContain('409');
-    expect(String(gone)).toContain('whatsapp_unavailable');
+    expect(gone).toContain('409');
+    expect(gone).toContain('whatsapp_unavailable');
 
     // It comes back with the connection.
     await openWa.connect(session.name, session.phone);
@@ -835,13 +830,9 @@ test.describe('the master switch', () => {
                 timeout: 2_000,
             });
         }).toPass({ timeout: 25_000 });
-        expect(
-            String(
-                await requestHandoff(instance, world.widget).catch(
-                    (error: Error) => error,
-                ),
-            ),
-        ).toContain('feature_disabled');
+        expect(await handoffRefusal(instance, world.widget)).toContain(
+            'feature_disabled',
+        );
 
         // The administrator is told on the inbox, and a customer who writes anyway is still recorded.
         const admin = await actors.staff('admin');
