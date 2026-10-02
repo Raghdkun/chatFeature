@@ -248,6 +248,7 @@ class WhatsAppDataTest extends TestCase
 
     public function test_the_handoff_response_has_exactly_four_keys(): void
     {
+        $this->freezeTime();
         $session = WhatsAppSession::factory()->ready('+4915123456789')->create();
         $ticket = WaHandoffTicket::factory()->create(['session_id' => $session->id, 'code' => 'K7M2QX3P', 'expires_at' => now()->addMinutes(90)]);
 
@@ -262,6 +263,7 @@ class WhatsAppDataTest extends TestCase
 
     public function test_the_handoff_ttl_counts_down_from_now_and_never_goes_negative(): void
     {
+        $this->freezeTime();
         $session = WhatsAppSession::factory()->ready('+4915123456789')->create();
         $ticket = WaHandoffTicket::factory()->create(['session_id' => $session->id, 'expires_at' => now()->addSeconds(100)])->load('session');
 
