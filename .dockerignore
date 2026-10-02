@@ -1,0 +1,46 @@
+# Allow-list: the image build context holds only what the build needs. Everything else (git history, .env files,
+# tests, e2e, docs, screenshots, node_modules, vendor, local build output, logs) never reaches the daemon.
+*
+
+# PHP application
+!app
+!bootstrap
+!config
+!database
+!lang
+!routes
+!artisan
+!composer.json
+!composer.lock
+!resources
+!public
+
+# Frontend build (the widget loader and the dashboard bundle are built inside the image)
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!.npmrc
+!.gitignore
+!vite.config.ts
+!vite.widget.config.ts
+!tsconfig.json
+!.size-limit.json
+
+# Container assets (never the dev compose file)
+!docker
+docker/compose.dev.yml
+
+# Re-exclude generated / local things inside the allowed folders
+**/node_modules
+**/.DS_Store
+bootstrap/cache/*
+!bootstrap/cache/.gitignore
+public/build
+public/hot
+public/widget
+public/storage
+public/docs
+public/fonts-manifest.dev.json
+resources/js/actions
+resources/js/routes
+resources/js/wayfinder

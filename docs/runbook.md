@@ -2,14 +2,30 @@
 
 > Status: partly filled (auth portal, NATS consumer, break-glass, loader, install cleanup: written from the P2/P3 code); backups, upgrades, queue/Reverb and load results are filled in P7/P8. Commands marked "planned" do not exist yet. Anything marked *(unverified)* has not been run on a real deployment.
 
+## Production stack (P8, 8A/8B)
+
+The production stack is `compose.prod.yml` (image: `Dockerfile`, edge: `docker/caddy/Caddyfile`, environment: `.env.production.example`, helpers: `scripts/init-env.sh`, `scripts/backup.sh`, `scripts/restore.sh`). Everything below it in this runbook (commands, break-glass, WhatsApp, presence, analytics) runs inside it as `docker compose exec app php artisan ...`. The full procedures, with the output of each step as it was run, are in [deployment-hostinger-kvm.md](deployment-hostinger-kvm.md):
+
+| Task | Where |
+|---|---|
+| First installation, the setup token, the wizard, `chat:install` in Docker | guide 8 |
+| Health probes and the verification checklist (17 checks) | guide 9 |
+| Logs, restarting one service, applying a changed `.env` | guide 11.1 |
+| Upgrade (`build`, `migrate --force`, `up -d`) and **rollback by image tag** | guide 11.2 |
+| Backups (`scripts/backup.sh`: dump + `storage` + OpenWA volume + `.env`, encrypted, retention, off-site hook), **restore and the restore drill** | guide 11.3, 11.4 |
+| Monitoring, rotating secrets, break-glass, re-pairing WhatsApp | guide 11.5 to 11.7 |
+| What happens if the `storage` volume is lost | guide 1 |
+| Troubleshooting (certificate, 502, websocket, client IPs, queue, scheduler, permissions, OpenWA callback, push, Reverb at 1 000 sockets) | guide 13 |
+
+Facts that differ from the single-server assumptions elsewhere in this file: the workers (`queue`, `scheduler`, `reverb`, `nats-consumer`) wait for `installed.lock` and start by themselves; php-fpm listens on a unix socket shared with Caddy; the config/route cache is built by the entrypoint only once installed; behind Caddy the application already sees the real client address and scheme (`TRUSTED_PROXIES` stays empty unless a CDN is in front); `/widget/v1/loader.js` is a static file served by Caddy with `Cache-Control: public, max-age=300`, while `/w/<key>.js`, `/embed/*` and `/api/*` always go to PHP and are never cached by the proxy.
+
 ## Health checks
 
 - `GET /up` is exempt from the install gate and answers even before setup.
 - Before install, API routes return `503 not_installed` by design.
 - Auth portal (mode 2): **Settings > Auth** shows portal health (ok / degraded / down), the circuit breaker, the last verification and the NATS consumer; `php artisan chat:auth:test [production|testing]` runs the same connection test from the shell (reachable, service credential, response time, NATS; exit code 1 on failure).
 - Widget loader: `curl -s https://<domain>/widget/v1/loader.js | head -c 40` must start with `/*! pne-chat-loader v1 */`; anything else (a comment mentioning "bundle not built") means `npm run build:widget` did not run in the image.
-- Planned: per-service checks in compose (`mysql`, `redis`, `reverb`, `queue`, `openwa`).
-- [ ] TBD (P8): list of probes and expected output
+- Per-service checks in `compose.prod.yml` (built in P8): `app` answers a FastCGI ping, `reverb` answers its own `/up`, `queue` / `scheduler` / `nats-consumer` are checked by process, `mysql` runs `SELECT 1` as the application user, `redis` a `PING`, `openwa` its `/api/health/ready`, `caddy` its admin API. A worker that is still waiting for the setup wizard counts as healthy. The probes and their expected outputs: [deployment-hostinger-kvm.md](deployment-hostinger-kvm.md) section 9.
 
 ## Logs
 
@@ -17,22 +33,21 @@
 - First-run setup token: `docker compose logs app`.
 - Local dev: `php artisan pail` (Laravel Pail is in the kit).
 - NATS events that could not be processed: `storage/logs/nats-dead-letter.ndjson` (metadata only, see below). Payloads are never logged.
-- [ ] TBD (P8): log retention and rotation
+- Log rotation (P8): every service keeps 10 MB x 5 files (`json-file`); the application logs to stderr (`LOG_CHANNEL=stderr`), so `docker compose logs` is the log. Include `storage/logs/nats-dead-letter.ndjson` in your own rotation.
 
 ## Backups and restore drill
 
 Targets: MySQL, the storage volume (attachments, `installed.lock`, `install-state.json`), the OpenWA data volume (WhatsApp session), `.env`.
-- [ ] TBD (P8): backup schedule, commands, off-box storage
-- [ ] TBD (P8): restore drill procedure and last-run date (exit criterion: drill passes)
+- Done in P8: `scripts/backup.sh` (nightly cron, encrypted, retention, off-site hook) and `scripts/restore.sh`; procedure, cron line and the drill in [deployment-hostinger-kvm.md](deployment-hostinger-kvm.md) sections 11.3 and 11.4. **Last drill: 2026-10-02**, on a local Docker host: every volume destroyed, restored from an encrypted backup in 9 s, row counts and an attachment's bytes identical.
 
 ## Upgrades and rollback
 
-Today's order (the compose files come in P8):
+Without the compose stack (the manual order; the compose procedure is below it):
 1. Pull the new code, `composer install --no-dev --optimize-autoloader`, `npm ci && npm run build && npm run build:widget` (**both** builds: `npm run build` does not produce the loader).
 2. `php artisan migrate --force`, then `php artisan config:cache` (see the caveat below; route/view caching was not verified with this app).
 3. Restart long-lived processes so they pick up the new code and config: queue worker, Reverb, **the NATS consumer**, PHP-FPM.
 4. Check `/widget/v1/loader.js` and Settings > Auth health.
-- [ ] TBD (P8): rollback procedure, including migrations and the pinned OpenWA digest
+- Done in P8: with the compose stack the order is `scripts/backup.sh`, `docker compose build`, `docker compose run --rm app php artisan migrate --force`, `docker compose up -d`; **rollback** is `PNE_TAG=<previous tag> docker compose up -d` (migrations only go forward: after a schema change also restore the pre-upgrade backup); the OpenWA image is pinned by digest and changes only on purpose. See [deployment-hostinger-kvm.md](deployment-hostinger-kvm.md) section 11.2.
 
 ## Break-glass
 
@@ -73,7 +88,7 @@ Changing the address, the service name or the NATS address always asks for the m
 ## Widget loader
 
 - The bundle `public/widget/v1/loader.js` is **built, not committed** (`npm run build:widget`, about 49 KB / 16.4 KB gzip, budget 18 KB: `npm run size`). The Docker image build must run it. `GET /w/{key}.js` is always served by PHP (it inlines the widget's boot config); `GET /widget/v1/loader.js` is a static file when it exists.
-- Caching: PHP sends `Cache-Control: public, max-age=60, stale-while-revalidate=300` and an `ETag` that changes with the widget config and with the bundle, so a rebuild or a Publish reaches visitors within about a minute. The static file has no content hash in its name: let Caddy's `file_server` add `ETag`/`Last-Modified` and give it a short lifetime, for example `header /widget/v1/loader.js Cache-Control "public, max-age=300"` *(suggested, not yet run; settle it with the P8 Caddyfile)*. Do not cache `/w/*.js` or `/embed/*` longer in the proxy than PHP says.
+- Caching: PHP sends `Cache-Control: public, max-age=60, stale-while-revalidate=300` and an `ETag` that changes with the widget config and with the bundle, so a rebuild or a Publish reaches visitors within about a minute. The static file has no content hash in its name: let Caddy's `file_server` add `ETag`/`Last-Modified` and give it a short lifetime, for example `header /widget/v1/loader.js Cache-Control "public, max-age=300"` *(settled and run in P8: `docker/caddy/Caddyfile` serves it from its own copy of `public/` with `Cache-Control: public, max-age=300`, an `ETag`, `Last-Modified` and a 304 on `If-None-Match`)*. Do not cache `/w/*.js` or `/embed/*` longer in the proxy than PHP says.
 - Serve `/w/*`, `/embed/*`, `/c/*` and `/api/*` to PHP; these routes must not get session cookies (they run without the web middleware group, so they never set one).
 - If the file is missing PHP serves a stub that only logs a console warning, and the dashboard builder falls back to its static preview.
 
@@ -241,6 +256,8 @@ docker run -d --name pne-chat-p7c-reverb --ulimit nofile=65536:65536 -p 8316:831
 **Reading it.** (1) **1 000 concurrent visitor sockets work.** Reverb itself is nowhere near its limit: 18 to 23 % of one core and 110 MB for 1 020 connections and 50 000 broadcast frames; the realtime hop (publish to socket) is a few milliseconds, which is why an agent's reply (one HTTP call, the event published inside it) reaches the visitor in 23 ms at the median. (2) **The application tier is what saturates**: at about 17 messages a second a visitor's message needs 170 ms at the median (the visitor routes run two rate limiters on the file cache and several queries); at about 52 a second the 16 single-request PHP workers, MySQL and the sync queue (every broadcast is published inside the request) drown, latency grows to seconds and the dev server resets connections. That is the capacity of THIS setup (about 40 sends a second), not of Reverb: a real deployment runs php-fpm with more workers, a queue worker for the non-immediate broadcasts, Redis for the limiters and its own host. (3) A chat start fans out to every online agent (20 offers, 19 `chat.taken`, up to 48 `queue.updated` frames per chat): that is the price of first-accept-wins; the `queue.updated` job is one count query per staff member (3.7 ms each at 50 000 conversations).
 
 **The hard ceiling without `ext-uv` (found by the same test).** On the host PHP (no `ext-uv` / `ext-ev` / `ext-event`) ReactPHP falls back to `stream_select()`, whose `FD_SETSIZE` is 1024. The first attempt (host Reverb, 1 000 visitors) reached 990 visitors, the last ones answered `unavailable`, the process showed 1 020 open file descriptors and then **Reverb exited with status 0 and no message** (reproduced with bare websockets and no chat traffic: about 1 013 connect and every one is dropped when it exits). The container with `ext-uv` held more than 2 500 bare websockets and, in the runs above, 1 020 working chat sockets. Consequences: the Docker image MUST install `ext-uv` (`install-php-extensions uv`) for the Reverb service; raise `nofile` (compose `ulimits: nofile: {soft: 65536, hard: 65536}`); and as a guard on an image without it set `REVERB_APP_MAX_CONNECTIONS=900` (Reverb then refuses connection 901 gracefully instead of dying); a restart policy of `on-failure` would NOT restart a process that exits 0, use `unless-stopped` / `always`. Also check `docker compose logs reverb` for a clean exit when everybody loses realtime at once.
+
+**P8 follow-up (8A, Docker stack):** the production Reverb container runs on `React\EventLoop\ExtUvLoop` (`ext-uv` 0.3.1) with `nofile` 65 536; 2 500 bare websockets (Origin = the app origin) were held for 30 s **through Caddy over `wss://`** with 0 failures and 0 drops, the Reverb process held 1 513 open descriptors at 1 500 sockets (110-125 MB RSS), Caddy needed about 170 KB per socket (up to 382 MB at 2 500). Chat traffic was one agent and one visitor (`chat.offered` to a staff socket in 0.73 s through the queue worker); the realtime load script itself cannot target the compose stack (it provisions through the database).
 
 **Not measured:** several Reverb instances behind Redis scaling (`REVERB_SCALING_ENABLED`), TLS termination at Caddy, browsers (the clients are `pusher-js` in Node), a queue worker instead of `QUEUE_CONNECTION=sync`, Redis for cache / presence. Run the same script against the real stack in P8 (`--web=https://... --reverb-host=... --reverb-port=443` need a TLS-capable variant of the client, not built).
 
