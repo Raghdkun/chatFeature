@@ -18,7 +18,7 @@
  *  5. samples the CPU, resident memory and open file descriptors of the Reverb process (and the CPU of the PHP workers and MySQL), counts
  *     disconnects, errors and lost events, prints a summary and writes JSON (`--out`).
  *
- * `--spawn` starts `php artisan reverb:start` and a PHP web server on the ports given (a fresh database named chatfeature_p7_* / chatfeature_perf*
+ * `--spawn-web` starts only the web server (Reverb runs elsewhere, for example in a container with `ext-uv`, see docs/runbook.md); `--spawn` starts `php artisan reverb:start` and a PHP web server on the ports given (a fresh database named chatfeature_p7_* / chatfeature_perf*
  * only, QUEUE_CONNECTION=sync, TRUSTED_PROXIES=* so each simulated visitor has its own network address for the rate limiters). Without it point
  * the script at servers you started (`--reverb-host`, `--reverb-port`, `--reverb-pid` or `--reverb-container`).
  * The macOS default of 256 open files is far too low: run it from a shell with `ulimit -n 65536`.
@@ -196,7 +196,7 @@ function stats(values) {
 
 // ---- HTTP ------------------------------------------------------------------------------------------------------------------------
 
-const httpStats = { requests: 0, byStatus: {}, networkErrors: 0, byRoute: {} };
+const httpStats = { requests: 0, byStatus: {}, networkErrors: 0, byRoute: {}, errorCodes: {} };
 
 async function call(route, method, path, { token, body, headers = {}, ip } = {}) {
     const started = now();
@@ -224,10 +224,13 @@ async function call(route, method, path, { token, body, headers = {}, ip } = {})
 
         return { status: response.status, json: text ? safeJson(text) : null, ms };
     } catch (error) {
+        const code = String(error?.cause?.code ?? error?.message ?? error);
+
         httpStats.networkErrors++;
+        httpStats.errorCodes[code] = (httpStats.errorCodes[code] ?? 0) + 1;
         httpStats.byRoute[`${route} network-error`] = (httpStats.byRoute[`${route} network-error`] ?? 0) + 1;
 
-        return { status: 0, json: null, ms: now() - started, error: String(error?.cause?.code ?? error?.message ?? error) };
+        return { status: 0, json: null, ms: now() - started, error: code };
     }
 }
 call.durations = {};
@@ -517,6 +520,9 @@ async function main() {
 
     if (args.spawn) {
         start('reverb', 'php', ['artisan', 'reverb:start', '--host=0.0.0.0', `--port=${REVERB_PORT}`]);
+    }
+
+    if (args.spawn || args['spawn-web']) {
         start('web', 'php', ['-S', `127.0.0.1:${WEB_PORT}`, join(ROOT, 'vendor/laravel/framework/src/Illuminate/Foundation/resources/server.php')], { cwd: join(ROOT, 'public') });
     }
 
@@ -782,7 +788,7 @@ try {
     report.connect = { ms: stats(connectMs) };
     report.subscribe = { ms: stats(subscribeMs) };
     report.latencyMs = { visitorMessageEndToEnd: stats(latency.visitorMessage), agentReplyEndToEnd: stats(latency.agentReply) };
-    report.http = { requests: httpStats.requests, networkErrors: httpStats.networkErrors, byStatus: httpStats.byStatus, byRoute: httpStats.byRoute, durationsMs: Object.fromEntries(Object.entries(call.durations).map(([route, values]) => [route, stats(values)])) };
+    report.http = { requests: httpStats.requests, networkErrors: httpStats.networkErrors, errorCodes: httpStats.errorCodes, byStatus: httpStats.byStatus, byRoute: httpStats.byRoute, durationsMs: Object.fromEntries(Object.entries(call.durations).map(([route, values]) => [route, stats(values)])) };
     report.lost = { visitorMessages: [...visitors.values()].reduce((sum, visitor) => sum + visitor.pending.size, 0) };
     const peak = (list, key) => Math.max(0, ...list.map((sample) => sample[key] ?? 0));
 
@@ -794,6 +800,8 @@ try {
     };
     report.wallSeconds = Math.round((now() - t0) / 1000);
 
+    report.serverOutput = Object.fromEntries(children.map((child) => [child.label, child.lines.slice(-8)]));
+    report.reverbStillRunning = children.some((child) => child.label === 'reverb') ? children.find((child) => child.label === 'reverb').exitCode === null : null;
     stopAll();
 
     const summary = { ...report, resources: { ...report.resources, timeline: undefined } };

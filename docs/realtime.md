@@ -256,7 +256,7 @@ A **grant** (`realtime_grants`) is written when `POST /broadcasting/auth` signs 
 
 ## Scaling notes
 
-- Redis scaling for several Reverb instances (`REVERB_SCALING_ENABLED=true`); install `ext-uv`; raise the `nofile` ulimit of the Reverb container.
+- Redis scaling for several Reverb instances (`REVERB_SCALING_ENABLED=true`); **install `ext-uv`** (without it Reverb is capped at about 1 013 websockets by `stream_select()`'s `FD_SETSIZE` and then EXITS with status 0: measured, [runbook.md](runbook.md) "Load test results"); raise the `nofile` ulimit of the Reverb container (65 536); set `REVERB_APP_MAX_CONNECTIONS` below the loop's ceiling on an image without `ext-uv`.
 - No socket until a chat starts keeps idle visitors off Reverb; a visitor holds one socket for the length of the chat.
 - The queue-count job reads one count per staff member (`Conversation::visibleTo`); fine for tens of agents, revisit with the P7 load test.
 - The load test of about 1k concurrent sockets and its numbers are in [runbook.md](runbook.md) "Load test results".

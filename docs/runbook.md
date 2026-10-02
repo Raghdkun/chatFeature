@@ -185,4 +185,39 @@ Left as it is, with the reason:
 
 ## Load-test results
 
-TBD in P7 (k6, about 1k concurrent sockets): record date, hardware, p50/p95 latency, connection count, and fd/CPU/RAM limits. See [realtime.md](realtime.md).
+Script: `scripts/loadtest-realtime.mjs` (Node, `pusher-js` from the repository, no new dependency). It provisions throwaway widgets / agents in a `chatfeature_p7_*` / `perf*` database, then through the REAL APIs: starts a session per visitor (`POST /public/widgets/{key}/sessions`), starts a chat (offered to all 20 online agents; one agent accepts it through `POST /conversations/{ulid}/claim`), authorises and opens one websocket per visitor on `private-conversation.{ulid}`, then runs the message storm: every visitor posts a message every `--interval` seconds (jittered), an agent answers half of them. Latency = from the moment a message's POST is sent to the moment `message.created` reaches the visitor's own socket. It samples CPU, memory and open file descriptors of the Reverb process (or container), the PHP workers and MySQL, counts disconnects and lost events, and writes JSON (`--out`).
+
+**Environment (2026-10-02).** Apple M4 (10 cores), 16 GB, macOS 26.2; MySQL 9.6 (Homebrew, same machine); Node 24.14 (the client, same machine); Reverb 1.12 in a Docker Desktop container (8 GB, 10 CPUs, `php:8.4-cli` + `ext-uv`, `--ulimit nofile=65536:65536`); the application as the PHP built-in server (`php -S`, 16 workers: NOT php-fpm, one request per worker) with `QUEUE_CONNECTION=sync` (the queued broadcasts run inside the request), `CACHE_STORE=file` (so the rate limiters and the file cache are on disk), `PRESENCE_STORE=database`, `TRUSTED_PROXIES=*` and an `X-Forwarded-For` per simulated visitor (each has its own network for the limiters); 10 widgets (the start-a-chat budget is per widget). Other agents' browser and e2e processes ran on the same machine, so every number is conservative and noisy. A production deployment (php-fpm, a queue worker, Redis cache, a separate host for Reverb) has more headroom than this laptop.
+
+```bash
+# Reverb (Linux, ext-uv): a container named pne-chat-p7c-reverb built FROM php:8.4-cli + `install-php-extensions pdo_mysql pcntl sockets uv`
+docker run -d --name pne-chat-p7c-reverb --ulimit nofile=65536:65536 -p 8316:8316 -v "$PWD":/app -w /app \
+  -e APP_ENV=local -e APP_INSTALLED=true -e APP_URL=http://127.0.0.1:8312 -e BROADCAST_CONNECTION=reverb -e CACHE_STORE=file -e SESSION_DRIVER=file \
+  -e QUEUE_CONNECTION=sync -e DB_HOST=host.docker.internal -e REVERB_APP_ID=1003 -e REVERB_APP_KEY=loadtest-key -e REVERB_APP_SECRET=loadtest-secret \
+  -e REVERB_HOST=127.0.0.1 -e REVERB_PORT=8316 -e REVERB_SCHEME=http -e REVERB_SERVER_HOST=0.0.0.0 -e REVERB_SERVER_PORT=8316 \
+  -e REVERB_ALLOWED_ORIGINS=127.0.0.1,localhost pne-chat-p7c-reverb:uv php artisan reverb:start --host=0.0.0.0 --port=8316
+# the test (a fresh database; the shell needs `ulimit -n 65536`, macOS defaults to 256)
+(ulimit -n 65536; node scripts/loadtest-realtime.mjs --spawn-web --reverb-container=pne-chat-p7c-reverb \
+   --visitors=1000 --agents=20 --duration=90 --interval=60 --ramp-per-second=12 --web-workers=16 --out=light.json)
+```
+
+| | 1 020 sockets, light storm (`--interval=60`, about 17 messages/s) | 1 020 sockets, heavy storm (`--interval=15`, about 52 messages/s attempted) |
+|---|---|---|
+| Visitor sockets connected / failed | **1 000 / 0** (plus 20 agents) | 1 000 / 0 |
+| Unexpected disconnects | **0** | 0 |
+| Websocket connect time (p50 / p95 / p99) | 1.2 / 2.5 / 3.5 ms | 1.4 / 2.7 / 3.6 ms |
+| Subscribe time = auth call + subscription (p50 / p95 / p99) | 320 / 950 / 1 310 ms (the auth POST is the cost) | 515 / 1 640 / 2 560 ms |
+| Visitor message, POST to `message.created` on the visitor's socket (p50 / p95 / p99) | **170 / 1 090 / 1 510 ms** | 2 780 / 8 140 / 10 040 ms |
+| Agent reply, POST to `message.created` at the visitor (p50 / p95 / p99) | **23 / 293 / 966 ms** | 2 140 / 7 200 / 8 600 ms |
+| Events lost / late (> 5 s) | **0 / 0** | 1 149 sends failed (connection resets of the PHP dev server) / 803 late |
+| HTTP `POST sessions` / `start chat` / `claim` p50 | 550 / 216 / 93 ms | 848 / 880 / 271 ms |
+| Reverb peak CPU / RSS / open file descriptors | 18 % of one core / 110 MB / 1 035 | 23 % / 110 MB / 1 034 |
+| PHP workers peak CPU (sum) / MySQL peak CPU | 296 % / 74 % | 457 % / 154 % |
+| Events fanned out (chat.offered / chat.taken / queue.updated at the 20 agents) | 20 000 / 19 000 / 48 400 | 20 000 / 19 000 / 48 500 |
+
+**Reading it.** (1) **1 000 concurrent visitor sockets work.** Reverb itself is nowhere near its limit: 18 to 23 % of one core and 110 MB for 1 020 connections and 50 000 broadcast frames; the realtime hop (publish to socket) is a few milliseconds, which is why an agent's reply (one HTTP call, the event published inside it) reaches the visitor in 23 ms at the median. (2) **The application tier is what saturates**: at about 17 messages a second a visitor's message needs 170 ms at the median (the visitor routes run two rate limiters on the file cache and several queries); at about 52 a second the 16 single-request PHP workers, MySQL and the sync queue (every broadcast is published inside the request) drown, latency grows to seconds and the dev server resets connections. That is the capacity of THIS setup (about 40 sends a second), not of Reverb: a real deployment runs php-fpm with more workers, a queue worker for the non-immediate broadcasts, Redis for the limiters and its own host. (3) A chat start fans out to every online agent (20 offers, 19 `chat.taken`, up to 48 `queue.updated` frames per chat): that is the price of first-accept-wins; the `queue.updated` job is one count query per staff member (3.7 ms each at 50 000 conversations).
+
+**The hard ceiling without `ext-uv` (found by the same test).** On the host PHP (no `ext-uv` / `ext-ev` / `ext-event`) ReactPHP falls back to `stream_select()`, whose `FD_SETSIZE` is 1024. The first attempt (host Reverb, 1 000 visitors) reached 990 visitors, the last ones answered `unavailable`, the process showed 1 020 open file descriptors and then **Reverb exited with status 0 and no message** (reproduced with 1 100 bare websockets: 1 013 connect, every one is dropped when it exits). The same script against the container with `ext-uv` held **2 500 bare websockets** and 1 020 working chat sockets. Consequences: the Docker image MUST install `ext-uv` (`install-php-extensions uv`) for the Reverb service; raise `nofile` (compose `ulimits: nofile: {soft: 65536, hard: 65536}`); and as a guard on an image without it set `REVERB_APP_MAX_CONNECTIONS=900` (Reverb then refuses connection 901 gracefully instead of dying); a restart policy of `on-failure` would NOT restart a process that exits 0, use `unless-stopped` / `always`. Also check `docker compose logs reverb` for a clean exit when everybody loses realtime at once.
+
+**Not measured:** several Reverb instances behind Redis scaling (`REVERB_SCALING_ENABLED`), TLS termination at Caddy, browsers (the clients are `pusher-js` in Node), a queue worker instead of `QUEUE_CONNECTION=sync`, Redis for cache / presence. Run the same script against the real stack in P8 (`--web=https://... --reverb-host=... --reverb-port=443` need a TLS-capable variant of the client, not built).
+
