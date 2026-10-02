@@ -307,14 +307,17 @@ export function StaffRealtimeHost({
             }
         };
 
+        // The network coming back is its own event (the tab may be hidden then; `wake` would only put it to sleep).
+        const online = (): void => session.controller.online();
+
         document.addEventListener('visibilitychange', wake);
-        window.addEventListener('online', wake);
+        window.addEventListener('online', online);
 
         const unbindSound = bindSoundUnlock(session.sound);
 
         return () => {
             document.removeEventListener('visibilitychange', wake);
-            window.removeEventListener('online', wake);
+            window.removeEventListener('online', online);
             unbindSound();
             session.controller.stop();
         };

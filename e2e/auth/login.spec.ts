@@ -151,9 +151,7 @@ test.describe('signing in and out', () => {
         await expect(page).toHaveURL(/\/dashboard$/);
         await expect(page.getByTestId('header-role')).toHaveText('Agent');
         await expect(page.getByTestId('dashboard-agent-waiting')).toBeVisible();
-        await expect(
-            page.getByTestId('dashboard-availability-switch'),
-        ).toBeVisible();
+        await expect(page.getByTestId('presence-select')).toBeVisible();
 
         // Nothing of the admin view leaks into the agent view.
         await expect(page.getByTestId('dashboard-admin-setup')).toHaveCount(0);
@@ -262,11 +260,18 @@ test.describe('the dashboard of a saved agent session', () => {
         await expect(page.getByTestId('dashboard-agent-waiting')).toBeVisible();
         await expect(page.getByTestId('dashboard-admin-setup')).toHaveCount(0);
 
-        // The availability switch is a local preview for now (presence arrives in P5).
-        const availability = page.getByTestId('dashboard-availability-switch');
-        await expect(availability).not.toBeChecked();
-        await availability.click();
-        await expect(availability).toBeChecked();
-        await expect(page.getByText('You are available')).toBeVisible();
+        // The availability control is the real status select (P5): it waits for the server's answer, then saves what the agent picks.
+        const availability = page.getByTestId('presence-select');
+        await expect(availability).toBeEnabled();
+        await availability.selectOption('online');
+        await expect(availability).toHaveValue('online');
+        await expect(page.getByTestId('presence-hint')).toBeVisible();
+
+        // Leave no agent online behind (the saved session is shared by the other tests of this file).
+        await availability.selectOption('offline');
+        await expect(availability).toHaveValue('offline');
+        await expect(
+            page.getByTestId('dashboard-availability-offline'),
+        ).toBeVisible();
     });
 });

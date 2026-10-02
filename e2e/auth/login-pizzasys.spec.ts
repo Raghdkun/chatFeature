@@ -146,9 +146,7 @@ test.describe('signing in and out', { tag: '@pizzasys' }, () => {
             await expect(
                 page.getByTestId('dashboard-agent-waiting'),
             ).toBeVisible();
-            await expect(
-                page.getByTestId('dashboard-availability-switch'),
-            ).toBeVisible();
+            await expect(page.getByTestId('presence-select')).toBeVisible();
 
             await expect(page.getByTestId('dashboard-admin-setup')).toHaveCount(
                 0,

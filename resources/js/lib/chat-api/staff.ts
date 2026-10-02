@@ -79,6 +79,12 @@ export type SendMessageInput = {
 /** Where a chat goes on transfer: a colleague (user id) or a category (slug). */
 export type TransferTarget = { agentId: number } | { category: string };
 
+/** What a heartbeat may answer: the status the server holds after it. Absent (`204`) on older backends. */
+export type HeartbeatAnswer = {
+    status: PresenceStatus;
+    isManual: boolean;
+};
+
 /** A colleague a chat could be handed to, as `GET .../transfer-targets` describes them. */
 export type TransferTargetAgent = {
     id: number;
@@ -384,9 +390,14 @@ export function createStaffApi(client: ApiClient = api) {
                 status === 'online' ? { status, automatic: true } : { status },
             ),
 
-        /** `visible`: the sending tab is in the foreground (a visible beat is what keeps an automatic agent online). */
+        /**
+         * `visible`: the sending tab is in the foreground (a visible beat is what keeps an automatic agent online). Newer backends
+         * answer `200 { data: { status, isManual } }` (the status the server holds after the beat), older ones `204`.
+         */
         heartbeat: (visible = true) =>
-            client.post<null>(staffRoutes.api.heartbeat(), { visible }),
+            client.post<HeartbeatAnswer | null>(staffRoutes.api.heartbeat(), {
+                visible,
+            }),
 
         /** `GET /session/keepalive`: `null` on 204; a `401` means the session is over. */
         keepAlive: () => client.get<null>(staffRoutes.session.keepAlive()),

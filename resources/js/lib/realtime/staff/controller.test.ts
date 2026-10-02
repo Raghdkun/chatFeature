@@ -22,6 +22,7 @@ import {
     KEEPALIVE_INTERVAL_MS,
     offerTag,
     POLL_INTERVAL_MS,
+    PRESENCE_RESYNC_AFTER_FAILED_BEATS,
     PRESENCE_RESYNC_AFTER_MS,
     SYNC_DEBOUNCE_MS,
     type StaffEffects,
@@ -1244,6 +1245,266 @@ describe('presence: visibility and resync', () => {
 
         expect(store.getState().presence).toBe('away');
         controller.stop();
+    });
+});
+
+describe('presence: an agent the server forgot (an outage, a gap longer than its window)', () => {
+    const own = (status: 'online' | 'away' | 'offline') => ({
+        userId: ME.id,
+        status,
+        isManual: false,
+        lastSeenAt: null,
+    });
+    const down = () =>
+        new ApiError({ status: 0, code: 'network', message: 'offline' });
+
+    it('follows the status a beat answers at once (no second request)', async () => {
+        const { api, store, controller } = rig();
+
+        store.dispatch({ type: 'presence', status: 'online' });
+        api.heartbeat.mockResolvedValue({ status: 'offline', isManual: false });
+        controller.start();
+        await flush();
+
+        expect(store.getState().presence).toBe('offline');
+        expect(api.presence).not.toHaveBeenCalled();
+
+        // Offline: no more beats.
+        api.heartbeat.mockClear();
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS * 2);
+        expect(api.heartbeat).not.toHaveBeenCalled();
+        controller.stop();
+    });
+
+    it('applies an automatic away the server announces in a beat, and an empty or unknown answer changes nothing', async () => {
+        const { api, store, controller } = rig();
+
+        store.dispatch({ type: 'presence', status: 'online' });
+        controller.start();
+        await flush();
+
+        for (const answer of [null, undefined, {}, { status: 'busy' }, 'ok']) {
+            api.heartbeat.mockResolvedValueOnce(answer);
+            await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+            expect(store.getState().presence).toBe('online');
+        }
+
+        api.heartbeat.mockResolvedValueOnce({
+            status: 'away',
+            isManual: false,
+        });
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+        expect(store.getState().presence).toBe('away');
+        controller.stop();
+    });
+
+    it("drops a beat's answer that is older than the agent's own change", async () => {
+        const { api, store, controller } = rig();
+        let answer: (value: unknown) => void = () => undefined;
+
+        store.dispatch({ type: 'presence', status: 'online' });
+        api.heartbeat.mockReturnValueOnce(
+            new Promise((resolve) => {
+                answer = resolve;
+            }),
+        );
+        api.setPresence.mockResolvedValue(own('away'));
+        controller.start();
+        await flush();
+
+        await controller.setPresence('away');
+        answer({ status: 'online', isManual: false });
+        await flush();
+
+        expect(store.getState().presence).toBe('away');
+        controller.stop();
+    });
+
+    it('reads the status once a beat succeeds after failures (the old backend answers 204)', async () => {
+        const { api, store, controller } = rig();
+
+        store.dispatch({ type: 'presence', status: 'online' });
+        api.presence.mockResolvedValue(own('offline'));
+        controller.start();
+        await flush();
+        api.heartbeat.mockClear();
+        api.presence.mockClear();
+
+        api.heartbeat.mockRejectedValueOnce(down());
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+        // One miss is not worth a question; the selector still says what it said.
+        expect(api.presence).not.toHaveBeenCalled();
+        expect(store.getState().presence).toBe('online');
+
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+        expect(api.presence).toHaveBeenCalledTimes(1);
+        expect(store.getState().presence).toBe('offline');
+        controller.stop();
+    });
+
+    it('a beat that succeeds after failures and answers the status needs no second request', async () => {
+        const { api, store, controller } = rig();
+
+        store.dispatch({ type: 'presence', status: 'online' });
+        controller.start();
+        await flush();
+        api.presence.mockClear();
+
+        api.heartbeat.mockRejectedValueOnce(down());
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+        api.heartbeat.mockResolvedValueOnce({
+            status: 'offline',
+            isManual: false,
+        });
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+
+        expect(store.getState().presence).toBe('offline');
+        expect(api.presence).not.toHaveBeenCalled();
+        controller.stop();
+    });
+
+    it(`reads the status after ${PRESENCE_RESYNC_AFTER_FAILED_BEATS} failed beats in a row, once, not on every further miss`, async () => {
+        const { api, store, controller } = rig();
+
+        store.dispatch({ type: 'presence', status: 'online' });
+        api.presence.mockResolvedValue(own('offline'));
+        api.heartbeat.mockRejectedValue(down());
+        controller.start();
+        await flush();
+        api.presence.mockClear();
+
+        // The start() beat was the first miss.
+        for (let i = 1; i < PRESENCE_RESYNC_AFTER_FAILED_BEATS - 1; i++) {
+            await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+            expect(api.presence).not.toHaveBeenCalled();
+        }
+
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS);
+        expect(api.presence).toHaveBeenCalledTimes(1);
+        expect(store.getState().presence).toBe('offline');
+
+        // Offline now: nothing more is sent or asked.
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS * 3);
+        expect(api.presence).toHaveBeenCalledTimes(1);
+        controller.stop();
+    });
+
+    it('a status the server cannot be asked for stays as it is (the next success or event settles it)', async () => {
+        const { api, store, controller } = rig();
+
+        store.dispatch({ type: 'presence', status: 'online' });
+        api.presence.mockRejectedValue(down());
+        api.heartbeat.mockRejectedValue(down());
+        controller.start();
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS * 5);
+
+        expect(store.getState().presence).toBe('online');
+        controller.stop();
+    });
+
+    describe('after a reconnect and when the network comes back', () => {
+        it('a RECONNECT of the websocket beats and re-reads the status; the first connection does not', async () => {
+            const { api, store, controller } = rig();
+
+            store.dispatch({ type: 'presence', status: 'online' });
+            api.presence.mockResolvedValue(own('offline'));
+            controller.start();
+            await flush();
+            api.heartbeat.mockClear();
+            api.presence.mockClear();
+
+            controller.setConnection('connecting');
+            controller.setConnection('connected');
+            await flush();
+            expect(api.presence).not.toHaveBeenCalled();
+            expect(api.heartbeat).not.toHaveBeenCalled();
+
+            controller.setConnection('reconnecting');
+            controller.setConnection('connected');
+            await flush();
+
+            expect(api.heartbeat).toHaveBeenCalledTimes(1);
+            expect(api.presence).toHaveBeenCalledTimes(1);
+            expect(store.getState().presence).toBe('offline');
+            controller.stop();
+        });
+
+        it('a reconnect whose beat answers the status needs no second request', async () => {
+            const { api, store, controller } = rig();
+
+            store.dispatch({ type: 'presence', status: 'online' });
+            controller.start();
+            controller.setConnection('connected');
+            await flush();
+            api.presence.mockClear();
+
+            controller.setConnection('disconnected');
+            api.heartbeat.mockResolvedValueOnce({
+                status: 'away',
+                isManual: false,
+            });
+            controller.setConnection('connected');
+            await flush();
+
+            expect(store.getState().presence).toBe('away');
+            expect(api.presence).not.toHaveBeenCalled();
+            controller.stop();
+        });
+
+        it('the browser online event re-reads the lists and the status, even when the tab is in the background', async () => {
+            const { api, store, visible, controller } = rig();
+
+            store.dispatch({ type: 'presence', status: 'online' });
+            api.presence.mockResolvedValue(own('offline'));
+            controller.start();
+            await flush();
+            api.heartbeat.mockClear();
+            api.presence.mockClear();
+            api.queue.mockClear();
+
+            visible.current = false;
+            controller.online();
+            await flush();
+
+            expect(api.queue).toHaveBeenCalled();
+            expect(api.heartbeat).toHaveBeenCalledWith(false);
+            expect(api.presence).toHaveBeenCalledTimes(1);
+            expect(store.getState().presence).toBe('offline');
+            controller.stop();
+        });
+
+        it('only reads the status for an agent who is offline or unknown (nothing to beat)', async () => {
+            const { api, store, controller } = rig();
+
+            store.dispatch({ type: 'presence', status: 'offline' });
+            api.presence.mockResolvedValue(own('online'));
+            controller.start();
+            await flush();
+            api.presence.mockClear();
+
+            controller.online();
+            await flush();
+
+            expect(api.heartbeat).not.toHaveBeenCalled();
+            expect(api.presence).toHaveBeenCalledTimes(1);
+            expect(store.getState().presence).toBe('online');
+            controller.stop();
+        });
+
+        it('does nothing before start() or after stop()', async () => {
+            const { api, controller } = rig();
+
+            controller.online();
+            controller.start();
+            controller.stop();
+            api.queue.mockClear();
+            api.presence.mockClear();
+            controller.online();
+            await flush();
+
+            expect(api.queue).not.toHaveBeenCalled();
+            expect(api.presence).not.toHaveBeenCalled();
+        });
     });
 });
 

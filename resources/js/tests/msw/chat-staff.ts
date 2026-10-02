@@ -26,6 +26,11 @@ export type StaffBackendOptions = {
     conversations?: ConversationStaff[];
     messages?: Record<string, MessageData[]>;
     presence?: PresenceStatus;
+    /**
+     * The heartbeat answers `200 { data: { status, isManual } }` (the backend fix of the P5/P6 audit) instead of the first backend's
+     * `204`; the dashboard must work with both.
+     */
+    heartbeatAnswersStatus?: boolean;
 };
 
 const API = '/api/v1';
@@ -53,6 +58,7 @@ export function createStaffBackend(options: StaffBackendOptions = {}) {
             Object.entries(options.messages ?? {}),
         ),
         presence: options.presence ?? ('offline' as PresenceStatus),
+        heartbeatAnswersStatus: options.heartbeatAnswersStatus ?? false,
         /** ulid -> the answer of `GET .../transfer-targets`; unset = the endpoint does not exist (404). */
         transferTargets: new Map<string, unknown>(),
         /** The next transfer answers `409 no_agents`. */
@@ -425,7 +431,14 @@ export function createStaffBackend(options: StaffBackendOptions = {}) {
         http.post(`${API}/me/presence/heartbeat`, async ({ request }) => {
             record(request, await bodyOf(request));
 
-            return down() ?? new HttpResponse(null, { status: 204 });
+            return (
+                down() ??
+                (state.heartbeatAnswersStatus
+                    ? HttpResponse.json({
+                          data: { status: state.presence, isManual: false },
+                      })
+                    : new HttpResponse(null, { status: 204 }))
+            );
         }),
 
         // The page route that extends the session lifetime (the API does not).
