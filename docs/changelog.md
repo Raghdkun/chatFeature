@@ -6,7 +6,8 @@ All notable changes are recorded here, following [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-Nothing yet (P5 presence and notifications is next).
+### Added
+- The NATS consumer was run against a real NATS 2.11 JetStream server (Docker) for the first time: both integration tests pass (stream ensured, durable pull consumer, ack, de-duplication, malformed/unknown handling, redelivery after a nak); one assertion in the test (a stored-row count) was a wrong guess and was corrected.
 
 ## [0.4.0] - 2026-10-01 (phase-4)
 
@@ -107,7 +108,7 @@ External sign-in through the pizzasys Auth Portal (setup mode 2). Developed in p
 - Auth Portal mode: Settings still linked to the Security page (a 404) and showed an editable profile form (saving answered 404) and "Delete account"; the Security link is gone and the profile is read-only with a pointer to the portal.
 
 ### Notes
-- Verified against a local throwaway clone of the real pizzasys, not a production instance; the NATS part has never run against a real NATS server (Docker was not running). The public pizzasys repo's seeder creates a `super-admin` account with a known password: confirm it does not exist on the real instance.
+- Verified against a local throwaway clone of the real pizzasys, not a production instance; the NATS consumer was first run against a real NATS server later (2026-10-01, see [Unreleased]). The public pizzasys repo's seeder creates a `super-admin` account with a known password: confirm it does not exist on the real instance.
 
 ## [0.1.0] - 2026-09-30 (phase-1)
 

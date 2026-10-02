@@ -99,7 +99,7 @@ OpenWA, optional mysql/redis) are in `docker/compose.dev.yml` behind profiles; *
     every HTTP call in a test needs a `Http::fake`. `WidgetFixtures::useFortifyMode()` stores `auth.mode=fortify` (an installed instance without it makes `AuthModeGuard` fail closed with `500 auth_mode_unavailable`,
     so staff/agent tests call it); `usePizzasysMode()` is the mode-2 stub. Skipped on purpose: `PIZZASYS_HARNESS=1` (real pizzasys clone) and `NATS_TEST_URL=nats://127.0.0.1:4222` (a real `nats -js`).
 14. **pizzasys facts + harness:** `docs/pizzasys-findings.md`. The local clone lives OUTSIDE the repo at `../chatFeature.harness/` (`run.sh start|stop|status|reset`, port 8200, `secrets.local.env` is never copied into the repo).
-    Mode-2 e2e tests carry the tag `@pizzasys`: `E2E_SKIP_PIZZASYS=1 npx playwright test --grep-invert @pizzasys` skips them and the harness. A real NATS server has never been run against the consumer.
+    Mode-2 e2e tests carry the tag `@pizzasys`: `E2E_SKIP_PIZZASYS=1 npx playwright test --grep-invert @pizzasys` skips them and the harness. The consumer has been run against a real NATS 2.11 JetStream (`docker compose -f docker/compose.dev.yml --profile nats up -d nats`, then `NATS_TEST_URL=nats://127.0.0.1:4222 php artisan test tests/Feature/Nats`); the pizzasys publisher never.
 15. **Loader:** the bundle `public/widget/v1/loader.js` is git-ignored, so a fresh checkout/Docker image must run `npm run build:widget`; without it `/w/{key}.js` serves a stub and the builder falls back to its static preview.
     Budget 16 KB gzip (`npm run size`; 15.65 KB now). `resources/js/lib/limits.ts` repeats the PHP validation limits and `limits.test.ts` pins it to the PHP source; `resources/js/lib/widgets-routes.ts` holds plain URL strings
     (Wayfinder output is git-ignored) pinned to the contract by a Vitest test and exercised against the real routes by the P3 e2e.
@@ -141,7 +141,7 @@ OpenWA, optional mysql/redis) are in `docker/compose.dev.yml` behind profiles; *
 |---|---|
 | P0 Scaffold + tooling | done (see `docs/changelog.md`) |
 | P1 Install gate, wizard, settings, mode-1 auth, shell | done (`v0.1.0`) |
-| P2 Mode-2 pizzasys auth | done (`v0.2.0`), reviewed + hardened, e2e against the local pizzasys clone. Real NATS server never exercised; pizzasys facts from a local clone only |
+| P2 Mode-2 pizzasys auth | done (`v0.2.0`), reviewed + hardened, e2e against the local pizzasys clone. Consumer exercised against a real NATS JetStream (not pizzasys's publisher); pizzasys facts from a local clone only |
 | P3 Widgets/loader/builder/categories/agents | done (`v0.3.0`), reviewed + hardened, e2e on a cross-origin host page |
 | P4 Live chat core | done (`v0.4.0`): routing + first-accept, messages/attachments/receipts, offline tickets, sweeps, minimal presence, Reverb realtime, agent inbox/history/offline tickets, visitor panel; reviewed (backend, security, frontend, integration) + fixed; real-stack e2e (`e2e/chat`). Loader 15.8 of 16 KB (~200 bytes headroom!) |
 | Gate at `v0.4.0` (`integrate/phase-4`) | `composer ci:check` green: PHPUnit 2418 (14 skip: harness / NATS / MySQL-gated), Vitest 2183, PHPStan L7, Pint, `vp check`, `tsc`. Playwright 803 specs: 787 passed, 16 skipped, 0 failed (P1-P3 483 + P4 chat; needs the pizzasys harness on :8200, started by `global-setup`) |

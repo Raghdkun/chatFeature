@@ -67,7 +67,7 @@ Envelope (`type == subject`, always prefixed `auth.v1.`): `{specversion:"1.0", i
 **Never emitted:** login, logout, refresh, password reset, email verification, service-client CRUD, auth-rule CRUD, and per-user events when a role/permission/store is deleted (the cascade is silent).
 
 Publisher caveats: stream `AUTH_EVENTS` with filter `auth.v1.>`; **the app never creates the stream or any consumer**; `Stream::put()` in basis-company/nats 1.1.2 is a core fire-and-forget publish
-(so `published_at` means "written to the socket", not "persisted"), with no `Nats-Msg-Id` -> de-duplicate on the envelope `id`. Not run against a real NATS server yet.
+(so `published_at` means "written to the socket", not "persisted"), with no `Nats-Msg-Id` -> de-duplicate on the envelope `id`. The consumer side has since been run against a real NATS 2.11 JetStream server (see below); the pizzasys publisher itself was never run with NATS.
 
 ## Other risks seen (report to the pizzasys owners, don't depend on them)
 
@@ -91,4 +91,4 @@ email matching is case-sensitive on SQLite (MySQL differs); with `APP_DEBUG=true
 - The verify result is cached for `auth.pizzasys.verify_ttl_seconds` (default **60 s**, 15..300), `active:false` answers for 15 s, single-flight per token; verify timeout `verify_timeout_seconds` (default 3 s). There is no separate "re-verify every 5 min" job: sessions are verified lazily on the request path (websocket sessions arrive with P4).
 - Our logout and every login we discard (no chat access, refused link) log out **that one upstream token** best-effort; `refresh-token` is never called.
 - `user.deleted` deactivates only the portal **identity** and its sessions; the local user stays active (`chat:auth:reactivate` undoes it). Consumer routing is by CloudEvent `type`, and role/permission/store/hierarchy changes flush every identity (`EventRouter`).
-- Still true: nothing here was run against a production pizzasys, and the NATS part was never run against a real NATS server.
+- Still true: nothing here was run against a production pizzasys, and the NATS consumer was exercised against a real NATS 2.11 JetStream server in Docker on 2026-10-01 (stream ensured, durable consumer, ack, de-duplication on the envelope id, malformed/unknown handling, redelivery after a nak; `tests/Feature/Nats/NatsIntegrationTest.php`), but never against pizzasys's own outbox publisher.

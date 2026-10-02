@@ -62,7 +62,7 @@ Goal: starter kit and tooling. Exit: stock kit boots; SQLite (tests) and MySQL b
 - [x] 2C pizzasys test mock, a local clone of the real pizzasys as the e2e harness (outside the repo, not Docker), Settings > Auth page, portal login variant
 - [x] Review and hardening round: setup-token takeover guard, SSRF guard, session revocation and degrade (`503 auth_unavailable`), login throttles, secrets never flashed or logged
 - Exit met: feature tests (ok/invalid/unavailable/no-role/cache/revoked/degraded/service-token-rejected/env flip); NATS tests; mode-2 e2e against the real pizzasys clone ([auth-modes](docs/auth-modes.md), [findings](docs/pizzasys-findings.md)).
-- Known gaps: **a real NATS server was never exercised** (the integration test is skipped without `NATS_TEST_URL`); the pizzasys facts come from a local clone, not a production instance; "TLS first" NATS servers are unsupported by the client library.
+- Known gaps: the consumer was exercised against a real NATS 2.11 JetStream server in Docker (stream creation, durable consumer, ack, de-duplication, redelivery after a nak: `NATS_TEST_URL=nats://127.0.0.1:4222 php artisan test tests/Feature/Nats`), but never against pizzasys's own publisher; the pizzasys facts come from a local clone, not a production instance; "TLS first" NATS servers are unsupported by the client library.
 
 ### P3 Widgets (done, `v0.3.0`; developed in parallel with P2)
 - [x] 3A backend: categories, widgets, domains, greetings, config schema, draft/publish, public config/availability, `/w/{key}.js`, `/embed/{key}` + CSP, origin matcher, identity verifier, rate limits

@@ -133,7 +133,9 @@ class NatsIntegrationTest extends TestCase
         $this->assertSame(1, $stats->malformed);
         $this->assertSame(1, $stats->unknown);
         $this->assertSame([['deactivateExternalId', '10'], ['flushAll', null]], $this->invalidator->calls);
-        $this->assertSame(4, ProcessedEvent::query()->count());
+        // One row per event that reached the processor: the two handled ones and the unknown type. A payload that is not JSON has no
+        // envelope id, so it is counted as malformed and terminated without a row; the duplicate is the same row as its first delivery.
+        $this->assertSame(3, ProcessedEvent::query()->count());
 
         $consumer = $this->admin->getApi()->getStream($this->stream)->getConsumer('pne-chat-testing-default')->info();
         $this->assertSame(0, $consumer->num_ack_pending, 'every delivery was acked or terminated');
