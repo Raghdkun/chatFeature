@@ -149,6 +149,21 @@ abstract class PresenceBehaviourTestCase extends TestCase
         $this->assertSame('online', $this->statusOf($this->agent));
     }
 
+    public function test_a_runaway_client_is_stopped_by_the_staff_api_rate_limit(): void
+    {
+        config(['chat.rate_limits.staff_api_user' => 5]);
+        $this->choose($this->agent, 'online', ['automatic' => true]);
+
+        for ($beat = 0; $beat < 4; $beat++) {
+            $this->beat($this->agent, true);
+        }
+
+        $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat', ['visible' => true])
+            ->assertStatus(429)
+            ->assertJsonPath('error.code', 'rate_limited');
+        $this->assertTrue($this->availability()['online'], 'the agent is still online: a refused beat changes nothing');
+    }
+
     public function test_a_heartbeat_never_turns_an_offline_agent_online(): void
     {
         // No record at all.
@@ -319,6 +334,29 @@ abstract class PresenceBehaviourTestCase extends TestCase
         $this->elapse(310);
         $this->beat($this->agent, true);
         $this->assertTrue($this->availability()['online']);
+    }
+
+    public function test_a_status_change_drops_the_cached_public_availability_at_once(): void
+    {
+        config(['presence.auto_away_minutes' => 1]);
+        $this->resetPresenceServices();
+        $config = $this->widget->config;
+        $config['routing']['waves'] = [['afterSeconds' => 0, 'statuses' => ['online']]];
+        $this->widget->forceFill(['config' => $config])->save();
+        $this->choose($this->agent, 'online', ['automatic' => true]);
+        $this->elapse(30);
+        $this->beat($this->agent, false);
+
+        // The answer is cached for 8 s: asked at 59 s, it would still say `online` at 61 s unless the change at 60 s dropped it.
+        $this->elapse(59);
+        $this->assertTrue($this->availability()['online']);
+
+        $this->elapse(60);
+        $this->beat($this->agent, false);
+        $this->assertSame('away', $this->statusOf($this->agent));
+
+        $this->elapse(61);
+        $this->assertFalse($this->availability()['online']);
     }
 
     public function test_the_agent_who_sets_online_is_reachable_everywhere_at_once_and_going_offline_takes_them_away(): void
