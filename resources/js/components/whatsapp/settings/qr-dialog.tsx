@@ -36,8 +36,8 @@ export function QrDialog({
     session: WhatsAppSession | null;
     onClose: () => void;
     onConnected: (session: WhatsAppSession) => void;
-    /** Start the session again (it is not running, so there is no code to show). */
-    onStart: (session: WhatsAppSession) => void;
+    /** Start the session again (it is not running, so there is no code to show). Resolves when the start call is over. */
+    onStart: (session: WhatsAppSession) => Promise<void> | void;
     starting: boolean;
 }) {
     const { t, locale } = useTrans();
@@ -184,7 +184,13 @@ export function QrDialog({
                             type="button"
                             disabled={starting}
                             data-testid="wa-qr-restart"
-                            onClick={() => onStart(session)}
+                            // The poll gave up when it saw a stopped session: ask again once the start call is over, or the dialog
+                            // would keep saying "not running" while the engine comes up.
+                            onClick={() =>
+                                void Promise.resolve(onStart(session)).then(
+                                    refresh,
+                                )
+                            }
                         >
                             {starting && <Busy />}
                             {t('whatsapp.session.start')}

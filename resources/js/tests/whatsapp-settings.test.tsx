@@ -542,6 +542,31 @@ describe('the sessions', () => {
         expect(byTestId('wa-qr-restart')).not.toBeNull();
     });
 
+    it('asks for the code again once a stopped session was started from the dialog (the poll had given up)', async () => {
+        const session = makeWaSession({
+            ulid: fakeUlid(5006),
+            name: 'again-line',
+            status: 'starting',
+            phone: null,
+            maskedPhone: null,
+        });
+
+        await open({ sessions: [session] });
+        backend.current.state.sessions.set(session.ulid, {
+            ...session,
+            status: 'disconnected',
+        });
+        await click(byTestId(`wa-session-qr-${session.ulid}`));
+        await waitFor(() => expect(byTestId('wa-qr-restart')).not.toBeNull());
+
+        // The engine comes up: the next read has a code.
+        backend.current.state.qr.set(session.ulid, PNG);
+        await click(byTestId('wa-qr-restart'));
+
+        await waitFor(() => expect(byTestId('wa-qr-image')).not.toBeNull());
+        expect(byTestId('wa-qr-stopped')).toBeNull();
+    });
+
     it('stops a session only after a confirmation', async () => {
         const session = ready();
 

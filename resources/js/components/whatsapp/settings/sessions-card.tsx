@@ -310,7 +310,7 @@ export function SessionsCard({
                 }}
                 starting={busy?.action === 'start'}
                 onStart={(session) =>
-                    void run(
+                    run(
                         session,
                         'start',
                         () => controller.start(session.ulid),
