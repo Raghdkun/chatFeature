@@ -14,11 +14,14 @@ export function CategoryScreen() {
         return null;
     }
 
-    const busy = state.busy === 'starting';
+    const busy = state.busy === 'starting' || state.busy === 'whatsapp';
     const chosen = state.category;
-    const anyOffline = config.categories.some(
-        (category) => !categoryOnline(config, category.slug),
-    );
+    // A topic picked for WhatsApp does not depend on an agent being online: the online / offline markers would only mislead.
+    const anyOffline =
+        state.channel !== 'whatsapp' &&
+        config.categories.some(
+            (category) => !categoryOnline(config, category.slug),
+        );
 
     return (
         <section className="pne-screen flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
@@ -97,10 +100,11 @@ export function CategoryScreen() {
                     );
                 })}
             </ul>
-            {state.flow.preChat ? (
+            {state.flow.preChat || state.flow.whatsapp ? (
                 <Button
                     variant="ghost"
                     className="self-start"
+                    data-testid="category-back"
                     disabled={busy}
                     onClick={() => controller.back()}
                 >

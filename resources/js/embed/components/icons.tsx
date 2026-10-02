@@ -6,6 +6,8 @@ export {
     CheckCheck,
     ChevronRight,
     Clock,
+    Copy,
+    ExternalLink,
     ImagePlus,
     MessageCircle,
     Paperclip,

@@ -107,6 +107,14 @@ export function createDemoBackend(options: { delay?: number } = {}) {
     };
 
     const api: VisitorApi = {
+        /** The builder preview shows the hand-off screen on canned data (a fictional number: nothing real is ever opened). */
+        async whatsappHandoff() {
+            return {
+                code: 'K7M2QX4P',
+                waUrl: 'https://wa.me/15550001234?text=Hi!%20My%20support%20code%20is%20K7M2QX4P',
+                expiresAt: new Date(Date.now() + 24 * 3_600_000).toISOString(),
+            };
+        },
         async getConfig() {
             throw new VisitorApiError({
                 status: 0,

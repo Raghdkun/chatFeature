@@ -10,28 +10,33 @@ export function ClosedScreen() {
     const ticket = state.offline.ticket;
 
     const title =
-        reason === 'ticket'
-            ? t('embed.chat.offline.sent_title')
-            : reason === 'rated' || reason === 'skipped'
-              ? t('thanks')
-              : t('embed.chat.closed.title');
+        reason === 'whatsapp'
+            ? t('embed.chat.whatsapp.closed_title')
+            : reason === 'ticket'
+              ? t('embed.chat.offline.sent_title')
+              : reason === 'rated' || reason === 'skipped'
+                ? t('thanks')
+                : t('embed.chat.closed.title');
     const body =
-        reason === 'ticket' && ticket !== null
-            ? t('embed.chat.offline.sent_body', {
-                  email: state.offline.email || state.form.email.trim() || '…',
-                  ticket: ticket.ticketNo,
-              })
-            : reason === 'idle'
-              ? t('embed.chat.closed.idle')
-              : reason === 'cancelled'
-                ? t('embed.chat.closed.cancelled')
-                : reason === 'expired'
-                  ? t('embed.chat.closed.expired')
-                  : reason === 'rated' || reason === 'skipped'
-                    ? null
-                    : reason === 'ticket'
+        reason === 'whatsapp'
+            ? t('embed.chat.whatsapp.closed_body')
+            : reason === 'ticket' && ticket !== null
+              ? t('embed.chat.offline.sent_body', {
+                    email:
+                        state.offline.email || state.form.email.trim() || '…',
+                    ticket: ticket.ticketNo,
+                })
+              : reason === 'idle'
+                ? t('embed.chat.closed.idle')
+                : reason === 'cancelled'
+                  ? t('embed.chat.closed.cancelled')
+                  : reason === 'expired'
+                    ? t('embed.chat.closed.expired')
+                    : reason === 'rated' || reason === 'skipped'
                       ? null
-                      : t('embed.chat.closed.ended');
+                      : reason === 'ticket'
+                        ? null
+                        : t('embed.chat.closed.ended');
 
     return (
         <section className="pne-screen flex min-h-0 flex-1 flex-col items-center gap-5 overflow-y-auto p-6 text-center">

@@ -33,7 +33,11 @@ import type {
     PanelMessage,
     ViewportPayload,
 } from '@/embed/protocol/messages';
-import { toCreateFailure, toNotice } from '@/embed/session/errors';
+import {
+    toCreateFailure,
+    toHandoffFailure,
+    toNotice,
+} from '@/embed/session/errors';
 import {
     bareSessionBody,
     isUnsignedFieldRefusal,
@@ -1219,6 +1223,14 @@ export class ChatController {
             return;
         }
 
+        // The same topic picker serves "Continue on WhatsApp": the topic goes into the hand-off ticket, no chat is started.
+        if (this.state.channel === 'whatsapp') {
+            this.dispatch({ type: 'CATEGORY_PICK', slug });
+            void this.runHandoff();
+
+            return;
+        }
+
         const online = this.config.availability?.categories.find(
             (c) => c.slug === slug,
         )?.online;
@@ -1235,6 +1247,71 @@ export class ChatController {
 
     back(): void {
         this.dispatch({ type: 'BACK' });
+    }
+
+    /* -------------------------------------------------------- whatsapp */
+
+    /** "Continue on WhatsApp": the topic first when there are several, then the hand-off code. */
+    startWhatsApp(): void {
+        this.dispatch({ type: 'WHATSAPP_START' });
+        void this.runHandoff();
+    }
+
+    /** "Get a new code" on the hand-off screen (the old one ran out). */
+    newWhatsAppCode(): void {
+        this.dispatch({ type: 'WHATSAPP_NEW_CODE' });
+        void this.runHandoff();
+    }
+
+    /** "I sent it": nothing to tell the server (the first inbound message links the chat); the panel says what happens next. */
+    whatsAppSent(): void {
+        this.dispatch({ type: 'WHATSAPP_SENT' });
+    }
+
+    /** Asks for the hand-off when the reducer says one is in flight (`busy: 'whatsapp'`). */
+    private async runHandoff(): Promise<void> {
+        if (this.state.busy !== 'whatsapp') {
+            return;
+        }
+
+        const config = this.config;
+        const category =
+            this.state.category ??
+            (config?.categories.length === 1
+                ? config.categories[0].slug
+                : undefined);
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                await this.ensureSession();
+
+                const handoff = await this.requireApi().whatsappHandoff(
+                    category === undefined ? {} : { category },
+                );
+
+                this.dispatch({ type: 'WHATSAPP_OK', handoff });
+
+                return;
+            } catch (error) {
+                if (
+                    isVisitorApiError(error) &&
+                    error.isSessionGone &&
+                    attempt === 0
+                ) {
+                    // Gone for good: the next pass creates a session. Rotated by another tab: its token is tried instead.
+                    await this.forgetToken();
+
+                    continue;
+                }
+
+                this.dispatch({
+                    type: 'WHATSAPP_FAIL',
+                    failure: toHandoffFailure(error),
+                });
+
+                return;
+            }
+        }
     }
 
     /** Creates the conversation when the reducer says a start is in flight (`busy: 'starting'`). */
@@ -2329,10 +2406,10 @@ export class ChatController {
         this.resetConversationScopedState();
         this.dispatch({ type: 'NEW_CHAT' });
 
-        // Nothing to ask: the visitor asked for a chat, so start it.
+        // Nothing to ask: the visitor asked for a chat, so start it. (A widget that offers WhatsApp has a question: which way.)
         const after: MachineState = this.state;
 
-        if (after.phase === 'idle') {
+        if (after.phase === 'idle' && !after.flow.whatsapp) {
             this.start();
         }
     }
