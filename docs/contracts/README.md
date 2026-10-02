@@ -21,6 +21,7 @@
 | [chat-data-p4.md](chat-data-p4.md) | P4 (4A, 4B, 4C, 4D) | **implemented by the P4 spine**: tables, enums, state machine, policy, visitor tokens, Data classes, domain events, shared TypeScript helpers |
 | [chat-tracks-p4.md](chat-tracks-p4.md) | P4 (4A, 4B, 4C, 4D) | written (after the spine, before the fan-out): track boundaries, interfaces between tracks, decisions |
 | [presence-notifications-p5.md](presence-notifications-p5.md) | P5 (5A, 5B, 5C) | written (before the fan-out): presence storage + sweep, web push, settings, permission flow, launcher alert |
+| [whatsapp-p6.md](whatsapp-p6.md) | P6 (spine, 6A, 6B, 6C) | written (before the fan-out): decisions P6-D1..D10, ownership |
 
 ## Rules
 
