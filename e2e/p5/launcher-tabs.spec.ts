@@ -212,7 +212,10 @@ test('four background tabs each resume the chat and rotate the session token: no
     await pages[3].bringToFront();
     await launchers[3].open();
     await last.expectState('active');
-    await last.send('Writing from tab four');
+    // (Enter sends, as the button does. In a phone-emulated browser that has had several tabs of this chat open, mouse clicks inside the
+    // panel's iframe are not delivered any more, in any of the tabs, while the keyboard is: an emulation matter, found here, not the product.)
+    await last.composerInput.fill('Writing from tab four');
+    await last.composerInput.press('Enter');
     await last.expectMessage('Writing from tab four', 'visitor');
     await chat.agent.inbox.expectMessage('Writing from tab four');
 

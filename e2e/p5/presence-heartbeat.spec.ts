@@ -21,6 +21,9 @@ test.use({ scenario: 'p5-chat' });
 
 const statusOf = async (agent: StaffActor): Promise<string> =>
     must<{ status: string }>(await agent.api.presence(), 'presence').status;
+const isManualOf = async (agent: StaffActor): Promise<boolean> =>
+    must<{ isManual: boolean }>(await agent.api.presence(), 'presence')
+        .isManual;
 
 /** An agent with the dashboard open, a controllable tab visibility and a page clock, signed in and Online (automatic) through the selector. */
 async function openAsAutomaticOnline(
@@ -201,30 +204,23 @@ test('the selector explains the automatic status, and "Go online" after Offline 
         'aria-describedby',
         (await hint.getAttribute('id')) ?? '',
     );
-    expect(
-        must<{ isManual: boolean }>(await ann.api.presence(), 'presence')
-            .isManual,
-    ).toBe(false);
+    await expect.poll(() => isManualOf(ann)).toBe(false);
 
     // Away is a choice, not the automatic status: no hint (the dashboard does not move it), and it is pinned.
     await select.selectOption('away');
     await expect.poll(() => statusOf(ann)).toBe('away');
     await expect(hint).toHaveCount(0);
-    expect(
-        must<{ isManual: boolean }>(await ann.api.presence(), 'presence')
-            .isManual,
-    ).toBe(true);
+    await expect.poll(() => isManualOf(ann)).toBe(true);
 
     // Offline and back: Go online gives the automatic status again (the hint is back, `isManual` is false).
     await select.selectOption('offline');
     await expect(ann.inbox.tid('presence-offline-notice')).toBeVisible();
+    // (Each change is confirmed by the server before the next one: two requests in flight are handled by different PHP workers, in any order.)
+    await expect.poll(() => statusOf(ann)).toBe('offline');
     await ann.inbox.tid('presence-go-online').click();
     await expect(select).toHaveValue('online');
     await expect(hint).toBeVisible();
-    expect(
-        must<{ isManual: boolean }>(await ann.api.presence(), 'presence')
-            .isManual,
-    ).toBe(false);
+    await expect.poll(() => isManualOf(ann)).toBe(false);
 });
 
 test('two tabs of one agent: one visible tab keeps them Online, and Away only follows when every tab is in the background', async ({
