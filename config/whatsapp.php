@@ -32,9 +32,12 @@ return [
      * - redeliver_after_seconds: a stored delivery whose job has not completed after this long is queued again when OpenWA
      *   repeats it (the queue lost the job).
      * - tries / backoff: attempts of the queued job and the seconds before each next one.
+     * - session_lock_wait_seconds: the events of one session are applied one at a time (their order is the point); a delivery waits this
+     *   long for its turn and is retried by its job when the turn does not come.
      */
     'webhook' => [
         'max_body_bytes' => 1048576,
+        'session_lock_wait_seconds' => 10,
         'rate_limits' => ['per_network' => 600, 'per_session' => 3000],
         'redeliver_after_seconds' => 300,
         'tries' => 5,

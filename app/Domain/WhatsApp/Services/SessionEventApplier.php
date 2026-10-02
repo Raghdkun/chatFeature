@@ -19,6 +19,12 @@ use Illuminate\Support\Facades\Cache;
  */
 final class SessionEventApplier
 {
+    /** The lock that makes the age check and the write of one session's events a single step. */
+    public const LOCK_PREFIX = 'wa:session-events-lock:';
+
+    /** Longest a holder keeps it (the work is a few small queries). */
+    private const LOCK_SECONDS = 15;
+
     public function __construct(private readonly ApplySessionState $state) {}
 
     /**
@@ -26,6 +32,19 @@ final class SessionEventApplier
      * @param  CarbonImmutable|null  $at  When OpenWA raised the event (the envelope's `timestamp`, millisecond precision)
      */
     public function apply(WhatsAppSession $session, string $event, array $data, ?CarbonImmutable $at = null): WebhookResult
+    {
+        // OpenWA raises a session's events within milliseconds of each other and the deliveries are processed in parallel: "is this older than
+        // what was applied" and the write are ONE step per session, or an older event that passed the check first can be written after the
+        // newer one (a `ready` session shown as `starting`, found by the P6 e2e with 25 rounds of three events at once). A lock that cannot be
+        // had in time fails the delivery (its job is retried), it never skips the order.
+        return Cache::lock(self::LOCK_PREFIX.$session->id, self::LOCK_SECONDS)
+            ->block(max(1, (int) config('whatsapp.webhook.session_lock_wait_seconds', 10)), fn (): WebhookResult => $this->applyOrdered($session, $event, $data, $at));
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $data
+     */
+    private function applyOrdered(WhatsAppSession $session, string $event, array $data, ?CarbonImmutable $at): WebhookResult
     {
         // Deliveries are independent and not ordered (recorded): a `qr_ready` that overtook the `ready` after it must not undo it.
         if ($this->isStale($session, $at)) {
