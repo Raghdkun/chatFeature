@@ -38,6 +38,8 @@ async function openAsAutomaticOnline(
     await expect(agent.inbox.tid('presence-select')).toHaveValue('offline');
     await agent.inbox.tid('presence-go-online').click();
     await expect(agent.inbox.tid('presence-select')).toHaveValue('online');
+    // The server has it (a stored record exists for the helpers that age it).
+    await expect.poll(() => statusOf(agent)).toBe('online');
 
     return { agent, beats };
 }
@@ -140,6 +142,8 @@ test('a status the agent pinned is never moved by heartbeats: Away stays Away in
     // Away chosen in the selector is pinned: a visible beat does not make it Online.
     await ann.inbox.goto();
     await ann.inbox.tid('presence-go-online').click();
+    // (Each change is confirmed by the server before the next one: two requests in flight are handled by different PHP workers, in any order.)
+    await expect.poll(() => statusOf(ann)).toBe('online');
     await ann.inbox.tid('presence-select').selectOption('away');
     await expect.poll(() => statusOf(ann)).toBe('away');
     must(await ann.api.heartbeat(true), 'a visible beat');
@@ -245,6 +249,10 @@ test('two tabs of one agent: one visible tab keeps them Online, and Away only fo
     await ann.inbox.goto();
     await second.goto('/inbox');
     await expect(second.getByTestId('inbox')).toBeVisible();
+    // Both tabs are on the staff roster before anything is changed (it arrives with the subscription): an event published before a tab
+    // has subscribed is not replayed to it.
+    await expect(ann.inbox.tid('roster-toggle')).toBeVisible();
+    await expect(second.getByTestId('roster-toggle')).toBeVisible();
     await ann.inbox.tid('presence-go-online').click();
     await expect(ann.inbox.tid('presence-select')).toHaveValue('online');
     await expect(second.getByTestId('presence-select')).toHaveValue('online');

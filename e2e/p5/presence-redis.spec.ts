@@ -5,6 +5,7 @@ import {
     agePresenceRecord,
     readMirrorRow,
     readPresenceRecord,
+    watchChannelAuths,
 } from '../support/presence';
 import {
     cleanRedis,
@@ -294,9 +295,13 @@ test('the agents page counts who is online and follows live; a whole shift going
     const read = async (): Promise<number> =>
         Number(/\d+/.exec((await count.textContent()) ?? '')?.[0] ?? NaN);
 
-    // The page loaded before this test's agents existed: its figure is the baseline, and only live events move it from here.
+    // The page loaded before this test's agents existed: its figure is the baseline, and only live events move it from here. They
+    // only reach it once it has subscribed to its three channels (staff, roster, admin).
+    const channels = watchChannelAuths(admin.page);
+
     await admin.page.reload();
     await expect(count).toBeVisible();
+    await expect.poll(() => channels.count()).toBeGreaterThanOrEqual(3);
 
     const before = await read();
 

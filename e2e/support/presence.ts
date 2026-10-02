@@ -279,3 +279,23 @@ export async function readMirrorRow(
         any
     > | null;
 }
+
+/**
+ * Counts the websocket channel authorisations the page makes (`POST /broadcasting/auth`: one per channel the dashboard subscribes to:
+ * the member's own `staff.{id}`, `presence-staff`, and `admin` for an administrator). An event the server publishes before a page has
+ * subscribed is never replayed to it, so a spec that waits for "live" updates waits for these first. Attach before the page loads.
+ */
+export function watchChannelAuths(page: Page): { count: () => number } {
+    let count = 0;
+
+    page.on('response', (response) => {
+        if (
+            new URL(response.url()).pathname === '/broadcasting/auth' &&
+            response.status() === 200
+        ) {
+            count += 1;
+        }
+    });
+
+    return { count: () => count };
+}
