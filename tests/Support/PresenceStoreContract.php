@@ -118,6 +118,48 @@ trait PresenceStoreContract
         $this->assertSame($this->at(60)->getTimestamp(), $this->store->find($id, $this->at(81))?->heartbeatAt?->getTimestamp());
     }
 
+    public function test_a_visible_heartbeat_of_an_agent_who_chose_offline_is_recorded_without_changing_anything_else(): void
+    {
+        $id = $this->agentId();
+
+        $this->store->choose($id, PresenceStatus::Online, true, $this->at(0));
+        $this->store->choose($id, PresenceStatus::Offline, true, $this->at(10));
+
+        // A hidden tab is not looking: nothing moves but the sign of life.
+        $hidden = $this->store->beat($id, false, $this->at(20));
+        $this->assertFalse($hidden->changed());
+        $record = $this->store->find($id, $this->at(21));
+        $this->assertSame(PresenceStatus::Offline, $record?->status);
+        $this->assertSame($this->at(0)->getTimestamp(), $record?->visibleAt?->getTimestamp());
+
+        // A visible one is: the dashboard IS open, and the status rules (offline stays offline, the heartbeat time stays) are untouched.
+        $visible = $this->store->beat($id, true, $this->at(30));
+        $this->assertFalse($visible->changed());
+        $this->assertFalse($visible->reachabilityChanged());
+        $this->assertSame(PresenceStatus::Offline, $visible->after);
+        $record = $this->store->find($id, $this->at(31));
+        $this->assertSame(PresenceStatus::Offline, $record?->status);
+        $this->assertTrue($record?->manual);
+        $this->assertSame($this->at(30)->getTimestamp(), $record?->visibleAt?->getTimestamp());
+        $this->assertSame($this->at(0)->getTimestamp(), $record?->heartbeatAt?->getTimestamp(), 'a heartbeat never turns an offline agent on');
+    }
+
+    public function test_an_offline_agent_with_the_dashboard_open_keeps_their_record_beyond_the_expiry_of_a_silent_one(): void
+    {
+        $id = $this->agentId();
+
+        $this->store->choose($id, PresenceStatus::Offline, true, $this->at(0));
+
+        // Beating every 30 s for six minutes (far past the 180 s life of a silent record): the record, and so the pin, is still there.
+        for ($seconds = 30; $seconds <= 360; $seconds += 30) {
+            $this->store->beat($id, true, $this->at($seconds));
+        }
+
+        $record = $this->store->find($id, $this->at(361));
+        $this->assertSame(PresenceStatus::Offline, $record?->status);
+        $this->assertSame($this->at(360)->getTimestamp(), $record?->visibleAt?->getTimestamp());
+    }
+
     public function test_silence_for_the_window_makes_an_agent_offline_and_the_sweep_announces_it_once(): void
     {
         $id = $this->agentId();

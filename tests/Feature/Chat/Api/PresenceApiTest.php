@@ -90,7 +90,7 @@ class PresenceApiTest extends TestCase
 
         $this->travel(80)->seconds();
         $this->actingAs($this->agent, 'sanctum')->getJson('/api/v1/me/presence')->assertJsonPath('data.status', 'online');
-        $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat')->assertNoContent();
+        $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat')->assertOk()->assertJsonPath('data.status', 'online')->assertJsonPath('data.isManual', true);
 
         $this->travel(80)->seconds();
         $this->actingAs($this->agent, 'sanctum')->getJson('/api/v1/me/presence')->assertJsonPath('data.status', 'online');
@@ -103,18 +103,18 @@ class PresenceApiTest extends TestCase
         // The minute sweep announces the silence (clients are told once); a heartbeat then brings them back and announces that.
         $this->artisan('chat:presence-sweep')->assertSuccessful();
         Event::fake([PresenceChanged::class]);
-        $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat')->assertNoContent();
+        $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat')->assertOk()->assertJsonPath('data.status', 'online');
         $this->actingAs($this->agent, 'sanctum')->getJson('/api/v1/me/presence')->assertJsonPath('data.status', 'online');
         Event::assertDispatched(PresenceChanged::class, fn (PresenceChanged $event): bool => $event->status === PresenceStatus::Online);
     }
 
     public function test_a_heartbeat_never_turns_an_offline_agent_online(): void
     {
-        $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat')->assertNoContent();
+        $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat')->assertOk()->assertJsonPath('data.status', 'offline')->assertJsonPath('data.isManual', false);
         $this->actingAs($this->agent, 'sanctum')->getJson('/api/v1/me/presence')->assertJsonPath('data.status', 'offline');
 
         $this->actingAs($this->agent, 'sanctum')->putJson('/api/v1/me/presence', ['status' => 'offline'])->assertOk();
-        $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat')->assertNoContent();
+        $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat')->assertOk()->assertJsonPath('data.status', 'offline');
         $this->assertNull(AgentPresence::query()->sole()->last_heartbeat_at);
     }
 
