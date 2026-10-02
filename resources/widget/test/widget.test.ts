@@ -680,6 +680,20 @@ describe('Widget (launcher + panel + bridge wired together)', () => {
             expect(ping).toHaveBeenCalledTimes(1);
         });
 
+        it('stays silent while the host keeps the launcher hidden, and alerts once it is shown again', async () => {
+            b.cf('hide');
+            b.fromPanel('unread', { count: 1 });
+            b.fromPanel('unread', { count: 2 });
+            expect(b.cf('getState')).toMatchObject({ unread: 2 }); // still counted
+            expect(alerting()).toBe(false);
+            expect(ping).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(30_000);
+
+            b.cf('show');
+            expect(alerting()).toBe(true);
+            expect(ping).toHaveBeenCalledTimes(1);
+        });
+
         it('a hidden tab whose replies were read elsewhere meanwhile never alerts', async () => {
             setHidden(true);
             b.fromPanel('unread', { count: 2 });

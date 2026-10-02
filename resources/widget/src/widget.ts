@@ -937,7 +937,12 @@ export class Widget {
     private alertIfVisible(): void {
         clearTimeout(this.visibleTimer);
 
-        if (!this.owed || this.unread === 0 || this.doc.hidden) {
+        if (
+            !this.owed ||
+            this.unread === 0 ||
+            this.doc.hidden ||
+            this.hiddenByApi
+        ) {
             return;
         }
 
@@ -1067,6 +1072,9 @@ export class Widget {
         if (hidden) {
             this.close();
             this.sched.hide('suppressed');
+        } else {
+            // replies that came in while the host kept the launcher hidden are alerted once it is shown again
+            this.alertIfVisible();
         }
     }
 
