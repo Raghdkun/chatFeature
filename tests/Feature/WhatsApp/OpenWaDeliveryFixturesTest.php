@@ -98,7 +98,15 @@ class OpenWaDeliveryFixturesTest extends TestCase
         $this->assertSame(WebhookOutcome::Processed, $delivery->outcome);
     }
 
-    #[DataProvider('recordedStatusDeliveries')]
+    /** @return iterable<string, array{string}> */
+    public static function recordedStatusDeliveryFixtures(): iterable
+    {
+        foreach (self::recordedStatusDeliveries() as $name => $case) {
+            yield $name => [$case[0]];
+        }
+    }
+
+    #[DataProvider('recordedStatusDeliveryFixtures')]
     public function test_one_changed_byte_of_a_recorded_delivery_fails_the_signature(string $fixture): void
     {
         $recorded = OpenWaFixtures::recordedDelivery($fixture);

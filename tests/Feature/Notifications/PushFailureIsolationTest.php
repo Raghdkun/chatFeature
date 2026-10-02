@@ -90,7 +90,7 @@ class PushFailureIsolationTest extends TestCase
     public function test_a_broken_cache_does_not_fail_the_request(): void
     {
         $this->fakePushService();
-        $broken = $this->createMock(Repository::class);
+        $broken = $this->createStub(Repository::class);
         $broken->method('put')->willThrowException(new RuntimeException('cache down'));
         $broken->method('pull')->willThrowException(new RuntimeException('cache down'));
         $broken->method('add')->willThrowException(new RuntimeException('cache down'));

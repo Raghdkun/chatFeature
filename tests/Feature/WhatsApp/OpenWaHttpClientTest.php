@@ -344,7 +344,7 @@ class OpenWaHttpClientTest extends TestCase
     }
 
     #[DataProvider('unusableAnswers')]
-    public function test_an_answer_that_is_not_what_the_api_documents_is_unavailable(Closure $answer): void
+    public function test_an_answer_that_is_not_what_the_api_documents_is_unavailable(Closure $answer, string $case): void
     {
         Http::fake(['*' => $answer()]);
 
