@@ -415,6 +415,21 @@ export class OpenWaMock {
     inboundFromMe = (ref: string, to: string, body: string) =>
         this.inbound(ref, { from: to, body, fromMe: true });
 
+    /** This session's own ack plan (`manual` = no automatic acks, fire them with `ack`); the global `config({ acks })` stays the default for the others. */
+    sessionAcks = (
+        ref: string,
+        plan: Partial<{
+            mode: 'auto' | 'manual';
+            steps: AckStatus[];
+            delayMs: number;
+        }>,
+    ) =>
+        this.control<{ ok: boolean }>(
+            'POST',
+            `/__mock/sessions/${encodeURIComponent(ref)}/acks`,
+            plan,
+        );
+
     /** A receipt for an outbound message (`message.ack`, plus `message.failed` for `failed`). */
     ack = (ref: string, messageId: string, status: AckStatus) =>
         this.control<{ ok: boolean }>(

@@ -5,7 +5,6 @@ import { P4_CATEGORIES } from '../support/users';
 import {
     data,
     eventually,
-    resetMock,
     WaAdminApi,
     type WaChat,
     type WaMessage,
@@ -27,7 +26,7 @@ import {
 test.use({ scenario: 'p6-wa' });
 
 test.beforeEach(async ({ openWa }) => {
-    await resetMock(openWa);
+    await openWa.reset();
 });
 
 test("a customer's WhatsApp message with the hand-off code is linked, answered and acked; agents see nothing", async ({

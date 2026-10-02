@@ -1388,6 +1388,38 @@ describe('messages', () => {
         });
     });
 
+    test('a session can carry its own ack plan (manual here) while the others keep the default', async () => {
+        const manual = await readySession('rec-plan-aaaaa');
+        const auto = await readySession('rec-plan-bbbbb');
+
+        await hook(manual, { events: ['message.ack'] });
+        await hook(auto, { events: ['message.ack'] });
+        ok(
+            await control('POST', `/__mock/sessions/${manual.id}/acks`, {
+                mode: 'manual',
+            }),
+        );
+
+        for (const session of [manual, auto]) {
+            await api(
+                'POST',
+                `/api/sessions/${session.id}/messages/send-text`,
+                {
+                    body: { chatId: '4915112345678@c.us', text: 'Hi' },
+                },
+            );
+        }
+
+        // The default plan acks `sent` then `delivered` by itself; the manual session stays silent.
+        await waitFor(() => hits.length >= 2, 'the default plan acks');
+        await sleep(120);
+        assert.equal(hits.length, 2);
+        assert.ok(
+            hits.every((hit) => JSON.parse(hit.raw).sessionId === auto.id),
+            'only the session on the default plan was acked',
+        );
+    });
+
     test('SEND_PACING_LIMITED (daily cap) and the throttler 429 are different: the first has a code and retryAfterSeconds, the second clears in a second', async () => {
         const session = await readySession('rec-pace-nnnnn');
         const send = () =>

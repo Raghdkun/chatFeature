@@ -5,7 +5,6 @@
  * Paths and shapes live HERE and nowhere else in the specs: when 6A changes a route, this is the one file to touch.
  */
 import type { Api, ApiResult } from './api';
-import type { MockConfig, OpenWaMock } from './openwa';
 
 export type WaSessionStatus =
     | 'created'
@@ -59,6 +58,16 @@ export class WaAdminApi {
         this.api.post('/api/v1/whatsapp/sessions', { name });
     session = (ulid: string) =>
         this.api.get(`/api/v1/whatsapp/sessions/${ulid}`);
+    /** The session's own pacing (`null` goes back to the global setting). */
+    updateSession = (
+        ulid: string,
+        body: {
+            send_min_interval_ms?: number | null;
+            daily_send_cap?: number | null;
+        },
+    ) => this.api.patch(`/api/v1/whatsapp/sessions/${ulid}`, body);
+    reregisterWebhook = (ulid: string) =>
+        this.api.post(`/api/v1/whatsapp/sessions/${ulid}/webhook`);
     /** `202` with status `starting`: the engine starts in a queued job (inline in the e2e suite, `QUEUE_CONNECTION=sync`). */
     startSession = (ulid: string) =>
         this.api.post(`/api/v1/whatsapp/sessions/${ulid}/start`);
@@ -137,17 +146,4 @@ export async function eventually<T>(
 
         await new Promise((done) => setTimeout(done, 150));
     }
-}
-
-/**
- * A clean mock for a spec. OpenWA's `start` takes 5-25 s and its first status event (`initializing`) is seconds ahead of `qr_ready`; the mock
- * defaults to 0 ms, which delivers the two within a few milliseconds of each other to the app's parallel PHP workers. A small start delay keeps
- * the deliveries in the real order so specs do not depend on which worker wins (the unordered-delivery case has a spec of its own).
- */
-export async function resetMock(
-    openWa: OpenWaMock,
-    config: MockConfig = {},
-): Promise<void> {
-    await openWa.reset();
-    await openWa.config({ startDelayMs: 300, ...config });
 }
