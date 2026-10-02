@@ -55,7 +55,7 @@ RUN set -eux; \
     toolchain="$PHPIZE_DEPS $(apt-mark showmanual | grep -E '^(binutils.*|cpp|cpp-[0-9]+|g\+\+-[0-9]+|gcc-[0-9]+|libc6-dev|libc-dev-bin|libcrypt-dev|libgcc-[0-9]+-dev|libstdc\+\+-[0-9]+-dev|linux-libc-dev|libtirpc-dev|libnsl-dev|rpcsvc-proto|m4|patch|perl|perl-modules.*|libperl.*|libdpkg-perl|libasan.*|libtsan.*|libubsan.*|liblsan.*|libhwasan.*|libitm.*|libatomic.*|libcc1-0|libgprofng0|libisl.*|libmpc3|libmpfr6|libctf.*|libbinutils|pkgconf.*|libpkgconf3)$' | tr '\n' ' ')"; \
     apt-get purge -y --auto-remove $toolchain; \
     docker-php-source delete; \
-    rm -rf /var/lib/apt/lists/* /var/cache/apt/* /usr/src/php.tar.xz /tmp/* /root/.cache; \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/* /usr/src/php.tar.xz /usr/local/lib/php/test /usr/local/lib/php/doc /tmp/* /root/.cache; \
     php -m | grep -qx uv; php -m | grep -qx gd; php -m | grep -qx redis
 
 # Flatten: one layer without the history of the toolchain (a plain purge would leave the 270 MB in the layers below).

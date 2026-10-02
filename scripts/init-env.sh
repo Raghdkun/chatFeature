@@ -2,8 +2,8 @@
 # Prepares the production `.env` of compose.prod.yml in two steps (idempotent, never overwrites a secret that exists).
 #
 #   scripts/init-env.sh --domain chat.example.com --email you@example.com
-#       Step 1: copies .env.production.example to .env (mode 600) and fills in the domain, the e-mail address and fresh random
-#       passwords for MySQL, Redis and the OpenWA key pepper. Needs only `openssl`.
+#       Step 1: copies .env.production.example to .env (mode 600) and fills in the domain (APP_DOMAIN, APP_URL, REVERB_HOST), the e-mail
+#       address and fresh random passwords for MySQL, Redis and the OpenWA key pepper. Needs only `openssl`.
 #
 #   docker compose -f compose.prod.yml --env-file .env build
 #
@@ -74,11 +74,13 @@ if [ "$secrets_only" = false ]; then
         chmod 600 "$ENV_FILE"
         echo "Created $ENV_FILE from $EXAMPLE_FILE"
     else
-        echo "$ENV_FILE exists: only empty secrets are filled in, nothing is overwritten."
+        echo "$ENV_FILE exists: the domain and e-mail you passed are set again; existing secrets are never overwritten."
     fi
 
     set_value APP_DOMAIN "$domain"
     set_value CADDY_TLS "$email"
+    set_value APP_URL "https://$domain"
+    set_value REVERB_HOST "$domain"
     if [ "$email" != "internal" ]; then
         set_value VAPID_SUBJECT "mailto:$email"
         set_value MAIL_FROM_ADDRESS "chat@$domain"

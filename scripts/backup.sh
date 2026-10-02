@@ -89,6 +89,8 @@ dc run --rm --no-deps -T --entrypoint tar app czf - -C /var/www/html/storage app
     | encrypt_stream > "$target/storage-app.tgz$suffix"
 
 # --- OpenWA volume (WhatsApp login), only if it exists --------------------------------------------------------------------
+# OpenWA's files belong to its own user and are mode 0600: read them as root, with only the capability to read (cap_drop ALL stays).
+failed=0
 project="$(dc config --format json 2> /dev/null | sed -n 's/^  "name": "\(.*\)",\{0,1\}$/\1/p' | head -n 1)"
 openwa_volume="$(docker volume ls --quiet --filter "label=com.docker.compose.project=${project}" --filter "label=com.docker.compose.volume=openwa-data" | head -n 1)"
 if [ -n "$openwa_volume" ]; then
@@ -98,8 +100,12 @@ if [ -n "$openwa_volume" ]; then
         openwa_running=true
         dc stop openwa > /dev/null
     fi
-    dc run --rm --no-deps -T -v "$openwa_volume":/openwa:ro --entrypoint tar app czf - -C /openwa . \
-        | encrypt_stream > "$target/openwa-data.tgz$suffix" || log "WARNING: the OpenWA archive failed."
+    if ! dc run --rm --no-deps -T --user root --cap-add DAC_READ_SEARCH -v "$openwa_volume":/openwa:ro --entrypoint tar app czf - -C /openwa . \
+        | encrypt_stream > "$target/openwa-data.tgz$suffix"; then
+        rm -f "$target/openwa-data.tgz$suffix"
+        log "ERROR: the OpenWA archive failed (it is missing from this backup)."
+        failed=1
+    fi
     if [ "$openwa_running" = true ]; then
         dc start openwa > /dev/null
     fi
@@ -125,3 +131,6 @@ if [ -n "${BACKUP_AFTER_COMMAND:-}" ]; then
 fi
 
 echo "$target"
+if [ "$failed" -ne 0 ]; then
+    die "the backup is INCOMPLETE (see above)."
+fi

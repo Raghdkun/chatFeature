@@ -122,5 +122,10 @@ if [ -n "$openwa_tar" ]; then
 fi
 
 log "starting the stack ..."
-dc up -d --no-build > /dev/null
+if [ -n "$openwa_tar" ]; then
+    # the gateway belongs to the `whatsapp` profile: start it even when COMPOSE_PROFILES in .env does not list it
+    dc --profile whatsapp up -d --no-build > /dev/null
+else
+    dc up -d --no-build > /dev/null
+fi
 log "done. Check: docker compose -f $COMPOSE_FILE ps  and  curl -fsS https://<your domain>/up"
