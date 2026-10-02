@@ -505,6 +505,18 @@ email: string | null,
 phone: string | null,
 verified: boolean,
 };
+export type WhatsAppConnectionTestData = {
+ok: boolean,
+role: string | null,
+engine: string | null,
+canOperate: boolean,
+reason: string | null,
+message: string | null,
+};
+export type WhatsAppQrData = {
+qr: string,
+updatedAt: string,
+};
 export type WhatsAppSessionData = {
 ulid: string,
 name: string,
@@ -525,6 +537,25 @@ sendMinIntervalMs: number,
 dailySendCap: number,
 pacingOverridden: boolean,
 createdAt: string,
+};
+export type WhatsAppSettingsData = {
+enabled: boolean,
+baseUrl: string,
+hasApiKey: boolean,
+handoffTtlMinutes: number,
+handoffText: string,
+ignoreGroups: boolean,
+replyOnlyToInbound: boolean,
+sendMinIntervalMs: number,
+dailySendCap: number,
+mediaMaxBytes: number,
+};
+export type WidgetWhatsAppLinkData = {
+widget: App.Data.Chat.WidgetRefData,
+session: App.Data.WhatsApp.WaSessionRefData | null,
+status: App.Domain.WhatsApp.Enums.SessionStatus | null,
+maskedPhone: string | null,
+connected: boolean,
 };
 namespace Events {
 export type WaChatUpdatedPayload = {
