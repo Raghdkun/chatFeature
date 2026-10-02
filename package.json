@@ -16,7 +16,10 @@
         "e2e:headed": "playwright test --headed",
         "e2e:screenshots": "E2E_SCREENSHOTS=1 playwright test e2e/screenshots",
         "size": "size-limit",
-        "realtime:smoke": "node e2e/support/realtime-smoke.mjs"
+        "realtime:smoke": "node e2e/support/realtime-smoke.mjs",
+        "test:openwa-mock": "node --test e2e/support/openwa-mock.test.mjs",
+        "openwa:smoke": "node scripts/openwa-smoke.mjs",
+        "openwa:record": "node scripts/openwa-record.mjs"
     },
     "dependencies": {
         "@inertiajs/react": "^3.0.0",
