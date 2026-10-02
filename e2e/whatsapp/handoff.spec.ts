@@ -517,7 +517,8 @@ test('a code that has run out is struck through and offers a new one; the old co
     await expect(panel.tid('whatsapp-expiry')).toHaveAttribute(
         'data-expired',
         'true',
-        { timeout: 15_000 },
+        // The panel's clock ticks every 15 s: the code can show as expired up to a tick after its time.
+        { timeout: 30_000 },
     );
     await expect(panel.tid('whatsapp-expiry')).toContainText(
         'This code has expired.',
@@ -610,8 +611,14 @@ test('which messages link a chat: the code in a sentence, in lower case, with pu
         'a letter after': (code: string) => `${code}Y`,
         'a digit after': (code: string) => `${code}2`,
         'an underscore around': (code: string) => `_${code}_`,
-        'two letters swapped': (code: string) =>
-            `${code[1]}${code[0]}${code.slice(2)}`,
+        'two letters swapped': (code: string) => {
+            // The first two neighbours that differ (swapping equal letters would give the same code back).
+            const at = [...code].findIndex(
+                (letter, index) => letter !== code[index + 1] && index < 7,
+            );
+
+            return `${code.slice(0, at)}${code[at + 1]}${code[at]}${code.slice(at + 2)}`;
+        },
         'too short': (code: string) => code.slice(0, 7),
         'spaces inside': (code: string) =>
             `${code.slice(0, 4)} ${code.slice(4)}`,
