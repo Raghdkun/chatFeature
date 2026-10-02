@@ -76,7 +76,11 @@ services:
         volumes:
             - openwa-data:/app/data # sessions (the WhatsApp login!), API keys, message store: back it up, never delete it casually
         healthcheck:
-            test: ['CMD-SHELL', 'curl -fsS http://localhost:2785/api/health/ready || exit 1']
+            test:
+                [
+                    'CMD-SHELL',
+                    'curl -fsS http://localhost:2785/api/health/ready || exit 1',
+                ]
             interval: 15s
             timeout: 5s
             retries: 5
