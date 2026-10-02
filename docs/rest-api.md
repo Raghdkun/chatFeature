@@ -1,8 +1,14 @@
 # REST API
 
-> Status: the P3 endpoints (public widget config/availability; management of categories, agents and widgets) are **implemented and reviewed**; the P4 chat endpoints (visitor sessions and chat, staff conversations, presence) are **implemented** (track 4A, see "Chat API (P4)" below; the realtime events they trigger are track 4B), hardening and the generated reference (Scribe is installed as a dev dependency; its `/docs` route is removed with `composer install --no-dev`) are P7. Exact shapes and error codes: [contracts/rest-shapes.md](contracts/rest-shapes.md) and [contracts/dashboard-pages-p3.md](contracts/dashboard-pages-p3.md).
+> Status: the P3 endpoints (public widget config/availability; management of categories, agents and widgets) are **implemented and reviewed**; the P4 chat endpoints (visitor sessions and chat, staff conversations, presence) are **implemented** (track 4A, see "Chat API (P4)" below; the realtime events they trigger are track 4B), the generated reference is built (P7, track 7B): see "Generated reference" below. Exact shapes and error codes: [contracts/rest-shapes.md](contracts/rest-shapes.md) and [contracts/dashboard-pages-p3.md](contracts/dashboard-pages-p3.md).
 
-Everything lives under a versioned `/api/v1`. One API serves the web dashboard and a future mobile app. Two Scribe configs are planned (management, public). Paths marked "P3" or listed under "Chat API (P4)" exist today; the rest are **draft** except where marked "plan" (named explicitly in the plan).
+Everything lives under a versioned `/api/v1`. One API serves the web dashboard and a future mobile app. Two Scribe configs build the generated reference (management, public). Every path in this page exists today except where a row says "not implemented".
+
+## Generated reference
+
+The complete, code-derived reference is [api/openapi-management.yaml](api/openapi-management.yaml) (`/api/v1/*` and the OpenWA webhook, 78 operations) and [api/openapi-public.yaml](api/openapi-public.yaml) (`/api/v1/public/*` and the loader/iframe routes, 23 operations), plus static HTML under `public/docs/{management,public}` (git-ignored). Build it with `composer docs:api` (`php artisan docs:api`; `--check` fails when a committed file is stale); it needs no server, no database and no secrets. Examples and schemas come from the Data classes, request fields from the Form Requests, errors, access level and rate limits from the route middleware. `ApiDocsGuardTest` fails when a route under `api/v1` or `webhooks` is missing from the files and `tests/Feature/Api/*ContractTest.php` check real responses against them. This page stays hand-written (the decisions and the behaviour that does not fit a schema); the integrator's walkthrough is [api-guide.md](api-guide.md). There is no `/docs` route in the application: with Scribe set to `static` the dev-only `/docs` view route no longer exists, and `composer install --no-dev` needs nothing removed.
+
+**Naming.** Chat, notification, WhatsApp and auth-token resources are camelCase; the P3 admin resources (widgets, categories, agents) and `AuthUserData` are snake_case. Request fields are snake_case everywhere.
 
 ## Conventions
 
@@ -35,21 +41,34 @@ Sanctum **stateful cookie** for the dashboard, **bearer** token for mobile. Admi
 
 | Area | Endpoint (draft) | Notes |
 |---|---|---|
-| Auth | `GET /auth/mode` (plan), login, logout, `me` | Login varies by auth mode |
-| Me | `/me` (plan): profile, categories (P3), presence (P4), notification settings, push subscriptions, devices (P5, "Notifications API (P5)" below) | |
+| Auth | `GET /auth/me`, `GET /auth/tokens`, `DELETE /auth/tokens/{id}`, `POST /auth/logout` (P7); `GET /auth/mode` and a password login endpoint are **not implemented** | See "Own credential (P7)" below; the login endpoint is the main mobile gap ([mobile-readiness.md](mobile-readiness.md)) |
+| Me | categories (P3), presence (P4), notification settings, push subscriptions, devices (P5, "Notifications API (P5)" below); a profile resource is **not implemented** (web pages only) | |
 | Conversations (P4) | `GET /conversations` (+ `/queue`, `/export`, `/{ulid}`, `/{ulid}/messages`), `POST /conversations/{ulid}/{claim,messages,attachments,receipts,typing,end,close,transfer}` | Claim is atomic ([realtime.md](realtime.md)); see "Chat API (P4)" |
 | Presence (P4, P5) | `GET/PUT /me/presence`, `POST /me/presence/heartbeat` | Redis store, auto-away and the sweep (P5, track 5A) sit behind the same endpoints: see "Presence and routing" below and [realtime.md](realtime.md) "Presence" |
 | Categories, widgets, agents (P3) | `/categories`, `/me/categories`, `/agents`, `/widgets` (+ `draft`, `publish`, `domains`, `greetings`, `categories`, `rotate-secret`, `snippet`) | Admin (listing categories and `/me/categories` for staff) |
-| Settings + auth environments | CRUD, test, activate | Admin |
+| Settings + auth environments | **Not under `/api/v1`**: Inertia pages and `settings/*` web routes (`settings/auth/*`, `PUT settings/password`, ...) | Admin |
 | WhatsApp (P6) | `/whatsapp/sessions`, `/whatsapp/settings`, `/whatsapp/chats`, `/whatsapp/export`, `PUT /widgets/{ulid}/whatsapp` | **Admin only**; agents get 403; see "WhatsApp API (P6)" and [whatsapp-openwa.md](whatsapp-openwa.md) |
-| Analytics, audit logs | read | Admin |
+| Analytics, audit logs | not implemented in P0-P6 (analytics is P7 track 7A); not in the generated reference until it exists | Admin |
 
 ## Mobile-readiness
 
 - Same endpoints serve the dashboard and the mobile app; only the credential differs (cookie vs bearer).
-- In pizzasys mode the mobile app receives **our own Sanctum token** bound to the `external_sessions` row; the pizzasys token never leaves the server. The driver method exists (`attemptForApi`), but no HTTP login route exposes it yet. Staff tokens carry the ability `staff` and expire after `SANCTUM_EXPIRATION_MINUTES` (default 30 days); deactivating an account or removing its chat role deletes its tokens.
+- In pizzasys mode the mobile app receives **our own Sanctum token** bound to the `external_sessions` row; the pizzasys token never leaves the server. The driver method exists (`attemptForApi`), but no HTTP login route exposes it yet (still true after P7: the design, and why 2FA makes it more than a thin wrapper, are in [mobile-readiness.md](mobile-readiness.md)). Staff tokens carry the ability `staff` and expire after `SANCTUM_EXPIRATION_MINUTES` (default 30 days); deactivating an account or removing its chat role deletes its tokens.
 - Push: `PushChannel` interface with `WebPushChannel` (P5, [notifications.md](notifications.md)); `FcmChannel` stub, a `device_tokens` table and `POST/DELETE /me/devices` prepare for FCM.
-- A mobile-readiness review of the API is scheduled in P7 (7B), together with OpenAPI export.
+- The mobile-readiness review (P7, 7B) is [mobile-readiness.md](mobile-readiness.md); the OpenAPI export is the generated reference above.
+
+## Own credential (P7)
+
+Management group (`/api/v1/auth`, Sanctum cookie or bearer, `session.valid`, `chat.access`, limiter `staff-api`), **any staff member, only about themselves**: no user id in a URL, another user's token is `404`, a token string is never returned after sign-in (only its sha-256 is stored).
+
+| Endpoint | Notes |
+|---|---|
+| `GET /auth/me` | `{ data: { user: AuthUserData, mode: fortify\|pizzasys, capabilities, token: ApiToken\|null, realtime: {key, host, port, scheme}\|null, serverTime } }`. `token` is the bearer token of the call (`null` for the dashboard's cookie), `realtime` the PUBLIC Reverb address for native clients (`null` when realtime is not configured), `serverTime` the server clock for skew correction |
+| `GET /auth/tokens` | `{ data: ApiToken[], meta: { next_cursor: null } }`, newest first: `{ id, name (the device name), abilities, lastUsedAt, createdAt, expiresAt, current }`. `expiresAt` = issue time + `SANCTUM_EXPIRATION_MINUTES` (tokens do not slide) |
+| `DELETE /auth/tokens/{id}` | `204`; `404 token_not_found` for any token that is not the caller's. In external auth mode the portal session behind the token ends and the portal token is logged out upstream |
+| `POST /auth/logout` | `204`; revokes only the bearer token of the call. `409 not_a_token_session` when called with the dashboard's cookie (use `POST /logout`) |
+
+New codes: `token_not_found` (404), `not_a_token_session` (409).
 
 ## Chat API (P4)
 
