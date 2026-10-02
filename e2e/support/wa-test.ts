@@ -179,16 +179,18 @@ export function uniqueName(prefix = 'wa'): string {
     return `${prefix}-${Date.now().toString(36)}${serial.toString(36)}${Math.floor(Math.random() * 36 ** 3).toString(36)}`;
 }
 
-/** A customer number (digits only, as the mock's `from` takes it) that no other test uses. */
+/**
+ * A customer number (digits only, as the mock's `from` takes it) that no other test uses: the process, a counter that never repeats within it
+ * and the clock (E.164 allows 15 digits: a 4-digit prefix and 11 of these).
+ */
 export function uniquePhone(prefix = '4915'): string {
     serial += 1;
 
-    const tail =
-        `${Date.now() % 1_000_000}${serial % 10}${Math.floor(Math.random() * 10)}`
-            .padStart(8, '0')
-            .slice(-8);
+    const worker = String(process.pid % 100).padStart(2, '0');
+    const count = String(serial % 1000).padStart(3, '0');
+    const clock = String(Date.now() % 1_000_000).padStart(6, '0');
 
-    return `${prefix}${tail}`;
+    return `${prefix}${worker}${count}${clock}`;
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------
