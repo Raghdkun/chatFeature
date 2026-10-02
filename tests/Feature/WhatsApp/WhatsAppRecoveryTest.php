@@ -257,6 +257,28 @@ class WhatsAppRecoveryTest extends TestCase
         $this->assertNull($session->last_qr);
     }
 
+    public function test_a_reconciliation_that_overlaps_a_real_authenticated_webhook_keeps_the_session_ready(): void
+    {
+        $openWa = $this->openWa();
+        $session = $this->webhookSession(state: 'starting');
+        $remote = $openWa->makeSession($session->openwa_session_id, SessionStatus::Qr, 'support-main');
+        $openWa->withSession($remote);
+
+        // The reconciliation asks OpenWA (it still says "waiting for a scan"); while the answer is on its way the real
+        // `session.authenticated` delivery comes through the webhook endpoint, the signature check and the queue.
+        $openWa->will('getSession', function () use ($session, $remote) {
+            $this->deliver($session, $this->envelope('session.authenticated', ['phone' => '4915123456789', 'pushName' => 'Support']))->assertOk();
+
+            return $remote;
+        });
+
+        $this->sync()->reconcile($session);
+
+        $session->refresh();
+        $this->assertSame(SessionStatus::Ready, $session->status, 'the older "qr" answer lost against the webhook');
+        $this->assertSame('+4915123456789', $session->phone_e164);
+    }
+
     public function test_a_reconciliation_between_start_and_the_start_job_does_not_strand_the_session(): void
     {
         $openWa = $this->openWa();
