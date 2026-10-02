@@ -74,3 +74,39 @@ export const channels = {
 export function echoEvent(name: ChatEventName): string {
     return `.${name}`;
 }
+
+/**
+ * The admin-only WhatsApp channel `private-whatsapp-admin` (P6, decision P6-D8; docs/contracts/whatsapp-data-p6.md). Active
+ * administrators only: an agent can never subscribe, so the WhatsApp pages are the only code that listens to it. Every payload carries
+ * `v: 1`; the types come from `app/Data/WhatsApp/Events`.
+ */
+export const WA_EVENT = {
+    /** A message was stored (inbound, or an admin's reply handed to OpenWA): `{v, message, chat}`. */
+    messageCreated: 'wa.message.created',
+    /** A stored message changed (delivery ack, failure): `{v, message}`, merge by `message.ulid`. */
+    messageUpdated: 'wa.message.updated',
+    /** A chat's list entry changed: `{v, chat}`. */
+    chatUpdated: 'wa.chat.updated',
+    /** A session changed status or has a new QR to fetch over REST (the image is never broadcast): `{v, session}`. */
+    sessionStatus: 'wa.session.status',
+} as const;
+
+export type WaEventName = (typeof WA_EVENT)[keyof typeof WA_EVENT];
+
+/** WhatsApp event name -> payload. */
+export type WaEventPayloads = {
+    'wa.message.created': App.Data.WhatsApp.Events.WaMessageCreatedPayload;
+    'wa.message.updated': App.Data.WhatsApp.Events.WaMessageUpdatedPayload;
+    'wa.chat.updated': App.Data.WhatsApp.Events.WaChatUpdatedPayload;
+    'wa.session.status': App.Data.WhatsApp.Events.WaSessionStatusPayload;
+};
+
+/** The WhatsApp channel as Echo takes it (`echo.private(waChannels.admin)`): no `private-` prefix. */
+export const waChannels = {
+    admin: 'whatsapp-admin',
+} as const;
+
+/** The name to pass to Echo's `listen()` / `useEcho()` for a WhatsApp event (custom `broadcastAs` names need the leading dot). */
+export function waEchoEvent(name: WaEventName): string {
+    return `.${name}`;
+}

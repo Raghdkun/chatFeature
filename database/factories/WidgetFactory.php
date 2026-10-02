@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Domain\Widgets\Data\WidgetConfigData;
 use App\Domain\Widgets\Support\WidgetKeyGenerator;
+use App\Models\WhatsAppSession;
 use App\Models\Widget;
 use App\Models\WidgetDomain;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -47,6 +48,12 @@ class WidgetFactory extends Factory
     public function withIdentitySecret(string $secret): static
     {
         return $this->state(fn (): array => ['identity_secret_encrypted' => Crypt::encryptString($secret)]);
+    }
+
+    /** Hands visitors over to a connected WhatsApp session (a new one when none is given). */
+    public function withWhatsAppSession(?WhatsAppSession $session = null): static
+    {
+        return $this->state(fn (): array => ['whatsapp_session_id' => $session->id ?? WhatsAppSession::factory()->ready()]);
     }
 
     public function allowingNonBrowserClients(): static

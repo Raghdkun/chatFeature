@@ -4,6 +4,8 @@ use App\Domain\Chat\Realtime\Channels\AdminChannel;
 use App\Domain\Chat\Realtime\Channels\ConversationChannel;
 use App\Domain\Chat\Realtime\Channels\PresenceStaffChannel;
 use App\Domain\Chat\Realtime\Channels\StaffChannel;
+use App\Domain\WhatsApp\Support\WhatsAppAdminChannel;
+use App\Domain\WhatsApp\Support\WhatsAppRealtime;
 use App\Models\User;
 use Illuminate\Support\Facades\Broadcast;
 
@@ -18,8 +20,7 @@ use Illuminate\Support\Facades\Broadcast;
 | VISITORS never come through this file. Their only channel, `private-conversation.{ulid}` of the conversation their session is bound
 | to, is authorised by `POST /api/v1/public/broadcasting/auth` (bearer `vt_...`, `BroadcastingAuthController`).
 |
-| Reserved for P6, deliberately NOT registered yet (so nobody, admins included, can subscribe): `private-whatsapp-admin`, admins only,
-| never agents. P6 adds `Broadcast::channel('whatsapp-admin', ...)` next to `admin` below.
+| `private-whatsapp-admin` (P6, WhatsApp inbox and session status) is for ACTIVE ADMINISTRATORS only, never agents (decision P6-D1).
 */
 
 $staffGuards = ['guards' => ['web', 'sanctum']];
@@ -40,3 +41,6 @@ Broadcast::channel('conversation.{ulid}', ConversationChannel::class, $staffGuar
 
 // private-admin: administrators.
 Broadcast::channel('admin', AdminChannel::class, $staffGuards);
+
+// private-whatsapp-admin: active administrators only (the WhatsApp inbox and session status; agents never).
+Broadcast::channel(WhatsAppRealtime::ADMIN_CHANNEL, WhatsAppAdminChannel::class, $staffGuards);

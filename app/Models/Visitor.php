@@ -110,4 +110,22 @@ class Visitor extends Model
     {
         return $this->hasMany(Conversation::class);
     }
+
+    /**
+     * WhatsApp chats a hand-off ticket linked to this visitor.
+     *
+     * @return HasMany<WaChat, $this>
+     */
+    public function waChats(): HasMany
+    {
+        return $this->hasMany(WaChat::class);
+    }
+
+    /**
+     * @return HasMany<WaHandoffTicket, $this>
+     */
+    public function waHandoffTickets(): HasMany
+    {
+        return $this->hasMany(WaHandoffTicket::class);
+    }
 }
