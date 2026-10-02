@@ -29,7 +29,8 @@ Reporting, API documentation, native-app readiness and a security sweep. Built a
 - Never flashed back into a rejected form: `code`, `recovery_code`, `challenge`.
 
 ### Notes
-- Gate (the single P5-P7 gate on `integrate/phase-5`): PHPUnit 4515 (25 skip: harness, NATS, MySQL, Redis-gated groups), Vitest 3071, PHPStan L7, Pint, `vp check`, `tsc`; MySQL-gated suites green per track; Playwright: see 0.6.0. Loader 16.44 KB of 18 KB.
+- Gate (the single P5-P7 gate on `integrate/phase-5`): PHPUnit 4515 (25 skip: harness, NATS, MySQL, Redis-gated groups), Vitest 3071, PHPStan L7, Pint, `vp check`, `tsc`; MySQL-gated suites green per track. Playwright, full run (about 31 minutes, ~1200 specs on desktop and mobile): 1163 passed, 2 flaky (passed on retry), 32 skipped, 1 failed: the responsive Settings > WhatsApp spec (375/320 px) fails under full-suite load and passes alone (`e2e/whatsapp` by itself: 197 passed, 9 skipped); the portal-outage project is skipped by Playwright when any other spec fails, so it was run alone and passes. The first full run had found 25 failures: 24 were specs written against code from before the fix round (new `ttlSeconds`, heartbeat answers 200, push `type`, admins on the WhatsApp channel, body-hash ledger keys, a gateway 502 now leaves a reply unconfirmed instead of failing it) and one was a real bug (the WhatsApp "delete chat" button was unreadable in dark mode). Loader 16.44 KB of 18 KB.
+- New env settings: `CSP_MODE`, `ANALYTICS_*_TTL`, `WHATSAPP_WEBHOOK_RATE_PER_NETWORK` / `_PER_SESSION` (defaults 6000 / 3000 a minute; the e2e sets 600 so the flood spec is cheap).
 - Process: each track was built in its own worktree with its own database and ports; four tracks hit the API rate limit or a stalled stream once and were resumed.
 
 ### Known gaps / backlog
