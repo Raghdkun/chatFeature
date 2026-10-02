@@ -1,0 +1,33 @@
+{
+    "source": "documented",
+    "documentedIn": "docs/reference/openwa-api.md 6.4",
+    "description": "GET /api/sessions/{id} of a paired, running session.",
+    "verified": false,
+    "request": {
+        "method": "GET",
+        "path": "/api/sessions/{sessionId}"
+    },
+    "response": {
+        "status": 200,
+        "headers": {
+            "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+            "id": "4c242668-d340-4a4d-ae15-f36f9809f8d7",
+            "name": "support-main",
+            "status": "ready",
+            "phone": "4915100000000",
+            "pushName": "PNE Support",
+            "connectedAt": "2026-10-02T09:15:30.000Z",
+            "lastActive": "2026-10-02T09:16:01.000Z",
+            "createdAt": "2026-10-02T09:00:00.000Z",
+            "updatedAt": "2026-10-02T09:16:01.000Z",
+            "lastError": null,
+            "restriction": null,
+            "engineLoaded": true
+        }
+    },
+    "notes": [
+        "`phone` is bare digits (no `+`), `restriction` is null or {kind: reachout_timelock|tos_block|proxy_block, code, expiresAt}."
+    ]
+}

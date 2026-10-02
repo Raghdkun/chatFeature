@@ -1,0 +1,28 @@
+{
+    "source": "documented",
+    "documentedIn": "docs/reference/openwa-api.md 6.2 Error Response",
+    "description": "Creating/starting/deleting a session name whose previous (paired) session is still being torn down: 409 with a stable code.",
+    "verified": false,
+    "request": {
+        "method": "POST",
+        "path": "/api/sessions",
+        "body": {
+            "name": "support-main"
+        }
+    },
+    "response": {
+        "status": 409,
+        "headers": {
+            "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+            "statusCode": 409,
+            "error": "Conflict",
+            "message": "Session credential teardown still in progress; retry shortly",
+            "code": "SESSION_NAME_TEARDOWN_PENDING"
+        }
+    },
+    "notes": [
+        "The `message` wording is illustrative (the reference only documents the code and status); branch on `code`. Not reproducible without a paired session."
+    ]
+}

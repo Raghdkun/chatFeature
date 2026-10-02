@@ -1,0 +1,43 @@
+{
+    "source": "recorded",
+    "recordedAt": "2026-10-02T02:11:03.329Z",
+    "openwa": {
+        "version": "0.23.7",
+        "image": "ghcr.io/rmyndharis/openwa@sha256:9a9eeee07de00902ca41b30c67cc4a3bb2b219df5c5e54357994f66a1808ee12",
+        "engine": "whatsapp-web.js"
+    },
+    "description": "GET .../qr while `qr_ready`: `{qrCode: data:image/png;base64,..., status}`.",
+    "request": {
+        "method": "GET",
+        "path": "/api/sessions/{sessionId}/qr",
+        "headers": {
+            "X-API-Key": "REDACTED (admin)"
+        },
+        "body": null
+    },
+    "response": {
+        "status": 200,
+        "headers": {
+            "content-type": "application/json; charset=utf-8",
+            "x-ratelimit-limit-short": "10",
+            "x-ratelimit-limit-medium": "100",
+            "x-ratelimit-limit-long": "1000",
+            "x-content-type-options": "nosniff"
+        },
+        "body": {
+            "qrCode": "data:image/png;base64,<REDACTED>",
+            "status": "qr_ready"
+        },
+        "durationMs": 3
+    },
+    "redactions": [
+        {
+            "path": "response.body.qrCode",
+            "kind": "qr-png-data-url",
+            "note": "PNG 276x276, 4821 bytes (6450 characters as a data URL)"
+        }
+    ],
+    "notes": [
+        "The PNG is scrubbed; the real one is a 276x276 px PNG of about 4.7 KB (about 6.3 K characters as a data URL)."
+    ]
+}

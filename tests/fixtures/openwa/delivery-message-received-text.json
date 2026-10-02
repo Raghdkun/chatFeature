@@ -1,0 +1,42 @@
+{
+    "source": "documented",
+    "documentedIn": "docs/reference/openwa-api.md 6.6 Webhook Events (event catalog, idempotency keys)",
+    "description": "message.received: a customer writes a plain text (whatsapp-web.js dialect `@c.us`). The hand-off code is the 8-character code in the first message.",
+    "verified": false,
+    "delivery": {
+        "headers": {
+            "Content-Type": "application/json",
+            "User-Agent": "OpenWA-Webhook/1.0.0",
+            "X-OpenWA-Event": "message.received",
+            "X-OpenWA-Idempotency-Key": "msg_4c242668-d340-4a4d-ae15-f36f9809f8d7_false_4915112345678@c.us_3EB0A1B2C3D4E5F60718_e92982ab-d2cf-4273-a54b-b29d5bbe6562",
+            "X-OpenWA-Delivery-Id": "dlv_6f1d8a52-3b0c-4e57-9a31-0c8f5b7d2e14",
+            "X-OpenWA-Retry-Count": "0",
+            "X-OpenWA-Signature": "sha256=<HMAC-SHA256 hex of the raw body with the webhook secret>"
+        },
+        "payload": {
+            "event": "message.received",
+            "timestamp": "2026-10-02T09:15:30.123Z",
+            "sessionId": "4c242668-d340-4a4d-ae15-f36f9809f8d7",
+            "idempotencyKey": "msg_4c242668-d340-4a4d-ae15-f36f9809f8d7_false_4915112345678@c.us_3EB0A1B2C3D4E5F60718_e92982ab-d2cf-4273-a54b-b29d5bbe6562",
+            "deliveryId": "dlv_6f1d8a52-3b0c-4e57-9a31-0c8f5b7d2e14",
+            "data": {
+                "id": "false_4915112345678@c.us_3EB0A1B2C3D4E5F60718",
+                "from": "4915112345678@c.us",
+                "to": "4915100000000@c.us",
+                "chatId": "4915112345678@c.us",
+                "body": "Hi! My support code is K7M2QX4P",
+                "type": "text",
+                "timestamp": 1790932530,
+                "fromMe": false,
+                "isGroup": false,
+                "kind": "individual",
+                "contact": {
+                    "pushName": "Vera Visitor"
+                }
+            }
+        }
+    },
+    "notes": [
+        "Fields from the reference (6.6): id, from, to, body, type, timestamp (epoch SECONDS), isGroup, kind, fromMe, chatId, contact{name?,pushName?}."
+    ]
+}
