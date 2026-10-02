@@ -2,6 +2,7 @@
 
 namespace App\Domain\Visitors;
 
+use App\Domain\Visitors\Events\VisitorSessionsEnded;
 use App\Models\Visitor;
 use App\Models\VisitorSession;
 use Carbon\CarbonInterface;
@@ -95,16 +96,27 @@ final class VisitorTokenService
     {
         if ($session->revoked_at === null) {
             $session->forceFill(['revoked_at' => now()])->save();
+
+            VisitorSessionsEnded::dispatch([$session->id], 'revoked');
         }
     }
 
     /** Ends every live session of the visitor; returns how many were revoked. */
     public function revokeAllFor(Visitor $visitor): int
     {
-        return VisitorSession::query()
+        $ids = array_values(VisitorSession::query()->where('visitor_id', $visitor->id)->whereNull('revoked_at')->pluck('id')->map(fn ($id): int => (int) $id)->all());
+
+        $revoked = VisitorSession::query()
             ->where('visitor_id', $visitor->id)
             ->whereNull('revoked_at')
             ->update(['revoked_at' => now()]);
+
+        if ($revoked > 0) {
+            // The sockets of every one of them (a session revoked in between is cut twice at worst).
+            VisitorSessionsEnded::dispatch($ids, 'revoked');
+        }
+
+        return $revoked;
     }
 
     public static function generate(): string

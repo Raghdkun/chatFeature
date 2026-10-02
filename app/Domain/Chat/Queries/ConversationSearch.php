@@ -38,18 +38,21 @@ final class ConversationSearch
 
         $like = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $text).'%';
 
+        // Uncorrelated `IN (subquery)` on purpose: MySQL materialises each subquery once and probes it per conversation. The correlated
+        // `EXISTS` form this replaced ran the visitor lookup and a FULLTEXT probe for EVERY conversation row (OR-ed conditions cannot stop
+        // early): about 10 to 20 seconds for one search over 50 000 conversations / 500 000 messages, 10 to 140 ms now (docs/runbook.md "Query review").
         $query->where(function (Builder $match) use ($text, $like): void {
             $match->whereRaw("conversations.ticket_no like ? escape '!'", [$like])
-                ->orWhereExists(function (QueryBuilder $visitors) use ($like): void {
-                    $visitors->selectRaw('1')->from('visitors')->whereColumn('visitors.id', 'conversations.visitor_id')
+                ->orWhereIn('conversations.visitor_id', function (QueryBuilder $visitors) use ($like): void {
+                    $visitors->select('visitors.id')->from('visitors')
                         ->where(function (QueryBuilder $contact) use ($like): void {
                             foreach (['name', 'email', 'phone'] as $column) {
                                 $contact->orWhereRaw("visitors.{$column} like ? escape '!'", [$like]);
                             }
                         });
                 })
-                ->orWhereExists(function (QueryBuilder $messages) use ($text, $like): void {
-                    $messages->selectRaw('1')->from('messages')->whereColumn('messages.conversation_id', 'conversations.id');
+                ->orWhereIn('conversations.id', function (QueryBuilder $messages) use ($text, $like): void {
+                    $messages->select('messages.conversation_id')->from('messages');
 
                     $expression = in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true) ? self::booleanExpression($text) : null;
 

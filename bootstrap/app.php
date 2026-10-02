@@ -1,6 +1,7 @@
 <?php
 
 use App\Exceptions\ApiErrorRenderer;
+use App\Http\Middleware\ApiSecurityHeaders;
 use App\Http\Middleware\AuthenticateVisitor;
 use App\Http\Middleware\EnforceAuthFeatures;
 use App\Http\Middleware\EnsureAdmin;
@@ -44,7 +45,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // Dashboard SPA calls the management API with the session cookie (+ XSRF header); mobile uses bearer tokens.
         $middleware->statefulApi();
-        $middleware->api(prepend: [TrustInstalledAppHost::class]);
+        $middleware->api(prepend: [TrustInstalledAppHost::class], append: [ApiSecurityHeaders::class]);
 
         // Not installed yet: web -> /setup, API -> 503 not_installed. First in the global stack.
         $middleware->prepend(InstallGate::class);
@@ -67,7 +68,12 @@ return Application::configure(basePath: dirname(__DIR__))
         // Bearer-only group for the public widget API and webhooks (deliberately NOT stateful).
         $middleware->group('widget', [
             SubstituteBindings::class,
+            ApiSecurityHeaders::class,
         ]);
+
+        // Outermost in the group, so the security headers also reach the error page an inner middleware (route model binding, the session
+        // checks) turns an exception into: the pipeline hands that response back to the layers around it.
+        $middleware->web(prepend: [SecurityHeaders::class]);
 
         $middleware->web(append: [
             HandleAppearance::class,
@@ -77,7 +83,6 @@ return Application::configure(basePath: dirname(__DIR__))
             AddLinkHeadersForPreloadedAssets::class,
             EnsureSessionIsValid::class,
             EnsureChatAccess::class,
-            SecurityHeaders::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

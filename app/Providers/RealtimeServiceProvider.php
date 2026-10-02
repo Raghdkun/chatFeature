@@ -5,16 +5,22 @@ namespace App\Providers;
 use App\Domain\Chat\Realtime\AllowedOrigins;
 use App\Domain\Chat\Realtime\Listeners\ChatEventSubscriber;
 use App\Domain\Chat\Realtime\ReverbEndpoint;
+use App\Domain\Chat\Realtime\Sockets\ReverbSocketTerminator;
+use App\Domain\Chat\Realtime\Sockets\SocketCutOff;
+use App\Domain\Chat\Realtime\Sockets\SocketCutOffSubscriber;
+use App\Domain\Chat\Realtime\Sockets\SocketTerminator;
 use App\Domain\Chat\Realtime\Support\ConversationAudience;
 use App\Domain\Chat\Realtime\Support\RedactedReverbBroadcaster;
 use App\Domain\Install\InstallState;
 use App\Domain\Widgets\Support\ClientNetwork;
 use App\Http\Controllers\Api\V1\Public\BroadcastingAuthController;
+use App\Models\User;
 use Illuminate\Broadcasting\BroadcastManager;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -26,6 +32,9 @@ use Throwable;
  *
  * Channel authorisation lives in `routes/channels.php` (+ `App\Domain\Chat\Realtime\Channels`), the Reverb and broadcasting
  * settings in `config/reverb.php` / `config/broadcasting.php`. Nothing here is a hard dependency of REST: see `docs/realtime.md`.
+ *
+ * The stale-socket cut-off (P7) is wired here too: `SocketCutOffSubscriber` for the domain events, and Eloquent hooks on `User` for
+ * every way an account can lose its right to a socket (deactivated, a chat role removed, deleted), whichever code path did it.
  */
 class RealtimeServiceProvider extends ServiceProvider
 {
@@ -33,11 +42,15 @@ class RealtimeServiceProvider extends ServiceProvider
     {
         $this->app->singleton(ReverbEndpoint::class);
         $this->app->singleton(ConversationAudience::class);
+        $this->app->bindIf(SocketTerminator::class, ReverbSocketTerminator::class);
     }
 
     public function boot(): void
     {
         Event::subscribe(ChatEventSubscriber::class);
+        // After the chat subscriber: `session.revoked` is published first, the sockets are closed second.
+        Event::subscribe(SocketCutOffSubscriber::class);
+        $this->cutOffSocketsOfAccountsThatLoseAccess();
 
         // The stock `reverb` driver, with failed publishes stripped of their signed URL (see RedactedReverbBroadcaster).
         Broadcast::extend('reverb', fn (Application $app, array $config): RedactedReverbBroadcaster => new RedactedReverbBroadcaster(
@@ -63,6 +76,39 @@ class RealtimeServiceProvider extends ServiceProvider
         $this->app->booted(function (): void {
             if ($this->app->runningConsoleCommand('reverb:start')) {
                 $this->allowSavedAppHost();
+            }
+        });
+    }
+
+    /**
+     * A staff account that is deactivated, loses the admin or the agent role, or is deleted loses its websockets: they are closed once the
+     * change is committed (the client reconnects and is authorised against the new state). Hooked on the model so every code path counts
+     * (the agents API, the auth portal's role resolver, the NATS consumer, a console command).
+     */
+    private function cutOffSocketsOfAccountsThatLoseAccess(): void
+    {
+        User::updated(function (User $user): void {
+            if (! $user->wasChanged(['is_active', 'is_admin', 'is_agent'])) {
+                return;
+            }
+
+            $lost = fn (string $attribute): bool => (bool) $user->getOriginal($attribute) && ! $user->{$attribute};
+
+            if ($lost('is_active') || $lost('is_admin') || $lost('is_agent')) {
+                $this->cutAfterCommit($user->id, 'role_changed');
+            }
+        });
+
+        User::deleted(fn (User $user) => $this->cutAfterCommit($user->id, 'deleted'));
+    }
+
+    private function cutAfterCommit(int $userId, string $reason): void
+    {
+        DB::afterCommit(function () use ($userId, $reason): void {
+            try {
+                $this->app->make(SocketCutOff::class)->cutStaff($userId, $reason);
+            } catch (Throwable $exception) {
+                report($exception);
             }
         });
     }

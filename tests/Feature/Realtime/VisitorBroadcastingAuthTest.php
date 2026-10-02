@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Realtime;
 
+use App\Domain\Chat\Realtime\Sockets\SocketTags;
 use App\Domain\Visitors\IssuedVisitorToken;
 use App\Domain\Visitors\VisitorTokenService;
 use App\Models\Conversation;
@@ -67,7 +68,10 @@ class VisitorBroadcastingAuthTest extends TestCase
 
         $response = $this->sign($this->issued->plaintext, ['socket_id' => self::SOCKET, 'channel_name' => $channel])->assertOk();
 
-        $this->assertSame(['auth' => $this->expectedChannelAuth(self::SOCKET, $channel)], $response->json());
+        // Signed together with the session's socket tag, so the sockets of this token can be closed when it ends.
+        $data = $this->channelDataFor(SocketTags::visitorSession($this->issued->session->id));
+
+        $this->assertSame(['auth' => $this->expectedChannelAuth(self::SOCKET, $channel, $data), 'channel_data' => $data], $response->json());
     }
 
     public function test_it_accepts_what_pusher_js_posts_a_form_body(): void
@@ -76,7 +80,7 @@ class VisitorBroadcastingAuthTest extends TestCase
 
         $response = $this->withToken($this->issued->plaintext)->post(self::URL, ['socket_id' => self::SOCKET, 'channel_name' => $channel])->assertOk();
 
-        $this->assertSame($this->expectedChannelAuth(self::SOCKET, $channel), $response->json('auth'));
+        $this->assertSame($this->expectedChannelAuth(self::SOCKET, $channel, $this->channelDataFor(SocketTags::visitorSession($this->issued->session->id))), $response->json('auth'));
     }
 
     public function test_the_answer_is_not_cacheable_and_sets_no_cookie(): void

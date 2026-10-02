@@ -56,7 +56,11 @@ class WhatsAppChannelAuthorizationTest extends TestCase
     private function assertJoined(TestResponse $response): void
     {
         $response->assertOk();
-        $this->assertSame($this->expectedChannelAuth(self::SOCKET, self::CHANNEL), $response->json('auth'));
+
+        $channelData = (string) $response->json('channel_data');
+
+        $this->assertMatchesRegularExpression('/^\{"user_id":"s_[0-9a-f]{24}"\}$/D', $channelData);
+        $this->assertSame($this->expectedChannelAuth(self::SOCKET, self::CHANNEL, $channelData), $response->json('auth'));
     }
 
     public function test_the_channel_and_event_names_are_spelled_in_one_place(): void

@@ -4,6 +4,7 @@ namespace App\Domain\Visitors\Actions;
 
 use App\Domain\Chat\Enums\ConversationStatus;
 use App\Domain\Chat\Enums\ConversationType;
+use App\Domain\Visitors\Events\VisitorSessionsEnded;
 use App\Domain\Visitors\StartedSession;
 use App\Domain\Visitors\VisitorTokenService;
 use App\Domain\Widgets\Identity\IdentityTokenVerifier;
@@ -91,6 +92,9 @@ final class StartSession
             ->whereNull('revoked_at')
             ->where('expires_at', '>', $cap)
             ->update(['expires_at' => $cap]);
+
+        // Its chat (if it had one) moves to the new token in this same transaction, so this token's websocket has nothing left to listen to.
+        VisitorSessionsEnded::dispatch([$previous->id], 'rotated');
     }
 
     private function identity(Widget $widget, mixed $token): ?VerifiedIdentity

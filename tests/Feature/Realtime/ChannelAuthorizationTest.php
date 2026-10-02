@@ -61,10 +61,15 @@ class ChannelAuthorizationTest extends TestCase
         return $this->withToken($token)->postJson('/broadcasting/auth', ['socket_id' => self::SOCKET, 'channel_name' => $channel]);
     }
 
+    /** A private channel is signed WITH the staff member's socket tag as `channel_data` (so Reverb can close their sockets later). */
     private function assertJoined(TestResponse $response, string $channel): void
     {
         $response->assertOk();
-        $this->assertSame($this->expectedChannelAuth(self::SOCKET, $channel), $response->json('auth'));
+
+        $channelData = (string) $response->json('channel_data');
+
+        $this->assertMatchesRegularExpression('/^\{"user_id":"s_[0-9a-f]{24}"\}$/D', $channelData);
+        $this->assertSame($this->expectedChannelAuth(self::SOCKET, $channel, $channelData), $response->json('auth'));
     }
 
     // ---- private-staff.{userId} --------------------------------------------------------------------------------------------

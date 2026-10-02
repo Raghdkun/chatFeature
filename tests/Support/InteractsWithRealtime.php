@@ -3,6 +3,7 @@
 namespace Tests\Support;
 
 use App\Domain\Chat\Contracts\AttachmentUrls;
+use App\Domain\Chat\Realtime\Sockets\SocketTerminator;
 use App\Providers\RealtimeServiceProvider;
 use Illuminate\Support\Facades\Broadcast;
 use Tests\TestCase;
@@ -21,10 +22,15 @@ trait InteractsWithRealtime
 
     protected const REVERB_SECRET = 'test-app-secret';
 
+    /** What the application asked Reverb to close (the stale-socket cut-off); nothing is sent to a server. */
+    protected RecordingSocketTerminator $sockets;
+
     protected function useRealtime(): void
     {
         $this->app->register(RealtimeServiceProvider::class);
         $this->app->instance(AttachmentUrls::class, new FakeAttachmentUrls);
+        $this->sockets = new RecordingSocketTerminator;
+        $this->app->instance(SocketTerminator::class, $this->sockets);
     }
 
     protected function recordBroadcasts(): RecordingBroadcaster
@@ -61,9 +67,18 @@ trait InteractsWithRealtime
         require base_path('routes/channels.php');
     }
 
-    /** The auth string Pusher / Reverb expect for a private channel: `key:hmac_sha256("socket:channel", secret)`. */
-    protected function expectedChannelAuth(string $socketId, string $channel): string
+    /**
+     * The auth string Pusher / Reverb expect for a channel: `key:hmac_sha256("socket:channel[:channel_data]", secret)`. Every private
+     * channel of this application is signed with the principal's tag as its `channel_data` (`{"user_id": <tag>}`, see `SocketTags`).
+     */
+    protected function expectedChannelAuth(string $socketId, string $channel, ?string $channelData = null): string
     {
-        return self::REVERB_KEY.':'.hash_hmac('sha256', $socketId.':'.$channel, self::REVERB_SECRET);
+        return self::REVERB_KEY.':'.hash_hmac('sha256', $socketId.':'.$channel.($channelData === null ? '' : ':'.$channelData), self::REVERB_SECRET);
+    }
+
+    /** The `channel_data` a private channel is signed with for this tag, exactly as the server serialises it. */
+    protected function channelDataFor(string $tag): string
+    {
+        return json_encode(['user_id' => $tag], JSON_THROW_ON_ERROR);
     }
 }
