@@ -4,9 +4,9 @@ namespace App\Domain\Notifications\Actions;
 
 use App\Models\PushSubscription;
 use App\Models\User;
+use App\Support\Database\DeadlockRetry;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Support\Facades\DB;
 
 /**
  * Registers the browser's push subscription for the signed-in user (`POST /me/push-subscriptions`), an upsert by the hash of the
@@ -25,7 +25,9 @@ final class StorePushSubscription
     {
         for ($attempt = 1; ; $attempt++) {
             try {
-                return DB::transaction(fn (): array => $this->upsert($user, $data, $userAgent, $sessionId));
+                // Two browsers registering for the first time lock the gap of the unique `endpoint_hash` index and one INSERT is chosen as the
+                // deadlock victim (MySQL 1213, a 500 found by the e2e suite): the transaction runs again.
+                return DeadlockRetry::transaction(fn (): array => $this->upsert($user, $data, $userAgent, $sessionId));
             } catch (UniqueConstraintViolationException $exception) {
                 // Two first registrations of one endpoint raced for its unique row: the second now finds it and updates it.
                 if ($attempt >= 2) {
