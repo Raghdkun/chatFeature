@@ -119,6 +119,11 @@ return [
     |        installation can set REALTIME_QUEUE=broadcasts and run `queue:work --queue=broadcasts,default`.
     | auth_rate_limits: attempts a minute of POST /api/v1/public/broadcasting/auth (named limiter `broadcasting-auth`), per
     |        visitor token and per client network.
+    | tag_private_channels: sign the principal's socket tag into every PRIVATE channel subscription (`channel_data`), which is what
+    |        lets the server close the sockets of a revoked staff member or visitor (docs/realtime.md "Cutting a socket off").
+    |        Leave it on. Only a client library that drops `channel_data` for private channels (the subscription is then refused)
+    |        needs REALTIME_TAG_PRIVATE_CHANNELS=false, and loses the cut-off for visitors and for staff sockets that do not join
+    |        `presence-staff`.
     |
     */
 
@@ -128,6 +133,7 @@ return [
             'per_token' => (int) env('REALTIME_AUTH_PER_TOKEN', 30),
             'per_network' => (int) env('REALTIME_AUTH_PER_NETWORK', 120),
         ],
+        'tag_private_channels' => (bool) env('REALTIME_TAG_PRIVATE_CHANNELS', true),
     ],
 
 ];

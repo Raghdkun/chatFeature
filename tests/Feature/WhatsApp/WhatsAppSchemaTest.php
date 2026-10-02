@@ -80,9 +80,18 @@ class WhatsAppSchemaTest extends TestCase
         $this->assertTrue(Schema::hasColumn('widgets', 'whatsapp_session_id'));
     }
 
+    /** Every migration from the first WhatsApp table on (later blocks, like the P7 ones, are rolled back with them). */
+    private function migrationsSinceWhatsApp(): int
+    {
+        return count(array_filter(
+            scandir(database_path('migrations')) ?: [],
+            static fn (string $file): bool => str_ends_with($file, '.php') && strcmp($file, '2026_11_25_000100') >= 0,
+        ));
+    }
+
     public function test_the_migrations_roll_back_cleanly_and_run_again(): void
     {
-        $this->artisan('migrate:rollback', ['--step' => 7, '--force' => true])->assertSuccessful();
+        $this->artisan('migrate:rollback', ['--step' => $this->migrationsSinceWhatsApp(), '--force' => true])->assertSuccessful();
 
         foreach (array_keys(self::expectedColumns()) as $table) {
             $this->assertFalse(Schema::hasTable($table), "{$table} should be gone after the rollback");

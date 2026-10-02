@@ -91,6 +91,14 @@ return [
     'cancel_cooldown_seconds' => 10,
     'max_queued_per_network' => 3,
 
+    /*
+     * Realtime cut-off (docs/realtime.md, "Cutting a socket off"). grant_ttl_days: how long a record that a staff member was handed a
+     * signed conversation subscription is kept (a socket older than that has reconnected and been granted again).
+     */
+    'realtime' => [
+        'grant_ttl_days' => 14,
+    ],
+
     /* Disk that holds chat attachments (re-encoded images, random paths). Private: files are only served through signed URLs. */
     'attachments_disk' => env('CHAT_ATTACHMENTS_DISK', 'local'),
 

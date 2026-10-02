@@ -26,6 +26,8 @@ use Illuminate\Support\Carbon;
  * @property Carbon $expires_at
  * @property Carbon|null $revoked_at
  * @property Carbon|null $last_used_at
+ * @property Carbon|null $socket_authorized_at first time this token was handed a signed websocket subscription (null: never)
+ * @property Carbon|null $sockets_cut_at when its websockets were last closed (null: not since the last authorisation)
  * @property string|null $page_url
  * @property string|null $page_title
  * @property string|null $referrer
@@ -65,6 +67,8 @@ class VisitorSession extends Model
             'expires_at' => 'datetime',
             'revoked_at' => 'datetime',
             'last_used_at' => 'datetime',
+            'socket_authorized_at' => 'datetime',
+            'sockets_cut_at' => 'datetime',
         ];
     }
 

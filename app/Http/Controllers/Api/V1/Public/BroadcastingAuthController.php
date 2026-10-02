@@ -48,9 +48,26 @@ class BroadcastingAuthController extends Controller
             throw new ApiProblemException(503, 'realtime_unavailable', __('Live updates are not available right now.'));
         }
 
+        $response = $broadcaster->validAuthenticationResponse($request, true);
+
+        $this->noteSocketAuthorized($session);
+
         return response()
-            ->json($broadcaster->validAuthenticationResponse($request, true))
+            ->json($response)
             ->header('Cache-Control', 'no-store, private');
+    }
+
+    /**
+     * The session now holds a signed subscription that may be in use: `chat:realtime-sweep` closes its sockets when the token ends
+     * (it expires, or was revoked by a path that raised no event). Written once, and again after a cut (a new socket was authorised).
+     */
+    private function noteSocketAuthorized(VisitorSession $session): void
+    {
+        if ($session->socket_authorized_at !== null && $session->sockets_cut_at === null) {
+            return;
+        }
+
+        $session->forceFill(['socket_authorized_at' => now(), 'sockets_cut_at' => null])->saveQuietly();
     }
 
     private function mayJoin(VisitorSession $session, string $channel): bool

@@ -6,6 +6,7 @@ use App\Console\Commands\ChatExpireQueued;
 use App\Console\Commands\ChatOfferWaves;
 use App\Console\Commands\ChatPresenceSweep;
 use App\Console\Commands\ChatPruneVisitorSessions;
+use App\Console\Commands\ChatRealtimeSweep;
 use App\Console\Commands\WhatsAppPrune;
 use App\Console\Commands\WhatsAppReconcileSessions;
 use App\Console\Commands\WhatsAppReplayDeliveries;
@@ -31,6 +32,8 @@ Schedule::command(ChatCloseIdle::class)->everyMinute()->withoutOverlapping(5)->o
 Schedule::command(ChatCloseUnrated::class)->everyMinute()->withoutOverlapping(5)->onOneServer();
 // P5: silent agents go offline, idle automatic ones away (docs/realtime.md, "Presence").
 Schedule::command(ChatPresenceSweep::class)->everyMinute()->withoutOverlapping(5)->onOneServer();
+// P7: closes the websockets of expired visitor tokens and of staff who lost a conversation; repeats/retries earlier cut-offs (docs/realtime.md, "Cutting a socket off").
+Schedule::command(ChatRealtimeSweep::class)->everyMinute()->withoutOverlapping(5)->onOneServer();
 Schedule::command(ChatPruneVisitorSessions::class)->dailyAt('03:45')->withoutOverlapping(60)->onOneServer();
 
 /*
