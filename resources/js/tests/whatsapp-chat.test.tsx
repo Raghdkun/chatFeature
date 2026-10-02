@@ -1,3 +1,4 @@
+import { http, HttpResponse } from 'msw';
 import { act } from 'react';
 import { toast } from 'sonner';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
@@ -995,6 +996,50 @@ describe('archiving', () => {
         expect(toast.success).toHaveBeenLastCalledWith(
             'Chat moved back to the inbox.',
         );
+    });
+
+    it('keeps the keyboard focus on the archive button while it works, and ignores a second press', async () => {
+        const answer = Promise.withResolvers<void>();
+        let requests = 0;
+
+        backend.server.use(
+            http.post(
+                `/api/v1/whatsapp/chats/${CHAT_ULID}/archive`,
+                async () => {
+                    requests += 1;
+                    await answer.promise;
+
+                    return HttpResponse.json({
+                        data: {
+                            ...backend.current.state.chats.get(CHAT_ULID),
+                            status: 'archived',
+                        },
+                    });
+                },
+            ),
+        );
+        await open();
+
+        const button = byTestId('wa-archive') as HTMLButtonElement;
+
+        button.focus();
+        await click(button);
+        await waitFor(() =>
+            expect(button.getAttribute('aria-disabled')).toBe('true'),
+        );
+
+        // A disabled button would have lost the focus (and the keyboard user's place in the page).
+        expect(button.disabled).toBe(false);
+        expect(document.activeElement).toBe(button);
+
+        await click(button);
+        answer.resolve();
+        await waitFor(() =>
+            expect(byTestId('wa-chat-view')?.dataset.status).toBe('archived'),
+        );
+
+        expect(requests).toBe(1);
+        expect(button.getAttribute('aria-disabled')).toBeNull();
     });
 
     it('says so when archiving fails', async () => {
