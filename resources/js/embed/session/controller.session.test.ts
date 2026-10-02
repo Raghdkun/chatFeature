@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import type { StoredSession } from '@/embed/session/controller';
 import { dropStoredSession } from '@/embed/session/storage';
 import { useBackend } from '@/tests/msw/server';
-import { createHarness, makeInit, until } from '@/tests/embed-harness';
+import { createHarness, makeInit, settle, until } from '@/tests/embed-harness';
 
 /** What the loader's shared `localStorage` entry does for two panels. */
 function sharedHostStore(initial: StoredSession | null) {
@@ -262,6 +262,67 @@ describe('a tab whose session lost the chat to the other tab (the token rotated 
                 .state()
                 .messages.every((message) => message.status !== 'failed'),
         ).toBe(true);
+    });
+
+    it('a read receipt the old token cannot send (404) is not lost: the tab adopts the newer session and reports the replies as seen again', async () => {
+        // Tab A has the chat and a reply; only THEN does another tab resume the chat and rotate the token, so nothing has asked the server
+        // anything with the old token when the visitor comes back to tab A and the panel reports what is on screen.
+        const backend = useBackend();
+        const first = backend.issueToken();
+
+        backend.seedConversation(first.token, 'active');
+
+        const host = sharedHostStore(first);
+        const tab = createHarness({
+            backend,
+            pollMs: 100_000,
+            deps: host.deps,
+        });
+
+        await tab.init(makeInit({ visitorSession: first }));
+        await until(() => tab.sockets.length === 1);
+
+        const reply = backend.agentSays('Are you still there?');
+
+        tab.socket()?.emit('message.created', { v: 1, message: reply });
+        await until(() =>
+            tab.state().messages.some((message) => message.body === reply.body),
+        );
+
+        // The catch-up the realtime connection makes when it subscribes, and the receipt of delivery, are over before the other tab rotates.
+        await settle(400);
+
+        const other = backend.issueToken();
+
+        backend.state.owner = other.token;
+        host.store.current = other;
+        tab.controller.setViewing(true);
+
+        // The receipt leaves with the old token and is refused (not this session's chat): the tab adopts the stored session ...
+        await until(() => host.store.drops === 1);
+        // ... and the reply is reported as seen again, with it.
+        await until(() =>
+            backend.state.receipts.some(
+                (receipt) => receipt.seen_upto === reply.seq,
+            ),
+        );
+        (await import('node:fs')).writeFileSync(
+            '/private/tmp/claude-501/-Volumes-Rag-Works-PNE-Repos-chatFeature/ff2c36c2-dea7-4931-90f9-b994e0f1107f/scratchpad/p5e2e/calls.json',
+            JSON.stringify(
+                ['GET', 'POST']
+                    .flatMap((m) => backend.callsTo(m, ''))
+                    .map((c) => [
+                        c.method,
+                        c.path,
+                        c.auth?.slice(-6),
+                        JSON.stringify(c.body),
+                    ]),
+            ),
+        );
+        expect(backend.callsTo('POST', '/receipts').at(-1)?.auth).toBe(
+            `Bearer ${other.token}`,
+        );
+        expect(tab.state().phase).toBe('active');
     });
 
     it('with no newer session stored the chat is over for this tab: the expired screen, nothing is invented', async () => {

@@ -795,6 +795,11 @@ export function createVisitorBackend(options: BackendOptions = {}) {
                     return who;
                 }
 
+                // A session that does not own the chat (another tab resumed it and rotated the token) gets the same answer as a send.
+                if (state.owner !== null && !mine(who)) {
+                    return err(404, 'not_found', 'Not found.');
+                }
+
                 state.receipts.push(
                     call.body as {
                         delivered_upto?: number;

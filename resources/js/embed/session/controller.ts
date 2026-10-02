@@ -1090,6 +1090,8 @@ export class ChatController {
         }
 
         void this.syncConversation();
+        // Receipts the old token could not deliver go out again with the new one (a no-op when nothing is pending).
+        this.scheduleReceipts();
     }
 
     /**
@@ -2094,6 +2096,20 @@ export class ChatController {
             // Retry on the next change rather than hammering.
             this.receipts.sentDelivered = sentDelivered;
             this.receipts.sentSeen = sentSeen;
+
+            if (
+                isVisitorApiError(error) &&
+                error.status === 404 &&
+                error.code === 'not_found'
+            ) {
+                // Not this session's chat any more: another tab resumed it and rotated the token (found by the e2e suite: the replies
+                // this tab showed were never reported as seen, so the agent never saw them read and the other tab kept its badge).
+                // Same protocol as a refused message: adopt the session the host holds now; `resumeAfterAdopt` sends the receipt again.
+                this.handleSessionGone();
+
+                return;
+            }
+
             this.onBackgroundError(error);
         }
     }
