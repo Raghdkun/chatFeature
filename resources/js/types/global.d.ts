@@ -26,6 +26,7 @@ declare module '@inertiajs/core' {
                 port: number;
                 scheme: 'http' | 'https';
             } | null;
+            push: { vapidPublicKey: string } | null;
             [key: string]: unknown;
         };
     }

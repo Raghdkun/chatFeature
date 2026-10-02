@@ -305,6 +305,7 @@ describe('Settings layout item', () => {
         expect(items(view).map((item) => item.text)).toEqual([
             'Profile',
             'Appearance',
+            'Notifications',
             'Support categories',
         ]);
     });

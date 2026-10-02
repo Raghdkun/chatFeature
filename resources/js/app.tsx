@@ -1,4 +1,5 @@
 import { createInertiaApp } from '@inertiajs/react';
+import { NotificationsHost } from '@/components/notifications/notifications-host';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { initializeTheme } from '@/hooks/use-appearance';
@@ -36,7 +37,12 @@ void createInertiaApp({
         return (
             <TooltipProvider delayDuration={0}>
                 {/* Above the pages: the websocket, the timers and the live inbox lists must outlive every visit. */}
-                <StaffRealtimeHost initialPage={page}>{app}</StaffRealtimeHost>
+                <StaffRealtimeHost initialPage={page}>
+                    {/* Web push: the settings, the first-login dialog and the subscription; inside the staff host for its sound player. */}
+                    <NotificationsHost initialPage={page}>
+                        {app}
+                    </NotificationsHost>
+                </StaffRealtimeHost>
                 <Toaster />
             </TooltipProvider>
         );

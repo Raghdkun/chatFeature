@@ -7,6 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import { useCurrentUrl } from '@/hooks/use-current-url';
 import { useTrans } from '@/hooks/use-trans';
 import { authSettingsRoutes } from '@/lib/auth-settings-routes';
+import { notificationRoutes } from '@/lib/notifications/routes';
 import { cn, toUrl } from '@/lib/utils';
 import { edit as editAppearance } from '@/routes/appearance';
 import { edit } from '@/routes/profile';
@@ -58,8 +59,16 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
           }
         : null;
 
+    // Every member of staff has notification settings (push, sound, quiet hours), whichever way they sign in.
+    const notificationsItem: NavItem = {
+        title: t('notifications.settings.nav'),
+        href: notificationRoutes.pages.settings,
+        icon: null,
+    };
+
     const items: NavItem[] = [
         ...accountItems,
+        notificationsItem,
         ...(supportCategories ? [supportCategories] : []),
         ...(authItem ? [authItem] : []),
     ];
