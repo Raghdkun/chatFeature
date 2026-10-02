@@ -1,21 +1,21 @@
 # Mobile readiness (staff app)
 
-> Status: review written in P7 (track 7B), 2026-10-02. Scope: everything a **native staff app** (iOS/Android, agents and admins) needs from the server. The visitor side is covered by [api-guide.md](api-guide.md).
+> Status: review written in P7 (track 7B), 2026-10-02; the sign-in endpoints were added by track 7D (the rows below say so). Scope: everything a **native staff app** (iOS/Android, agents and admins) needs from the server. The visitor side is covered by [api-guide.md](api-guide.md).
 > "Verified" means run against a local instance with real HTTP (and a real Reverb for the realtime items) in this track; "tested" means a PHPUnit test; "read" means derived from the code only.
 > Estimates are engineering days for one developer including tests and docs.
 
 ## Verdict in one paragraph
 
-The staff **API is complete enough for an agent app** (inbox, messages, attachments, claim, transfer, end, presence, notification settings, categories) and the realtime path works with a bearer token. A mobile app **cannot ship yet** because of three things: (1) there is **no HTTP sign-in endpoint** (the drivers can issue tokens, nothing exposes it; and a naive endpoint would bypass 2FA), (2) there is **no real FCM channel** (the `POST /me/devices` registration is a stub, so a backgrounded app is effectively offline after 90 seconds), and (3) a few small conveniences are missing (listed below). This track added the credential endpoints a client needs once it has a token (`auth/me`, `auth/tokens`, revoke, logout) and the realtime address in `auth/me`.
+The staff **API is complete enough for an agent app** (inbox, messages, attachments, claim, transfer, end, presence, notification settings, categories) and the realtime path works with a bearer token. A mobile app **cannot ship yet** because of two things: (1) there is **no real FCM channel** (the `POST /me/devices` registration is a stub, so a backgrounded app is effectively offline after 90 seconds), and (2) a few small conveniences are missing (listed below). Track 7B added the credential endpoints a client needs once it has a token (`auth/me`, `auth/tokens`, revoke, logout) and the realtime address in `auth/me`; track 7D added the **sign-in endpoints** (`POST /auth/token`, `POST /auth/token/two-factor`, both auth modes, second factor included), so a native app can now sign in with a password. Passkeys are deferred (row 4).
 
 ## Checklist and verdicts
 
 | # | Need | Verdict | Detail |
 |---|---|---|---|
-| 1 | Sign in, mode 1 (Fortify): token with a device name | **Gap (blocking), 1.5 days** | `FortifyDriver::attemptForApi()` issues `createToken($deviceName, ['staff'])` (tested) but **no HTTP route calls it**. See "Sign-in design" |
-| 2 | Sign in, mode 2 (pizzasys) | **Gap (same endpoint), +0.5 day** | `PizzasysDriver::attemptForApi()` logs in at the portal, verifies, syncs the shadow user and issues **our own** Sanctum token bound to the `external_sessions` row; the portal token never leaves the server (tested). Needs the same endpoint plus `auth_unavailable` handling |
-| 3 | 2FA at sign-in | **Gap, included in 1** | `attemptForApi` checks the password only. A route that returned a token for a user with two-factor enabled would **skip the second factor**: the endpoint must challenge (TOTP or recovery code) or refuse such accounts |
-| 4 | Passkeys | **Gap (large), 3 to 5 days, defer** | Fortify passkeys are session/WebAuthn-ceremony based and web-only. A native app needs the platform credential APIs, `apple-app-site-association` / `assetlinks.json` and a token-issuing assertion endpoint. Password (+TOTP) first |
+| 1 | Sign in, mode 1 (Fortify): token with a device name | **Done (track 7D)** | `POST /auth/token {email, password, device_name}` -> `201` with the token (shown once), `expiresAt`, the user, the driver and its capabilities. See "Sign-in (implemented)" |
+| 2 | Sign in, mode 2 (pizzasys) | **Done (track 7D)** | The same endpoint: the portal checks the password and owns the roles; the app answers with **our own** Sanctum token bound to the `external_sessions` row; the portal token never leaves the server (tested). An unreachable portal is `503 auth_unavailable` with `Retry-After: 30` (never `401`) |
+| 3 | 2FA at sign-in | **Done (track 7D), local accounts** | An account with a confirmed second factor gets `202` + a `challenge` from the password step and **no token**; `POST /auth/token/two-factor` trades the challenge and a TOTP or recovery code for the token. `FortifyDriver::attemptForApi` itself refuses to issue a token to such an account, so no caller can skip the factor. The external portal has **no** second-factor step (see below) |
+| 4 | Passkeys | **Deferred (large), 3 to 5 days** | Fortify passkeys are session/WebAuthn-ceremony based and web-only. A native app needs the platform credential APIs, `apple-app-site-association` / `assetlinks.json` and a token-issuing assertion endpoint. Password (+TOTP) first |
 | 5 | Token abilities | **Ready, hardening optional 0.25 day** | Both drivers issue only `['staff']`. No route checks the ability (no other token kind exists). Adding `CheckForAnyAbility:staff` to the management group would make a future second token kind safe by default |
 | 6 | Expiry and lifetime | **Ready, decision needed** | Absolute: `SANCTUM_EXPIRATION_MINUTES` (default 43200 = 30 days) from issue, **no sliding, no refresh**. `expiresAt` is in `auth/me` and `auth/tokens`. The user signs in again after 30 days; a rotate-in-place `POST /auth/token/refresh` is 0.5 day if wanted. Mode 2 portal tokens never expire upstream; `chat:auth:prune-sessions` revokes sessions unverified for lifetime + 1 h |
 | 7 | List and revoke own tokens | **Done (this track)** | `GET /auth/tokens`, `DELETE /auth/tokens/{id}` (own tokens only, `404 token_not_found` for anyone else's, IDOR-tested), mode 2 also ends the portal session and logs the portal token out upstream (tested) |
@@ -63,16 +63,34 @@ The staff **API is complete enough for an agent app** (inbox, messages, attachme
 | `503 auth_unavailable` | keep the session, retry after `Retry-After` (30 s) |
 | `5xx`, timeout, no network | retry with back-off; message sends carry `client_msg_id` so a retry cannot duplicate |
 
-## Sign-in design (the blocking gap, 1.5 to 2 days)
+## Sign-in (implemented in track 7D)
 
-A password sign-in endpoint is deliberately **not** in this track: it is a new unauthenticated surface that handles credentials and a second factor, and it needs a security review of its own. The design it should follow:
+Two guest routes, the **only** unauthenticated routes of the management API (`routes/api/management/auth.php`; a test pins that list). Reference: `docs/api/openapi-management.yaml`; a worked curl sequence is in [api-guide.md](api-guide.md), the threat model in [security.md](security.md).
 
-- `POST /api/v1/auth/token { email, password, device_name, code?, recovery_code? }` in the `widget`-style bearer-only stack (no session, no cookies, no CSRF), unauthenticated, behind the existing `login` limiter (5 per email and address, 30 per address, 10 per email, per minute) and a Timebox as `FortifyDriver` already does.
-- It calls `AuthDriver::attemptForApi($credentials, $deviceName)`, so both modes work and the password check, deactivation check and "no chat access" refusal are the drivers' own (`invalid`, `no_chat_access`, `unavailable` outcomes map to `401 invalid_credentials`, `403 no_chat_access`, `503 auth_unavailable`).
-- **Two-factor:** in mode 1, if `two_factor_confirmed_at` is set, issue the token only after a valid `code` (TOTP through Fortify's `TwoFactorAuthenticationProvider`) or an unused `recovery_code` (consumed); otherwise answer `422 two_factor_required` **without** issuing a token (the password was right, so tell the app to ask for the code and repeat the call). Rate limit the code step with the `two-factor` limiter. A route that skipped this would turn a stolen password into a full bypass of 2FA.
-- `device_name` (3 to 60 printable characters) is shown in `GET /auth/tokens`: store it as plain text, render it escaped. Cap the number of live tokens per user (for example 10; the oldest unused go first), like push subscriptions.
-- Answer `201 { data: { token, tokenType: "Bearer", expiresAt, user, ... } }` with `Cache-Control: no-store`; the token string is shown once. Audit `auth.token.issued` (device name and IP, never the token).
-- Tests: wrong password, unknown user (same answer and timing), deactivated, no chat access, 2FA required / wrong / recovery code, throttling, mode 2 with the portal mock (including outage), token works on `auth/me`, abilities, never logged.
+**Password step: `POST /api/v1/auth/token`**, body `{email, password, device_name}`.
+
+| Answer | When |
+|---|---|
+| `201 {data:{token, tokenType:"Bearer", expiresAt, user, mode, capabilities, realtime, serverTime}}` | right password, no second factor (or the external portal accepted it). The token is shown once; the data is what `GET /auth/me` returns, so the app needs no second call |
+| `202 {data:{twoFactor:true, challenge, expiresAt, methods:["totp","recovery_code"]}}` | right password, local account with a confirmed second factor: **no token yet** |
+| `401 invalid_credentials` | **one** answer (same body, same headers, the same hash work) for an unknown email, a wrong password, a deactivated account and a local account without a chat role |
+| `403 no_chat_access` | external auth mode only: the portal signed the person in but they have neither the admin nor the agent role there (the portal already vouched for the password, so this tells a stranger nothing) |
+| `503 auth_unavailable` + `Retry-After: 30` | external auth mode, the portal cannot answer (outage, error, an answer it should never give). Fixed message that says nothing about why; the credentials were not judged, so never `401`; not counted as a failed password |
+| `422 validation_failed` | malformed body: email format, password over 1024 characters, `device_name` that is empty after cleaning |
+| `429 rate_limited` + `Retry-After` | the dashboard's budget (below) |
+| `413 payload_too_large` | body over 8 KiB |
+
+**Second-factor step: `POST /api/v1/auth/token/two-factor`**, body `{challenge, code | recovery_code}` (exactly one). The request names nobody: the account and the device name are the ones the challenge was issued for. Answers: `201` as above; `401 invalid_challenge` (unknown, expired after 5 minutes, already used, burnt, or the account can no longer sign in); `401 invalid_two_factor_code` with `details.attempts_remaining` (5 wrong codes burn the challenge: start again from the password); `429` when the account has had too many wrong codes (even a right code is then refused until the window passes).
+
+**What the app does:** sign in; on `202` ask for the six-digit code (or a recovery code), call the second step; keep `token` in the Keychain / Keystore; send it as `Authorization: Bearer`; call `GET /auth/me` on start-up to check it; on `401` sign out locally; never retry a `401 invalid_credentials` automatically. A device name is a label (3 to 60 characters; control characters, bidirectional overrides and `<` `>` are removed, white space is collapsed): render it as text.
+
+**Devices:** each sign-in is one token. A user keeps at most 10 (`staff_auth.max_tokens_per_user`); a sign-in over the limit revokes the token used least recently (expired ones first; in the external mode that also ends its portal session upstream), never the new one. `GET /auth/tokens` lists them, `POST /auth/logout` and `DELETE /auth/tokens/{id}` end them (unchanged).
+
+**External portal and 2FA:** passwords and second factors belong to the portal. The portal this application talks to answers a login with a token or `401`/`422` only (`docs/pizzasys-findings.md`): it has **no second-factor step**, so there is no `202` in that mode and nothing here invents one. If a portal ever answered a login with anything else (a `202` asking for a code, a `200` without a token) the app treats it as unavailable (`503`), fail closed, never a token (tested). A portal with its own MFA would need an extension of the portal client first.
+
+**Passkeys are deferred:** the Fortify passkey flow is a WebAuthn ceremony bound to the web origin; a native app needs platform credential APIs, `apple-app-site-association` / `assetlinks.json` and a token-issuing assertion endpoint (3 to 5 days). A passkey-only account has no password and cannot sign in through these routes (it gets the same `401`).
+
+**Abuse controls** (all tested, see [security.md](security.md)): the dashboard's own `login` limiter (5 per email and address, 30 per address, 10 per email, per minute) plus Fortify's failed-attempt lock-out, so web and app attempts share **one** budget per account; per-account, per-challenge and per-address counters on the second step; `Cache-Control: no-store` on every answer; no session, no cookie, no CORS headers; a body cap; audit rows (`auth.token.issued`, `auth.token.failed`, `auth.token.two_factor_required`, `auth.token.two_factor_failed`, `auth.token.failure_flood`) without passwords, codes, challenges or tokens.
 
 ## What a real FCM channel still needs (the stub today)
 
@@ -85,7 +103,11 @@ A password sign-in endpoint is deliberately **not** in this track: it is a new u
 5. **iOS:** through FCM with an APNs key uploaded to Firebase; background delivery needs `content-available` for the dismiss push.
 6. **Product:** decide whether a push-registered offline agent counts as reachable for routing (item 17).
 
-## What this track added
+## What track 7D added
+
+- `POST /api/v1/auth/token`, `POST /api/v1/auth/token/two-factor` (`StaffSignInController`, `App\Auth\Tokens\SignInWithPassword` / `CompleteTwoFactorSignIn` / `TwoFactorChallenges` / `SignInAudit`, table `staff_two_factor_challenges`, config `config/staff_auth.php`); `FortifyDriver::attemptForApi` no longer issues a token to an account with a second factor and spends a hash on a missing account; tests `StaffSignInTest`, `StaffSignInTwoFactorTest`, `StaffSignInPortalTest`.
+
+## What track 7B added
 
 - `GET /api/v1/auth/me`, `GET /api/v1/auth/tokens`, `DELETE /api/v1/auth/tokens/{id}`, `POST /api/v1/auth/logout` (`StaffAuthController`, `App\Auth\Tokens\StaffTokens`, `ApiTokenData`, `StaffMeData`); 16 tests in `tests/Feature/Auth/StaffTokensApiTest.php` (IDOR, mode 2 with the portal mock, expiry, cookie vs bearer, no secrets in answers).
 - The generated reference (`docs/api/openapi-*.yaml`), the rot guard and the contract tests that make this document's API claims checkable.

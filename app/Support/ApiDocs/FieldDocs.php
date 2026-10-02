@@ -163,6 +163,22 @@ final class FieldDocs
                 'realtime' => 'Where to open the websocket (Laravel Reverb, Pusher protocol) and the public app key; `null` when realtime is not configured, then stay on REST polling. Authorise private channels with `POST /broadcasting/auth` and your bearer token.',
                 'serverTime' => 'The server clock (ISO-8601 UTC). Compare it with your own to correct clock skew before counting down any `expiresAt`.',
             ],
+            'StaffSignInData' => [
+                'token' => 'The bearer token (`id|secret`). **Shown once**: store it in the Keychain / Keystore, send it only in `Authorization: Bearer`, never log it. Only its sha-256 is kept here.',
+                'tokenType' => 'Always `Bearer`.',
+                'expiresAt' => 'When the token stops working: issue time + `SANCTUM_EXPIRATION_MINUTES` (default 30 days). Tokens do not slide: sign in again before this.',
+                'user' => 'The signed-in staff member (the same object `GET /auth/me` returns).',
+                'mode' => 'The active auth driver: `fortify` (local accounts) or `pizzasys` (external auth portal).',
+                'capabilities' => 'What the active driver lets the user do (hide UI it cannot honour).',
+                'realtime' => 'Where to open the websocket (Laravel Reverb, Pusher protocol) and the public app key; `null` when realtime is not configured. Authorise private channels with `POST /broadcasting/auth` and the token.',
+                'serverTime' => 'The server clock (ISO-8601 UTC): compare it with your own to correct clock skew.',
+            ],
+            'StaffTwoFactorChallengeData' => [
+                'twoFactor' => 'Always `true`: the password was right but a second factor is owed. No token has been issued.',
+                'challenge' => 'Send it back with the code to `POST /auth/token/two-factor`. Single use, valid until `expiresAt`, tied to this account and device name.',
+                'expiresAt' => 'When the challenge stops working (5 minutes after it was issued).',
+                'methods' => 'What may answer it: `totp` (the authenticator code, as `code`) and `recovery_code`.',
+            ],
             'ApiTokenData' => [
                 'id' => 'Token id: the value for `DELETE /auth/tokens/{id}`. It is the number in front of the `|` of the token string.',
                 'name' => 'The device name given at sign-in.',

@@ -133,7 +133,11 @@ final class DataShape
         return [match ($scalar) {
             'integer' => 1,
             'boolean' => true,
-            default => str_contains($property['name'], 'ulid') ? ExampleValues::ulid('category') : 'example',
+            default => match (true) {
+                str_contains($property['name'], 'ulid') => ExampleValues::ulid('category'),
+                $property['name'] === 'methods' => 'totp',
+                default => 'example',
+            },
         }];
     }
 }

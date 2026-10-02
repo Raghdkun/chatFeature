@@ -13,7 +13,7 @@ servers:
 tags:
   -
     name: Authentication
-    description: "Who the credential belongs to, and the caller's own bearer tokens (one per signed-in device). There is no password login endpoint yet: see the mobile readiness notes."
+    description: "Signing in from a native client (a password, plus a second factor for accounts that have one, answered with a bearer token), who the credential belongs to, and the caller's own bearer tokens (one per signed-in device). The two sign-in calls are the only management endpoints that need no credential."
   -
     name: Presence
     description: "The caller's own availability. Routing, the public `availability` call and the roster all read the same effective status."
@@ -2301,6 +2301,110 @@ components:
           port: 443
           scheme: https
         serverTime: example
+    StaffSignIn:
+      type: object
+      description: 'The answer of a finished native sign-in (`POST /api/v1/auth/token`, `POST /api/v1/auth/token/two-factor`): the bearer token, shown once, and what `GET /api/v1/auth/me` would say right after (the user, the active auth driver and its capabilities, the realtime address and the server clock), so a client needs no second call to start.'
+      required:
+        - token
+        - tokenType
+        - expiresAt
+        - user
+        - mode
+        - capabilities
+        - realtime
+        - serverTime
+      properties:
+        token:
+          type: string
+          description: 'The bearer token (`id|secret`). **Shown once**: store it in the Keychain / Keystore, send it only in `Authorization: Bearer`, never log it. Only its sha-256 is kept here.'
+        tokenType:
+          type: string
+          description: 'Always `Bearer`.'
+        expiresAt:
+          type: string
+          format: date-time
+          description: 'When the token stops working: issue time + `SANCTUM_EXPIRATION_MINUTES` (default 30 days). Tokens do not slide: sign in again before this.'
+          nullable: true
+        user:
+          allOf:
+            -
+              $ref: '#/components/schemas/AuthUser'
+          description: 'The signed-in staff member (the same object `GET /auth/me` returns).'
+        mode:
+          type: string
+          enum:
+            - fortify
+            - pizzasys
+          description: 'The active auth driver: `fortify` (local accounts) or `pizzasys` (external auth portal).'
+        capabilities:
+          allOf:
+            -
+              $ref: '#/components/schemas/AuthCapabilities'
+          description: 'What the active driver lets the user do (hide UI it cannot honour).'
+        realtime:
+          allOf:
+            -
+              $ref: '#/components/schemas/RealtimeEndpoint'
+          description: 'Where to open the websocket (Laravel Reverb, Pusher protocol) and the public app key; `null` when realtime is not configured. Authorise private channels with `POST /broadcasting/auth` and the token.'
+          nullable: true
+        serverTime:
+          type: string
+          description: 'The server clock (ISO-8601 UTC): compare it with your own to correct clock skew.'
+      example:
+        token: 42|8Fq3nT0xKzV7aYc1LwR5pD2mJh6BsU9eGiOtNyXk
+        tokenType: Bearer
+        expiresAt: '2026-09-30T12:30:00.000Z'
+        user:
+          id: 7
+          name: 'Sam Rivera'
+          email: ada@example.com
+          avatar: 'https://chat.example.com/storage/avatars/sam.jpg'
+          is_admin: false
+          is_agent: true
+          auth_source: local
+        mode: fortify
+        capabilities:
+          canRegister: false
+          canResetPassword: true
+          canManage2fa: true
+          profileEditable: true
+          portalUrl: example
+        realtime:
+          key: f1a2b3c4d5e6f7a8b9c0
+          host: chat.example.com
+          port: 443
+          scheme: https
+        serverTime: '2026-09-30T12:00:00.000Z'
+    StaffTwoFactorChallenge:
+      type: object
+      description: 'The answer of the password step for an account with a second factor (`202`): no token yet, only the challenge to answer at `POST /api/v1/auth/token/two-factor`.'
+      required:
+        - twoFactor
+        - challenge
+        - expiresAt
+        - methods
+      properties:
+        twoFactor:
+          type: boolean
+          description: 'Always `true`: the password was right but a second factor is owed. No token has been issued.'
+        challenge:
+          type: string
+          description: 'Send it back with the code to `POST /auth/token/two-factor`. Single use, valid until `expiresAt`, tied to this account and device name.'
+        expiresAt:
+          type: string
+          format: date-time
+          description: 'When the challenge stops working (5 minutes after it was issued).'
+        methods:
+          type: array
+          items:
+            type: string
+          description: 'What may answer it: `totp` (the authenticator code, as `code`) and `recovery_code`.'
+      example:
+        twoFactor: true
+        challenge: tfc_3vQnK8mZ0pXw2rLd7sYh1cTb5uAe9GjFoR6iNxMk
+        expiresAt: '2026-09-30T12:30:00.000Z'
+        methods:
+          - totp
     TransferAgent:
       type: object
       description: 'A colleague a chat can be handed to (`GET /conversations/{ulid}/transfer-targets`): name, avatar, effective presence and load, and whether the server would accept the transfer right now (`reachable`: the very check `POST .../transfer` makes).'
@@ -3256,7 +3360,7 @@ components:
               - 'This chat already holds the maximum amount of images.'
     ErrorAuthUnavailable:
       type: object
-      description: 'External auth mode only: the portal cannot be asked beyond the grace window. The session is kept; retry after `Retry-After` seconds.'
+      description: 'External auth mode only: the portal cannot be asked (beyond the grace window for a signed-in session; at once for a sign-in, which never falls back). A signed-in session is kept; retry after `Retry-After` seconds. At sign-in this is never a `401`: the credentials were not judged.'
       required:
         - error
       properties:
@@ -3515,6 +3619,81 @@ components:
         error:
           code: forbidden
           message: 'Only administrators can do this.'
+    ErrorInvalidChallenge:
+      type: object
+      description: 'The second-factor challenge is unknown, expired (5 minutes), already used, burnt after too many wrong codes, or its account can no longer sign in. Start again from `POST /auth/token`.'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - invalid_challenge
+            message:
+              type: string
+              example: 'This sign-in step has expired or was already used. Start again with your password.'
+      example:
+        error:
+          code: invalid_challenge
+          message: 'This sign-in step has expired or was already used. Start again with your password.'
+    ErrorInvalidCredentials:
+      type: object
+      description: "The sign-in was refused. ONE answer for an unknown email, a wrong password, a deactivated account and (local accounts) an account without a chat role, so the call cannot be used to find out who has an account. Not retryable with the same input; counted against the account's attempts."
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - invalid_credentials
+            message:
+              type: string
+              example: 'The email or password is incorrect.'
+      example:
+        error:
+          code: invalid_credentials
+          message: 'The email or password is incorrect.'
+    ErrorInvalidTwoFactorCode:
+      type: object
+      description: 'The authenticator or recovery code is wrong. `details.attempts_remaining` is how many wrong codes the challenge still takes; at 0 it is burnt and the client starts again from the password.'
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - invalid_two_factor_code
+            message:
+              type: string
+              example: 'That code is not right. Check it and try again.'
+            details:
+              type: object
+              example:
+                attempts_remaining: 4
+      example:
+        error:
+          code: invalid_two_factor_code
+          message: 'That code is not right. Check it and try again.'
+          details:
+            attempts_remaining: 4
     ErrorInvalidWebhook:
       type: object
       description: 'Webhook endpoint only: the signed body has no usable `event`.'
@@ -3824,7 +4003,7 @@ components:
           message: 'OpenWA could not be reached. Check that it is running and that the address in Settings > WhatsApp is right.'
     ErrorPayloadTooLarge:
       type: object
-      description: 'Webhook endpoint only: more than 1 MiB.'
+      description: 'The body is over the cap of the endpoint: the webhook (1 MiB) or a native sign-in call (`staff_auth.max_body_bytes`, 8 KiB).'
       required:
         - error
       properties:
@@ -4542,6 +4721,182 @@ paths:
                 type: integer
       tags:
         - Authentication
+  /api/v1/auth/token:
+    post:
+      summary: 'Sign in (password)'
+      operationId: authTokenStore
+      description: "Trades an email and password for a **bearer token**, for a native staff app. It works in both auth modes: with local accounts the password is checked here; with an external auth portal the portal checks it (the portal's own token never reaches the client) and the roles come from the portal. Send the token as `Authorization: Bearer <token>` on every other call; it is shown once.\n\n**An account with a second factor** does not get a token from the password: the answer is `202` with a `challenge`, and the token comes from `POST /auth/token/two-factor`. Passkeys are not supported here (password and authenticator code or recovery code only). In the external auth mode the portal owns passwords and second factors; the portal this application talks to has no second-factor step, so there is no `202` there (an unexpected portal answer is `503 auth_unavailable`, never a token).\n\n**Refusals** are one answer, `401 invalid_credentials`, for an unknown email, a wrong password, a deactivated account and (local accounts) an account without a chat role: the call cannot be used to find out who has an account. With the external portal a person it signed in who has no chat role gets `403 no_chat_access`. A portal that cannot answer is `503 auth_unavailable` (never `401`: the credentials were not judged; retry after `Retry-After`).\n\nEach device gets its own token (`device_name`); a user keeps at most 10 devices (`staff_auth.max_tokens_per_user`), and a sign-in over the limit revokes the token used least recently. Sign out with `POST /auth/logout`.\n\n**Access.** No credential: this call creates one. It sets no cookie and no CORS headers (native clients only), every answer is `Cache-Control: no-store`, and a body over 8 KiB is `413`. Refusals never say which part of the credentials was wrong.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `login`: 5 sign-in attempts a minute per email and client address, 30 per client address and 10 per email from any address. The SAME budget as the dashboard login, so an attacker gains nothing by using both; every call counts, and a wrong password additionally counts toward a lock-out of that email and address."
+      responses:
+        201:
+          description: 'Signed in. The `token` is shown once.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/StaffSignIn'
+        202:
+          description: 'The password was right, but the account has a second factor: no token yet. Answer the challenge at `POST /auth/token/two-factor`.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/StaffTwoFactorChallenge'
+        401:
+          description: '`invalid_credentials`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorInvalidCredentials'
+        403:
+          description: '`no_chat_access`: External auth mode only: the portal signed the person in but they have neither the administrator nor the agent role there.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorNoChatAccess'
+        413:
+          description: '`payload_too_large`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorPayloadTooLarge'
+        422:
+          description: '`validation_failed`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorValidationFailed'
+        429:
+          description: '`rate_limited`: Too many attempts for this email, this client address, or at all (the same budget as the dashboard login), or too many wrong passwords in a minute. Wait `Retry-After` seconds.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+        503:
+          description: '`auth_unavailable`: External auth mode only: the portal cannot be reached (or answered something unexpected). The credentials were not judged.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorAuthUnavailable'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  description: "The account's email address (case does not matter). Must be a valid email address. Must not be greater than 254 characters."
+                  example: sam@example.com
+                password:
+                  type: string
+                  description: 'The password. Sent only here, over TLS; never stored by the app. At most 1024 characters. Must not be greater than 1024 characters.'
+                  example: correct-Horse-battery-9!
+                device_name:
+                  type: string
+                  description: 'A label for this device, shown in `GET /auth/tokens` (3 to 60 characters). Control and invisible characters and `<` `>` are removed and white space is collapsed before it is checked; render it as text. Must be at least 3 characters. Must not be greater than 60 characters.'
+                  example: "Sam's Pixel 9"
+              required:
+                - email
+                - password
+                - device_name
+      security: []
+  /api/v1/auth/token/two-factor:
+    post:
+      summary: 'Sign in (second factor)'
+      operationId: authTokenTwoFactor
+      description: "Answers the `challenge` of `POST /auth/token` with the account's **authenticator code** (`code`) or one **recovery code** (`recovery_code`), and returns the token. It is the same check the dashboard does: a code that was already accepted is refused, and a recovery code is replaced by a new one when used.\n\nThe request names nobody: the account is the one the challenge was issued for, so a challenge cannot be used for someone else, and the device name is the one the password step was given. A challenge works **once** (a replay is `401 invalid_challenge`), lives 5 minutes and **burns after 5 wrong codes** (`details.attempts_remaining` counts down; at 0 the client signs in again from the password). Wrong codes are also counted per account across challenges, so a new challenge brings no fresh budget; a locked account answers `429` until the window passes, even for a right code.\n\n**Access.** No credential: this call creates one. It sets no cookie and no CORS headers (native clients only), every answer is `Cache-Control: no-store`, and a body over 8 KiB is `413`. Refusals never say which part of the credentials was wrong.\n\n**Rate limits.** `429 rate_limited` with `Retry-After` when exceeded.\n\n- `staff-two-factor`: 30 calls a minute per client address and 10 per challenge. Wrong codes are also counted per account (5 a minute, 20 an hour, across challenges) and per challenge (5, then it burns)."
+      responses:
+        201:
+          description: 'Signed in. The `token` is shown once.'
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    $ref: '#/components/schemas/StaffSignIn'
+        401:
+          description: "- `invalid_challenge`\n- `invalid_two_factor_code`"
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  -
+                    $ref: '#/components/schemas/ErrorInvalidChallenge'
+                  -
+                    $ref: '#/components/schemas/ErrorInvalidTwoFactorCode'
+        413:
+          description: '`payload_too_large`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorPayloadTooLarge'
+        422:
+          description: '`validation_failed`'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorValidationFailed'
+        429:
+          description: '`rate_limited`: Too many calls from this client address or with this challenge, or too many wrong codes for the account. Wait `Retry-After` seconds.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorRateLimited'
+          headers:
+            Retry-After:
+              description: 'Seconds to wait before trying again.'
+              schema:
+                type: integer
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                challenge:
+                  type: string
+                  description: 'The `challenge` the password step answered with (`tfc_` + 40 characters). Single use; valid 5 minutes. Must be 44 characters.'
+                  example: tfc_3vQnK8mZ0pXw2rLd7sYh1cTb5uAe9GjFoR6iNxMk
+                code:
+                  type: string
+                  description: 'The six-digit authenticator code. Send this or `recovery_code`, not both. This field is required when <code>recovery_code</code> is not present. Must not be greater than 16 characters.'
+                  example: '123456'
+                  nullable: true
+                recovery_code:
+                  type: string
+                  description: "One of the account's recovery codes (it is replaced by a new one when used). Send this or `code`, not both. This field is required when <code>code</code> is not present. Must not be greater than 64 characters."
+                  example: AbCdEfGhIj-KlMnOpQrSt
+                  nullable: true
+              required:
+                - challenge
+      security: []
   /api/v1/me/presence:
     get:
       summary: 'Show my presence'

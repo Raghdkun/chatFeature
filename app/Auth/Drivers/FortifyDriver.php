@@ -10,6 +10,7 @@ use App\Auth\Support\AuthCapabilities;
 use App\Auth\Support\AuthResult;
 use App\Auth\Support\HealthReport;
 use App\Auth\Support\SessionContext;
+use App\Auth\Tokens\StaffTokens;
 use App\Domain\Settings\SettingsRepository;
 use App\Models\User;
 use Illuminate\Contracts\Auth\Authenticatable;
@@ -17,16 +18,23 @@ use Illuminate\Contracts\Auth\Factory as AuthFactory;
 use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Contracts\Auth\UserProvider;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Illuminate\Support\Timebox;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
 use SensitiveParameter;
+use Throwable;
 
 /**
  * Mode 1: the starter kit's local email + password login (2FA and passkeys stay Fortify's job).
  */
 final class FortifyDriver implements AuthDriver
 {
+    /** Cache key of the stand-in hash a missing account is "checked" against. */
+    private const DUMMY_HASH_KEY = 'auth:stand-in-password-hash';
+
     public function __construct(
         private readonly AuthFactory $auth,
         private readonly SettingsRepository $settings,
@@ -75,7 +83,13 @@ final class FortifyDriver implements AuthDriver
             return ApiAuthResult::failed($result->outcome, $result->message, $result->user);
         }
 
-        return ApiAuthResult::ok($result->user, $result->user->createToken($deviceName, ['staff'])->plainTextToken);
+        // The password alone must never be enough for an account with a second factor: no token here, whoever calls this. The caller
+        // runs the second factor and issues the token itself (Auth\Tokens\CompleteTwoFactorSignIn).
+        if ($result->user->hasEnabledTwoFactorAuthentication()) {
+            return ApiAuthResult::failed(AuthOutcome::TwoFactorRequired, user: $result->user);
+        }
+
+        return ApiAuthResult::ok($result->user, $result->user->createToken($deviceName, StaffTokens::ABILITIES)->plainTextToken);
     }
 
     public function validateSession(Authenticatable $user, SessionContext $context): SessionVerdict
@@ -112,8 +126,17 @@ final class FortifyDriver implements AuthDriver
         // Constant-ish time so a missing account cannot be told apart from a wrong password.
         $user = (new Timebox)->call(function () use ($provider, $credentials): ?Authenticatable {
             $user = $provider->retrieveByCredentials($credentials);
+            $hashed = $user?->getAuthPassword();
 
-            if ($user === null || ! $provider->validateCredentials($user, $credentials)) {
+            // No account, or one without a password (passkey-only): spend the time a real check takes. A slow hash on a short Timebox
+            // would otherwise answer "this email exists" by the clock.
+            if ($user === null || ! is_string($hashed) || $hashed === '') {
+                $this->spendHashTime($credentials['password']);
+
+                return null;
+            }
+
+            if (! $provider->validateCredentials($user, $credentials)) {
                 return null;
             }
 
@@ -137,6 +160,30 @@ final class FortifyDriver implements AuthDriver
         }
 
         return AuthResult::ok($user);
+    }
+
+    /**
+     * Spends the time of one password check on an account that does not exist (or has no password), so the clock cannot say "no such
+     * email". The stand-in is a hash of a random value kept in the cache (PHP forgets statics between requests, and hashing it on every
+     * call would make the missing account SLOWER than a real one): a hit costs one check, the one miss after a cold cache or a change of the
+     * hashing cost costs one hash. Either way exactly one slow operation.
+     */
+    private function spendHashTime(#[SensitiveParameter] string $password): void
+    {
+        try {
+            $standIn = Cache::get(self::DUMMY_HASH_KEY);
+
+            if (is_string($standIn) && $standIn !== '' && ! Hash::needsRehash($standIn)) {
+                Hash::check($password, $standIn);
+
+                return;
+            }
+
+            Cache::forever(self::DUMMY_HASH_KEY, Hash::make(Str::random(40)));
+        } catch (Throwable) {
+            // A cache that is down must not turn a refusal into an error; the time is spent either way.
+            Hash::make(Str::random(40));
+        }
     }
 
     private function guard(): StatefulGuard

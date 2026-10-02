@@ -19,9 +19,13 @@ Still editable after the wizard: domains, the production/testing switch, role-na
 
 Starter-kit login with Fortify (2FA, passkeys). `FortifyDriver` + `LocalRoleResolver`: `users.is_admin` / `users.is_agent` derive from `users.role`. The first admin comes from the wizard; on the Agents page admins create agent accounts (always active, always taking chats), deactivate/reactivate them, set their concurrent-chat limit and assign categories. There is no "make admin" action in the dashboard (admins can only switch the `is_agent` flag of admin-role accounts, i.e. whether such an account takes chats).
 
+**Native app sign-in (P7).** `POST /api/v1/auth/token` calls `FortifyDriver::attemptForApi`: the password check, the deactivation and chat-role checks are the driver's own. An account with a confirmed second factor gets no token from the driver (`TwoFactorRequired`); the app finishes with `POST /api/v1/auth/token/two-factor` (authenticator or recovery code, Fortify's own verification). Passkeys are not offered to native apps yet. See [mobile-readiness.md](mobile-readiness.md).
+
 ## Mode 2: pizzasys
 
 [pizzasys](https://github.com/RnD-Experts-Team/pizzasys) (public, Laravel 12) is the external auth portal: Sanctum personal tokens (`id|plain`), spatie/laravel-permission, multi-store (`user_role_store`), NATS JetStream.
+
+**Native app sign-in (P7).** `POST /api/v1/auth/token` calls `PizzasysDriver::attemptForApi`: portal login, immediate verify, shadow user and roles, then **our own** Sanctum token bound to an `external_sessions` row (the portal token never leaves the server). The portal's login answers a token or `401`/`422` only, so there is no second-factor step in this mode (anything else the portal answers is `503 auth_unavailable`, fail closed). A person the portal signed in who has no chat role gets `403 no_chat_access`; an unreachable portal is `503 auth_unavailable` with `Retry-After: 30`, never `401`.
 
 ### Verified pizzasys endpoints (from source)
 

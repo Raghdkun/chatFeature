@@ -33,7 +33,7 @@ final class ErrorCatalogue
             'rate_limited' => ['status' => 429, 'message' => 'Too many requests.', 'meaning' => 'A rate limiter said stop. Wait `Retry-After` seconds (the header is always set; some answers also carry `details.retry_after`).', 'details' => ['retry_after' => 12], 'headers' => ['Retry-After' => '12']],
             'server_error' => ['status' => 500, 'message' => 'Something went wrong on our side.', 'meaning' => 'An unhandled exception. A production answer never contains details; retry later and report it with the time.'],
             'auth_mode_unavailable' => ['status' => 500, 'message' => 'The authentication mode is not configured. Run the setup again or contact the administrator.', 'meaning' => 'An installed instance without a valid `auth.mode` setting (fails closed).'],
-            'auth_unavailable' => ['status' => 503, 'message' => 'The sign-in service (Auth Portal) is unreachable right now. You are still signed in; please try again in a few minutes.', 'meaning' => 'External auth mode only: the portal cannot be asked beyond the grace window. The session is kept; retry after `Retry-After` seconds.', 'headers' => ['Retry-After' => '30']],
+            'auth_unavailable' => ['status' => 503, 'message' => 'The sign-in service (Auth Portal) is unreachable right now. You are still signed in; please try again in a few minutes.', 'meaning' => 'External auth mode only: the portal cannot be asked (beyond the grace window for a signed-in session; at once for a sign-in, which never falls back). A signed-in session is kept; retry after `Retry-After` seconds. At sign-in this is never a `401`: the credentials were not judged.', 'headers' => ['Retry-After' => '30']],
             'conflict' => ['status' => 409, 'message' => 'Request failed.', 'meaning' => 'Generic fallback for a 409 without a specific code.'],
             'unavailable' => ['status' => 503, 'message' => 'Request failed.', 'meaning' => 'Generic fallback for a 503 without a specific code.'],
 
@@ -72,6 +72,11 @@ final class ErrorCatalogue
             'token_not_found' => ['status' => 404, 'message' => 'This token does not exist.', 'meaning' => 'The token id is not one of the caller\'s own tokens.'],
             'not_a_token_session' => ['status' => 409, 'message' => 'This call signs out a bearer token. Sign out of the dashboard with POST /logout instead.', 'meaning' => 'Logout was called with the dashboard\'s session cookie instead of a bearer token.'],
 
+            // Native sign-in (POST /auth/token, /auth/token/two-factor)
+            'invalid_credentials' => ['status' => 401, 'message' => 'The email or password is incorrect.', 'meaning' => 'The sign-in was refused. ONE answer for an unknown email, a wrong password, a deactivated account and (local accounts) an account without a chat role, so the call cannot be used to find out who has an account. Not retryable with the same input; counted against the account\'s attempts.'],
+            'invalid_challenge' => ['status' => 401, 'message' => 'This sign-in step has expired or was already used. Start again with your password.', 'meaning' => 'The second-factor challenge is unknown, expired (5 minutes), already used, burnt after too many wrong codes, or its account can no longer sign in. Start again from `POST /auth/token`.'],
+            'invalid_two_factor_code' => ['status' => 401, 'message' => 'That code is not right. Check it and try again.', 'meaning' => 'The authenticator or recovery code is wrong. `details.attempts_remaining` is how many wrong codes the challenge still takes; at 0 it is burnt and the client starts again from the password.', 'details' => ['attempts_remaining' => 4]],
+
             // WhatsApp (admin only)
             'openwa_not_configured' => ['status' => 409, 'message' => 'Save the OpenWA address and API key in Settings > WhatsApp first.', 'meaning' => 'No gateway address or key saved.'],
             'openwa_unavailable' => ['status' => 503, 'message' => 'OpenWA could not be reached. Check that it is running and that the address in Settings > WhatsApp is right.', 'meaning' => 'The gateway is down or its address is refused by the outbound guard.'],
@@ -86,7 +91,7 @@ final class ErrorCatalogue
             'webhook_rejected' => ['status' => 422, 'message' => 'OpenWA refused the webhook address.', 'meaning' => 'The gateway\'s SSRF guard refused our callback address (the message names the host to allow).'],
             'webhook_limit_reached' => ['status' => 409, 'message' => 'OpenWA has no room for another webhook on this session.', 'meaning' => 'The gateway\'s 16 webhooks per session are used up.'],
             'invalid_webhook' => ['status' => 400, 'message' => 'The request could not be processed.', 'meaning' => 'Webhook endpoint only: the signed body has no usable `event`.'],
-            'payload_too_large' => ['status' => 413, 'message' => 'The request body is too large.', 'meaning' => 'Webhook endpoint only: more than 1 MiB.'],
+            'payload_too_large' => ['status' => 413, 'message' => 'The request body is too large.', 'meaning' => 'The body is over the cap of the endpoint: the webhook (1 MiB) or a native sign-in call (`staff_auth.max_body_bytes`, 8 KiB).'],
             'queue_unavailable' => ['status' => 503, 'message' => 'The message could not be queued. Please try again.', 'meaning' => 'The queue refused a WhatsApp reply (it was stored and marked `failed`).'],
             'session_not_ready' => ['status' => 409, 'message' => 'The WhatsApp number is not connected right now.', 'meaning' => 'Reply on a chat whose session is not `ready`; `details.status` is the current one.', 'details' => ['status' => 'disconnected']],
             'reply_not_allowed' => ['status' => 409, 'message' => 'The customer has not written first.', 'meaning' => '`whatsapp.reply_only_to_inbound` is on and the customer never wrote.'],
@@ -101,7 +106,7 @@ final class ErrorCatalogue
     private const MANAGEMENT_ONLY = [
         'csrf_mismatch', 'no_chat_access', 'auth_unavailable', 'auth_mode_unavailable', 'category_in_use', 'slug_taken', 'managed_by_auth_portal',
         'cannot_deactivate_self', 'not_an_agent', 'push_unavailable', 'no_push_devices', 'subscription_not_found', 'device_not_found', 'token_not_found',
-        'not_a_token_session', 'already_claimed', 'at_capacity', 'conversation_not_open', 'conversation_not_live', 'invalid_webhook', 'payload_too_large',
+        'not_a_token_session', 'invalid_credentials', 'invalid_challenge', 'invalid_two_factor_code', 'already_claimed', 'at_capacity', 'conversation_not_open', 'conversation_not_live', 'invalid_webhook', 'payload_too_large',
         'queue_unavailable', 'reply_not_allowed', 'daily_cap_reached', 'qr_not_available', 'webhook_rejected', 'webhook_limit_reached',
     ];
 

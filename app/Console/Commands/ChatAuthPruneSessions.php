@@ -3,13 +3,14 @@
 namespace App\Console\Commands;
 
 use App\Auth\Pizzasys\ExternalSessionStore;
+use App\Auth\Tokens\TwoFactorChallenges;
 use App\Models\ExternalSession;
 use Illuminate\Console\Command;
 
 /**
  * Upstream user tokens never expire, so a browser tab that was simply closed would keep a live portal token in
  * `external_sessions` forever. This revokes (and logs out upstream, THAT token only) every session that has not been
- * verified for longer than its own lifetime allows, and deletes long-revoked rows. Scheduled daily.
+ * verified for longer than its own lifetime allows, and deletes long-revoked rows (and expired native sign-in challenges). Scheduled daily.
  */
 class ChatAuthPruneSessions extends Command
 {
@@ -20,7 +21,7 @@ class ChatAuthPruneSessions extends Command
     /** Slack on top of a session's lifetime before it counts as abandoned. */
     private const MARGIN_MINUTES = 60;
 
-    public function handle(ExternalSessionStore $sessions): int
+    public function handle(ExternalSessionStore $sessions, TwoFactorChallenges $challenges): int
     {
         $browserCutoff = now()->subMinutes(max(1, (int) config('session.lifetime', 120)) + self::MARGIN_MINUTES);
         $tokenLifetime = (int) config('sanctum.expiration', 0);
@@ -50,6 +51,9 @@ class ChatAuthPruneSessions extends Command
             ->delete();
 
         $this->components->info("Revoked {$abandoned} abandoned portal session(s); deleted {$deleted} old revoked one(s).");
+
+        // Native sign-in: second-factor challenges live five minutes; the expired rows are only noise.
+        $this->components->info('Deleted '.$challenges->prune().' expired sign-in challenge(s).');
 
         return self::SUCCESS;
     }

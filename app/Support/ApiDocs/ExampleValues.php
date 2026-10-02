@@ -54,6 +54,8 @@ final class ExampleValues
         'PresenceData' => ['status' => 'online'],
         'TransferAgentData' => ['status' => 'online'],
         'PresenceMemberData' => ['status' => 'online'],
+        'StaffSignInData' => ['token' => '42|8Fq3nT0xKzV7aYc1LwR5pD2mJh6BsU9eGiOtNyXk', 'tokenType' => 'Bearer', 'serverTime' => '2026-09-30T12:00:00.000Z'],
+        'StaffTwoFactorChallengeData' => ['challenge' => 'tfc_3vQnK8mZ0pXw2rLd7sYh1cTb5uAe9GjFoR6iNxMk'],
     ];
 
     /**
