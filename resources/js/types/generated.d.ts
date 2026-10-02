@@ -2,7 +2,7 @@ declare namespace App {
 namespace Auth {
 namespace Enums {
 export type AuthMode = 'fortify' | 'pizzasys';
-export type AuthOutcome = 'ok' | 'invalid' | 'unavailable' | 'no_chat_access';
+export type AuthOutcome = 'ok' | 'invalid' | 'unavailable' | 'no_chat_access' | 'two_factor_required';
 export type SessionVerdict = 'fresh' | 'revalidated' | 'revoked' | 'degraded' | 'unavailable';
 export type UserRole = 'admin' | 'agent';
 }
@@ -219,6 +219,15 @@ responseCount: number,
 };
 }
 namespace Auth {
+export type ApiTokenData = {
+id: number,
+name: string,
+abilities: string[],
+lastUsedAt: string | null,
+createdAt: string,
+expiresAt: string | null,
+current: boolean,
+};
 export type AuthCapabilitiesData = {
 canRegister: boolean,
 canResetPassword: boolean,
@@ -305,6 +314,30 @@ export type PortalHealthStatus = 'ok' | 'degraded' | 'down' | 'unknown';
 export type PortalTestResultData = {
 ok: boolean,
 checks: App.Data.Auth.PortalCheckData[],
+};
+export type StaffMeData = {
+user: App.Data.Auth.AuthUserData,
+mode: App.Auth.Enums.AuthMode,
+capabilities: App.Data.Auth.AuthCapabilitiesData,
+token: App.Data.Auth.ApiTokenData | null,
+realtime: App.Data.Chat.RealtimeEndpointData | null,
+serverTime: string,
+};
+export type StaffSignInData = {
+token: string,
+tokenType: string,
+expiresAt: string | null,
+user: App.Data.Auth.AuthUserData,
+mode: App.Auth.Enums.AuthMode,
+capabilities: App.Data.Auth.AuthCapabilitiesData,
+realtime: App.Data.Chat.RealtimeEndpointData | null,
+serverTime: string,
+};
+export type StaffTwoFactorChallengeData = {
+twoFactor: boolean,
+challenge: string,
+expiresAt: string,
+methods: string[],
 };
 }
 namespace Catalog {
@@ -593,6 +626,25 @@ enabled: boolean,
 start: string,
 end: string,
 timezone: string,
+};
+}
+namespace Privacy {
+export type RetentionData = {
+days: number,
+minimumDays: number,
+};
+export type VisitorErasureData = {
+visitor: string,
+erased: boolean,
+sessions: number | null,
+conversations: number | null,
+offlineTickets: number | null,
+messages: number | null,
+attachments: number | null,
+ratings: number | null,
+events: number | null,
+whatsappChatsUnlinked: number | null,
+handoffTickets: number | null,
 };
 }
 namespace Setup {
@@ -1107,6 +1159,11 @@ export type IdentityFailure = 'no_secret' | 'malformed' | 'unsupported_algorithm
 namespace Infrastructure {
 namespace Nats {
 export type EventOutcome = 'flush_user' | 'flush_all' | 'deactivate_user' | 'noop' | 'unknown' | 'duplicate';
+}
+}
+namespace Support {
+namespace ApiDocs {
+export type ApiAudience = 'management' | 'public';
 }
 }
 }

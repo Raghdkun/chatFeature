@@ -11,7 +11,7 @@ final class PrivacyEntries implements EntryList
 {
     public static function docs(): array
     {
-        $example = json_encode(['exportedAt' => '2026-10-02T09:00:00.000Z', 'subject' => ['type' => 'visitor', 'ulid' => '01j9...', 'name' => 'Ada Lovelace', 'email' => 'ada@example.com'], 'sessions' => [], 'conversations' => [], 'whatsapp' => ['linkedChats' => 0, 'handoffTickets' => 0]]);
+        $example = json_encode(['exportedAt' => '2026-10-02T09:00:00.000Z', 'subject' => ['type' => 'visitor', 'ulid' => '01j9...', 'name' => 'Ada Lovelace', 'email' => 'ada@example.com'], 'sessions' => [], 'conversations' => [], 'whatsapp' => ['linkedChats' => 0, 'handoffTickets' => 0]], JSON_THROW_ON_ERROR);
 
         return [
             Doc::route('api.visitors.export')
