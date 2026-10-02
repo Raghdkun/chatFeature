@@ -8,6 +8,7 @@ use App\Domain\WhatsApp\Actions\DeleteWhatsAppSession;
 use App\Domain\WhatsApp\Actions\FetchSessionQr;
 use App\Domain\WhatsApp\Actions\LinkWidgetSession;
 use App\Domain\WhatsApp\Actions\MarkChatRead;
+use App\Domain\WhatsApp\Actions\ReregisterWebhook;
 use App\Domain\WhatsApp\Actions\SendReply;
 use App\Domain\WhatsApp\Actions\SetChatArchived;
 use App\Domain\WhatsApp\Actions\StartWhatsAppSession;
@@ -97,6 +98,7 @@ class WhatsAppIsolationTest extends TestCase
         yield 'session start' => ['POST', '/api/v1/whatsapp/sessions/{s}/start', []];
         yield 'session stop' => ['POST', '/api/v1/whatsapp/sessions/{s}/stop', []];
         yield 'session sync' => ['POST', '/api/v1/whatsapp/sessions/{s}/sync', []];
+        yield 'session webhook' => ['POST', '/api/v1/whatsapp/sessions/{s}/webhook', []];
         yield 'session qr' => ['GET', '/api/v1/whatsapp/sessions/{s}/qr', []];
         yield 'settings show' => ['GET', '/api/v1/whatsapp/settings', []];
         yield 'settings update' => ['PUT', '/api/v1/whatsapp/settings', ['enabled' => true, 'api_key' => 'owa_k1_intruder-key']];
@@ -291,6 +293,7 @@ class WhatsAppIsolationTest extends TestCase
         yield 'start' => [fn (self $t, User $u) => app(StartWhatsAppSession::class)->handle($t->session, $u)];
         yield 'stop' => [fn (self $t, User $u) => app(StopWhatsAppSession::class)->handle($t->session, $u)];
         yield 'sync' => [fn (self $t, User $u) => app(SyncWhatsAppSession::class)->handle($t->session, $u)];
+        yield 'webhook' => [fn (self $t, User $u) => app(ReregisterWebhook::class)->handle($t->session, $u)];
         yield 'delete' => [fn (self $t, User $u) => app(DeleteWhatsAppSession::class)->handle($t->session, $u)];
         yield 'qr' => [fn (self $t, User $u) => app(FetchSessionQr::class)->handle($t->session, $u)];
         yield 'pacing' => [fn (self $t, User $u) => app(UpdateSessionPacing::class)->handle($t->session, ['daily_send_cap' => 1], $u)];

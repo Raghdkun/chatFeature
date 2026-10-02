@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Management;
 use App\Data\WhatsApp\WhatsAppQrData;
 use App\Data\WhatsApp\WhatsAppSessionData;
 use App\Domain\WhatsApp\Actions\FetchSessionQr;
+use App\Domain\WhatsApp\Actions\ReregisterWebhook;
 use App\Domain\WhatsApp\Actions\StartWhatsAppSession;
 use App\Domain\WhatsApp\Actions\StopWhatsAppSession;
 use App\Domain\WhatsApp\Actions\SyncWhatsAppSession;
@@ -13,7 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * `POST .../start` (202: the engine starts in a queued job), `POST .../stop`, `POST .../sync` and `GET .../qr` (the pairing code, only
+ * `POST .../start` (202: the engine starts in a queued job), `POST .../stop`, `POST .../sync`, `POST .../webhook` (register the webhook again with a new secret) and `GET .../qr` (the pairing code, only
  * while the session waits for a scan, never cached).
  */
 class WhatsAppSessionControlController extends WhatsAppController
@@ -29,6 +30,11 @@ class WhatsAppSessionControlController extends WhatsAppController
     }
 
     public function sync(Request $request, WhatsAppSession $session, SyncWhatsAppSession $action): JsonResponse
+    {
+        return $this->data(WhatsAppSessionData::fromModel($action->handle($session, $this->admin($request))->loadCount('widgets')));
+    }
+
+    public function webhook(Request $request, WhatsAppSession $session, ReregisterWebhook $action): JsonResponse
     {
         return $this->data(WhatsAppSessionData::fromModel($action->handle($session, $this->admin($request))->loadCount('widgets')));
     }

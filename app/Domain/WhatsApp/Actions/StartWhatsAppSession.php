@@ -102,18 +102,38 @@ final class StartWhatsAppSession
     }
 
     /**
+     * The webhook is registered once. A webhook whose secret can no longer be read (the application key changed since) counts as not
+     * registered: it would answer every delivery with a 401 for ever, so a fresh one is registered (the stale one is removed best effort).
+     *
      * @throws ApiProblemException
      */
     private function ensureWebhook(WhatsAppSession $session): WhatsAppSession
     {
-        if ($session->isWebhookRegistered() && $session->openwa_webhook_id !== null && $session->hasWebhookSecret()) {
+        if ($session->isWebhookRegistered() && $session->openwa_webhook_id !== null && $session->webhook_secret !== null) {
             return $session;
         }
 
-        if (! $session->hasWebhookSecret()) {
-            $session->webhook_secret = Str::random(self::WEBHOOK_SECRET_LENGTH);
-            $session->save();
+        return $this->registerWebhook($session, replace: true);
+    }
+
+    /**
+     * Register a webhook with a NEW secret (the first one, or a replacement for one that does not verify): the old secret and the old
+     * webhook at OpenWA are dropped. Called by Start when there is none and by `POST /whatsapp/sessions/{ulid}/webhook`.
+     *
+     * @throws ApiProblemException
+     */
+    public function registerWebhook(WhatsAppSession $session, bool $replace = false): WhatsAppSession
+    {
+        if ($replace && $session->openwa_webhook_id !== null && $session->openwa_session_id !== null) {
+            try {
+                $this->openWa->deleteWebhook($session->openwa_session_id, $session->openwa_webhook_id);
+            } catch (Throwable) {
+                // Already gone, or OpenWA cannot be asked: the new registration below says which.
+            }
         }
+
+        $session->webhook_secret = Str::random(self::WEBHOOK_SECRET_LENGTH);
+        $session->save();
 
         try {
             $webhook = $this->openWa->registerWebhook(

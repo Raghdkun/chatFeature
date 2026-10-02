@@ -30,6 +30,7 @@ Route::middleware(['auth:sanctum', 'session.valid', 'chat.access', 'wa.admin', C
         Route::post('start', [WhatsAppSessionControlController::class, 'start'])->name('api.whatsapp.sessions.start');
         Route::post('stop', [WhatsAppSessionControlController::class, 'stop'])->name('api.whatsapp.sessions.stop');
         Route::post('sync', [WhatsAppSessionControlController::class, 'sync'])->name('api.whatsapp.sessions.sync');
+        Route::post('webhook', [WhatsAppSessionControlController::class, 'webhook'])->name('api.whatsapp.sessions.webhook');
         Route::get('qr', [WhatsAppSessionControlController::class, 'qr'])->middleware(ChatThrottle::class.':wa-qr')->name('api.whatsapp.sessions.qr');
     });
 

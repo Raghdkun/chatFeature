@@ -16,6 +16,7 @@ use App\Models\WhatsAppSession;
 use App\Models\Widget;
 use Database\Factories\WhatsAppSessionFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Sleep;
@@ -403,6 +404,43 @@ class WhatsAppSessionApiTest extends TestCase
         $session->refresh();
         $this->assertSame(SessionStatus::Ready, $session->status);
         $this->assertSame('+4915100000000', $session->phone_e164);
+    }
+
+    public function test_a_webhook_that_does_not_verify_any_more_can_be_registered_again_with_a_new_secret(): void
+    {
+        $openWa = $this->openWa();
+        $remote = $openWa->makeSession('00000000-0000-4000-8000-0000000000c9', SessionStatus::Ready, 'support-main');
+        $openWa->withSession($remote);
+        $session = WhatsAppSession::factory()->ready()->withWebhook('the-old-secret-of-forty-characters-0000001')->create(['name' => 'support-main', 'openwa_session_id' => $remote->id]);
+        $oldWebhook = (string) $session->openwa_webhook_id;
+
+        $response = $this->api()->postJson('/api/v1/whatsapp/sessions/'.$session->ulid.'/webhook')->assertOk()->assertJsonPath('data.webhookRegistered', true);
+
+        $session->refresh();
+        $this->assertNotSame('the-old-secret-of-forty-characters-0000001', $session->webhook_secret);
+        $this->assertGreaterThanOrEqual(40, strlen((string) $session->webhook_secret));
+        $this->assertNotSame($oldWebhook, $session->openwa_webhook_id);
+        $openWa->assertCalled('deleteWebhook', fn (array $args): bool => $args['webhookId'] === $oldWebhook, 1);
+        $openWa->assertCalled('registerWebhook', fn (array $args): bool => $args['secret'] === $session->webhook_secret, 1);
+        $this->assertStringNotContainsString((string) $session->webhook_secret, $response->getContent());
+        $this->assertSame(1, AuditLog::query()->where('action', 'whatsapp.session.webhook_reregistered')->count());
+        $this->assertSame(SessionStatus::Ready, $session->status, 'the session itself is untouched');
+    }
+
+    public function test_a_webhook_secret_that_cannot_be_read_is_replaced_when_the_session_starts(): void
+    {
+        $openWa = $this->openWa();
+        $remote = $openWa->makeSession('00000000-0000-4000-8000-0000000000ca', SessionStatus::Created, 'support-main');
+        $openWa->withSession($remote);
+        $session = WhatsAppSession::factory()->disconnected()->withWebhook()->create(['name' => 'support-main', 'openwa_session_id' => $remote->id]);
+        // The application key changed since: what is stored can no longer be decrypted.
+        DB::table('whatsapp_sessions')->where('id', $session->id)->update(['webhook_secret_encrypted' => 'not-decryptable']);
+        $this->assertNull($session->refresh()->webhook_secret);
+
+        $this->api()->postJson('/api/v1/whatsapp/sessions/'.$session->ulid.'/start')->assertStatus(202);
+
+        $openWa->assertCalled('registerWebhook', null, 1);
+        $this->assertNotNull($session->refresh()->webhook_secret, 'a new secret that deliveries verify against');
     }
 
     // ---- stop / sync -------------------------------------------------------------------------------------------------------

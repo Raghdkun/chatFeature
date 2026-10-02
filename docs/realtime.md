@@ -35,7 +35,7 @@ flowchart LR
 | `private-conversation.{ulid}` | staff | `ConversationPolicy::viewAsStaff()`: an active admin, the assigned agent, or an agent with an open offer while the chat is `queued` (and, for offline tickets, an agent serving the category). Unknown or malformed ulid: refused |
 | `private-conversation.{ulid}` | **visitor** | not here: `POST /api/v1/public/broadcasting/auth` (below) |
 | `private-admin` | administrators | active admin |
-| `private-whatsapp-admin` | admins (P6) | **not registered yet**: nobody can join it, admins included. P6 adds it next to `admin`; agents never |
+| `private-whatsapp-admin` | active administrators only (P6) | `WhatsAppAdminChannel`, guards `web` / `sanctum`: an active account with the admin role (with or without the agent role) and the `private-` kind only; agents, visitors, `presence-whatsapp-admin` and every other spelling are refused. Events: "WhatsApp events (P6)" below |
 | `private-App.Models.User.{id}` | the kit's notification channel | kept, active owner only |
 
 ### Staff: `POST /broadcasting/auth`
@@ -88,6 +88,20 @@ Names are dot names (`broadcastAs()`); Echo needs a leading dot (`echoEvent()` i
 ### Typing
 
 Typing is a **client whisper** (`client-typing`, `{actor, typing}`, debounce 3 s, expire 5 s; Reverb relays it between subscribed members: `accept_client_events_from = members`). It is never stored. The receiver must treat the payload as untrusted input (a visitor controls it). When a client cannot whisper it calls `POST …/typing` and the server publishes `typing`.
+
+## WhatsApp events (P6)
+
+`App\Domain\WhatsApp\Realtime\WhatsAppEventSubscriber` (registered by `WhatsAppServiceProvider`) turns the WhatsApp domain events into broadcasts on **`private-whatsapp-admin` only**: administrators, nobody else, on no other channel. Payloads are the spine's Data classes (`v: 1` first; [contracts/whatsapp-data-p6.md](contracts/whatsapp-data-p6.md)), so no WhatsApp message id, no raw webhook object, no storage path, no secret and **never the QR image** (`session.qrAvailable` / `lastQrAt` say there is one to fetch over REST) can be in them.
+
+| Domain event (dispatched by) | Broadcast: payload |
+|---|---|
+| `WaMessageReceived` (the webhook job, after the row, an image and the link attempt) | `wa.message.created` `{v, message, chat}` + `wa.chat.updated` `{v, chat}`; the first broadcast already shows the link when the message carried a hand-off code |
+| `WaMessageSent` (an administrator's reply was stored, or the phone sent a message itself) | `wa.message.created` + `wa.chat.updated` |
+| `WaMessageStatusChanged` (the send job, an ack, `failed`; also a stored image arriving, with `from` equal to the status) | `wa.message.updated` `{v, message}` (merge by `message.ulid`, forward-only) |
+| `WaChatLinked`, `WaChatUpdated` (read, archive, a new inbound message re-opening a chat) | `wa.chat.updated` |
+| `WaSessionStatusChanged`, `WaSessionQrUpdated` | `wa.session.status` `{v, session}` (`WhatsAppSessionData`, status, number, last error) |
+
+All of them are published inside the process that raised the event (`ShouldBroadcastNow`, the volume is one inbox), and like the live chat's events they are `ShouldRescue`d and wrapped in a `guard()`: **a Reverb that is down is reported and never fails the webhook or the request that caused the event**; the inbox falls back to `GET /whatsapp/chats/{ulid}/messages?after_id=` and `GET /whatsapp/chats`. `WaSessionStatusChanged` also drops the cached availability of the widgets that use the session, so the panel stops offering WhatsApp within seconds of a disconnect.
 
 ## When something is down
 
