@@ -5,6 +5,8 @@ use App\Console\Commands\ChatCloseUnrated;
 use App\Console\Commands\ChatExpireQueued;
 use App\Console\Commands\ChatOfferWaves;
 use App\Console\Commands\ChatPruneVisitorSessions;
+use App\Console\Commands\WhatsAppPrune;
+use App\Console\Commands\WhatsAppReconcileSessions;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -26,3 +28,13 @@ Schedule::command(ChatOfferWaves::class)->everyMinute()->withoutOverlapping(5)->
 Schedule::command(ChatCloseIdle::class)->everyMinute()->withoutOverlapping(5)->onOneServer();
 Schedule::command(ChatCloseUnrated::class)->everyMinute()->withoutOverlapping(5)->onOneServer();
 Schedule::command(ChatPruneVisitorSessions::class)->dailyAt('03:45')->withoutOverlapping(60)->onOneServer();
+
+/*
+|--------------------------------------------------------------------------
+| WhatsApp (P6)
+|--------------------------------------------------------------------------
+| `whatsapp:reconcile-sessions` asks OpenWA what it knows about every session (a lost webhook only delays the dashboard by a minute) and
+| fails replies nobody confirmed; `whatsapp:prune` keeps the ledger, the tickets and the media folder small. Same scheduler and worker as the chat.
+*/
+Schedule::command(WhatsAppReconcileSessions::class)->everyMinute()->withoutOverlapping(5)->onOneServer();
+Schedule::command(WhatsAppPrune::class)->dailyAt('04:15')->withoutOverlapping(60)->onOneServer();
