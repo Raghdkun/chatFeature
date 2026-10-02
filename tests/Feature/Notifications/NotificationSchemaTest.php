@@ -76,7 +76,8 @@ class NotificationSchemaTest extends TestCase
     {
         $row = NotificationSetting::factory()->quietHours(['timezone' => 'Asia/Riyadh'])->create();
 
-        $this->assertSame(['enabled' => true, 'start' => '22:00', 'end' => '07:00', 'timezone' => 'Asia/Riyadh'], $row->fresh()->quiet_hours);
+        // MySQL stores JSON with its own key order: compare the content, not the order.
+        $this->assertEquals(['enabled' => true, 'start' => '22:00', 'end' => '07:00', 'timezone' => 'Asia/Riyadh'], $row->fresh()->quiet_hours);
     }
 
     public function test_a_device_token_is_unique_and_encrypted(): void

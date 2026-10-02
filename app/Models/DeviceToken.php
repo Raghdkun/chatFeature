@@ -57,7 +57,7 @@ class DeviceToken extends Model
         ];
     }
 
-    public static function hashToken(string $token): string
+    public static function hashToken(#[\SensitiveParameter] string $token): string
     {
         return hash('sha256', $token);
     }

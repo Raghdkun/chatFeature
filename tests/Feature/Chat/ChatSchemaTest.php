@@ -73,7 +73,13 @@ class ChatSchemaTest extends TestCase
 
     public function test_the_migrations_roll_back_cleanly_and_run_again(): void
     {
-        $this->artisan('migrate:rollback', ['--step' => 4, '--force' => true])->assertSuccessful();
+        // The four chat migrations and every later one (a later phase adds its own): roll back all of them, then run them again.
+        $steps = count(array_filter(
+            array_map('basename', glob(database_path('migrations/*.php')) ?: []),
+            static fn (string $file): bool => strcmp($file, '2026_11_10_000100_create_visitors_tables.php') >= 0,
+        ));
+
+        $this->artisan('migrate:rollback', ['--step' => $steps, '--force' => true])->assertSuccessful();
 
         foreach (array_keys(self::expectedColumns()) as $table) {
             $this->assertFalse(Schema::hasTable($table), "{$table} should be gone after the rollback");

@@ -144,8 +144,10 @@ export function createNotificationsController(deps: NotificationsDeps) {
     const pushConfigured = keyBytes !== null;
     const listeners = new Set<() => void>();
 
-    let started = false;
+    let running = false;
     let stopped = false;
+    /** Bumped by every start and stop: work that began before a stop must not carry on after it (React's strict mode starts, stops and starts again). */
+    let epoch = 0;
     let promptTimer: ReturnType<typeof setTimeout> | null = null;
     let unlistenWorker: (() => void) | null = null;
     let saveChain: Promise<unknown> = Promise.resolve();
@@ -579,11 +581,15 @@ export function createNotificationsController(deps: NotificationsDeps) {
     }
 
     async function start(): Promise<void> {
-        if (started) {
+        if (running) {
             return;
         }
 
-        started = true;
+        running = true;
+        stopped = false;
+
+        const mine = ++epoch;
+        const current = (): boolean => epoch === mine;
 
         if (state.support.supported) {
             unlistenWorker = env.onWorkerMessage(onWorkerMessage);
@@ -593,7 +599,7 @@ export function createNotificationsController(deps: NotificationsDeps) {
 
         if (
             !settings ||
-            stopped ||
+            !current() ||
             !pushConfigured ||
             !settings.pushAvailable
         ) {
@@ -616,7 +622,7 @@ export function createNotificationsController(deps: NotificationsDeps) {
                 void loadDevices();
             }
 
-            if (settings.promptState !== 'granted') {
+            if (current() && settings.promptState !== 'granted') {
                 await updateSettings({ promptState: 'granted' });
             }
         } else if (state.permission === 'denied') {
@@ -632,7 +638,9 @@ export function createNotificationsController(deps: NotificationsDeps) {
     }
 
     function stop(): void {
+        running = false;
         stopped = true;
+        epoch++;
         clearPromptTimer();
         unlistenWorker?.();
         unlistenWorker = null;

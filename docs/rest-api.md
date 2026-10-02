@@ -36,7 +36,7 @@ Sanctum **stateful cookie** for the dashboard, **bearer** token for mobile. Admi
 | Area | Endpoint (draft) | Notes |
 |---|---|---|
 | Auth | `GET /auth/mode` (plan), login, logout, `me` | Login varies by auth mode |
-| Me | `/me` (plan): profile, categories (P3), notification settings, presence (P4), push subscriptions, devices | |
+| Me | `/me` (plan): profile, categories (P3), presence (P4), notification settings, push subscriptions, devices (P5, "Notifications API (P5)" below) | |
 | Conversations (P4) | `GET /conversations` (+ `/queue`, `/export`, `/{ulid}`, `/{ulid}/messages`), `POST /conversations/{ulid}/{claim,messages,attachments,receipts,typing,end,close,transfer}` | Claim is atomic ([realtime.md](realtime.md)); see "Chat API (P4)" |
 | Presence (P4) | `GET/PUT /me/presence`, `POST /me/presence/heartbeat` | Minimal in P4 (database); Redis, auto-away and the sweep arrive in P5 behind the same endpoints |
 | Categories, widgets, agents (P3) | `/categories`, `/me/categories`, `/agents`, `/widgets` (+ `draft`, `publish`, `domains`, `greetings`, `categories`, `rotate-secret`, `snippet`) | Admin (listing categories and `/me/categories` for staff) |
@@ -48,7 +48,7 @@ Sanctum **stateful cookie** for the dashboard, **bearer** token for mobile. Admi
 
 - Same endpoints serve the dashboard and the mobile app; only the credential differs (cookie vs bearer).
 - In pizzasys mode the mobile app receives **our own Sanctum token** bound to the `external_sessions` row; the pizzasys token never leaves the server. The driver method exists (`attemptForApi`), but no HTTP login route exposes it yet. Staff tokens carry the ability `staff` and expire after `SANCTUM_EXPIRATION_MINUTES` (default 30 days); deactivating an account or removing its chat role deletes its tokens.
-- Push: `PushChannel` interface with `WebPushChannel` now; `FcmChannel` stub and a `device_tokens` table prepare for FCM.
+- Push: `PushChannel` interface with `WebPushChannel` (P5, [notifications.md](notifications.md)); `FcmChannel` stub, a `device_tokens` table and `POST/DELETE /me/devices` prepare for FCM.
 - A mobile-readiness review of the API is scheduled in P7 (7B), together with OpenAPI export.
 
 ## Chat API (P4)
@@ -128,3 +128,21 @@ Visibility is `Conversation::visibleTo` for lists and `ConversationPolicy` for s
 | `chat:prune-visitor-sessions` | daily 03:45 | Deletes sessions expired or revoked more than 7 days ago (their chats stay), anonymous visitors left with neither a session nor a chat, and uploads no message referenced for 24 hours (`--session-days`, `--attachment-hours`). |
 
 Each sweep is a guarded `UPDATE ... WHERE status = :from AND <deadline>`, so a missed minute only delays a transition and two schedulers cannot move a chat twice.
+
+## Notifications API (P5)
+
+Track 5B, decisions P5-D4 to P5-D9 ([contracts/presence-notifications-p5.md](contracts/presence-notifications-p5.md)); how push works as a whole, VAPID setup, privacy and troubleshooting: [notifications.md](notifications.md). Management group (`/api/v1`, Sanctum cookie or bearer, `session.valid`, `chat.access`, limiter `staff-api`), **any staff member, only ever their own rows**: no user id appears in a URL or a body, and the subscription / device `{id}` is a ULID of the caller's own row (anyone else's, or an integer, is `404`, never `403`). Request fields are snake_case, resources camelCase (`App\Data\Notifications`).
+
+| Endpoint | Notes |
+|---|---|
+| `GET /me/notification-settings` | `{ sound, pushOffers, pushMessages, includePreview, quietHours: { enabled, start, end, timezone }, promptState: never\|granted\|denied\|snoozed, promptedAt, snoozedUntil, previewsAllowed, pushAvailable, snoozeDays }`. A member who never saved anything gets the defaults (all on, quiet hours off `22:00`-`07:00` in their own timezone, `never`) and no row is created. `previewsAllowed` is the administrator's setting `notifications.push_include_preview`; `pushAvailable` is false when the VAPID keys are not configured. |
+| `PUT /me/notification-settings` | Any subset of `sound`, `push_offers`, `push_messages`, `include_preview` (booleans), `quiet_hours { enabled, start, end, timezone }` (merged field by field; `HH:MM`; a known IANA zone; with the window on, `start` and `end` must differ: `422` on `quiet_hours.end`) and `prompt_state` (`never\|granted\|denied\|snoozed`). `snoozed` ("Not now" on the first-login dialog) sets `snoozedUntil` to now + `push.snooze_days` (7), computed by the server; any state but `never` stamps `promptedAt`. Answers the whole settings object. |
+| `GET /me/push-subscriptions` | `{ data: PushSubscription[], meta: { next_cursor: null } }`, newest first: `{ id (ulid), label ("Chrome on macOS"), userAgent, host (the push service), endpointHash (sha-256 of the endpoint: a browser recognises its own row by hashing its endpoint), createdAt, lastUsedAt, expiresAt }`. **The endpoint and the keys are never returned.** |
+| `POST /me/push-subscriptions` | The browser's `PushSubscription.toJSON()`: `{ endpoint, expirationTime, keys: { p256dh, auth } }` (+ optional `content_encoding`). An **upsert by the hash of the endpoint**: `201` for a new browser, `200` when it was known (keys refreshed). A browser another member of staff signs in to is **handed over** to the caller (the device belongs to whoever uses it). The endpoint must be an `https` URL of a **public** host (`OutboundUrlGuard`: loopback, private, link-local and metadata addresses are `422`, because the server posts to it); keys must decode to a 65-byte P-256 point and a 16-byte secret. The web session that registered it is remembered (sha-256) so signing out removes the subscription. At most `push.max_subscriptions_per_user` (10): the least recently used go first. `503 push_unavailable` without VAPID keys. Limiter `push-subscriptions` (20 a minute and user). |
+| `DELETE /me/push-subscriptions/{id}` | `204`; `404 subscription_not_found` for anything that is not the caller's. |
+| `POST /me/push-subscriptions/test` | A **real** push to the caller's own browsers, sent right away (5 s timeout per device): `{ devices, sent, failed, removed }` (`removed` = subscriptions the push service said are gone: deleted). `409 no_push_devices` without a registered browser, `503 push_unavailable`. Limiter `push-test` (3 a minute and user). |
+| `POST /me/devices` · `DELETE /me/devices/{id}` | The FCM stub for the future mobile app: `{ platform: android\|ios, token }` stored encrypted (upsert by the token's hash; a token another member registered moves to the caller), `{ id, platform, lastSeenAt }` back, never the token; `404 device_not_found`. Nothing is sent to a device yet (`push.fcm.enabled` is off). |
+
+Page route: `GET /settings/notifications` (Inertia `settings/notifications`). `GET /manifest.webmanifest` is the generated web app manifest (no session, no cookie, `Cache-Control: public, max-age=300`). The shared Inertia prop `push: { vapidPublicKey } | null` is `null` for guests, for accounts without chat access and whenever the VAPID keys are missing.
+
+New codes: `push_unavailable` (503), `no_push_devices` (409), `subscription_not_found` / `device_not_found` (404).

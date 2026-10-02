@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\DB;
  */
 final class RegisterDeviceToken
 {
-    public function handle(User $user, string $platform, string $token): DeviceToken
+    public function handle(User $user, string $platform, #[\SensitiveParameter] string $token): DeviceToken
     {
         for ($attempt = 1; ; $attempt++) {
             try {
@@ -27,7 +27,7 @@ final class RegisterDeviceToken
         }
     }
 
-    private function upsert(User $user, string $platform, string $token): DeviceToken
+    private function upsert(User $user, string $platform, #[\SensitiveParameter] string $token): DeviceToken
     {
         $hash = DeviceToken::hashToken($token);
         $device = DeviceToken::query()->where('token_hash', $hash)->lockForUpdate()->first() ?? new DeviceToken;

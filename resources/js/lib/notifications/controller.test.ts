@@ -876,6 +876,25 @@ describe('lifecycle', () => {
         expect(listener).not.toHaveBeenCalled();
     });
 
+    it('can start again after a stop (React strict mode starts, stops and starts the same controller)', async () => {
+        const r = rig();
+        const controller = r.make();
+
+        const first = controller.start();
+        controller.stop();
+        const second = controller.start();
+        await Promise.all([first, second]);
+        await vi.advanceTimersByTimeAsync(1_500);
+
+        expect(r.env.workerListeners).toBe(1);
+        expect(controller.getState().settingsStatus).toBe('ready');
+        // The first run, interrupted by the stop, did not open a second dialog or listener.
+        expect(controller.getState().promptOpen).toBe(true);
+
+        controller.stop();
+        expect(r.env.workerListeners).toBe(0);
+    });
+
     it('notifies subscribers of changes and lets them unsubscribe', async () => {
         const r = rig();
         const controller = r.make();

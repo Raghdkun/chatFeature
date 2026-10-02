@@ -1,5 +1,5 @@
 import '@/tests/dom-polyfills';
-import { act } from 'react';
+import { act, StrictMode } from 'react';
 import {
     afterEach,
     beforeEach,
@@ -237,6 +237,32 @@ describe('who gets a notification session', () => {
         });
 
         expect(r.api.settings).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('React strict mode', () => {
+    it('keeps a working session when the effects run twice (the dev double mount)', async () => {
+        const r = setup();
+
+        const view = await render(
+            <StrictMode>
+                {r.wrap(
+                    <NotificationsHost initialPage={page(staff)} deps={r.deps}>
+                        <Probe />
+                    </NotificationsHost>,
+                )}
+            </StrictMode>,
+        );
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        });
+
+        expect(view.byTestId('probe')?.getAttribute('data-settings')).toBe(
+            'ready',
+        );
+        expect(r.env.workerListeners).toBe(1);
+        // The dialog opens once (after the delay), not twice.
+        expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     });
 });
 
