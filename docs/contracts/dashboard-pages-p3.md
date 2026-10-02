@@ -53,7 +53,7 @@ type AgentListItemData = {
 | `GET /widgets` | `widgets/index` | `{ widgets: WidgetListItemData[] }` |
 | `GET /widgets/{ulid}` | `widgets/builder` | `WidgetBuilderData` |
 | `GET /categories` | `categories/index` | `{ categories: CategoryData[] }` |
-| `GET /agents` | `agents/index` | `{ agents: AgentListItemData[], categories: CategoryData[], authMode: 'fortify' \| 'pizzasys', canManageStaff: boolean }` (`canManageStaff` is true only in mode 1: create/deactivate local staff; in mode 2 roles come from pizzasys) |
+| `GET /agents` | `agents/index` | `{ agents: AgentListItemData[], categories: CategoryData[], presence?: Record<userId, 'online'\|'away'\|'offline'> (P5), authMode: 'fortify' \| 'pizzasys', canManageStaff: boolean }` (`canManageStaff` is true only in mode 1: create/deactivate local staff; in mode 2 roles come from pizzasys) |
 | `GET /settings/support-categories` | `settings/support-categories` | `{ categories: CategoryData[] (active only), selected: string[] }` |
 
 `/settings/support-categories` is gated by the **staff group only** (`auth`, `session.valid`, `chat.access`: any active admin or agent can open it; no `is_agent` check on the page). The **settings menu entry only shows for `is_agent`**
