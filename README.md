@@ -173,6 +173,7 @@ The loader is built with `npm run build:widget` (git-ignored output; check the s
 | [docs/realtime.md](docs/realtime.md) | Channels, events, claim, sync, state machine |
 | [docs/security.md](docs/security.md) | Threat model, implemented controls through P7 (CSP, route matrices, stale-socket cut-off, retention/erasure, native sign-in), open items |
 | [docs/testing.md](docs/testing.md) | Test layers, commands, phase gate |
+| [docs/running-the-app.md](docs/running-the-app.md) | What is special about running it: the processes (scheduler, queue, Reverb), the setup wizard, Reverb addresses, the gotchas |
 | [docs/deployment-hostinger-kvm.md](docs/deployment-hostinger-kvm.md) | The complete production guide for a Hostinger KVM VPS: Docker Compose + Caddy stack, sizing, hardening, wizard, WhatsApp, upgrade/rollback, backups and the restore drill, troubleshooting, variable reference |
 | [docs/runbook.md](docs/runbook.md) | Operations: auth portal and NATS, presence, analytics rollups, query review, load-test results, break-glass, the production stack's day-to-day pointers |
 | [docs/analytics.md](docs/analytics.md) | Metric definitions, rollups, API, permissions |
