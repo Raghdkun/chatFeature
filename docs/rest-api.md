@@ -223,3 +223,39 @@ The public config and availability stay honest without exposing anything private
 ### Error codes (WhatsApp)
 
 `openwa_not_configured`, `openwa_unavailable` (503), `openwa_unauthorized` (502: OpenWA refused the API key (a scoped key outside its scope is a 401 there, a viewer's 403 says "Required: operator"); never mirrored as 401/403, which would end the dashboard session), `openwa_rejected` (502, `details.code` = OpenWA's code), OpenWA's own plain `429` throttle is `rate_limited` (retry in a moment), `openwa_session_exists`, `session_name_taken`, `session_name_teardown_pending`, `session_not_startable`, `session_not_stoppable`, `qr_not_available`, `webhook_rejected` (422), `webhook_limit_reached` (409), `invalid_webhook` (400, the webhook endpoint only), `queue_unavailable` (503, a reply the queue refused), `session_not_ready`, `reply_not_allowed`, `daily_cap_reached` (429), `whatsapp_unavailable` (409, public), `feature_disabled` (403, public), plus the generic `validation_failed`, `forbidden`, `not_found`, `rate_limited`.
+
+## Analytics API (P7)
+
+Track 7A; definitions, rollup and permissions: [analytics.md](analytics.md). Management group (`/api/v1/analytics`, Sanctum cookie or bearer, `session.valid`, `chat.access`, limiter `staff-api`). Shapes are the Data classes of `app/Data/Analytics` (camelCase JSON, `{ data }` envelope, generated TypeScript `App.Data.Analytics.*`). Query parameters are the same on every endpoint:
+
+| Parameter | Meaning |
+|---|---|
+| `from`, `to` | Inclusive range of **application-time-zone days** (`Y-m-d`). `to` is clamped to today; default = the last 30 days ending today. A real calendar date is required; `from` after `to` or a range longer than **731 days** is `422`. |
+| `compare` | `1` also computes the equally long range right before this one (overview, WhatsApp). |
+| `tz` | The **viewer's** IANA time zone, used only by the heatmap (default: the application's). Days are always counted in the application time zone. |
+| `widget`, `category` | A widget / topic **ulid**. An unknown ulid is `422`; soft-deleted ones work (their history stays). |
+| `agent` | A user id. |
+| `interval` | `day`, `week` (Monday first) or `month`; default chosen by the range (<= 62 days: day, <= 540: week, else month). |
+| `metric` | Timeseries: one to six comma-separated metrics (below). Heatmap: `started` or `claimed`. |
+| `by` | Breakdown: `widget`, `category` or `agent`. |
+| `format` | Export: `csv`. |
+
+**Scope is decided by the server from the caller's role, never from the client.** An administrator reads the account total, or at most **one** of `widget` / `category` / `agent` (two filters at once is `422 validation_failed`: the rollup has one row per widget, topic or agent, not their crossings). An agent only ever reads their own row: `agent=<someone else>` is `403 forbidden`, `agent=<themselves>` is the same as no filter, `widget` / `category` is `422`, and the numbers that cannot belong to one agent are `null` (`started`, `missed`, `cancelled`, `closed`, `queuePeak`, `messages.visitor`, `offline.created`, `offline.closed`, `answerRate`). The metrics `started`, `missed`, `cancelled`, `closed`, `answer_rate`, `queue_peak`, `offline_created`, `offline_closed` are `422` for an agent (and for an administrator who filters by agent). Nothing in an agent's answer names a colleague or carries a WhatsApp number or a visitor's comment.
+
+| Endpoint | Who | Answer |
+|---|---|---|
+| `GET /analytics/overview` | staff (scoped) | `{ range, previousRange \| null, scope: { role: admin\|agent, dimension: total\|widget\|category\|agent, key, whatsapp }, current: Kpis, previous: Kpis \| null, meta }`. `Kpis`: `started, handled, reclaimed, transferred, missed, cancelled, ended, closed, answerRate (0-1), wait / firstResponse / handling: { averageSeconds, maxSeconds, count }, ratings: { count, average, distribution: [1..5 stars] }, messages: { visitor, agent, perChat }, peakConcurrent, queuePeak, resolution: { visitor, agent, system, idle }, offline: { created, answered, closed, averageResponseSeconds }, offers: { received, acceptRate }`. Averages are `null` when there is nothing to average. |
+| `GET /analytics/timeseries` | staff (scoped) | `{ range, interval, series: [{ metric, unit: count\|seconds\|score\|ratio, points: [{ date (bucket start), value \| null, days }] }], meta }`. A bucket is the sum of its days **inside the range** (`days` says how many), so an average is the bucket's total / its samples. Metrics: `started handled reclaimed transferred missed cancelled ended closed answer_rate wait_avg wait_max frt_avg frt_max handling_avg handling_max rating_avg rating_count messages_visitor messages_agent messages_per_chat peak_concurrent queue_peak offline_created offline_answered offline_closed offline_response_avg offers offer_accept_rate res_visitor res_agent res_system res_idle`. Unknown metric, `interval`, none or more than six: `422`. |
+| `GET /analytics/breakdown?by=` | **admin** | `{ by, range, rows: [{ key (ulid / user id / "0"), label, deleted, kpis: Kpis, sparkline: number[] }], meta }`, busiest first (chats started for a widget or topic, accepts for an agent). `0` is "No topic" / "Unassigned". `deleted: true` = the widget, topic or account no longer exists (its numbers stay). Filters are ignored: this is the whole account. |
+| `GET /analytics/heatmap` | staff (scoped) | `{ timezone, metric, range, matrix: number[7][24] (weekday 0 = Monday, hour 0-23, in `tz`), max, total, meta }`. An agent's heatmap is always `claimed` (chats they accepted); `started` is `422` for them. |
+| `GET /analytics/ratings` | staff (scoped) | `{ range, ratings: { count, average, distribution }, recent: [{ conversation (ulid), score, comment, createdAt, widget, category, agent }], meta }`. `recent` (the latest 20 of the range) is **administrators only**: an agent gets `[]`. |
+| `GET /analytics/whatsapp` | **admin** | `{ range, previousRange, interval, current: { chats, linkedChats, linkedShare, inbound, outbound, averageResponseSeconds, responseCount }, previous \| null, series: [{ date, chats, inbound, outbound, averageResponseSeconds }], meta }`. |
+| `GET /analytics/export?format=csv` | **admin** | A streamed CSV (`text/csv`, `Cache-Control: no-store`, attachment): `date, dimension, key, label, timezone` + every counter and maximum of `analytics_daily`, one line per day / dimension / key (an average is `*_sum_s / *_count`). Today is the live computation; past days nobody rolled up are not in the file (`X-Analytics-Missing-Days`). Names that start like a formula (`= + - @`, tab, CR) are quoted with a leading `'`. Filters restrict it to one row; **audited** (`analytics.exported`: format, range, dimension; never the file). |
+
+`meta`: `{ timezone, today, live (the range includes today, computed on the spot), rolledUpTo, missingDays (past days nobody rolled up that were NOT computed: run `analytics:rollup`), timezoneChanged, generatedAt }`.
+
+Reports are cached per scope (`analytics.report_ttl` 60 s with today in the range, 900 s without; the key holds role, agent id, range, filters and time zones, and a rollup run empties it). The number of database queries does not grow with the range or the data.
+
+Error codes: the generic `validation_failed` (422), `forbidden` (403), `unauthenticated` (401), `rate_limited` (429).
+
+Page route: `GET /analytics` (Inertia `analytics/index`; staff; `auth`, `session.valid`, `chat.access`). Props: `{ scope: { role, userId, whatsapp }, timezone, today, filters: { from, to, widget, category, agent, compare }, options: { widgets, categories, agents } }` (the options are `[]` for an agent). The page loads its data from the API above.
