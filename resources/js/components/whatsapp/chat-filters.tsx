@@ -234,7 +234,7 @@ export function ChatFilters({
             )}
 
             <details className="group text-xs" data-testid="wa-export">
-                <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+                <summary className="flex min-h-6 w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
                     <Download className="size-3.5" aria-hidden />
                     {t('whatsapp.export.button')}
                 </summary>
@@ -250,7 +250,7 @@ export function ChatFilters({
                             key={`${resource}-${format}`}
                             href={exportUrl(filters, { format, resource })}
                             data-testid={`wa-export-${resource}-${format}`}
-                            className="w-fit rounded-sm text-primary underline-offset-4 hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                            className="inline-flex min-h-6 w-fit items-center rounded-sm text-primary underline-offset-4 hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
                         >
                             {t(`whatsapp.export.${resource}_${format}`)}
                         </a>
