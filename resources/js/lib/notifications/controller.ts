@@ -83,6 +83,11 @@ export type NotificationsDeps = {
     now?: () => number;
     /** How long after start the explainer opens (so it never flashes in during the page load). */
     promptDelayMs?: number;
+    /**
+     * Whether another dialog is open right now. The explainer never opens over somebody's dialog (a form being filled in): it waits
+     * and tries again. Default: any open `dialog` / `alertdialog` in the page.
+     */
+    modalOpen?: () => boolean;
     /** The server's `sound` preference when the settings load, for the sound player. */
     onSoundPreference?: (soundOn: boolean) => void;
     /** The person flipped the sound switch: the player follows (both ways). */
@@ -92,6 +97,18 @@ export type NotificationsDeps = {
     /** Where unexpected failures are reported. */
     onError?: (error: unknown) => void;
 };
+
+/** How long the explainer waits before it looks again while another dialog is open. */
+const PROMPT_RETRY_MS = 2_000;
+
+function anyDialogOpen(): boolean {
+    return (
+        typeof document !== 'undefined' &&
+        document.querySelector(
+            '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
+        ) !== null
+    );
+}
 
 function defaultStorage(): NotificationsDeps['storage'] {
     try {
@@ -163,6 +180,7 @@ export function createNotificationsController(deps: NotificationsDeps) {
         deps.storage === undefined ? defaultStorage() : deps.storage;
     const now = deps.now ?? Date.now;
     const promptDelayMs = deps.promptDelayMs ?? 1_500;
+    const modalOpen = deps.modalOpen ?? anyDialogOpen;
     const offKey = `pne.notifications.off.${deps.userId}`;
     const keyBytes = deps.vapidPublicKey ? safeKey(deps.vapidPublicKey) : null;
     const pushConfigured = keyBytes !== null;
@@ -419,13 +437,24 @@ export function createNotificationsController(deps: NotificationsDeps) {
             return;
         }
 
-        promptTimer = setTimeout(() => {
+        const fire = (): void => {
             promptTimer = null;
 
-            if (promptWanted()) {
-                set({ promptOpen: true });
+            if (!promptWanted()) {
+                return;
             }
-        }, promptDelayMs);
+
+            // Never on top of a dialog the person is using (a half-filled form loses its focus trap): look again in a moment.
+            if (modalOpen()) {
+                promptTimer = setTimeout(fire, PROMPT_RETRY_MS);
+
+                return;
+            }
+
+            set({ promptOpen: true });
+        };
+
+        promptTimer = setTimeout(fire, promptDelayMs);
     }
 
     function clearPromptTimer(): void {

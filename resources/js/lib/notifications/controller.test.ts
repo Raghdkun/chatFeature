@@ -128,6 +128,23 @@ describe('start: the page opens', () => {
         expect(controller.getState().promptOpen).toBe(true);
     });
 
+    it('never opens the explainer over a dialog the person is using: it waits and looks again', async () => {
+        let busy = true;
+        const r = rig({ deps: { modalOpen: () => busy } });
+        const controller = r.make();
+
+        await controller.start();
+        await vi.advanceTimersByTimeAsync(1_500);
+        // A form is open: not now, and not a minute later either, while it stays open.
+        expect(controller.getState().promptOpen).toBe(false);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(controller.getState().promptOpen).toBe(false);
+
+        busy = false;
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(controller.getState().promptOpen).toBe(true);
+    });
+
     it('never opens the explainer for an account that does not take chats (only agents are pushed)', async () => {
         const r = rig({ deps: { isAgent: false } });
         const controller = r.make();
