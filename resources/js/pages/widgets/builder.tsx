@@ -3,7 +3,10 @@ import { useState, type ReactNode } from 'react';
 import { BuilderHeader } from '@/components/widgets/builder/builder-header';
 import { BuilderTabs } from '@/components/widgets/builder/builder-tabs';
 import { useWidgetBuilder } from '@/components/widgets/builder/use-widget-builder';
-import type { BuilderTab } from '@/components/widgets/builder-state';
+import {
+    BUILDER_TABS,
+    type BuilderTab,
+} from '@/components/widgets/builder-state';
 import { BuilderPreview } from '@/components/widgets/builder-preview';
 import { SegmentedChoice } from '@/components/widgets/form-bits';
 import { PageShell } from '@/components/widgets/page-chrome';
@@ -16,13 +19,24 @@ import type { WidgetBuilderData } from '@/types/widgets';
 
 type View = 'edit' | 'preview';
 
+/** `?tab=domains` opens the builder on that tab (the dashboard's setup checklist links to the step that is missing). */
+function initialTab(): BuilderTab {
+    if (typeof window === 'undefined') {
+        return 'general';
+    }
+
+    const wanted = new URLSearchParams(window.location.search).get('tab');
+
+    return BUILDER_TABS.find((tab) => tab === wanted) ?? 'general';
+}
+
 /** Editor (tabs) + live preview. Wide screens show both; narrow ones switch between them. */
 export default function WidgetBuilder(data: WidgetBuilderData) {
     const { t } = useTrans();
     const builder = useWidgetBuilder(data);
     const { state, dispatch } = builder;
     const wide = useMediaQuery('(min-width: 1280px)');
-    const [tab, setTab] = useState<BuilderTab>('general');
+    const [tab, setTab] = useState<BuilderTab>(initialTab);
     const [view, setView] = useState<View>('edit');
     const [focus, setFocus] = useState<{ id: string | null; nonce: number }>({
         id: null,

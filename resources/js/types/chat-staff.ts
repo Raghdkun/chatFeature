@@ -18,6 +18,8 @@ export type InboxShellProps = {
     mine: ConversationStaff[];
     presence: { status: PresenceStatus };
     categories: CategoryData[];
+    /** Whether chats can reach the caller (an agent who serves no category never gets one). */
+    serving?: App.Data.Dashboard.ServingStatusData;
 };
 
 export type InboxPageProps = InboxShellProps;

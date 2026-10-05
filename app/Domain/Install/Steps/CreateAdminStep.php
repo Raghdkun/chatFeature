@@ -4,10 +4,12 @@ namespace App\Domain\Install\Steps;
 
 use App\Auth\Enums\UserRole;
 use App\Domain\Audit\AuditLogger;
+use App\Domain\Catalog\Actions\EnsureGeneralCategory;
 use App\Domain\Install\Contracts\InstallStep;
 use App\Domain\Install\InstallContext;
 use App\Domain\Install\StepResult;
 use App\Models\AuditLog;
+use App\Models\Category;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
@@ -85,6 +87,10 @@ final class CreateAdminStep implements InstallStep
                 // Written without the model's `hashed` cast: the value is already a hash.
                 User::query()->whereKey($user->getKey())->update(['password' => $admin['password_hash']]);
             }
+
+            // The administrator takes chats too (`is_agent`): put them on the seeded "General" category (the seed step ran before this
+            // one). Otherwise the first visitor always gets "no agent is available" and nothing says why.
+            Category::query()->where('slug', EnsureGeneralCategory::SLUG)->first()?->users()->syncWithoutDetaching([$user->getKey()]);
 
             // Provenance: lets a later re-run recognise "the administrator this wizard created" (see above).
             $this->audit->record(self::AUDIT_ACTION, $user->refresh());

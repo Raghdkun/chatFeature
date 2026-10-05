@@ -586,6 +586,21 @@ unseen: number,
 };
 }
 }
+namespace Dashboard {
+export type ServingStatusData = {
+takesChats: boolean,
+categories: number,
+};
+export type SetupStatusData = {
+categories: number,
+widgets: number,
+widgetUlid: string | null,
+widgetsLive: number,
+widgetsReachable: number,
+widgetCustomised: boolean,
+agentsServing: number,
+};
+}
 namespace Notifications {
 export type DeviceTokenData = {
 id: string,

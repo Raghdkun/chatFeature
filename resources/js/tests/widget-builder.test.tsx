@@ -1670,6 +1670,48 @@ describe('categories tab', () => {
 describe('embed tab', () => {
     const SECRET = 'whsec_NEVER-STORED-0123456789';
 
+    it('has no warning when the widget is on and a site is allowed', async () => {
+        const { view } = await setup();
+
+        await openTab(view, 'embed');
+
+        expect(view.byTestId('builder-embed-offline')).toBeNull();
+        expect(view.byTestId('builder-embed-no-domains')).toBeNull();
+    });
+
+    it('says the code loads nothing while the widget is switched off', async () => {
+        const base = makeBuilderData();
+        const { view } = await setup(
+            makeBuilderData({ widget: { ...base.widget, is_enabled: false } }),
+        );
+
+        await openTab(view, 'embed');
+
+        expect(view.byTestId('builder-embed-offline')?.textContent).toContain(
+            'switched off',
+        );
+        expect(view.byTestId('builder-embed-no-domains')).toBeNull();
+    });
+
+    it('says no site can show the widget yet and leads to the Domains tab', async () => {
+        const { view } = await setup(makeBuilderData({ domains: [] }));
+
+        await openTab(view, 'embed');
+
+        expect(
+            view.byTestId('builder-embed-no-domains')?.textContent,
+        ).toContain('No site is allowed');
+        expect(view.byTestId('builder-embed-offline')).toBeNull();
+
+        const action = Array.from(
+            view.container.querySelectorAll('button'),
+        ).find((button) => button.textContent === 'Add a domain');
+
+        expect(action).toBeDefined();
+        await click(action as HTMLElement);
+        expect(view.byTestId('builder-panel-domains')).not.toBeNull();
+    });
+
     it('shows the three embed codes and the signed-identity examples', async () => {
         const { view } = await setup();
 
@@ -2125,7 +2167,7 @@ describe('what applies immediately', () => {
         // General: identity, language and time, timing, availability.
         expect(live('general')).toBe(4);
         expect(view.byTestId('builder-live-badge')?.textContent).toBe(
-            'Changes here apply immediately',
+            'Takes effect when you save (no Publish needed)',
         );
 
         await openTab(view, 'branding');

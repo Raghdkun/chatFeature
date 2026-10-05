@@ -1,6 +1,7 @@
 import { KeyRound, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { useId, useState } from 'react';
 import type { TabProps } from '@/components/widgets/builder/tab-props';
+import type { BuilderTab } from '@/components/widgets/builder-state';
 import {
     Busy,
     CodeBlock,
@@ -42,8 +43,11 @@ export function EmbedTab({
     snippets,
     onRotateSecret,
     hasUnpublished,
+    onTabChange,
 }: Pick<TabProps, 'state'> & {
     snippets: WidgetSnippetsData;
+    /** Jumps to the tab where the missing step is done. */
+    onTabChange: (tab: BuilderTab) => void;
     /** Resolves with the plaintext secret; it is shown once and never kept. */
     onRotateSecret: () => Promise<string>;
     hasUnpublished: boolean;
@@ -77,6 +81,42 @@ export function EmbedTab({
                 title={t('builder.embed.snippets_title')}
                 description={t('builder.embed.snippets_description')}
             >
+                {!state.doc.settings.is_enabled ? (
+                    <Notice tone="warning" data-testid="builder-embed-offline">
+                        <div className="grid gap-2">
+                            <p>{t('builder.embed.not_live')}</p>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="w-fit bg-background"
+                                onClick={() => onTabChange('general')}
+                            >
+                                {t('builder.embed.not_live_action')}
+                            </Button>
+                        </div>
+                    </Notice>
+                ) : (
+                    state.doc.domains.length === 0 && (
+                        <Notice
+                            tone="warning"
+                            data-testid="builder-embed-no-domains"
+                        >
+                            <div className="grid gap-2">
+                                <p>{t('builder.embed.no_domains')}</p>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="w-fit bg-background"
+                                    onClick={() => onTabChange('domains')}
+                                >
+                                    {t('builder.embed.no_domains_action')}
+                                </Button>
+                            </div>
+                        </Notice>
+                    )
+                )}
                 {hasUnpublished && (
                     <Notice
                         tone="warning"

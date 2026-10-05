@@ -161,6 +161,7 @@ export function BuilderTabs({
                     snippets={snippets}
                     hasUnpublished={hasUnpublished}
                     onRotateSecret={onRotateSecret}
+                    onTabChange={onTabChange}
                 />
             </TabsContent>
         </Tabs>

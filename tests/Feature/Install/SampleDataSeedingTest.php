@@ -3,6 +3,7 @@
 namespace Tests\Feature\Install;
 
 use App\Models\Category;
+use App\Models\User;
 use App\Models\Widget;
 use App\Models\WidgetGreeting;
 
@@ -41,6 +42,22 @@ class SampleDataSeedingTest extends InstallTestCase
         $this->assertCount(3, $greetings);
         $this->assertTrue($greetings->every(fn (WidgetGreeting $greeting): bool => $greeting->is_active && $greeting->weight === 1 && $greeting->body !== ''));
         $this->assertSame([0, 1, 2], $greetings->pluck('sort_order')->all());
+    }
+
+    public function test_the_first_administrator_serves_the_general_category_so_the_first_visitor_reaches_somebody(): void
+    {
+        $this->install();
+        $this->postJson(route('setup.run', 'create-admin'))->assertJsonPath('status', 'ok');
+
+        $admin = User::query()->where('is_admin', true)->firstOrFail();
+        $category = Category::query()->where('slug', 'general')->firstOrFail();
+
+        $this->assertTrue($admin->is_agent);
+        $this->assertSame([$category->id], $admin->categories()->pluck('categories.id')->all());
+
+        // Running the step again does not duplicate the link.
+        $this->postJson(route('setup.run', 'create-admin'))->assertJsonPath('status', 'ok');
+        $this->assertSame(1, $admin->categories()->count());
     }
 
     public function test_seeding_is_idempotent(): void

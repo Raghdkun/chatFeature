@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Dashboard;
 use App\Data\Catalog\CategoryData;
 use App\Data\Chat\ConversationStaffData;
 use App\Data\Chat\MessageData;
+use App\Data\Dashboard\ServingStatusData;
 use App\Domain\Catalog\Support\CategoryQuery;
 use App\Domain\Chat\Enums\ConversationStatus;
 use App\Domain\Chat\Enums\ConversationType;
@@ -65,6 +66,7 @@ class InboxPageController extends Controller
             'mine' => $this->mine($user),
             // What the agent chose while the presence store still holds it: a reload revives it with the first heartbeat.
             'presence' => ['status' => app(PresenceService::class)->chosenStatus($user)->value],
+            'serving' => ServingStatusData::for($user),
             'categories' => $categories->all(onlyActive: ! $user->is_admin)
                 ->map(fn (Category $category): array => CategoryData::fromCategory($category)->toArray())
                 ->values()

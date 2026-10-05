@@ -21,6 +21,7 @@ import {
     useInbox,
     useStaffRealtimeContext,
 } from '@/lib/realtime/staff/context';
+import { ServingNotice } from '@/components/dashboard/serving-notice';
 import type { InboxShellProps } from '@/types/chat-staff';
 import { cn } from '@/lib/utils';
 
@@ -33,6 +34,7 @@ export function InboxShell({
     queue,
     mine,
     presence,
+    serving,
     selectedUlid,
     children,
 }: InboxShellProps & {
@@ -107,6 +109,7 @@ export function InboxShell({
                                     void controller.setPresence(status)
                                 }
                             />
+                            <ServingNotice serving={serving} />
                             {live.presence === 'offline' && (
                                 <Notice
                                     tone="warning"

@@ -1,5 +1,11 @@
-import { Head } from '@inertiajs/react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Head, usePage } from '@inertiajs/react';
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useState,
+    type ReactNode,
+} from 'react';
 import { BreakdownTable } from '@/components/analytics/breakdown-table';
 import { ChartPanel } from '@/components/analytics/chart-panel';
 import { FilterBar } from '@/components/analytics/filter-bar';
@@ -16,6 +22,7 @@ import {
     usePlural,
 } from '@/components/widgets/page-chrome';
 import { useTrans } from '@/hooks/use-trans';
+import AppLayout from '@/layouts/app-layout';
 import { analyticsApi } from '@/lib/analytics/client';
 import { PALETTE_CLASSES } from '@/lib/analytics/palette';
 import { filtersToSearch, intervalFor, spanDays } from '@/lib/analytics/ranges';
@@ -241,5 +248,29 @@ export default function AnalyticsIndex({
                 {admin && scope.whatsapp && <WhatsAppSection params={params} />}
             </PageShell>
         </>
+    );
+}
+
+AnalyticsIndex.layout = AnalyticsLayout;
+
+/** The top bar names the page (an agent's view is "My performance"), like every other dashboard page. */
+function AnalyticsLayout({ children }: { children: ReactNode }) {
+    const { t } = useTrans();
+    const { scope } = usePage<AnalyticsPageProps>().props;
+
+    return (
+        <AppLayout
+            breadcrumbs={[
+                {
+                    title:
+                        scope.role === 'admin'
+                            ? t('analytics.title')
+                            : t('analytics.title_agent'),
+                    href: analyticsRoutes.page(),
+                },
+            ]}
+        >
+            {children}
+        </AppLayout>
     );
 }

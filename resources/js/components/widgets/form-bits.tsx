@@ -70,7 +70,7 @@ export function SectionCard({
     title: string;
     description?: ReactNode;
     actions?: ReactNode;
-    /** Show the "Changes here apply immediately" badge. */
+    /** Show the "Takes effect when you save (no Publish needed)" badge. */
     live?: boolean;
     children: ReactNode;
     className?: string;

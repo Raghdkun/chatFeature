@@ -75,6 +75,8 @@ class ChatInboxPagesTest extends TestCase
             ->where('mine.2.ulid', $ended->ulid)
             ->where('mine.0.assignedAgent.id', $agent->id)
             ->where('presence.status', 'offline')
+            ->where('serving.takesChats', true)
+            ->where('serving.categories', 0)
             ->has('categories')
             ->missing('conversation')
             ->etc());

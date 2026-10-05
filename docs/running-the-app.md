@@ -90,7 +90,9 @@ Tests never reach a network (`Http::preventStrayRequests()`): every outbound cal
 | `/setup` answers 404 | The install is done (`storage/app/installed.lock` exists). |
 | Every artisan command crashes before install | `BROADCAST_CONNECTION=reverb` without Reverb keys: run `php artisan chat:bootstrap-secrets` or use `BROADCAST_CONNECTION=null`. |
 | Chats never time out, agents stay online | The scheduler is not running. |
-| Dashboard says "polling" | Reverb is not running or its address in `.env` is wrong. |
-| Widget does not appear | `npm run build:widget` was not run, or the host page's origin is not in the widget's domain list. |
+| Dashboard says "Connecting to live updates" for good, or the log is full of `Pusher error: <!DOCTYPE HTML ...` | Reverb is not running, or something else owns its port (**Homebrew Apache `httpd` listens on 8080** on many Macs): check `lsof -nP -iTCP:8080 -sTCP:LISTEN`. Set `REVERB_PORT` **and** `REVERB_SERVER_PORT` to a free port (for example 8081), restart `php artisan reverb:start`, and rebuild or restart Vite (the browser reads the address from the server, but `VITE_REVERB_*` follow `REVERB_PORT`). The inbox keeps working by polling meanwhile. |
+| Widget does not appear | `npm run build:widget` was not run, the widget is switched off (Widgets > the switch, "Take widget live"), or the host page's origin is not in the widget's **Domains** tab (type it, press Add **and click Save changes**; for a local page use `localhost:PORT`). |
+| The bubble appears but its chat window is empty | The page's origin is not in the widget's domain list (the browser refuses to frame the panel: `frame-ancestors`), or the widget was edited but not saved. Open the widget's Embed tab: it now says what is missing. |
+| Visitors always get "No agent is available" although you are online | You are online but serve no category: Settings > Support categories (the dashboard now says so). |
 | Client IPs are all the proxy's | `TRUSTED_PROXIES` is not set. |
 | Push notifications never arrive | VAPID keys missing, page not on HTTPS, or the browser permission was denied. |

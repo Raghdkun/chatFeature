@@ -216,6 +216,20 @@ describe('login page', () => {
     });
 });
 
+const emptySetup: App.Data.Dashboard.SetupStatusData = {
+    categories: 0,
+    widgets: 0,
+    widgetUlid: null,
+    widgetsLive: 0,
+    widgetsReachable: 0,
+    widgetCustomised: false,
+    agentsServing: 0,
+};
+const notServing: App.Data.Dashboard.ServingStatusData = {
+    takesChats: false,
+    categories: 0,
+};
+
 describe('dashboard', () => {
     // Radix measures the switch with ResizeObserver, which jsdom lacks.
     vi.stubGlobal(
@@ -236,7 +250,9 @@ describe('dashboard', () => {
             },
         });
 
-        const view = await render(<Dashboard />);
+        const view = await render(
+            <Dashboard setup={emptySetup} serving={notServing} />,
+        );
 
         expect(view.container.querySelector('h1')?.textContent).toBe(
             'Welcome back, Mina',
@@ -246,9 +262,112 @@ describe('dashboard', () => {
         );
         for (const key of ['category', 'widget', 'agents', 'embed']) {
             expect(view.byTestId(`dashboard-admin-step-${key}`)).not.toBeNull();
+            expect(
+                view.byTestId(`dashboard-admin-step-${key}`)?.dataset.done,
+            ).toBe('false');
         }
         expect(view.byTestId('dashboard-queue')).not.toBeNull();
         expect(view.byTestId('dashboard-agent-waiting')).toBeNull();
+        // Nothing exists yet: the widget and site steps say to create a widget first, and every row leads somewhere.
+        expect(
+            view.byTestId('dashboard-admin-hint-embed')?.textContent,
+        ).toContain('no widget yet');
+        expect(
+            view
+                .byTestId('dashboard-admin-step-category')
+                ?.querySelector('a')
+                ?.getAttribute('href'),
+        ).toBe('/categories');
+        expect(view.container.textContent).not.toContain('Soon');
+        expect(view.byTestId('dashboard-availability')).toBeNull();
+    });
+
+    it('reads the checklist from the real configuration and says what is still missing', async () => {
+        resetInertiaMock({
+            auth: {
+                user: user({ is_admin: true, is_agent: true }),
+                mode: 'fortify',
+                capabilities: fortifyCapabilities,
+            },
+        });
+
+        // A category and a widget exist and the widget is live, but no site may show it and nobody serves the category.
+        const view = await render(
+            <Dashboard
+                setup={{
+                    ...emptySetup,
+                    categories: 1,
+                    widgets: 1,
+                    widgetUlid: '01JWIDGET',
+                    widgetsLive: 1,
+                }}
+                serving={{ takesChats: true, categories: 0 }}
+            />,
+        );
+
+        expect(
+            view.byTestId('dashboard-admin-step-category')?.dataset.done,
+        ).toBe('true');
+        expect(view.byTestId('dashboard-admin-setup')?.textContent).toContain(
+            '1 of 4 done',
+        );
+        expect(
+            view.byTestId('dashboard-admin-hint-embed')?.textContent,
+        ).toContain('No site is allowed');
+        expect(
+            view
+                .byTestId('dashboard-admin-step-embed')
+                ?.querySelector('a')
+                ?.getAttribute('href'),
+        ).toBe('/widgets/01JWIDGET?tab=domains');
+        expect(
+            view.byTestId('dashboard-admin-hint-agents')?.textContent,
+        ).toContain('Nobody serves a category');
+        // An administrator who takes chats can go online from here (visitors are told "nobody is available" otherwise).
+        expect(view.byTestId('dashboard-availability')).not.toBeNull();
+        // The administrator takes chats but serves no category: told so, with the way out.
+        expect(view.byTestId('serving-notice')?.textContent).toContain(
+            'do not serve any category',
+        );
+        expect(
+            view
+                .byTestId('serving-notice')
+                ?.querySelector('a')
+                ?.getAttribute('href'),
+        ).toBe('/settings/support-categories');
+    });
+
+    it('celebrates a finished setup', async () => {
+        resetInertiaMock({
+            auth: {
+                user: user({ is_admin: true, is_agent: true }),
+                mode: 'fortify',
+                capabilities: fortifyCapabilities,
+            },
+        });
+
+        const view = await render(
+            <Dashboard
+                setup={{
+                    categories: 1,
+                    widgets: 1,
+                    widgetUlid: '01JWIDGET',
+                    widgetsLive: 1,
+                    widgetsReachable: 1,
+                    widgetCustomised: true,
+                    agentsServing: 1,
+                }}
+                serving={{ takesChats: true, categories: 1 }}
+            />,
+        );
+
+        expect(view.byTestId('dashboard-admin-setup')?.textContent).toContain(
+            'Your chat is ready',
+        );
+        expect(view.byTestId('dashboard-admin-setup')?.textContent).toContain(
+            '4 of 4 done',
+        );
+        expect(view.byTestId('serving-notice')).toBeNull();
     });
 
     it('gives agents a waiting state with the availability control (the real status select, no placeholder switch)', async () => {
@@ -260,7 +379,12 @@ describe('dashboard', () => {
             },
         });
 
-        const view = await render(<Dashboard />);
+        const view = await render(
+            <Dashboard
+                setup={null}
+                serving={{ takesChats: true, categories: 1 }}
+            />,
+        );
 
         expect(view.byTestId('dashboard-agent-waiting')?.textContent).toContain(
             'Waiting for chats',
@@ -283,6 +407,27 @@ describe('dashboard', () => {
         expect(select.disabled).toBe(true);
     });
 
+    it('tells an agent who serves no category why no chat will reach them', async () => {
+        resetInertiaMock({
+            auth: {
+                user: user(),
+                mode: 'fortify',
+                capabilities: fortifyCapabilities,
+            },
+        });
+
+        const view = await render(
+            <Dashboard
+                setup={null}
+                serving={{ takesChats: true, categories: 0 }}
+            />,
+        );
+
+        expect(view.byTestId('serving-notice')?.textContent).toContain(
+            'Choose my categories',
+        );
+    });
+
     it('labels the status select for assistive tech', async () => {
         resetInertiaMock({
             auth: {
@@ -292,7 +437,12 @@ describe('dashboard', () => {
             },
         });
 
-        const view = await render(<Dashboard />);
+        const view = await render(
+            <Dashboard
+                setup={null}
+                serving={{ takesChats: true, categories: 1 }}
+            />,
+        );
         const select = view.byTestId('presence-select');
         const label = view.container.querySelector(
             `label[for="${select?.id}"]`,

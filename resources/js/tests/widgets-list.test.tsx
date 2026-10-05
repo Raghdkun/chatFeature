@@ -82,6 +82,26 @@ describe('widget cards', () => {
         ).toBe('/widgets/w2');
     });
 
+    it('tells the administrator what stops a widget from showing: switched off, or no allowed site', async () => {
+        const view = await render(
+            <WidgetsIndex
+                widgets={[
+                    makeListItem({ ulid: 'ok', domains_count: 1 }),
+                    makeListItem({ ulid: 'off', is_enabled: false }),
+                    makeListItem({ ulid: 'bare', domains_count: 0 }),
+                ]}
+            />,
+        );
+
+        expect(byTestId(view.container, 'widget-hint-ok')).toBeNull();
+        expect(
+            byTestId(view.container, 'widget-hint-off')?.textContent,
+        ).toContain('Switched off');
+        expect(
+            byTestId(view.container, 'widget-hint-bare')?.textContent,
+        ).toContain('No allowed site yet');
+    });
+
     it('copies the public key', async () => {
         const writeText = vi.fn().mockResolvedValue(undefined);
 

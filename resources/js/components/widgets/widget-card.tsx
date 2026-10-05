@@ -139,6 +139,17 @@ export function WidgetCard({
                 </div>
             </dl>
 
+            {(!widget.is_enabled || widget.domains_count === 0) && (
+                <p
+                    className="border-t bg-amber-50 px-4 py-2 text-xs font-medium text-amber-900 dark:bg-amber-400/10 dark:text-amber-200"
+                    data-testid={`widget-hint-${widget.ulid}`}
+                >
+                    {!widget.is_enabled
+                        ? t('widgets.hint.offline')
+                        : t('widgets.hint.no_domains')}
+                </p>
+            )}
+
             <div className="mt-auto flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t px-4 py-3">
                 <div className="flex items-center gap-2">
                     <Switch

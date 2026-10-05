@@ -14,6 +14,9 @@ use Illuminate\Support\Facades\DB;
  */
 final class RowReader
 {
+    /** The first recorded activity (memoised per reader): false = not read yet, null = nothing ever recorded. */
+    private string|false|null $firstActivity = false;
+
     public function __construct(private readonly LiveDay $live) {}
 
     public function read(string $dimension, string $key, string $from, string $to): ReadResult
@@ -111,10 +114,15 @@ final class RowReader
 
         $missing = [];
         $last = min($to, CarbonImmutable::createFromFormat('!Y-m-d', $today, 'UTC')->subDay()->format('Y-m-d'));
+        // Nothing can have happened before the first chat: those days are empty by definition, not "still being prepared". A fresh
+        // installation (no chat at all) has no missing day, instead of announcing a month of numbers that are not there.
+        $first = $this->firstActivityDay();
 
-        for ($day = CarbonImmutable::createFromFormat('!Y-m-d', $from, 'UTC'); $day->format('Y-m-d') <= $last; $day = $day->addDay()) {
-            if (! isset($rolled[$day->format('Y-m-d')])) {
-                $missing[] = $day->format('Y-m-d');
+        if ($first !== null) {
+            for ($day = CarbonImmutable::createFromFormat('!Y-m-d', max($from, $first), 'UTC'); $day->format('Y-m-d') <= $last; $day = $day->addDay()) {
+                if (! isset($rolled[$day->format('Y-m-d')])) {
+                    $missing[] = $day->format('Y-m-d');
+                }
             }
         }
 
@@ -130,5 +138,20 @@ final class RowReader
         }
 
         return ['live' => $live, 'today' => $todayInRange, 'rolledUpTo' => $rolledUpTo, 'missing' => $unfilled, 'timezoneChanged' => $changed];
+    }
+
+    /** The day before the first chat or WhatsApp chat (a day of margin for the time zone), or null when nothing was ever recorded. */
+    private function firstActivityDay(): ?string
+    {
+        if ($this->firstActivity === false) {
+            $times = array_filter([
+                DB::table('conversations')->min('created_at'),
+                DB::table('wa_chats')->min('created_at'),
+            ]);
+
+            $this->firstActivity = $times === [] ? null : CarbonImmutable::parse(min($times), 'UTC')->subDay()->format('Y-m-d');
+        }
+
+        return $this->firstActivity;
     }
 }

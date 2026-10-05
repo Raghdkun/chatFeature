@@ -6,8 +6,14 @@ import { useTrans } from '@/hooks/use-trans';
 import AppLayout from '@/layouts/app-layout';
 import { dashboard } from '@/routes';
 
-/** Role-aware landing page: admins get a setup checklist, agents an empty inbox. */
-export default function Dashboard() {
+/** Role-aware landing page: admins get a setup checklist read from the real configuration, agents their availability. */
+export default function Dashboard({
+    setup,
+    serving,
+}: {
+    setup: App.Data.Dashboard.SetupStatusData | null;
+    serving: App.Data.Dashboard.ServingStatusData;
+}) {
     const { auth } = usePage().props;
     const { t } = useTrans();
     const firstName = auth.user?.name.trim().split(/\s+/)[0] ?? '';
@@ -21,7 +27,11 @@ export default function Dashboard() {
                     {t('dashboard.greeting', { name: firstName })}
                 </h1>
 
-                {auth.user?.is_admin ? <AdminDashboard /> : <AgentDashboard />}
+                {auth.user?.is_admin && setup ? (
+                    <AdminDashboard setup={setup} serving={serving} />
+                ) : (
+                    <AgentDashboard serving={serving} />
+                )}
             </div>
         </>
     );
