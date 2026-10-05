@@ -26,6 +26,11 @@ export type PreviewHostOptions = {
     lang: string;
     /** Text shown as the fake site's name (already translated). */
     siteName: string;
+    /**
+     * The dashboard's CSP nonce. An `srcdoc` document inherits the parent's policy, which allows inline scripts only with this nonce
+     * (production enforces it); without one the preview's scripts are blocked and the live preview never starts.
+     */
+    nonce?: string | null;
 };
 
 /** JSON that is safe inside an inline `<script>` (no `</script>`, no line separators). */
@@ -168,7 +173,8 @@ body{font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;background:${da
 
 /** The complete HTML document for the preview iframe (`srcdoc`). */
 export function buildPreviewHostDocument(options: PreviewHostOptions): string {
-    const { boot, loaderUrl, dir, scheme, lang, siteName } = options;
+    const { boot, loaderUrl, dir, scheme, lang, siteName, nonce } = options;
+    const nonceAttr = nonce ? ` nonce="${escapeHtml(nonce)}"` : '';
     let embedOrigin = boot.api.appOrigin;
 
     try {
@@ -205,9 +211,9 @@ export function buildPreviewHostDocument(options: PreviewHostOptions): string {
     <div class="card"><span class="bar t"></span><span class="bar l"></span><span class="bar l s"></span></div>
   </section>
 </div>
-<script>window.__PNE_CHAT_BOOT__=window.__PNE_CHAT_BOOT__||{};window.__PNE_CHAT_BOOT__[${safeJson(boot.key)}]=${safeJson(boot)};window.__PNE_PREVIEW__=${safeJson(preview)};</script>
+<script${nonceAttr}>window.__PNE_CHAT_BOOT__=window.__PNE_CHAT_BOOT__||{};window.__PNE_CHAT_BOOT__[${safeJson(boot.key)}]=${safeJson(boot)};window.__PNE_PREVIEW__=${safeJson(preview)};</script>
 <script src="${escapeHtml(loaderUrl)}" data-widget-key="${escapeHtml(boot.key)}" data-open-on-load="false" async></script>
-<script>${RELAY_SOURCE}</script>
+<script${nonceAttr}>${RELAY_SOURCE}</script>
 </body>
 </html>`;
 }

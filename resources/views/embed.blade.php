@@ -15,6 +15,8 @@
 
         {{-- Boot data for resources/js/embed/main.tsx (docs/contracts/widget-config.md). Never contains secrets. --}}
         <script>window.__PNE_EMBED__ = {{ Illuminate\Support\Js::from($embed) }};</script>
+        {{-- Fast Refresh needs its preamble before the first module under `vp dev` (public/hot); a no-op for the built assets. Without it the panel stays blank. --}}
+        @viteReactRefresh
         @vite('resources/js/embed/main.tsx')
     </head>
     <body>

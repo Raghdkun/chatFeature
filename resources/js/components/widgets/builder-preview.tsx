@@ -591,6 +591,9 @@ function LivePreview({
         scheme,
         lang: config.defaultLocale,
         siteName: t('builder.preview.site_name'),
+        nonce: document
+            .querySelector('meta[name="csp-nonce"]')
+            ?.getAttribute('content'),
     });
 
     useEffect(() => {

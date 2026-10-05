@@ -89,6 +89,21 @@ describe('preview host document', () => {
         expect(html).toContain('/embed/wk_abc?preview=1');
     });
 
+    it('puts the dashboard CSP nonce on both inline scripts (an srcdoc inherits the enforced policy), never on the loader', () => {
+        const html = documentFor({ nonce: 'abc123+/=' });
+
+        expect(html.match(/<script nonce="abc123\+\/="/g)).toHaveLength(2);
+        expect(html).toContain(
+            '<script src="https://chat.example.test/widget/v1/loader.js"',
+        );
+        // Without a nonce the markup is what it always was.
+        expect(documentFor()).not.toContain('nonce=');
+        // A hostile nonce cannot break out of the attribute.
+        expect(documentFor({ nonce: '"><img src=x>' })).not.toContain(
+            '<img src=x>',
+        );
+    });
+
     it('sets language, direction and color scheme of the mock page', () => {
         const rtl = documentFor({ dir: 'rtl', lang: 'ar', scheme: 'dark' });
 

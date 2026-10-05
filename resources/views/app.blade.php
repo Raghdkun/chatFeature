@@ -9,6 +9,8 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="color-scheme" content="light dark">
+        {{-- The nonce of this response's CSP: the builder preview builds an `srcdoc` document that inherits the policy, so its inline scripts must carry it. --}}
+        <meta name="csp-nonce" content="{{ \Illuminate\Support\Facades\Vite::cspNonce() }}">
 
         {{-- Inline script to detect system dark mode preference and apply it immediately. It carries the per-request CSP nonce (SecurityHeaders): the dashboard's script policy has no 'unsafe-inline'. --}}
         <script nonce="{{ \Illuminate\Support\Facades\Vite::cspNonce() }}">

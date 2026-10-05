@@ -161,6 +161,15 @@ class SecurityHeadersTest extends TestCase
 
     // ---- the policy -------------------------------------------------------------------------------------------------------------
 
+    public function test_the_page_exposes_its_own_nonce_in_a_meta_tag_for_the_builder_preview(): void
+    {
+        // The builder preview builds an `srcdoc` document in the browser; it inherits this policy, so its inline scripts need this nonce.
+        $response = $this->get('/login');
+
+        $this->assertSame(1, preg_match('/<meta name="csp-nonce" content="([A-Za-z0-9]+)"/', (string) $response->getContent(), $matches));
+        $this->assertSame($this->nonceOf($response), $matches[1]);
+    }
+
     public function test_a_dashboard_page_carries_a_strict_policy_with_a_fresh_nonce_per_request(): void
     {
         $first = $this->get('/login');

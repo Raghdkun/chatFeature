@@ -8,6 +8,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Vite;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
@@ -34,6 +35,26 @@ class HardeningTest extends TestCase
         $response->assertOk();
         $this->assertStringContainsString('customer.example', (string) $response->headers->get('Content-Security-Policy'));
         $this->assertNull($response->headers->get('X-Frame-Options'));
+    }
+
+    public function test_the_embeddable_page_carries_the_react_refresh_preamble_under_the_vite_dev_server(): void
+    {
+        // Under `vp dev` (public/hot) every .tsx module is wrapped for Fast Refresh and throws `$RefreshSig$ is not defined` without
+        // the preamble: the visitor's panel then stays blank. The built assets need none.
+        $hot = storage_path('framework/testing/vite-hot-'.uniqid());
+        file_put_contents($hot, 'http://127.0.0.1:5173');
+        Vite::useHotFile($hot);
+
+        try {
+            $widget = Widget::factory()->enabled()->withDomains(['customer.example'])->create();
+            $html = (string) $this->get('/embed/'.$widget->public_key)->assertOk()->getContent();
+
+            $this->assertStringContainsString('RefreshRuntime', $html);
+            $this->assertStringContainsString('http://127.0.0.1:5173/resources/js/embed/main.tsx', $html);
+            $this->assertLessThan(strpos($html, 'resources/js/embed/main.tsx'), strpos($html, 'RefreshRuntime'), 'the preamble comes first');
+        } finally {
+            @unlink($hot);
+        }
     }
 
     public function test_api_server_errors_use_the_documented_envelope_without_details(): void

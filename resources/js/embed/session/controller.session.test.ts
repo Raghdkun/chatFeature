@@ -306,19 +306,6 @@ describe('a tab whose session lost the chat to the other tab (the token rotated 
                 (receipt) => receipt.seen_upto === reply.seq,
             ),
         );
-        (await import('node:fs')).writeFileSync(
-            '/private/tmp/claude-501/-Volumes-Rag-Works-PNE-Repos-chatFeature/ff2c36c2-dea7-4931-90f9-b994e0f1107f/scratchpad/p5e2e/calls.json',
-            JSON.stringify(
-                ['GET', 'POST']
-                    .flatMap((m) => backend.callsTo(m, ''))
-                    .map((c) => [
-                        c.method,
-                        c.path,
-                        c.auth?.slice(-6),
-                        JSON.stringify(c.body),
-                    ]),
-            ),
-        );
         expect(backend.callsTo('POST', '/receipts').at(-1)?.auth).toBe(
             `Bearer ${other.token}`,
         );

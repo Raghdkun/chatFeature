@@ -8,7 +8,7 @@
  * this provider (a wrapper that appeared later would remount the whole page). Until then the context is `null`, exactly as for somebody
  * who is not an administrator: the sidebar badge and the title count show nothing, and the WhatsApp pages wait (`WaReady`).
  */
-import { lazy, Suspense, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import {
     WaRealtimeContext,
     type WaRealtimeContextValue,
@@ -31,10 +31,15 @@ export function WhatsAppRealtimeGate({
     children: ReactNode;
 }) {
     const [session, setSession] = useState<WaRealtimeContextValue | null>(null);
+    // The engine is requested after the first client render only: a lazy component under `Suspense` aborts `renderToString`
+    // (Inertia's dev server-side render then falls back to client rendering with a console error), and the engine needs the browser anyway.
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => setMounted(true), []);
 
     return (
         <WaRealtimeContext.Provider value={admin ? session : null}>
-            {admin && (
+            {admin && mounted && (
                 <Suspense fallback={null}>
                     <Engine admin sockets={sockets} publish={setSession} />
                 </Suspense>
