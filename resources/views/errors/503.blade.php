@@ -1,0 +1,6 @@
+@extends('errors::layout')
+@php($detail = trim((string) $exception->getMessage()))
+@section('code', '503')
+@section('title', __('Back in a moment'))
+@section('message', $detail !== '' ? $detail : __('The application is being updated or is temporarily unavailable.'))
+@section('retry', __('Try again'))

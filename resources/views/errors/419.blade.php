@@ -1,0 +1,5 @@
+@extends('errors::layout')
+@section('code', '419')
+@section('title', __('Your session expired'))
+@section('message', __('For your security the page timed out. Reload it and try again.'))
+@section('retry', __('Reload the page'))

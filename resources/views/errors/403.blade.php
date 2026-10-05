@@ -1,0 +1,5 @@
+@extends('errors::layout')
+@php($detail = trim((string) $exception->getMessage()))
+@section('code', '403')
+@section('title', __('You do not have access'))
+@section('message', $detail !== '' && $detail !== 'This action is unauthorized.' ? $detail : __('Your account is not allowed to open this page.'))

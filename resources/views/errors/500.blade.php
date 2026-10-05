@@ -1,0 +1,5 @@
+@extends('errors::layout')
+@section('code', '500')
+@section('title', __('Something went wrong on our side'))
+@section('message', __('The problem was recorded. Try again in a moment.'))
+@section('retry', __('Try again'))
