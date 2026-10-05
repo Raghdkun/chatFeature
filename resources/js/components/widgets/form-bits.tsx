@@ -50,9 +50,9 @@ export function LiveBadge() {
     return (
         <span
             data-testid="builder-live-badge"
-            className="inline-flex items-center gap-1.5 rounded-full border border-sky-300/70 bg-sky-50 px-2.5 py-0.5 text-xs font-medium whitespace-nowrap text-sky-900 dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-200"
+            className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-sky-300/70 bg-sky-50 px-2.5 py-0.5 text-xs font-medium text-sky-900 dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-200"
         >
-            <Zap className="size-3" aria-hidden />
+            <Zap className="size-3 shrink-0" aria-hidden />
             {t('builder.live.badge')}
         </span>
     );

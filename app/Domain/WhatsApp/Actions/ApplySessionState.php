@@ -29,7 +29,8 @@ final class ApplySessionState
      *
      * @param  array<string, string|null>  $attributes
      * @param  SessionStatus|null  $onlyFrom  Write only while the session still has this status (an answer to an earlier question must
-     *                                        not overwrite what a newer webhook has said since).
+     *                                        not overwrite what a newer webhook has said since; an answer that agrees with the webhook's
+     *                                        status still records the columns the webhook left empty).
      */
     public function transition(WhatsAppSession $session, SessionStatus $to, array $attributes = [], ?SessionStatus $onlyFrom = null): WhatsAppSession
     {
@@ -43,7 +44,10 @@ final class ApplySessionState
             $from = $current->status;
             $changes = [];
 
-            if ($onlyFrom !== null && $from !== $onlyFrom) {
+            // A webhook that moved the session meanwhile is newer than an answer to an earlier question: that answer may not MOVE the session.
+            // When it names the status the webhook already set, it can still add what the webhook did not carry (the reason of a failure,
+            // the number): the `failed` webhook has no reason, the answer to a sync does.
+            if ($onlyFrom !== null && $from !== $onlyFrom && $to !== $from) {
                 return $current;
             }
 

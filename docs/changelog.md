@@ -11,6 +11,9 @@ All notable changes are recorded here, following [Keep a Changelog](https://keep
 - **The widget builder's live preview was dead in production** (`CSP_MODE=enforce`): its `srcdoc` document inherits the dashboard policy and its inline scripts had no nonce. The page now exposes its CSP nonce in `<meta name="csp-nonce">` and the preview puts it on both inline scripts.
 - Dev server-side rendering aborted (`renderToString does not support Suspense`) because the WhatsApp realtime gate suspended during the first render; the engine is now requested after the first client render.
 - A stray debug write to a scratch file in a session-controller test (left by an e2e agent) made the Vitest run fail on any other machine.
+- WhatsApp: a session sync no longer drops the reason of a failure when the `failed` webhook (which carries none) overtook it; this was the cause of the flaky `views-responsive` spec (3 failures in 3 runs once the timing shifted). An answer that would MOVE a session a newer webhook already moved is still dropped.
+- The widget builder's "live" badge was `nowrap` and, with its new wording, wider than a 320 px screen; it wraps now.
+- Branded error pages (403, 404, 419, 429, 500, 503) with a way back replace Laravel's bare "403 | message" line; the first-login notification explainer waits while another dialog is open instead of opening over it.
 
 ### Changed (first-run experience)
 - The dashboard checklist is read from the real configuration (category, widget published, somebody serves a category, widget live with an allowed site), each row links to the page where the step is done and says what is missing; the live queue and the online team are real; an administrator who takes chats gets the availability control.

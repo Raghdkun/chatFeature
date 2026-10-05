@@ -13,6 +13,7 @@ use App\Domain\WhatsApp\Services\InboundMessageRecorder;
 use App\Domain\WhatsApp\Support\OpenWa\Exceptions\OpenWaRejected;
 use App\Domain\WhatsApp\Support\OpenWa\Exceptions\OpenWaUnavailable;
 use App\Domain\WhatsApp\Support\OpenWa\OpenWaQr;
+use App\Domain\WhatsApp\Support\OpenWa\OpenWaSession;
 use App\Models\User;
 use App\Models\WaChat;
 use App\Models\WaHandoffTicket;
@@ -350,6 +351,30 @@ class WhatsAppRecoveryTest extends TestCase
         $session->refresh();
         $this->assertSame(SessionStatus::Ready, $session->status);
         $this->assertNull($session->last_qr);
+    }
+
+    public function test_a_sync_that_agrees_with_a_webhook_that_overtook_it_still_records_the_reason_of_the_failure(): void
+    {
+        // The `failed` webhook (no reason in it) landed while the question to OpenWA was on its way; OpenWA's answer says the same status
+        // and names the reason: it must not be thrown away, only an answer that would MOVE the session is.
+        $session = WhatsAppSession::factory()->create(['status' => SessionStatus::Failed->value, 'last_error' => null]);
+        $remote = OpenWaSession::fromArray(['id' => '00000000-0000-4000-8000-0000000000e1', 'name' => 'x', 'status' => 'failed', 'lastError' => 'Chromium crashed']);
+
+        $after = app(ApplySessionState::class)->observe($session, $remote, SessionStatus::Qr);
+
+        $this->assertSame(SessionStatus::Failed, $after->status);
+        $this->assertSame('Chromium crashed', $after->last_error);
+    }
+
+    public function test_an_answer_that_would_move_a_session_a_webhook_already_moved_is_still_dropped(): void
+    {
+        $session = WhatsAppSession::factory()->create(['status' => SessionStatus::Ready->value, 'last_error' => null]);
+        $remote = OpenWaSession::fromArray(['id' => '00000000-0000-4000-8000-0000000000e2', 'name' => 'x', 'status' => 'qr_ready', 'lastError' => 'old news']);
+
+        $after = app(ApplySessionState::class)->observe($session, $remote, SessionStatus::Qr);
+
+        $this->assertSame(SessionStatus::Ready, $after->status);
+        $this->assertNull($after->last_error);
     }
 
     public function test_a_qr_fetched_while_nothing_changed_is_stored_as_before(): void

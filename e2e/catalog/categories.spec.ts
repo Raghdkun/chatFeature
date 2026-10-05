@@ -57,7 +57,8 @@ test.describe('administrator', () => {
         // Sara serves Billing and Sales, Tariq Technical support (see the seed in e2e/global-setup.ts).
         await expect(rowOf(page, 'Billing')).toContainText('1 agent');
         await expect(rowOf(page, 'Technical support')).toContainText('1 agent');
-        await expect(rowOf(page, 'General')).toContainText('0 agents');
+        // The administrator the wizard created takes chats and serves the seeded General category from the start.
+        await expect(rowOf(page, 'General')).toContainText('1 agent');
 
         const nav = await openNavigation(page);
         for (const name of ['Widgets', 'Categories', 'Agents']) {
