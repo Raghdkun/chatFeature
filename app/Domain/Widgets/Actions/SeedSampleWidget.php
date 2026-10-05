@@ -6,6 +6,7 @@ use App\Domain\Catalog\Actions\EnsureGeneralCategory;
 use App\Domain\Install\Contracts\SeedsDefaults;
 use App\Domain\Install\InstallContext;
 use App\Domain\Widgets\Data\WidgetConfigData;
+use App\Domain\Widgets\Enums\OfflineMode;
 use App\Domain\Widgets\Support\WidgetKeyGenerator;
 use App\Models\Widget;
 use Illuminate\Support\Facades\DB;
@@ -36,8 +37,11 @@ final class SeedSampleWidget implements SeedsDefaults
 
         DB::transaction(function () use ($category): void {
             $config = (new WidgetConfigData)->toArray();
+            // The sample is the quick start: open around the clock, so the first test works at any hour. (A widget an administrator creates
+            // keeps the business-hours default: Monday to Friday, 09:00-17:00 UTC, set in the Hours tab.)
+            $config['hours']['mode'] = OfflineMode::AlwaysOnline->value;
 
-            $widget = new Widget(['name' => 'Sample widget']);
+            $widget = new Widget(['name' => 'Sample widget', 'offline_mode' => OfflineMode::AlwaysOnline]);
             $widget->forceFill([
                 'public_key' => WidgetKeyGenerator::generate(),
                 'config' => $config,

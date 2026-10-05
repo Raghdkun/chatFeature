@@ -35,6 +35,8 @@ class SampleDataSeedingTest extends InstallTestCase
         $this->assertSame(1, $widget->config_version);
         $this->assertSame($widget->config, $widget->draft_config);
         $this->assertSame('#0f766e', $widget->config['theme']['primary']);
+        $this->assertSame('always_online', $widget->config['hours']['mode'], 'the sample is open at any hour so the first test works');
+        $this->assertSame('always_online', $widget->offline_mode->value);
         $this->assertNull($widget->identity_secret_encrypted);
         $this->assertSame([$category->ulid], $widget->categories()->pluck('ulid')->all());
 
