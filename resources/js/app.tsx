@@ -1,4 +1,4 @@
-import { createInertiaApp } from '@inertiajs/react';
+import { createInertiaApp, router } from '@inertiajs/react';
 import { NotificationsHost } from '@/components/notifications/notifications-host';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -11,7 +11,16 @@ import { staffEchoOptions } from '@/lib/realtime/staff/echo-config';
 import { StaffRealtimeHost } from '@/lib/realtime/staff/host';
 import { configureEcho } from '@laravel/echo-react';
 
-const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
+// The name an administrator chose in the setup wizard (`name`, a shared prop) wins over the build-time one: every page title carries it.
+let appName = import.meta.env.VITE_APP_NAME || 'Laravel';
+
+function rememberAppName(props: Record<string, unknown>): void {
+    if (typeof props.name === 'string' && props.name !== '') {
+        appName = props.name;
+    }
+}
+
+router.on('navigate', (event) => rememberAppName(event.detail.page.props));
 
 void createInertiaApp({
     title: (title) => (title ? `${title} - ${appName}` : appName),
@@ -29,6 +38,7 @@ void createInertiaApp({
     },
     strictMode: true,
     withApp(app, { page }) {
+        rememberAppName(page.props);
         // The Reverb address comes from the server's own settings (the shared `realtime` prop) so a changed host needs no rebuild, and
         // the server's `null` ("realtime is off") wins over the build: the build-time `VITE_REVERB_*` values only serve a server that
         // does not send the prop at all.

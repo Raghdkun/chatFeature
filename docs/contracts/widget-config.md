@@ -20,7 +20,7 @@ Five operational settings exist twice, as `widgets` columns and as config fields
   "theme": {
     "mode": "auto",                           // "auto" | "light" | "dark"
     "primary": "#0f766e", "primaryText": "#ffffff",
-    "accent": "#f59e0b", "surface": "#ffffff", "text": "#0f172a",
+    "accent": "#D97706", "surface": "#ffffff", "text": "#0f172a",
     "fontFamily": "Inter, system-ui, sans-serif",
     "fontUrl": null,                          // https URL to a stylesheet; allowed hosts: fonts.googleapis.com, fonts.bunny.net, own origin
     "radius": 16,                             // px, 0..28

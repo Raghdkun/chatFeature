@@ -88,7 +88,7 @@ const BRAND = {
     theme: {
         primary: '#4f46e5',
         primaryText: '#ffffff',
-        accent: '#f59e0b',
+        accent: '#D97706',
         radius: 16,
         launcherSize: 'lg',
     },

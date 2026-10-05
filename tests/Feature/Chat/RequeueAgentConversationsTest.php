@@ -67,6 +67,27 @@ class RequeueAgentConversationsTest extends TestCase
         StaffSessionRevoked::dispatch($this->leaving->id, $reason);
     }
 
+    public function test_an_agent_who_deletes_their_own_account_hands_their_chats_back_first(): void
+    {
+        $chats = $this->chats();
+        $this->leaving->forceFill(['is_admin' => false])->save();
+        User::factory()->admin()->create();
+
+        $this->actingAs($this->leaving, 'web')
+            ->delete(route('profile.destroy'), ['password' => 'password'])
+            ->assertSessionHasNoErrors();
+
+        $this->assertNull($this->leaving->fresh());
+
+        foreach (['live', 'second'] as $name) {
+            $chat = $chats[$name]->fresh();
+            $this->assertSame('queued', $chat->status->value, $name.': not left active with nobody to answer it');
+            $this->assertNull($chat->assigned_agent_id);
+        }
+
+        $this->assertSame('active', $chats['others']->fresh()->status->value);
+    }
+
     public function test_a_deactivated_agents_active_chats_are_requeued_and_offered_to_the_others(): void
     {
         $chats = $this->chats();

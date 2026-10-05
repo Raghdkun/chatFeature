@@ -4,6 +4,7 @@ namespace App\Http\Requests\Catalog;
 
 use App\Domain\Catalog\Support\CategorySlugger;
 use App\Domain\Widgets\Config\LocaleResolver;
+use App\Http\Requests\Concerns\CleansDisplayText;
 use App\Models\Category;
 use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
@@ -14,6 +15,13 @@ use Illuminate\Validation\Rule;
  */
 class StoreCategoryRequest extends FormRequest
 {
+    use CleansDisplayText;
+
+    protected function prepareForValidation(): void
+    {
+        $this->cleanDisplayText(['name', 'description', 'name_i18n']);
+    }
+
     public function authorize(): bool
     {
         return true;
@@ -35,7 +43,8 @@ class StoreCategoryRequest extends FormRequest
         $required = $creating ? ['required'] : ['sometimes', 'required'];
 
         return [
-            'name' => [...$required, 'string', 'max:120'],
+            // Visitors pick a topic by its name: two with the same name could not be told apart (the slug already is unique).
+            'name' => [...$required, 'string', 'max:120', Rule::unique(Category::class, 'name')->whereNull('deleted_at')->ignore($ignoreId)],
             'slug' => [
                 'sometimes', 'nullable', 'string', 'max:'.CategorySlugger::MAX_LENGTH, 'regex:'.CategorySlugger::PATTERN,
                 Rule::unique(Category::class, 'slug')->whereNull('deleted_at')->ignore($ignoreId),

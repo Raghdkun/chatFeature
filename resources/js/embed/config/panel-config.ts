@@ -92,7 +92,7 @@ export const DEFAULT_THEME: PanelTheme = {
     mode: 'auto',
     primary: '#0f766e',
     primaryText: '#ffffff',
-    accent: '#f59e0b',
+    accent: '#D97706',
     surface: '#ffffff',
     text: '#0f172a',
     fontFamily: 'Inter, system-ui, sans-serif',

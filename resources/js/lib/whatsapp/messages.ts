@@ -33,7 +33,7 @@ export function advanceWaStatus(
 
 /**
  * Merge incoming copies of messages into a transcript: idempotent by `ulid`, the status only moves forward (the rest of an incoming
- * copy wins: it is the newer read of the same row), oldest first (`createdAt`, then `ulid`, which is time-ordered). Returns the same
+ * copy wins: it is the newer read of the same row), oldest first (WhatsApp's own time `waTimestamp`, then `createdAt`, then `ulid`, which is time-ordered). Returns the same
  * array when nothing changed.
  */
 export function mergeWaMessages(
@@ -68,7 +68,16 @@ export function mergeWaMessages(
 
     return [...byUlid.values()].sort(
         (a, b) =>
+            compareInstants(a.waTimestamp, b.waTimestamp) ||
             a.createdAt.localeCompare(b.createdAt) ||
             a.ulid.localeCompare(b.ulid),
     );
+}
+
+/** Instants of one API (always the same ISO shape) compare as strings; an unparsable one sorts as equal, never throws. */
+function compareInstants(a: string, b: string): number {
+    const left = Date.parse(a);
+    const right = Date.parse(b);
+
+    return Number.isNaN(left) || Number.isNaN(right) ? 0 : left - right;
 }

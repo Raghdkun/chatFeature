@@ -733,7 +733,7 @@ components:
           mode: auto
           primary: '#0ea5e9'
           primaryText: '#ffffff'
-          accent: '#f59e0b'
+          accent: '#D97706'
           surface: '#ffffff'
           text: '#0f172a'
           fontFamily: 'Inter, system-ui, sans-serif'
@@ -909,7 +909,7 @@ components:
             mode: auto
             primary: '#0ea5e9'
             primaryText: '#ffffff'
-            accent: '#f59e0b'
+            accent: '#D97706'
             surface: '#ffffff'
             text: '#0f172a'
             fontFamily: 'Inter, system-ui, sans-serif'
@@ -1182,7 +1182,7 @@ components:
         mode: auto
         primary: '#0ea5e9'
         primaryText: '#ffffff'
-        accent: '#f59e0b'
+        accent: '#D97706'
         surface: '#ffffff'
         text: '#0f172a'
         fontFamily: 'Inter, system-ui, sans-serif'
@@ -2366,7 +2366,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorConversationNotActive'
         422:
-          description: "- `validation_failed`: Not an allowed image, an animated GIF, over the size or pixel limit, or 10 uploads already wait. The message is under `details.file`.\n- `attachment_quota_exceeded`"
+          description: "- `validation_failed`: Not an allowed image, an animated GIF, or over the size or pixel limit. The message is under `details.file`. (At ten unused uploads the oldest unused uploads of the same uploader are dropped to make room.)\n- `attachment_quota_exceeded`"
           content:
             application/json:
               schema:

@@ -1,4 +1,5 @@
 import '@/tests/dom-polyfills';
+import { act } from 'react';
 import {
     afterEach,
     beforeEach,
@@ -593,6 +594,44 @@ describe('validation', () => {
 });
 
 describe('publish', () => {
+    it('publishes once when the confirm button is clicked twice in a row', async () => {
+        const api = fakeApi({
+            'GET /widget/v1/loader.js': { status: 404 },
+            'POST /api/v1/widgets/w1/publish': {
+                json: {
+                    data: makeWidget({
+                        config_version: 4,
+                        has_unpublished_changes: false,
+                    }),
+                },
+            },
+        });
+        const base = DATA();
+        const view = await render(
+            <WidgetBuilder
+                {...base}
+                widget={{ ...base.widget, has_unpublished_changes: true }}
+            />,
+        );
+
+        await flush();
+        await click(view.byTestId('builder-publish'));
+
+        const confirm = body.byTestId('builder-publish-confirm');
+
+        await act(async () => {
+            confirm?.click();
+            confirm?.click();
+        });
+        await flush();
+
+        expect(
+            api.calls.filter(
+                (c) => c.method === 'POST' && c.path.endsWith('/publish'),
+            ),
+        ).toHaveLength(1);
+    });
+
     it('saves pending changes first, then publishes and shows the new version', async () => {
         const api = fakeApi({
             'GET /widget/v1/loader.js': { status: 404 },
@@ -1332,6 +1371,46 @@ describe('greetings tab', () => {
 });
 
 describe('hours tab', () => {
+    it('says what the hours mean right now: an always-online widget is open at any time', async () => {
+        fakeApi({ 'GET /widget/v1/loader.js': { status: 404 } });
+        const base = DATA();
+        const view = await render(
+            <WidgetBuilder
+                {...base}
+                widget={{ ...base.widget, offline_mode: 'always_online' }}
+            />,
+        );
+
+        await flush();
+        await openTab(view, 'hours');
+
+        expect(view.byTestId('builder-hours-now')?.dataset.state).toBe(
+            'always_online',
+        );
+    });
+
+    it('warns that visitors get the offline form while the hours are closed (no schedule opens)', async () => {
+        const base = DATA();
+        const view = await render(
+            <WidgetBuilder
+                {...base}
+                widget={{ ...base.widget, offline_mode: 'auto_hours' }}
+                draft_config={{
+                    ...base.draft_config,
+                    hours: { ...base.draft_config.hours, schedule: [] },
+                }}
+            />,
+        );
+
+        await flush();
+        await openTab(view, 'hours');
+
+        const notice = view.byTestId('builder-hours-now');
+
+        expect(notice?.dataset.state).toBe('closed');
+        expect(notice?.textContent).toContain('offline form');
+    });
+
     it('shows the weekly schedule, adds ranges and holidays', async () => {
         const api = fakeApi({
             'GET /widget/v1/loader.js': { status: 404 },

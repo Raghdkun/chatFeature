@@ -13,6 +13,7 @@ import {
     CardTitle,
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { ConfirmDialog } from '@/components/whatsapp/settings/confirm-dialog';
 import { Busy, Notice } from '@/components/widgets/form-bits';
 import { useTrans } from '@/hooks/use-trans';
 import { useWaApi } from '@/lib/realtime/whatsapp/use-wa-api';
@@ -62,6 +63,7 @@ export function ConnectionCard({
     const [problem, setProblem] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
     const [test, setTest] = useState<TestState>({ status: 'idle' });
+    const [removingKey, setRemovingKey] = useState(false);
     const addressChanged = baseUrl.trim() !== settings.baseUrl;
     const dirty = addressChanged || apiKey.trim() !== '';
     const needsKey =
@@ -165,203 +167,227 @@ export function ConnectionCard({
     };
 
     return (
-        <Card
-            role="region"
-            aria-labelledby="wa-connection-title"
-            data-testid="wa-connection-card"
-        >
-            <CardHeader>
-                <CardTitle
-                    id="wa-connection-title"
-                    role="heading"
-                    aria-level={2}
-                >
-                    {t('whatsapp.connection.title')}
-                </CardTitle>
-                <CardDescription>
-                    {t('whatsapp.connection.description')}
-                </CardDescription>
-            </CardHeader>
-
-            <form
-                onSubmit={(event: FormEvent<HTMLFormElement>) => {
-                    event.preventDefault();
-                    void save();
-                }}
-                noValidate
-                data-testid="wa-connection-form"
-                className="grid gap-6"
+        <>
+            <Card
+                role="region"
+                aria-labelledby="wa-connection-title"
+                data-testid="wa-connection-card"
             >
-                <CardContent className="grid gap-5">
-                    {problem && (
-                        <Notice
-                            tone="danger"
-                            data-testid="wa-connection-problem"
-                        >
-                            {problem}
-                        </Notice>
-                    )}
-
-                    <Field
-                        id="wa-base-url"
-                        label={t('whatsapp.connection.base_url')}
-                        hint={t('whatsapp.connection.base_url_hint')}
-                        error={errors.base_url}
+                <CardHeader>
+                    <CardTitle
+                        id="wa-connection-title"
+                        role="heading"
+                        aria-level={2}
                     >
-                        <Input
+                        {t('whatsapp.connection.title')}
+                    </CardTitle>
+                    <CardDescription>
+                        {t('whatsapp.connection.description')}
+                    </CardDescription>
+                </CardHeader>
+
+                <form
+                    onSubmit={(event: FormEvent<HTMLFormElement>) => {
+                        event.preventDefault();
+                        void save();
+                    }}
+                    noValidate
+                    data-testid="wa-connection-form"
+                    className="grid gap-6"
+                >
+                    <CardContent className="grid gap-5">
+                        {problem && (
+                            <Notice
+                                tone="danger"
+                                data-testid="wa-connection-problem"
+                            >
+                                {problem}
+                            </Notice>
+                        )}
+
+                        <Field
                             id="wa-base-url"
-                            data-testid="wa-base-url"
-                            dir="ltr"
-                            type="url"
-                            inputMode="url"
-                            autoCapitalize="none"
-                            autoComplete="off"
-                            spellCheck={false}
-                            placeholder="http://openwa:2785"
-                            value={baseUrl}
-                            disabled={saving}
-                            aria-invalid={errors.base_url ? true : undefined}
-                            aria-describedby={describedBy('wa-base-url', {
-                                hint: true,
-                                error: errors.base_url,
-                            })}
-                            onChange={(event) =>
-                                change('base_url', () =>
-                                    setBaseUrl(event.target.value),
-                                )
-                            }
-                        />
-                    </Field>
-
-                    {blocked && (
-                        <Notice
-                            tone="warning"
-                            data-testid="wa-private-host-notice"
+                            label={t('whatsapp.connection.base_url')}
+                            hint={t('whatsapp.connection.base_url_hint')}
+                            error={errors.base_url}
                         >
-                            {t('whatsapp.connection.private_host')}
-                        </Notice>
-                    )}
+                            <Input
+                                id="wa-base-url"
+                                data-testid="wa-base-url"
+                                dir="ltr"
+                                type="url"
+                                inputMode="url"
+                                autoCapitalize="none"
+                                autoComplete="off"
+                                spellCheck={false}
+                                placeholder="http://openwa:2785"
+                                value={baseUrl}
+                                disabled={saving}
+                                aria-invalid={
+                                    errors.base_url ? true : undefined
+                                }
+                                aria-describedby={describedBy('wa-base-url', {
+                                    hint: true,
+                                    error: errors.base_url,
+                                })}
+                                onChange={(event) =>
+                                    change('base_url', () =>
+                                        setBaseUrl(event.target.value),
+                                    )
+                                }
+                            />
+                        </Field>
 
-                    <Field
-                        id="wa-api-key"
-                        label={
-                            needsKey
-                                ? `${t('whatsapp.connection.api_key')} ${t('whatsapp.connection.required_marker')}`
-                                : t('whatsapp.connection.api_key')
-                        }
-                        hint={
-                            settings.hasApiKey ? (
-                                <>
-                                    <span
-                                        className="inline-flex items-center gap-1 font-medium text-foreground"
-                                        data-testid="wa-api-key-saved"
-                                    >
-                                        <CircleCheck
-                                            className="size-3.5 text-primary"
-                                            aria-hidden
-                                        />
-                                        {t('whatsapp.connection.key_saved')}
-                                    </span>{' '}
-                                    <span
-                                        data-testid="wa-api-key-hint"
-                                        className={
-                                            needsKey
-                                                ? 'font-medium text-foreground'
-                                                : undefined
-                                        }
-                                    >
-                                        {needsKey
-                                            ? t('whatsapp.connection.key_again')
-                                            : t('whatsapp.connection.key_keep')}
-                                    </span>
-                                </>
-                            ) : (
-                                t('whatsapp.connection.key_hint')
-                            )
-                        }
-                        error={errors.api_key}
-                    >
-                        <PasswordInput
+                        {blocked && (
+                            <Notice
+                                tone="warning"
+                                data-testid="wa-private-host-notice"
+                            >
+                                {t('whatsapp.connection.private_host')}
+                            </Notice>
+                        )}
+
+                        <Field
                             id="wa-api-key"
-                            data-testid="wa-api-key"
-                            autoCapitalize="none"
-                            autoComplete="off"
-                            spellCheck={false}
-                            maxLength={WA_LIMITS.apiKeyMax}
-                            placeholder={
-                                settings.hasApiKey ? '••••••••' : undefined
+                            label={
+                                needsKey
+                                    ? `${t('whatsapp.connection.api_key')} ${t('whatsapp.connection.required_marker')}`
+                                    : t('whatsapp.connection.api_key')
                             }
-                            value={apiKey}
-                            disabled={saving}
-                            aria-required={needsKey ? true : undefined}
-                            aria-invalid={errors.api_key ? true : undefined}
-                            aria-describedby={describedBy('wa-api-key', {
-                                hint: true,
-                                error: errors.api_key,
-                            })}
-                            onChange={(event) =>
-                                change('api_key', () =>
-                                    setApiKey(event.target.value),
+                            hint={
+                                settings.hasApiKey ? (
+                                    <>
+                                        <span
+                                            className="inline-flex items-center gap-1 font-medium text-foreground"
+                                            data-testid="wa-api-key-saved"
+                                        >
+                                            <CircleCheck
+                                                className="size-3.5 text-primary"
+                                                aria-hidden
+                                            />
+                                            {t('whatsapp.connection.key_saved')}
+                                        </span>{' '}
+                                        <span
+                                            data-testid="wa-api-key-hint"
+                                            className={
+                                                needsKey
+                                                    ? 'font-medium text-foreground'
+                                                    : undefined
+                                            }
+                                        >
+                                            {needsKey
+                                                ? t(
+                                                      'whatsapp.connection.key_again',
+                                                  )
+                                                : t(
+                                                      'whatsapp.connection.key_keep',
+                                                  )}
+                                        </span>
+                                    </>
+                                ) : (
+                                    t('whatsapp.connection.key_hint')
                                 )
                             }
-                        />
-                    </Field>
-                </CardContent>
+                            error={errors.api_key}
+                        >
+                            <PasswordInput
+                                id="wa-api-key"
+                                data-testid="wa-api-key"
+                                autoCapitalize="none"
+                                autoComplete="off"
+                                spellCheck={false}
+                                maxLength={WA_LIMITS.apiKeyMax}
+                                placeholder={
+                                    settings.hasApiKey ? '••••••••' : undefined
+                                }
+                                value={apiKey}
+                                disabled={saving}
+                                aria-required={needsKey ? true : undefined}
+                                aria-invalid={errors.api_key ? true : undefined}
+                                aria-describedby={describedBy('wa-api-key', {
+                                    hint: true,
+                                    error: errors.api_key,
+                                })}
+                                onChange={(event) =>
+                                    change('api_key', () =>
+                                        setApiKey(event.target.value),
+                                    )
+                                }
+                            />
+                        </Field>
+                    </CardContent>
 
-                <CardFooter className="flex-col items-stretch gap-4">
-                    <div className="flex flex-wrap items-center gap-3">
-                        <Button
-                            type="submit"
-                            disabled={!dirty || saving}
-                            data-testid="wa-connection-save"
-                        >
-                            {saving ? <Busy /> : <Save aria-hidden />}
-                            {t('whatsapp.connection.save')}
-                        </Button>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            disabled={
-                                dirty || saving || test.status === 'running'
-                            }
-                            data-testid="wa-connection-test"
-                            onClick={() => void runTest()}
-                        >
-                            {test.status === 'running' ? (
-                                <Busy />
-                            ) : (
-                                <PlugZap aria-hidden />
-                            )}
-                            {test.status === 'running'
-                                ? t('whatsapp.connection.testing')
-                                : t('whatsapp.connection.test')}
-                        </Button>
-                        {settings.hasApiKey && (
+                    <CardFooter className="flex-col items-stretch gap-4">
+                        <div className="flex flex-wrap items-center gap-3">
+                            <Button
+                                type="submit"
+                                disabled={!dirty || saving}
+                                data-testid="wa-connection-save"
+                            >
+                                {saving ? <Busy /> : <Save aria-hidden />}
+                                {t('whatsapp.connection.save')}
+                            </Button>
                             <Button
                                 type="button"
-                                variant="ghost"
-                                disabled={saving}
-                                data-testid="wa-connection-clear-key"
-                                onClick={() => void save({ clearApiKey: true })}
+                                variant="outline"
+                                disabled={
+                                    dirty || saving || test.status === 'running'
+                                }
+                                data-testid="wa-connection-test"
+                                onClick={() => void runTest()}
                             >
-                                {t('whatsapp.connection.clear_key')}
+                                {test.status === 'running' ? (
+                                    <Busy />
+                                ) : (
+                                    <PlugZap aria-hidden />
+                                )}
+                                {test.status === 'running'
+                                    ? t('whatsapp.connection.testing')
+                                    : t('whatsapp.connection.test')}
                             </Button>
+                            {settings.hasApiKey && (
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    disabled={saving}
+                                    data-testid="wa-connection-clear-key"
+                                    onClick={() => setRemovingKey(true)}
+                                >
+                                    {t('whatsapp.connection.clear_key')}
+                                </Button>
+                            )}
+                        </div>
+
+                        {dirty && settings.hasApiKey && (
+                            <p
+                                className="text-sm text-muted-foreground"
+                                data-testid="wa-connection-dirty-hint"
+                            >
+                                {t('whatsapp.connection.dirty_hint')}
+                            </p>
                         )}
-                    </div>
 
-                    {dirty && settings.hasApiKey && (
-                        <p
-                            className="text-sm text-muted-foreground"
-                            data-testid="wa-connection-dirty-hint"
-                        >
-                            {t('whatsapp.connection.dirty_hint')}
-                        </p>
-                    )}
+                        <TestResult state={test} />
+                    </CardFooter>
+                </form>
+            </Card>
 
-                    <TestResult state={test} />
-                </CardFooter>
-            </form>
-        </Card>
+            <ConfirmDialog
+                open={removingKey}
+                destructive
+                testId="wa-clear-key-dialog"
+                title={t('whatsapp.connection.clear_key_title')}
+                body={t('whatsapp.connection.clear_key_body')}
+                confirm={t('whatsapp.connection.clear_key_confirm')}
+                cancel={t('whatsapp.cancel')}
+                error={(failure) => describeWaError(failure, t, locale)}
+                onClose={() => setRemovingKey(false)}
+                onConfirm={async () => {
+                    await save({ clearApiKey: true });
+                    setRemovingKey(false);
+                }}
+            />
+        </>
     );
 }
 

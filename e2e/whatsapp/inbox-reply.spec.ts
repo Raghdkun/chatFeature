@@ -476,7 +476,11 @@ test("the session's minimum interval makes a quick second reply wait for its slo
 });
 
 test.describe('when OpenWA refuses or cannot be reached', () => {
-    const refusals: [string, { status: number; body: unknown }, RegExp][] = [
+    const refusals: [
+        string,
+        { status: number; body: unknown; times?: number },
+        RegExp,
+    ][] = [
         [
             'its own sending limit (SEND_PACING_LIMITED, an hour to wait)',
             {
@@ -492,8 +496,9 @@ test.describe('when OpenWA refuses or cannot be reached', () => {
             /WhatsApp's own sending limit applies to this number .* Try again in about 60 minutes/i,
         ],
         [
-            'a 409 "not connected" (on a queue it is retried; the sync queue cannot, so it fails with the reason)',
+            'a 409 "not connected" (on a queue it is retried; the sync queue asks again twice, then fails with the reason)',
             {
+                times: 3,
                 status: 409,
                 body: {
                     statusCode: 409,
@@ -518,8 +523,9 @@ test.describe('when OpenWA refuses or cannot be reached', () => {
             /no running engine for this number/i,
         ],
         [
-            "the plain throttler's 429 (clears in seconds; retried on a queue, failed on the sync one)",
+            "the plain throttler's 429 (clears in seconds; retried on a queue, asked again twice on the sync one)",
             {
+                times: 3,
                 status: 429,
                 body: {
                     statusCode: 429,
@@ -527,7 +533,7 @@ test.describe('when OpenWA refuses or cannot be reached', () => {
                     message: 'ThrottlerException: Too Many Requests',
                 },
             },
-            /^OpenWA refused the request: ThrottlerException: Too Many Requests$/,
+            /^OpenWA is busy \(too many requests\)\. Try again in a moment\.$/,
         ],
     ];
 

@@ -224,6 +224,26 @@ describe('my support categories', () => {
         });
     });
 
+    it('warns that no chat request will reach an agent who serves nothing, before and after saving', async () => {
+        fakeApi({ 'PUT /api/v1/me/categories': { json: { data: {} } } });
+        const view = await render(
+            <SupportCategories categories={CATEGORIES} selected={['cat1']} />,
+        );
+
+        expect(view.byTestId('support-categories-none')).toBeNull();
+
+        await click(check(view, 'cat1'));
+
+        expect(view.byTestId('support-categories-none')?.textContent).toContain(
+            'no chat request will reach you',
+        );
+
+        await click(view.byTestId('support-categories-save'));
+        await flush();
+
+        expect(view.byTestId('support-categories-none')).not.toBeNull();
+    });
+
     it('keeps the choice and shows the error when saving fails', async () => {
         fakeApi({
             'PUT /api/v1/me/categories': {

@@ -200,6 +200,15 @@ export default function SupportCategories({ categories, selected }: Props) {
                             })}
                         </ul>
 
+                        {chosen.length === 0 && (
+                            <Notice
+                                tone="warning"
+                                data-testid="support-categories-none"
+                            >
+                                {t('categories.support.none_warning')}
+                            </Notice>
+                        )}
+
                         {error && (
                             <Notice
                                 tone="danger"

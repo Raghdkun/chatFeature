@@ -101,6 +101,11 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     protected static function booted(): void
     {
         // A deactivated user, or one who lost every chat role, must not keep working with an issued API token.
+        // Tokens of a deleted account would otherwise stay in the table, pointing at nobody.
+        static::deleting(function (self $user): void {
+            $user->tokens()->delete();
+        });
+
         static::updated(function (self $user): void {
             if ($user->wasChanged(['is_active', 'is_admin', 'is_agent']) && (! $user->is_active || ! $user->hasChatAccess())) {
                 $user->tokens()->delete();

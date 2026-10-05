@@ -356,7 +356,7 @@ class AttachmentApiTest extends TestCase
         $this->withToken($this->token->plaintext)->postJson("/api/v1/public/conversations/{$this->chat->ulid}/attachments", ['file' => 'text'])->assertStatus(422);
     }
 
-    public function test_pending_uploads_are_capped_per_conversation(): void
+    public function test_pending_uploads_never_exceed_the_cap_the_oldest_makes_room(): void
     {
         config(['chat.rate_limits.public_upload_session' => 100]);
 
@@ -364,7 +364,8 @@ class AttachmentApiTest extends TestCase
             $this->upload($this->pngUpload())->assertCreated();
         }
 
-        $this->upload($this->pngUpload())->assertStatus(422)->assertJsonStructure(['error' => ['details' => ['file']]]);
+        // The 11th is taken and the oldest unused one makes room: the count never grows past the cap, and the chat is never stuck.
+        $this->upload($this->pngUpload())->assertCreated();
         $this->assertSame(UploadAttachment::MAX_PENDING, Attachment::query()->count());
     }
 

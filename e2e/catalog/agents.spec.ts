@@ -548,8 +548,9 @@ test.describe('roles and status (mode 1)', () => {
             )
             .toEqual([cats.sales.ulid]);
 
-        // ... and switching it off again drops what he served.
+        // ... and switching it off again drops what he served (the page asks before it does).
         await page.getByTestId(`agent-role-${khalid.id}`).click();
+        await page.getByTestId('agent-stop-confirm').click();
         await expect(
             page.getByTestId(`agent-badge-agent-${khalid.id}`),
         ).toHaveCount(0);

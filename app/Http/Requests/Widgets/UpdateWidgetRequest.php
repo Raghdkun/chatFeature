@@ -4,12 +4,20 @@ namespace App\Http\Requests\Widgets;
 
 use App\Domain\Widgets\Config\LocaleResolver;
 use App\Domain\Widgets\Enums\OfflineMode;
+use App\Http\Requests\Concerns\CleansDisplayText;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /** Body of `PATCH /api/v1/widgets/{ulid}`: operational settings, every field optional. */
 class UpdateWidgetRequest extends FormRequest
 {
+    use CleansDisplayText;
+
+    protected function prepareForValidation(): void
+    {
+        $this->cleanDisplayText(['name']);
+    }
+
     public function authorize(): bool
     {
         return true;

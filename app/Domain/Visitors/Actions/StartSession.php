@@ -64,9 +64,9 @@ final class StartSession
             $page = (array) ($input['page'] ?? []);
 
             $issued = $this->tokens->issue($visitor, [
-                'page_url' => $this->string($page['url'] ?? null),
+                'page_url' => $this->webAddress($page['url'] ?? null),
                 'page_title' => $this->string($page['title'] ?? null),
-                'referrer' => $this->string($page['referrer'] ?? null),
+                'referrer' => $this->webAddress($page['referrer'] ?? null),
                 'user_agent' => $userAgent,
                 'locale' => $this->string($input['locale'] ?? null),
                 'network_hash' => $ip === null ? null : ClientNetwork::fingerprint($ip),
@@ -247,5 +247,16 @@ final class StartSession
     private function string(mixed $value): ?string
     {
         return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /**
+     * The page a visitor came from is an address of the web: anything else (`javascript:`, `data:`, a `file:` page) is dropped, not stored, so no
+     * later reader (the dashboard today; an export, a mail template or a mobile client tomorrow) can be handed a link that runs code.
+     */
+    private function webAddress(mixed $value): ?string
+    {
+        $value = $this->string($value);
+
+        return $value !== null && preg_match('#^https?://#i', $value) === 1 ? $value : null;
     }
 }

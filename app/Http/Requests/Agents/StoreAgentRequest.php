@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Agents;
 
 use App\Domain\Agents\AuthModeGuard;
+use App\Http\Requests\Concerns\CleansDisplayText;
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -13,6 +14,13 @@ use Illuminate\Validation\Rules\Password;
  */
 class StoreAgentRequest extends FormRequest
 {
+    use CleansDisplayText;
+
+    protected function prepareForValidation(): void
+    {
+        $this->cleanDisplayText(['name']);
+    }
+
     /**
      * Mode 2 (pizzasys) owns staff accounts: refuse before looking at the body (`409 managed_by_auth_portal`).
      */

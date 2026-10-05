@@ -100,6 +100,8 @@ return [
      * - max_defer_seconds: an OpenWA `SEND_PACING_LIMITED` that clears within this long is waited for; a longer one fails the message.
      * - retry_for_minutes: how long a send that cannot reach OpenWA (or hits the plain throttler) is retried before it is failed.
      * - inline_wait_ms: on the `sync` queue (no way to release a job) the worker sleeps for the pacing slot, at most this long.
+     * - inline_retries / inline_retry_ms: on the `sync` queue a transient refusal (the plain throttler 429, a 409 "not connected") is asked
+     *   again this many times, this many milliseconds apart, before the reply fails (a real queue releases the job instead).
      * - unconfirmed_after_minutes: a reply OpenWA never confirmed (the request was sent, the answer never arrived) waits this long
      *   for the `message.sent` webhook before the reconciliation fails it.
      */
@@ -107,6 +109,8 @@ return [
         'max_defer_seconds' => 300,
         'retry_for_minutes' => 20,
         'inline_wait_ms' => 10000,
+        'inline_retries' => 2,
+        'inline_retry_ms' => (int) env('WHATSAPP_INLINE_RETRY_MS', 2000),
         'unconfirmed_after_minutes' => 30,
     ],
 

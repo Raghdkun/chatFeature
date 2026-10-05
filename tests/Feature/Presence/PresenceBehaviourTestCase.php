@@ -7,12 +7,14 @@ use App\Domain\Chat\Enums\PresenceStatus;
 use App\Domain\Chat\Events\PresenceChanged;
 use App\Domain\Chat\Jobs\OfferNextWave;
 use App\Domain\Presence\AvailableAgents;
+use App\Domain\Presence\EffectivePresence;
 use App\Models\Category;
 use App\Models\Conversation;
 use App\Models\ConversationOffer;
 use App\Models\User;
 use App\Models\Widget;
 use Carbon\CarbonImmutable;
+use Illuminate\Auth\Events\Logout;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
@@ -121,6 +123,39 @@ abstract class PresenceBehaviourTestCase extends TestCase
         foreach ([[], ['visible' => true], ['visible' => false], ['visible' => 1], ['visible' => 0], ['visible' => '0'], ['visible' => null]] as $body) {
             $this->actingAs($this->agent, 'sanctum')->postJson('/api/v1/me/presence/heartbeat', $body)->assertOk();
         }
+    }
+
+    public function test_logging_out_takes_the_agent_offline_at_once_instead_of_after_the_window(): void
+    {
+        $this->choose($this->agent, 'online', ['automatic' => true]);
+        $this->assertSame([$this->agent->id], $this->routable([PresenceStatus::Online]));
+
+        $this->actingAs($this->agent, 'web')->post('/logout')->assertRedirect();
+
+        $this->assertSame('offline', $this->statusOf($this->agent));
+        $this->assertSame([], $this->routable([PresenceStatus::Online, PresenceStatus::Away]));
+        $this->assertSame('offline', $this->statusOf($this->agent), 'and no heartbeat of a leftover tab brings the record back');
+    }
+
+    public function test_deactivating_an_agent_takes_them_off_the_lists_at_once(): void
+    {
+        $this->useFortifyMode();
+        $this->choose($this->agent, 'online', ['automatic' => true]);
+        $admin = User::factory()->admin()->create();
+
+        $this->actingAs($admin, 'sanctum')->patchJson('/api/v1/agents/'.$this->agent->id, ['is_active' => false])->assertOk();
+
+        $this->assertSame('offline', app(EffectivePresence::class)->of($this->agent->id)->value);
+    }
+
+    public function test_an_old_session_being_turned_away_does_not_take_a_working_agent_offline(): void
+    {
+        $this->choose($this->agent, 'online', ['automatic' => true]);
+
+        // The same `Logout` event, but not the person's own "Log out" (a password changed elsewhere, a revoked session).
+        event(new Logout('web', $this->agent));
+
+        $this->assertSame('online', $this->statusOf($this->agent));
     }
 
     public function test_a_heartbeat_without_visible_counts_as_visible(): void

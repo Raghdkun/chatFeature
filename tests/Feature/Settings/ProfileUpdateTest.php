@@ -96,4 +96,40 @@ class ProfileUpdateTest extends TestCase
 
         $this->assertNotNull($user->fresh());
     }
+
+    public function test_the_only_administrator_cannot_delete_their_account(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $this->actingAs($admin)
+            ->from(route('profile.edit'))
+            ->delete(route('profile.destroy'), ['password' => 'password'])
+            ->assertSessionHasErrors('password')
+            ->assertRedirect(route('profile.edit'));
+
+        $this->assertNotNull($admin->fresh());
+        $this->assertAuthenticatedAs($admin);
+    }
+
+    public function test_an_administrator_can_delete_their_account_when_another_active_administrator_remains(): void
+    {
+        $admin = User::factory()->admin()->create();
+        User::factory()->admin()->create();
+
+        $this->actingAs($admin)
+            ->delete(route('profile.destroy'), ['password' => 'password'])
+            ->assertSessionHasNoErrors();
+
+        $this->assertNull($admin->fresh());
+    }
+
+    public function test_a_deleted_account_leaves_no_api_tokens_behind(): void
+    {
+        $agent = User::factory()->agent()->create();
+        $agent->createToken('phone');
+
+        $this->actingAs($agent)->delete(route('profile.destroy'), ['password' => 'password'])->assertSessionHasNoErrors();
+
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+    }
 }

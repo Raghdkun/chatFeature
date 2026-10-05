@@ -180,7 +180,7 @@ class SecurityHeadersTest extends TestCase
         $this->assertNotSame($this->nonceOf($first), $this->nonceOf($second), 'one nonce per request');
         $this->assertSame("'self'", $directives['default-src']);
         $this->assertSame("'self' 'nonce-".$this->nonceOf($first)."'", $directives['script-src']);
-        $this->assertSame("'self' 'unsafe-inline'", $directives['style-src']);
+        $this->assertSame("'self' 'unsafe-inline' https://fonts.googleapis.com https://fonts.bunny.net", $directives['style-src'], 'only the hosts a widget font may come from, for the builder preview');
         $this->assertSame("'none'", $directives['object-src']);
         $this->assertSame("'self'", $directives['base-uri']);
         $this->assertSame("'self'", $directives['form-action']);
@@ -189,7 +189,7 @@ class SecurityHeadersTest extends TestCase
         $this->assertSame("'self'", $directives['manifest-src']);
         $this->assertSame("'self'", $directives['frame-src']);
         $this->assertSame("'self' data: blob: https:", $directives['img-src']);
-        $this->assertSame("'self' data:", $directives['font-src']);
+        $this->assertSame("'self' data: https://fonts.gstatic.com https://fonts.bunny.net", $directives['font-src']);
         $this->assertSame("'self' data: blob:", $directives['media-src']);
         $this->assertSame('/csp-report', $directives['report-uri']);
         $this->assertStringNotContainsString("'unsafe-eval'", (string) $first->headers->get('Content-Security-Policy'));
@@ -214,7 +214,7 @@ class SecurityHeadersTest extends TestCase
 
         $directives = $this->directives($this->get('/login'));
 
-        $this->assertSame("'self' https://app.example.test wss://chat.example.test", $directives['connect-src']);
+        $this->assertSame("'self' https://app.example.test https://fonts.googleapis.com https://fonts.bunny.net wss://chat.example.test", $directives['connect-src']);
         $this->assertStringContainsString('https://app.example.test', $directives['img-src']);
     }
 
@@ -230,7 +230,7 @@ class SecurityHeadersTest extends TestCase
     {
         config(['broadcasting.default' => 'null']);
 
-        $this->assertSame("'self'", $this->directives($this->get('/login'))['connect-src']);
+        $this->assertSame("'self' https://fonts.googleapis.com https://fonts.bunny.net", $this->directives($this->get('/login'))['connect-src'], 'only the widget font hosts (the builder preview fetches the stylesheet)');
     }
 
     public function test_a_host_that_could_smuggle_a_directive_is_dropped(): void

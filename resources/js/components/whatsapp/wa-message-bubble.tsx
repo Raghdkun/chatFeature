@@ -248,13 +248,14 @@ export function WaMessageBubble({
             {endsGroup && !(failed && local) && (
                 <span className="mt-1 flex items-center gap-1 px-1 text-xs text-muted-foreground">
                     <time
-                        dateTime={message.createdAt}
+                        dateTime={message.waTimestamp}
                         title={
-                            fullDateTime(message.createdAt, locale) ?? undefined
+                            fullDateTime(message.waTimestamp, locale) ??
+                            undefined
                         }
                         className="tabular-nums"
                     >
-                        {clockTime(message.createdAt, locale)}
+                        {clockTime(message.waTimestamp, locale)}
                     </time>
                     {mine && (
                         <StatusTicks

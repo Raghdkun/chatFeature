@@ -38,7 +38,7 @@ class BroadcastingAuthController extends Controller
 
         $session = $request->attributes->get('visitor_session');
 
-        if (! $session instanceof VisitorSession || ! $this->mayJoin($session, (string) $request->input('channel_name'))) {
+        if (! $session instanceof VisitorSession || ! $this->mayJoin($session, (is_string($request->input('channel_name')) ? $request->input('channel_name') : ''))) {
             throw ApiProblemException::forbidden('channel_forbidden', __('You cannot join this channel.'));
         }
 

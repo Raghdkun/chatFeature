@@ -135,7 +135,7 @@ describe('builder preview mode', () => {
                         theme: {
                             primary: '#ff0000',
                             primaryText: '#ffffff',
-                            accent: '#f59e0b',
+                            accent: '#D97706',
                             surface: '#ffffff',
                             text: '#0f172a',
                             radius: 4,

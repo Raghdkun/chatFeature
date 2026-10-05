@@ -21,8 +21,10 @@ use Throwable;
  *   `style-src` would leave the toasts and scrollbars unstyled. Inline styles cannot run script; the script policy is what stops XSS.
  * - `connect-src 'self'` plus the public Reverb address (`ws://` / `wss://`, from `ReverbEndpoint`, the same one the `realtime` shared prop
  *   hands the browser) and the configured application origin when it differs from the request's (signed attachment URLs are built on it).
+ * - `style-src` / `font-src` / `connect-src` also name Google Fonts and Bunny Fonts: the only hosts a widget's custom font may come from, which the
+ *   builder's preview loads and fetches (without them the preview cannot show the font and the console reports a violation on every builder load).
  * - `img-src 'self' data: blob: https:` (visitor attachments, agent avatars on any host, the pairing QR as a `data:` URL, upload previews
- *   as `blob:`), `font-src 'self' data:`, `media-src 'self' data: blob:` (notification sounds), `worker-src 'self'` (`/sw.js`),
+ *   as `blob:`), `font-src 'self' data:` (plus the font hosts above), `media-src 'self' data: blob:` (notification sounds), `worker-src 'self'` (`/sw.js`),
  *   `manifest-src 'self'`, `frame-src 'self'` (the widget builder's preview frames), `object-src 'none'`, `base-uri 'self'`,
  *   `form-action 'self'`, `frame-ancestors 'self'`, `upgrade-insecure-requests` only when the request came in over https.
  * - In development with the Vite dev server running (`public/hot`) its origin is added to the script / connect / font / image sources
@@ -30,6 +32,14 @@ use Throwable;
  */
 final class ContentSecurityPolicy
 {
+    /**
+     * The only hosts a widget's custom font stylesheet may come from (`WidgetConfigValidator`), and where their font files live. The
+     * builder's live preview loads that stylesheet inside a frame that inherits this policy, so these (and nothing else) are allowed.
+     */
+    private const FONT_STYLESHEET_HOSTS = ['https://fonts.googleapis.com', 'https://fonts.bunny.net'];
+
+    private const FONT_FILE_HOSTS = ['https://fonts.gstatic.com', 'https://fonts.bunny.net'];
+
     public function __construct(
         private readonly ReverbEndpoint $reverb,
         private readonly Vite $vite,
@@ -41,10 +51,15 @@ final class ContentSecurityPolicy
         $scripts = [...$self, "'nonce-".$nonce."'"];
         $connect = $self;
         $images = [...$self, 'data:', 'blob:', 'https:'];
-        $fonts = [...$self, 'data:'];
+        $fonts = [...$self, 'data:', ...self::FONT_FILE_HOSTS];
 
         foreach ($this->applicationOrigin($request) as $origin) {
             $images[] = $origin;
+            $connect[] = $origin;
+        }
+
+        // The preview's loader FETCHES the widget's font stylesheet (and then applies it), which is a connection, not a style load.
+        foreach (self::FONT_STYLESHEET_HOSTS as $origin) {
             $connect[] = $origin;
         }
 
@@ -65,7 +80,7 @@ final class ContentSecurityPolicy
         $directives = [
             'default-src' => $self,
             'script-src' => $scripts,
-            'style-src' => [...$self, "'unsafe-inline'", ...$this->devServerOrigins()],
+            'style-src' => [...$self, "'unsafe-inline'", ...self::FONT_STYLESHEET_HOSTS, ...$this->devServerOrigins()],
             'img-src' => array_values(array_unique($images)),
             'font-src' => array_values(array_unique($fonts)),
             'connect-src' => array_values(array_unique($connect)),

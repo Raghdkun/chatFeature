@@ -123,7 +123,8 @@ export function AgentRow({
                 </div>
             </div>
 
-            <div className="col-span-2 grid content-start gap-1.5 xl:col-span-1">
+            {/* min-w-0: a grid item may not shrink below its content otherwise, and a long category name then covered the cells beside it. */}
+            <div className="col-span-2 grid min-w-0 content-start gap-1.5 xl:col-span-1">
                 <CellLabel>{t('agents.col.categories')}</CellLabel>
                 <AgentCategoriesPicker
                     agentId={agent.id}
@@ -192,7 +193,9 @@ export function AgentRow({
             <div className="col-span-2 grid content-start gap-1.5 xl:col-span-1">
                 <CellLabel>{t('agents.col.last_seen')}</CellLabel>
                 <p className="text-sm text-muted-foreground">
-                    {lastSeen ?? t('agents.never_seen')}
+                    {presence === 'online' || presence === 'away'
+                        ? t('agents.seen_now')
+                        : (lastSeen ?? t('agents.never_seen'))}
                 </p>
             </div>
         </li>

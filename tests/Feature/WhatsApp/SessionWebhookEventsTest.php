@@ -93,6 +93,18 @@ class SessionWebhookEventsTest extends TestCase
         $this->assertNull($session->last_error, 'ready clears the error');
     }
 
+    public function test_an_old_failure_does_not_stay_under_a_session_that_is_starting_again_or_waiting_for_a_scan(): void
+    {
+        $session = $this->webhookSession(state: 'disconnected');
+        $session->forceFill(['last_error' => 'Disconnected: CONFLICT'])->save();
+
+        $this->deliver($session, $this->envelope('session.status', ['status' => 'qr_ready']))->assertOk();
+
+        $session->refresh();
+        $this->assertSame(SessionStatus::Qr, $session->status);
+        $this->assertNull($session->last_error, 'a session waiting for a scan is not failed');
+    }
+
     public function test_a_qr_is_stored_encrypted_moves_the_session_to_qr_and_is_announced_without_the_image(): void
     {
         $session = $this->webhookSession(state: 'starting');

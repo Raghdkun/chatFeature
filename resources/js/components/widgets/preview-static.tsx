@@ -72,7 +72,7 @@ export function paletteFor(
 ): Palette {
     const primary = color(theme.primary, '#0f766e');
     const primaryText = color(theme.primaryText, readableTextOn(primary));
-    const accent = color(theme.accent, '#f59e0b');
+    const accent = color(theme.accent, '#D97706');
 
     if (scheme === 'dark') {
         return {

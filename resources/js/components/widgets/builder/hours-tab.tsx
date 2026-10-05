@@ -7,6 +7,7 @@ import {
     settingError,
 } from '@/components/widgets/builder-state';
 import { OfflineModeChoice } from '@/components/widgets/builder/general-tab';
+import { OpenNow } from '@/components/widgets/builder/open-now';
 import { TimeZoneSelect } from '@/components/widgets/builder/selects';
 import type { TabProps } from '@/components/widgets/builder/tab-props';
 import {
@@ -42,6 +43,13 @@ export function HoursTab({ state, dispatch }: TabProps) {
 
     return (
         <div className="grid gap-5" data-testid="builder-panel-hours">
+            <OpenNow
+                mode={settings.offline_mode}
+                timeZone={settings.timezone}
+                schedule={hours.schedule}
+                holidays={hours.holidays}
+                testId="builder-hours-now"
+            />
             <SectionCard
                 live
                 title={t('builder.hours.mode_title')}
@@ -119,7 +127,8 @@ export function HoursTab({ state, dispatch }: TabProps) {
                 <ul
                     className={cn(
                         'divide-y rounded-lg border',
-                        !scheduleActive && 'opacity-60',
+                        // Inactive: a tint, not opacity (dimmed text fell under the contrast minimum); the notice above says why.
+                        !scheduleActive && 'bg-muted/40',
                     )}
                 >
                     {WEEK_ORDER.map((day) => {

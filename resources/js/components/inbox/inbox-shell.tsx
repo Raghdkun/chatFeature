@@ -20,6 +20,7 @@ import { staffRoutes } from '@/lib/chat-api/staff';
 import {
     useInbox,
     useStaffRealtimeContext,
+    useStaffRealtimeOptional,
 } from '@/lib/realtime/staff/context';
 import { ServingNotice } from '@/components/dashboard/serving-notice';
 import type { InboxShellProps } from '@/types/chat-staff';
@@ -30,18 +31,44 @@ import { cn } from '@/lib/utils';
  * list and the conversation are separate screens (the list is `/inbox`, a conversation is `/inbox/{ulid}` with a back arrow).
  * The lists are read from the live store, which the server props seed on arrival (so a reload and a visit start from the truth).
  */
-export function InboxShell({
+type InboxShellFullProps = InboxShellProps & {
+    selectedUlid: string | null;
+    /** The conversation view; absent on `/inbox`. */
+    children?: ReactNode;
+};
+
+/**
+ * The staff session lives above the Inertia app and learns who signed in from the router's `navigate` event, which fires AFTER the
+ * first page after a sign-in has rendered: for that one commit there is no session yet, and the screens below need one. They wait for it
+ * (a moment) instead of throwing and leaving a blank page.
+ */
+export function InboxShell(props: InboxShellFullProps) {
+    const { t } = useTrans();
+
+    if (useStaffRealtimeOptional() === null) {
+        return (
+            <div
+                role="status"
+                aria-busy="true"
+                className="p-6 text-sm text-muted-foreground"
+                data-testid="inbox-session-pending"
+            >
+                {t('inbox.session.starting')}
+            </div>
+        );
+    }
+
+    return <InboxShellBody {...props} />;
+}
+
+function InboxShellBody({
     queue,
     mine,
     presence,
     serving,
     selectedUlid,
     children,
-}: InboxShellProps & {
-    selectedUlid: string | null;
-    /** The conversation view; absent on `/inbox`. */
-    children?: ReactNode;
-}) {
+}: InboxShellFullProps) {
     const { t } = useTrans();
     const { store, controller, sound, viewer } = useStaffRealtimeContext();
     const live = useInbox((state) => state);

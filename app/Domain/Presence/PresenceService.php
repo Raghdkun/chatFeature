@@ -106,11 +106,34 @@ final class PresenceService
         $this->store->forget($user->id);
     }
 
+    /**
+     * The person signed out: the record is dropped (a pinned choice does not outlive the session) and everybody who watches the status is
+     * told they are offline now, instead of 90 seconds later.
+     */
+    public function signedOut(User $user): void
+    {
+        $before = $this->statusOf($user);
+
+        $this->store->forget($user->id);
+        $transition = $this->store->reconcile($user->id, now());
+
+        // A store that kept nothing (the database one deletes the row) cannot say what it had announced: the status read above can.
+        if (! $transition->changed() && $before->isAvailable()) {
+            $transition = new PresenceTransition($user->id, $before, PresenceStatus::Offline);
+        }
+
+        $this->announce($transition);
+    }
+
     private function announce(PresenceTransition $transition): void
     {
         if (! $transition->changed()) {
             return;
         }
+
+        // The agents page's "last seen": written when the status CHANGES (they came, they left), never per heartbeat. Nothing else writes the
+        // column, and reading `agent_presence` for it would put a presence query on a page that must not make one (Redis mode).
+        User::query()->whereKey($transition->userId)->update(['last_seen_at' => $transition->record->seenAt ?? now()]);
 
         PresenceChanged::dispatch($transition->userId, $transition->after);
         $this->forgetAvailabilityOf($transition->userId);

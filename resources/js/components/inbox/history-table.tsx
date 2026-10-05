@@ -22,19 +22,28 @@ function Rating({ rating }: { rating: RatingData | undefined }) {
         return <span className="text-muted-foreground">-</span>;
     }
 
+    // What the visitor wrote is shown, not hidden in a tooltip: it was the only place an administrator could read it.
     return (
-        <span
-            className="inline-flex items-center gap-1 tabular-nums"
-            title={rating.comment ?? undefined}
-        >
-            <Star
-                className="size-3.5 fill-current text-amber-500"
-                aria-hidden
-            />
-            {rating.score}
-            <span className="sr-only">
-                {t('history.rating.label', { score: rating.score })}
+        <span className="grid max-w-[16rem] gap-0.5">
+            <span className="inline-flex items-center gap-1 tabular-nums">
+                <Star
+                    className="size-3.5 fill-current text-amber-500"
+                    aria-hidden
+                />
+                {rating.score}
+                <span className="sr-only">
+                    {t('history.rating.label', { score: rating.score })}
+                </span>
             </span>
+            {rating.comment ? (
+                <span
+                    className="truncate text-xs text-muted-foreground"
+                    title={rating.comment}
+                    data-testid="history-rating-comment"
+                >
+                    {rating.comment}
+                </span>
+            ) : null}
         </span>
     );
 }

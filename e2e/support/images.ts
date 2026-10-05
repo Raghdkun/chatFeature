@@ -39,7 +39,7 @@ export async function rasterImage(
             );
 
             gradient.addColorStop(0, '#2563eb');
-            gradient.addColorStop(1, '#f59e0b');
+            gradient.addColorStop(1, '#D97706');
             context.fillStyle = gradient;
             context.fillRect(0, 0, w as number, h as number);
             context.fillStyle = '#ffffff';

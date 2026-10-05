@@ -442,6 +442,8 @@ const DEFINITIONS: Record<ScenarioName, Definition> = {
             PORTAL_ALLOW_PRIVATE_HOSTS: 'true',
             // The flood spec trips the per-network webhook limit: a low one keeps it cheap (production default 6000 a minute).
             WHATSAPP_WEBHOOK_RATE_PER_NETWORK: '600',
+            // The sync queue asks again after a transient 409/429; a short pause keeps the refusal specs quick.
+            WHATSAPP_INLINE_RETRY_MS: '300',
         },
         perProject: {
             mobilePort: 8361,
@@ -555,6 +557,8 @@ const DEFINITIONS: Record<ScenarioName, Definition> = {
             PORTAL_ALLOW_PRIVATE_HOSTS: 'true',
             // The flood spec trips the per-network webhook limit: a low one keeps it cheap (production default 6000 a minute).
             WHATSAPP_WEBHOOK_RATE_PER_NETWORK: '600',
+            // The sync queue asks again after a transient 409/429; a short pause keeps the refusal specs quick.
+            WHATSAPP_INLINE_RETRY_MS: '300',
         },
         perProject: {
             mobilePort: 8370,

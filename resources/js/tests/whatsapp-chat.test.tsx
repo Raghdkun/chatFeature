@@ -187,6 +187,7 @@ describe('the transcript', () => {
             inbound('Yesterday', 1),
             inbound('Much later', 1, {
                 ulid: fakeUlid(7099),
+                waTimestamp: fakeTime(3 * 24 * 3600),
                 createdAt: fakeTime(3 * 24 * 3600),
             }),
         ];

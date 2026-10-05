@@ -1086,7 +1086,7 @@ describe('ending', () => {
         });
     });
 
-    it('a failed end keeps the chat and says so; a rating of an already-closed chat just closes', async () => {
+    it('a failed end keeps the chat and says so; a rating of an already-closed chat closes it without a thank-you', async () => {
         const backend = useBackend();
         const h = createHarness({ backend });
 
@@ -1110,7 +1110,11 @@ describe('ending', () => {
             1,
         );
         await h.controller.rate(5, '');
-        expect(h.state().phase).toBe('closed');
+        // Not "rated" or "skipped" (both say thanks): the rating was refused, nothing was stored.
+        expect(h.state()).toMatchObject({
+            phase: 'closed',
+            closedReason: 'ended',
+        });
     });
 
     it('Start a new chat: the old session is revoked and forgotten, and the next chat is a new ticket', async () => {

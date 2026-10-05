@@ -10,7 +10,7 @@ PNE Chat is a self-hosted, tawk.to-style live-chat platform. A website visitor c
 - **Creative greeting**: weighted-random greeting pool, 3D-flip launcher to the agent face, popup, auto-hide, reduced-motion safe.
 - **Routing**: new request is offered to all online agents owning the category; first Accept wins (atomic claim); no agent online becomes an offline ticket answered by email.
 - **Realtime chat**: Laravel Reverb, typing, delivered/seen receipts, image attachments, ratings, reconnect sync.
-- **Notifications**: Web Push (VAPID), in-tab sound, title/favicon badge, presence with auto-away.
+- **Notifications**: Web Push (VAPID), in-tab sound, title badge (the count in the tab title), presence with auto-away.
 - **WhatsApp (optional)**: `wa.me` hand-off with ticket code, every message recorded, admin-only inbox. Agents never see WhatsApp chats.
 - **Two auth modes** chosen once in a setup wizard (see below).
 - **Dashboard**: widget builder with live preview, categories, agents, history search/export, analytics, audit log.

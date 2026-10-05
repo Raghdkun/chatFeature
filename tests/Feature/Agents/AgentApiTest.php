@@ -90,6 +90,19 @@ class AgentApiTest extends TestCase
         $this->assertStringNotContainsString('two_factor', (string) $response->getContent());
     }
 
+    public function test_last_seen_is_written_when_an_agent_comes_and_goes(): void
+    {
+        $this->travelTo('2026-10-04 08:30:00');
+        $seen = User::factory()->agent()->create(['name' => 'Eve Online']);
+        User::factory()->agent()->create(['name' => 'Fay Never']);
+
+        $this->actingAs($seen, 'sanctum')->putJson('/api/v1/me/presence', ['status' => 'online'])->assertOk();
+        $rows = collect($this->asAdmin()->getJson('/api/v1/agents')->assertOk()->json('data'));
+
+        $this->assertSame('2026-10-04T08:30:00.000Z', $rows->firstWhere('name', 'Eve Online')['last_seen_at']);
+        $this->assertNull($rows->firstWhere('name', 'Fay Never')['last_seen_at']);
+    }
+
     // ---- create (mode 1) ---------------------------------------------------------------------------------------
 
     public function test_an_admin_creates_a_local_agent_in_mode_one(): void

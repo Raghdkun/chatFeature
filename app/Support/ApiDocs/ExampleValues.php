@@ -36,7 +36,7 @@ final class ExampleValues
         'ResolvedBootConfigData' => ['v' => 1, 'configVersion' => 3, 'key' => 'wk_k3j9x2m5n8p4q7r1s6t0'],
         'PublicWidgetConfigData' => ['v' => 1],
         'BootApiData' => ['base' => 'https://chat.example.com/api/v1/public', 'embed' => 'https://chat.example.com/embed/wk_k3j9x2m5n8p4q7r1s6t0', 'appOrigin' => 'https://chat.example.com'],
-        'ThemeConfigData' => ['primary' => '#0ea5e9', 'primaryText' => '#ffffff', 'accent' => '#f59e0b', 'surface' => '#ffffff', 'text' => '#0f172a', 'fontFamily' => 'Inter, system-ui, sans-serif', 'fontUrl' => null, 'radius' => 16, 'panelWidth' => 380, 'panelHeight' => 640, 'offsetX' => 20, 'offsetY' => 20, 'zIndex' => 2147483000],
+        'ThemeConfigData' => ['primary' => '#0ea5e9', 'primaryText' => '#ffffff', 'accent' => '#D97706', 'surface' => '#ffffff', 'text' => '#0f172a', 'fontFamily' => 'Inter, system-ui, sans-serif', 'fontUrl' => null, 'radius' => 16, 'panelWidth' => 380, 'panelHeight' => 640, 'offsetX' => 20, 'offsetY' => 20, 'zIndex' => 2147483000],
         'LauncherConfigData' => ['iconUrl' => null, 'label' => 'Chat with us', 'avatarUrl' => null],
         'GreetingsConfigData' => ['delaySeconds' => 3, 'intervalMinutes' => 30, 'autoHideSeconds' => 12],
         'BootGreetingData' => ['agentName' => 'Sam', 'agentAvatarUrl' => 'https://chat.example.com/storage/avatars/sam.jpg', 'body' => 'Hi! Need a hand?'],

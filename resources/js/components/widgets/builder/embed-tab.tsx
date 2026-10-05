@@ -30,6 +30,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { OpenNow } from '@/components/widgets/builder/open-now';
 import { useTrans } from '@/hooks/use-trans';
 import { describeApiError } from '@/lib/api-client';
 import type { WidgetSnippetsData } from '@/types/widgets';
@@ -116,6 +117,16 @@ export function EmbedTab({
                             </div>
                         </Notice>
                     )
+                )}
+                {state.doc.settings.is_enabled && (
+                    <OpenNow
+                        onlyWhenClosed
+                        mode={state.doc.settings.offline_mode}
+                        timeZone={state.doc.settings.timezone}
+                        schedule={state.doc.config.hours.schedule}
+                        holidays={state.doc.config.hours.holidays}
+                        testId="builder-embed-closed-now"
+                    />
                 )}
                 {hasUnpublished && (
                     <Notice

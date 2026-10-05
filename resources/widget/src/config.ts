@@ -133,7 +133,7 @@ const THEME: Record<string, Entry> = {
     mode: ['auto', oneOf('auto', 'light', 'dark')],
     primary: ['#0f766e', hex],
     primaryText: ['#ffffff', hex],
-    accent: ['#f59e0b', hex],
+    accent: ['#d97706', hex],
     surface: ['#ffffff', hex],
     text: ['#0f172a', hex],
     fontFamily: ['Inter, system-ui, sans-serif', font],

@@ -2300,9 +2300,10 @@ export class ChatController {
                     return;
                 }
 
-                // Already rated, or the rating window ended: nothing left to ask.
+                // Already rated, or the rating window ended and the server closed the chat: the rating was NOT stored, so the panel must not
+                // say "Thanks for your feedback!". It says the chat is closed.
                 if (error.status === 404 || error.status === 409) {
-                    this.dispatch({ type: 'RATING_SKIPPED' });
+                    this.dispatch({ type: 'RATING_TOO_LATE' });
 
                     return;
                 }

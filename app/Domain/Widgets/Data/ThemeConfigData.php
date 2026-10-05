@@ -17,7 +17,7 @@ class ThemeConfigData extends Data
         public ThemeMode $mode = ThemeMode::Auto,
         public string $primary = '#0f766e',
         public string $primaryText = '#ffffff',
-        public string $accent = '#f59e0b',
+        public string $accent = '#D97706',
         public string $surface = '#ffffff',
         public string $text = '#0f172a',
         public string $fontFamily = 'Inter, system-ui, sans-serif',

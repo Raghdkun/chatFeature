@@ -10,6 +10,9 @@
 - [ ] **Look at your own widget**: Widgets > open it. The card and the Embed tab now say what is missing. For a page on your machine add its origin in the **Domains** tab (for example `localhost:8201`), press **Add** and then **Save changes** (it needs Save, not Publish), and make sure the widget is switched **on**.
 - [ ] **Serve a category yourself**: Settings > Support categories > pick a category > Save. A new installation does this for the first admin automatically; your existing database predates that, and without it visitors always get "No agent is available". The dashboard and the inbox tell you when this is the case.
 
+- [ ] **Switch the Inertia DevTools off in your `.env`** (`INERTIA_DEVTOOLS_ENABLED=false`; `.env.example` has it now). While `APP_ENV=local` they serve every dashboard page's props, staff and visitor data included, **without a sign-in** to anybody who can reach the dev server (found in the full verification pass). Only switch them on on a machine nobody else can reach.
+- [ ] **Walk the verification list once yourself** where a machine could not: see "Could not be verified here" in [feature-verification.md](feature-verification.md) (real push permission clicks, Safari/Firefox/iPhone, a real WhatsApp phone).
+
 ## Accounts, keys and hardware only you have
 
 - [ ] **A phone for WhatsApp.** Pair a **dedicated** number with OpenWA (Settings > WhatsApp > scan the QR) and walk the checklist in [whatsapp-openwa.md](whatsapp-openwa.md): the message-level payloads (`message.*`, acks) of the real OpenWA image have never been recorded, and the round trip through a real phone has never been run.
@@ -23,6 +26,9 @@
 - [ ] **`package-lock.json`** is a stale leftover from phase 0 (`npm ci` fails on it); the real lock is `pnpm-lock.yaml`, which the Docker image uses. Delete it, or regenerate it, or move the project to pnpm everywhere?
 - [ ] **WhatsApp isolation oracle:** an agent gets 403 for a real WhatsApp id and 404 for a made-up one, which tells them whether the id exists. Collapse both to 404? (Currently a `test.fixme`.)
 - [ ] **Replying to chats the phone started** is refused on purpose ("reply only to customers who wrote first"). Keep it?
+- [ ] **A general settings page?** The wizard sets the app name, URL, language and time zone and nothing in the dashboard changes them afterwards (only the chat idle timeout, per widget). The wizard copy now says so. Build a page (about a day), or keep it CLI/DB-only?
+- [ ] **Cross-site form POST signs staff out** (B-A-7 in [feature-verification.md](feature-verification.md)): the 419 response replaces the real session cookie with an anonymous one. A hostile page can log staff out (nothing more). Worth a session-start change before the CSRF check, or accept?
+- [ ] **403 vs 404 for existing ULIDs** (WhatsApp ids, unsigned attachment ids, `already_claimed` naming the other agent): an agent can tell whether an id exists. The ids are unguessable; collapse them to 404 anyway?
 - [ ] **Native app:** passkey sign-in and a real FCM channel are not built (about 3-5 days each, see [mobile-readiness.md](mobile-readiness.md)).
 
 ## Checks that need a real browser you drive yourself

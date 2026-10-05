@@ -300,6 +300,22 @@ describe('start: permission already granted', () => {
         expect(controller.getState().devices).toHaveLength(1);
     });
 
+    it('subscribes once when the automatic run and the "Turn on" button overlap (one device, not two)', async () => {
+        const r = rig({
+            env: { permission: 'granted', promptAnswer: 'granted' },
+        });
+        const controller = r.make();
+
+        const starting = controller.start();
+        const enabling = controller.enable();
+
+        await Promise.all([starting, enabling]);
+
+        expect(r.env.subscribe).toHaveBeenCalledTimes(1);
+        expect(r.api.register).toHaveBeenCalledTimes(1);
+        expect(controller.getState().subscribed).toBe(true);
+    });
+
     it('reuses a subscription that was made with the current key and registers it again (refreshing its session)', async () => {
         const existing = fakeSubscription(
             'https://fcm.googleapis.com/fcm/send/existing',

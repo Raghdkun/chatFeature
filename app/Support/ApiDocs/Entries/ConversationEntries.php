@@ -119,7 +119,7 @@ final class ConversationEntries implements EntryList
                     'conversation_not_active',
                     'feature_disabled' => 'The widget switched attachments off.',
                     'attachment_quota_exceeded',
-                    'validation_failed' => 'Not a JPEG, PNG, WebP or still GIF by content, an animated GIF, too large in bytes or pixels, or ten uploads are already waiting. The message is under `details.file`.',
+                    'validation_failed' => 'Not a JPEG, PNG, WebP or still GIF by content, an animated GIF, or too large in bytes or pixels. The message is under `details.file`. (At ten unused uploads the oldest unused uploads of the same uploader are dropped to make room.)',
                 ]),
 
             Doc::route('api.conversations.receipts.store')

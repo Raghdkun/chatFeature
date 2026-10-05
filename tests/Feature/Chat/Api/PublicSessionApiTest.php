@@ -54,6 +54,16 @@ class PublicSessionApiTest extends TestCase
         return new IssuedVisitorToken($plaintext, app(VisitorTokenService::class)->find($plaintext));
     }
 
+    public function test_a_page_address_that_is_not_the_web_is_not_stored(): void
+    {
+        $this->open(['page' => ['url' => 'javascript:alert(1)', 'title' => 'x', 'referrer' => 'data:text/html,<script>1</script>']])->assertCreated();
+
+        $session = VisitorSession::query()->sole();
+        $this->assertNull($session->page_url);
+        $this->assertNull($session->referrer);
+        $this->assertSame('x', $session->page_title);
+    }
+
     public function test_an_anonymous_visitor_gets_a_token_shown_once(): void
     {
         $response = $this->open(['page' => ['url' => 'https://customer.test/pricing', 'title' => 'Pricing', 'referrer' => ''], 'locale' => 'en'])

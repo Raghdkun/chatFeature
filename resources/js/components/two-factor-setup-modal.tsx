@@ -120,11 +120,14 @@ function TwoFactorSetupStep({
                                         type="text"
                                         readOnly
                                         value={manualSetupKey}
+                                        aria-label="Setup key"
                                         className="h-full w-full bg-background p-3 text-foreground outline-none"
                                     />
                                     <button
+                                        type="button"
                                         onClick={() => copy(manualSetupKey)}
-                                        className="border-l border-border px-3 hover:bg-muted"
+                                        aria-label="Copy setup key"
+                                        className="border-s border-border px-3 hover:bg-muted"
                                     >
                                         <IconComponent className="w-4" />
                                     </button>
@@ -158,7 +161,16 @@ function TwoFactorVerificationStep({
         <Form
             {...confirm.form()}
             onSuccess={() => onClose()}
-            resetOnError
+            // A wrong code is erased (the input is controlled: resetting the form alone would leave the old digits in it) and the
+            // cursor goes back to the first box, so the next code is simply typed.
+            onError={() => {
+                setCode('');
+                setTimeout(() => {
+                    pinInputContainerRef.current
+                        ?.querySelector('input')
+                        ?.focus();
+                }, 0);
+            }}
             resetOnSuccess
         >
             {({
@@ -177,7 +189,9 @@ function TwoFactorVerificationStep({
                             <InputOTP
                                 id="otp"
                                 name="code"
+                                aria-label="Authentication code"
                                 maxLength={OTP_MAX_LENGTH}
+                                value={code}
                                 onChange={setCode}
                                 disabled={processing}
                                 pattern={REGEXP_ONLY_DIGITS}

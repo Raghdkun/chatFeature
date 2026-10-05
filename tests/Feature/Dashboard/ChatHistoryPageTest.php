@@ -42,6 +42,13 @@ class ChatHistoryPageTest extends TestCase
         return array_column($props['conversations'], 'ulid');
     }
 
+    public function test_array_query_values_are_no_filters_instead_of_a_server_error(): void
+    {
+        $props = $this->actingAs($this->admin)->get('/history?q[]=1&status[]=x&type[]=1&agent[]=2&category[]=a&from[]=2026-01-01')->assertOk()->viewData('page')['props'];
+
+        $this->assertSame(['status' => '', 'type' => '', 'category' => '', 'widget' => '', 'agent' => '', 'from' => '', 'to' => '', 'q' => ''], $props['filters']);
+    }
+
     public function test_history_is_admin_only(): void
     {
         $this->get('/history')->assertRedirect(route('login'));

@@ -32,7 +32,7 @@ import {
     waitFor,
 } from '@/tests/staff-kit';
 import { act } from 'react';
-import { click } from '@/tests/render';
+import { click, render } from '@/tests/render';
 import type { InboxPageProps } from '@/types/chat-staff';
 
 vi.mock('@inertiajs/react', async () =>
@@ -621,5 +621,17 @@ describe('attention', () => {
         expect(
             byTestId(view.container, 'nav-badge-inbox')?.textContent,
         ).toContain('4 need attention');
+    });
+});
+
+describe('right after signing in', () => {
+    it('waits for the staff session instead of throwing (the host learns who signed in one commit later)', async () => {
+        // No provider: the first page after a sign-in renders before the host's `navigate` listener has built the session.
+        const view = await render(<InboxIndex {...shell()} />);
+
+        expect(
+            byTestId(view.container, 'inbox-session-pending'),
+        ).not.toBeNull();
+        expect(view.container.textContent).toContain('Starting your inbox');
     });
 });

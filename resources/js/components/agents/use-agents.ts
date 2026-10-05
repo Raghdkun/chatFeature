@@ -90,7 +90,14 @@ export function useAgents(initial: AgentListItemData[]) {
         setActive: (agent: AgentListItemData, active: boolean) =>
             patch(agent, { is_active: active }, { is_active: active }),
         setAgentRole: (agent: AgentListItemData, isAgent: boolean) =>
-            patch(agent, { is_agent: isAgent }, { is_agent: isAgent }),
+            // Only accounts that take chats serve categories: the server drops them when the switch goes off.
+            patch(
+                agent,
+                { is_agent: isAgent },
+                isAgent
+                    ? { is_agent: true }
+                    : { is_agent: false, category_ulids: [] },
+            ),
         setMaxChats: (agent: AgentListItemData, max: number) =>
             patch(
                 agent,

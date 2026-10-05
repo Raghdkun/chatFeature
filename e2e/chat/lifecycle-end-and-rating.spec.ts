@@ -127,8 +127,10 @@ test('the visitor ends the chat and rates it 4 with a comment: stored, and the a
 
     await expect(row).toContainText('Vera Visitor');
     await expect(row).toContainText('Billing');
-    await expect(row.locator('[title="Helpful, thank you."]')).toContainText(
-        '4',
+    await expect(row).toContainText('Rated 4 out of 5');
+    // The comment is on the page itself, not only in a tooltip.
+    await expect(row.getByTestId('history-rating-comment')).toHaveText(
+        'Helpful, thank you.',
     );
 });
 

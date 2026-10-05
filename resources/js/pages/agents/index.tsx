@@ -29,6 +29,16 @@ import {
     PageShell,
     usePlural,
 } from '@/components/widgets/page-chrome';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import {
     Empty,
@@ -44,7 +54,7 @@ import { useInboxOptional } from '@/lib/realtime/staff/context';
 import { safeExternalUrl } from '@/lib/urls';
 import { cn } from '@/lib/utils';
 import { widgetsRoutes } from '@/lib/widgets-routes';
-import type { AgentsPageProps } from '@/types/widgets';
+import type { AgentListItemData, AgentsPageProps } from '@/types/widgets';
 
 export default function AgentsIndex({
     agents: initialAgents,
@@ -61,6 +71,8 @@ export default function AgentsIndex({
         useAgents(initialAgents);
     const [filters, setFilters] = useState<AgentFilters>(NO_FILTERS);
     const [creating, setCreating] = useState(false);
+    // An admin who stops taking chats loses the categories they serve: say so before it happens.
+    const [stopping, setStopping] = useState<AgentListItemData | null>(null);
     // The props are a snapshot of the moment the page loaded; `presence.changed` events heard since then update the dots.
     const [loadedAt] = useState(() => Date.now());
     const heard = useInboxOptional((state) => state.seenPresence);
@@ -264,7 +276,13 @@ export default function AgentsIndex({
                                             void setActive(entry, active)
                                         }
                                         onSetAgentRole={(entry, isAgent) =>
-                                            void setAgentRole(entry, isAgent)
+                                            !isAgent &&
+                                            entry.category_ulids.length > 0
+                                                ? setStopping(entry)
+                                                : void setAgentRole(
+                                                      entry,
+                                                      isAgent,
+                                                  )
                                         }
                                         onSetMaxChats={(entry, max) =>
                                             void setMaxChats(entry, max)
@@ -303,6 +321,46 @@ export default function AgentsIndex({
                     }}
                 />
             )}
+
+            <AlertDialog
+                open={stopping !== null}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setStopping(null);
+                    }
+                }}
+            >
+                <AlertDialogContent data-testid="agent-stop-dialog">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="[overflow-wrap:anywhere]">
+                            {t('agents.stop.title', {
+                                name: stopping?.name ?? '',
+                            })}
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {t('agents.stop.body', {
+                                count: stopping?.category_ulids.length ?? 0,
+                            })}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>
+                            {t('agents.stop.cancel')}
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            data-testid="agent-stop-confirm"
+                            onClick={() => {
+                                if (stopping) {
+                                    void setAgentRole(stopping, false);
+                                    setStopping(null);
+                                }
+                            }}
+                        >
+                            {t('agents.stop.confirm')}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     );
 }

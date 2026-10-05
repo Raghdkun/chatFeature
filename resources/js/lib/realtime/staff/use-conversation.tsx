@@ -180,6 +180,8 @@ export function useConversation({
     // `conversation.updated`: read it again, and when the server no longer lets this agent see it say so.
     const wasListed = useRef(listed !== null);
     const [lostAccess, setLostAccess] = useState(false);
+    // This agent is handing the chat over right now: they know it leaves their lists, and asking for it again could only be refused (403).
+    const departing = useRef(false);
 
     useEffect(() => {
         if (listed) {
@@ -194,6 +196,11 @@ export function useConversation({
         }
 
         wasListed.current = false;
+
+        if (departing.current) {
+            return;
+        }
+
         api.conversation(ulid).then(
             (fresh) => dispatch({ type: 'conversation', conversation: fresh }),
             (error: unknown) => {
@@ -624,8 +631,18 @@ export function useConversation({
         [act, api, ulid],
     );
     const transfer = useCallback(
-        (target: TransferTarget, report?: (message: string) => void) =>
-            act(() => api.transfer(ulid, target), report),
+        async (target: TransferTarget, report?: (message: string) => void) => {
+            // Set BEFORE the call: the store drops the chat from the lists while the call is still resolving.
+            departing.current = true;
+
+            const next = await act(() => api.transfer(ulid, target), report);
+
+            if (next === null) {
+                departing.current = false;
+            }
+
+            return next;
+        },
         [act, api, ulid],
     );
 

@@ -66,10 +66,12 @@ final class ApplySessionState
 
                 if ($to === SessionStatus::Ready) {
                     $changes['ready_at'] = now();
+                }
 
-                    if (! array_key_exists('last_error', $attributes) && $current->last_error !== null) {
-                        $changes['last_error'] = null;
-                    }
+                // A session that is starting, waiting for a scan or connected is on its way: the reason it went down earlier is history
+                // (it would sit under a "Scan the QR code" badge with "Start the session again" next to it).
+                if (in_array($to, [SessionStatus::Starting, SessionStatus::Qr, SessionStatus::Ready], true) && ! array_key_exists('last_error', $attributes) && $current->last_error !== null) {
+                    $changes['last_error'] = null;
                 }
 
                 if ($to !== SessionStatus::Qr && ($current->last_qr_at !== null || $current->getRawOriginal('last_qr') !== null)) {

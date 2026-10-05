@@ -444,6 +444,44 @@ describe('mode 1 (local staff)', () => {
         ).toBe('false');
     });
 
+    it('asks before an admin who serves categories stops taking chats, and changes nothing when kept', async () => {
+        const admin = makeAgent({
+            id: 7,
+            name: 'Ada Admin',
+            is_admin: true,
+            is_agent: true,
+            category_ulids: ['cat1', 'cat2'],
+        });
+        const api = fakeApi({
+            'PATCH /api/v1/agents/7': (call: { body: unknown }) => ({
+                json: {
+                    data: {
+                        ...admin,
+                        ...(call.body as object),
+                        category_ulids: [],
+                    },
+                },
+            }),
+        });
+        const view = await render(
+            <AgentsIndex {...props({ agents: [admin] })} />,
+        );
+
+        await click(byTestId(view.container, 'agent-role-7'));
+
+        expect(body.byTestId('agent-stop-dialog')?.textContent).toContain(
+            'serves 2 of your support categories',
+        );
+        expect(api.to('PATCH', '/api/v1/agents/7')).toHaveLength(0);
+
+        await click(body.byTestId('agent-stop-confirm'));
+        await flush();
+
+        expect(api.bodyOf('PATCH', '/api/v1/agents/7')).toEqual({
+            is_agent: false,
+        });
+    });
+
     it('offers "Takes chats" on admin rows only: the server refuses is_agent=false for agents ("Agents always take chats")', async () => {
         const view = await render(<AgentsIndex {...props()} />);
 

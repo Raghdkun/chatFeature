@@ -53,7 +53,7 @@ describe('theme', () => {
         ).toEqual({
             '--pne-primary': '#0f766e',
             '--pne-on-primary': '#ffffff',
-            '--pne-accent': '#f59e0b',
+            '--pne-accent': '#D97706',
             '--pne-surface': '#ffffff',
             '--pne-text': '#0f172a',
             '--pne-radius': '8px',

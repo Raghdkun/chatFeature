@@ -101,7 +101,7 @@ final class PublicEntries implements EntryList
                     'feature_disabled' => 'The widget switched attachments off.',
                     'conversation_not_active',
                     'attachment_quota_exceeded',
-                    'validation_failed' => 'Not an allowed image, an animated GIF, over the size or pixel limit, or 10 uploads already wait. The message is under `details.file`.',
+                    'validation_failed' => 'Not an allowed image, an animated GIF, or over the size or pixel limit. The message is under `details.file`. (At ten unused uploads the oldest unused uploads of the same uploader are dropped to make room.)',
                 ]),
 
             Doc::route('public.attachments.show')

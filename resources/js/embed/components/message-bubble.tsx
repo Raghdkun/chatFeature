@@ -83,7 +83,8 @@ export function Receipt({
     return (
         <span
             data-testid="message-receipt"
-            className={`inline-flex items-center gap-1 ${status === 'seen' ? 'text-brand' : ''}`}
+            // "Seen" is told apart by its double tick and its word, not by the brand colour: the brand colour on a dark panel was under 3:1.
+            className={`inline-flex items-center gap-1 ${status === 'seen' ? 'text-ink font-medium' : ''}`}
         >
             <Icon aria-hidden="true" className="size-3.5" />
             <span className={showText ? '' : 'sr-only'}>{label}</span>

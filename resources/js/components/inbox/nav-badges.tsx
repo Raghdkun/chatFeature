@@ -6,6 +6,7 @@ import {
     type InboxState,
 } from '@/lib/realtime/staff/store';
 
+/** On the collapsed rail the count sits on the icon's corner instead of disappearing (the rail is the only thing that says something is waiting). */
 function CountBadge({
     count,
     testId,
@@ -22,7 +23,7 @@ function CountBadge({
     return (
         <span
             data-testid={testId}
-            className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground tabular-nums group-data-[collapsible=icon]:hidden"
+            className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground tabular-nums group-data-[collapsible=icon]:pointer-events-none group-data-[collapsible=icon]:absolute group-data-[collapsible=icon]:end-0 group-data-[collapsible=icon]:top-0 group-data-[collapsible=icon]:h-4 group-data-[collapsible=icon]:min-w-4 group-data-[collapsible=icon]:px-1 group-data-[collapsible=icon]:text-[10px]"
         >
             <span aria-hidden>{count > 99 ? '99+' : count}</span>
             <span className="sr-only">{label(count)}</span>

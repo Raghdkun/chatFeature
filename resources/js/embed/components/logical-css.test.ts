@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vite-plus/test';
 
 const sources = import.meta.glob<string>(
@@ -80,5 +81,19 @@ describe('RTL safety (logical CSS only)', () => {
         // `translateX` would also be physical
         expect(stylesheet).not.toMatch(/translateX|rotateY/);
         expect(offenders.map((o) => `${o.index + 1}: ${o.line}`)).toEqual([]);
+    });
+});
+
+describe('long texts', () => {
+    it('lets the whole panel wrap a URL or word without breaks instead of clipping it', () => {
+        // Read from disk: Vitest turns a stylesheet import into an empty string, so the `?raw` glob above sees nothing.
+        const stylesheet = readFileSync(
+            `${process.cwd()}/resources/js/embed/embed.css`,
+            'utf8',
+        );
+
+        expect(stylesheet).toMatch(
+            /\.pne-root\s*\{[^}]*overflow-wrap:\s*anywhere/,
+        );
     });
 });

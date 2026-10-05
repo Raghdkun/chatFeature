@@ -337,7 +337,23 @@ export function createNotificationsController(deps: NotificationsDeps) {
      * Registers the worker, subscribes this browser with the CURRENT server key and tells the server (an upsert, which also refreshes the
      * session the row belongs to). A subscription made with an older key is dropped, together with its row on the server.
      */
-    async function ensureSubscribed(): Promise<boolean> {
+    let subscribing: Promise<boolean> | null = null;
+
+    /**
+     * One subscription run at a time: the automatic one when the dashboard opens (permission already granted) and the "Turn on" button
+     * could overlap, each subscribing the browser and registering it, and the same browser then appeared twice in "Your devices".
+     */
+    function ensureSubscribed(): Promise<boolean> {
+        if (subscribing === null) {
+            subscribing = subscribeAndRegister().finally(() => {
+                subscribing = null;
+            });
+        }
+
+        return subscribing;
+    }
+
+    async function subscribeAndRegister(): Promise<boolean> {
         if (!state.support.supported || keyBytes === null) {
             return false;
         }

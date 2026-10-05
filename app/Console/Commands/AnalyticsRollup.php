@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Domain\Analytics\Actions\RollupOutcome;
 use App\Domain\Analytics\Actions\RollupRange;
 use App\Domain\Analytics\Support\AnalyticsTimezone;
+use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use InvalidArgumentException;
@@ -15,6 +16,7 @@ use InvalidArgumentException;
  *   analytics:rollup                         every day since 35 days ago that is not sealed (the nightly run: catches up on its own)
  *   analytics:rollup --today                 only today (the hourly run)
  *   analytics:rollup --from=2026-01-01 --to=2026-03-31 [--force]   a backfill; sealed days are skipped unless --force
+ *   analytics:rollup --days=35 --force       the last 35 days, sealed ones included
  *
  * Idempotent: a day is recomputed from scratch and replaced in one transaction, so running it twice, or twice at once, gives the same rows
  * (a lock makes a second concurrent run stop at once). Days are counted in the `app.timezone` setting.
@@ -69,7 +71,11 @@ class AnalyticsRollup extends Command
         } elseif ($this->option('today')) {
             $days = [$today];
         } else {
-            $days = $rollup->pending(max(1, (int) ($this->option('days') ?: RollupRange::DEFAULT_HORIZON_DAYS)));
+            $horizon = max(1, (int) ($this->option('days') ?: RollupRange::DEFAULT_HORIZON_DAYS));
+            // `--force` without a range means "the last N days, sealed ones too" (it used to be silently ignored and skip every sealed day).
+            $days = $force
+                ? $rollup->days(CarbonImmutable::parse($today)->subDays($horizon - 1)->format('Y-m-d'), $today)
+                : $rollup->pending($horizon);
         }
 
         if ($days === []) {

@@ -132,6 +132,8 @@ describe('the results', () => {
         expect(row.textContent).toContain('Closed');
         expect(row.textContent).toContain('Sam');
         expect(row.textContent).toContain('Rated 4 out of 5');
+        // The comment the visitor wrote is on the page, not only in a tooltip.
+        expect(row.textContent).toContain('Helpful');
         expect(
             (row.querySelector('a') as HTMLAnchorElement).getAttribute('href'),
         ).toBe(`/inbox/${list[0].ulid}`);

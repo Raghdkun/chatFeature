@@ -147,6 +147,15 @@ class SetupWizardFlowTest extends InstallTestCase
         $this->post(route('setup.basics'), ['app_name' => '', 'app_url' => 'javascript:alert(1)', 'locale' => 'xx', 'timezone' => 'Mars/Base', 'idle_timeout_minutes' => 0])
             ->assertSessionHasErrors(['app_name', 'app_url', 'locale', 'timezone', 'idle_timeout_minutes']);
         $this->assertNull($this->install->read()['basics']);
+
+        // The address is an origin: a path or a query would be baked into every embed snippet and signed link.
+        foreach (['https://chat.example.com/support', 'https://chat.example.com/?x=1', 'https://chat.example.com/#top'] as $address) {
+            $this->post(route('setup.basics'), ['app_name' => 'Chat', 'app_url' => $address, 'locale' => 'en', 'timezone' => 'UTC', 'idle_timeout_minutes' => 120])
+                ->assertSessionHasErrors('app_url');
+        }
+
+        $this->post(route('setup.basics'), ['app_name' => 'Chat', 'app_url' => 'https://chat.example.com/', 'locale' => 'en', 'timezone' => 'UTC', 'idle_timeout_minutes' => 120])
+            ->assertSessionHasNoErrors();
     }
 
     public function test_run_steps_refuse_to_start_before_the_answers_exist_or_out_of_order(): void

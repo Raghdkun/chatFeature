@@ -12,6 +12,7 @@ use App\Domain\Analytics\Support\AnalyticsTimezone;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\User;
+use App\Models\WhatsAppSession;
 use App\Models\Widget;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -52,7 +53,8 @@ class AnalyticsPageController extends Controller
         $agent = $admin && $widget === null && $category === null ? $this->id($request->query('agent')) : null;
 
         return Inertia::render('analytics/index', (new AnalyticsPageData(
-            scope: new AnalyticsPageScopeData($role, $user->id, $admin),
+            // The WhatsApp section only appears once WhatsApp was ever set up (an empty card on an installation without it is noise).
+            scope: new AnalyticsPageScopeData($role, $user->id, $admin && WhatsAppSession::withTrashed()->exists()),
             timezone: $timezone,
             today: $today,
             filters: new AnalyticsFiltersData($from, $to, $widget, $category, $agent, $request->query('compare') !== '0'),

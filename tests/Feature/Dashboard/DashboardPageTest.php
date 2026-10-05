@@ -30,6 +30,14 @@ class DashboardPageTest extends TestCase
         $this->get('/dashboard')->assertRedirect(route('login'));
     }
 
+    public function test_the_page_title_carries_the_name_chosen_in_the_wizard(): void
+    {
+        $this->useFortifyMode();
+        settings()->set('app.name', 'Acme Support');
+
+        $this->get('/login')->assertOk()->assertSeeInOrder(['<title', 'Acme Support', '</title>'], false);
+    }
+
     public function test_an_empty_installation_shows_every_step_still_to_do(): void
     {
         $admin = User::factory()->admin()->create(['is_agent' => true]);

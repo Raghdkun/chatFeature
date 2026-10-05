@@ -42,10 +42,25 @@ final class OpenWaProblem
             $exception instanceof OpenWaNotConfigured => 'OpenWA is not configured.',
             $exception instanceof OpenWaAddressRefused => 'The saved OpenWA address is not allowed.',
             $exception instanceof OpenWaRejected && $exception->isUnauthorized() => 'OpenWA did not accept the API key.',
-            $exception instanceof OpenWaRejected => 'OpenWA refused the request: '.mb_substr($exception->getMessage(), 0, 200),
-            $exception instanceof OpenWaUnavailable => 'OpenWA could not be reached ('.mb_substr($exception->getMessage(), 0, 120).')',
+            $exception instanceof OpenWaRejected && $exception->status === 429 => 'OpenWA is busy (too many requests). Try again in a moment.',
+            $exception instanceof OpenWaRejected => 'OpenWA refused the request: '.self::plain($exception->getMessage(), 200),
+            $exception instanceof OpenWaUnavailable => self::unavailable($exception),
             default => 'OpenWA could not complete the request.',
         };
+    }
+
+    /** OpenWA's text without the name of the exception class its framework put in front ("ThrottlerException: Too Many Requests"). */
+    private static function plain(string $message, int $limit): string
+    {
+        return mb_substr(preg_replace('/^\s*[A-Za-z]+Exception:\s*/', '', $message) ?? $message, 0, $limit);
+    }
+
+    /** Our own unavailable messages already begin with "OpenWA ..." and say what happened: wrapping them would say it twice. */
+    private static function unavailable(OpenWaUnavailable $exception): string
+    {
+        $message = mb_substr(trim($exception->getMessage()), 0, 160);
+
+        return str_starts_with($message, 'OpenWA ') ? $message : 'OpenWA could not be reached ('.$message.').';
     }
 
     /**

@@ -81,6 +81,23 @@ class RollupCommandTest extends TestCase
         $this->assertSame(2, $this->started('2026-03-10'));
     }
 
+    public function test_force_with_a_number_of_days_rebuilds_the_last_days_sealed_ones_included(): void
+    {
+        $this->travelTo(CarbonImmutable::parse('2026-03-20 12:00:00', 'UTC'));
+        $this->world->chat('2026-03-10 09:00:00')->save();
+        $this->artisan('analytics:rollup', ['--from' => '2026-03-10', '--to' => '2026-03-10'])->assertSuccessful();
+        $this->assertTrue($this->sealed('2026-03-10'));
+
+        $this->world->chat('2026-03-10 10:00:00')->save();
+
+        // Without --force the sealed day stays; `--days=35 --force` used to behave like that too (the option was ignored).
+        $this->artisan('analytics:rollup', ['--days' => 35])->assertSuccessful();
+        $this->assertSame(1, $this->started('2026-03-10'));
+
+        $this->artisan('analytics:rollup', ['--days' => 35, '--force' => true])->assertSuccessful();
+        $this->assertSame(2, $this->started('2026-03-10'));
+    }
+
     public function test_the_last_days_stay_open_until_they_are_old_enough(): void
     {
         $today = now()->format('Y-m-d');

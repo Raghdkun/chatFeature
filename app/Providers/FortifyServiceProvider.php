@@ -6,6 +6,7 @@ use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
 use App\Auth\Contracts\AuthDriver;
 use App\Auth\Enums\AuthOutcome;
+use App\Auth\Fortify\UniformPasswordResetLinkResponse;
 use App\Auth\Support\AuthResult;
 use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -16,6 +17,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
+use Laravel\Fortify\Contracts\FailedPasswordResetLinkRequestResponse;
 use Laravel\Fortify\Fortify;
 
 class FortifyServiceProvider extends ServiceProvider
@@ -25,7 +27,7 @@ class FortifyServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(FailedPasswordResetLinkRequestResponse::class, UniformPasswordResetLinkResponse::class);
     }
 
     /**

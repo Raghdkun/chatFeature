@@ -540,13 +540,14 @@ class WhatsAppReplyApiTest extends TestCase
     public function test_a_409_that_never_clears_fails_the_message_with_openwas_reason_when_the_job_cannot_wait_any_more(): void
     {
         $message = $this->pending();
-        $this->openWa()->willThrow('sendText', new OpenWaRejected('conflict', 409, 'Session is not connected. The WhatsApp client is not ready.'));
+        $this->openWa()->willThrow('sendText', new OpenWaRejected('conflict', 409, 'Session is not connected. The WhatsApp client is not ready.'), null);
 
-        // Run without a queue job (the sync queue / a direct call cannot release): nothing to wait with.
+        // Run without a queue job (the sync queue / a direct call cannot release): it asks again twice (no pause in tests), then fails.
         $job = new SendWhatsAppMessage($message->id);
         $job->handle(app(OpenWaClient::class), app(SendPacer::class), app(SendCounter::class));
 
         $message->refresh();
+        $this->openWa()->assertCalled('sendText', times: 3);
         $this->assertSame(WaMessageStatus::Failed, $message->status);
         $this->assertSame('OpenWA refused the request: Session is not connected. The WhatsApp client is not ready.', $message->error);
         $this->assertSame(0, app(SendCounter::class)->used($this->session));

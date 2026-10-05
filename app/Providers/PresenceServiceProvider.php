@@ -2,11 +2,14 @@
 
 namespace App\Providers;
 
+use App\Domain\Chat\Events\StaffSessionRevoked;
 use App\Domain\Notifications\Contracts\DashboardVisibility;
 use App\Domain\Presence\AvailableAgents;
 use App\Domain\Presence\Contracts\PresenceStore;
 use App\Domain\Presence\DatabasePresenceReader;
 use App\Domain\Presence\EffectivePresence;
+use App\Domain\Presence\Listeners\GoOfflineOnSignOut;
+use App\Domain\Presence\Listeners\GoOfflineWhenAccessEnds;
 use App\Domain\Presence\PresenceDashboardVisibility;
 use App\Domain\Presence\PresenceMirror;
 use App\Domain\Presence\PresencePolicy;
@@ -16,9 +19,11 @@ use App\Domain\Presence\Stores\DatabasePresenceStore;
 use App\Domain\Presence\Stores\FailoverPresenceStore;
 use App\Domain\Presence\Stores\RedisPresenceStore;
 use App\Domain\Widgets\Contracts\PresenceReader;
+use Illuminate\Auth\Events\Logout;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Redis\Factory as RedisFactory;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Throwable;
 
@@ -49,7 +54,8 @@ class PresenceServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        //
+        Event::listen(Logout::class, GoOfflineOnSignOut::class);
+        Event::listen(StaffSessionRevoked::class, GoOfflineWhenAccessEnds::class);
     }
 
     private function store(Application $app): PresenceStore

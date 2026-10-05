@@ -119,6 +119,16 @@ class WhatsAppSettingsApiTest extends TestCase
         $this->api()->putJson('/api/v1/whatsapp/settings', $body)->assertStatus(422)->assertJsonValidationErrors($field, 'error.details');
     }
 
+    public function test_a_malformed_address_is_told_apart_from_a_refused_host(): void
+    {
+        $shape = $this->api()->putJson('/api/v1/whatsapp/settings', ['base_url' => 'http://user:pass@127.0.0.1:2785/api'])->assertStatus(422)->json('error.details.base_url.0');
+        $host = $this->api()->putJson('/api/v1/whatsapp/settings', ['base_url' => 'http://169.254.169.254'])->assertStatus(422)->json('error.details.base_url.0');
+
+        $this->assertStringContainsString('scheme://host:port', (string) $shape);
+        $this->assertStringNotContainsString('private network', (string) $shape, 'a path or credentials has nothing to do with the network');
+        $this->assertStringContainsString('allow private hosts', (string) $host);
+    }
+
     public function test_one_invalid_value_means_nothing_is_written(): void
     {
         $this->api()->putJson('/api/v1/whatsapp/settings', ['enabled' => true, 'daily_send_cap' => 80, 'handoff_text' => 'no placeholder'])->assertStatus(422);

@@ -105,7 +105,7 @@ class SendWhatsAppMessage implements ShouldQueue
         }
 
         try {
-            $result = $openWa->sendText($session->openwa_session_id, $message->chat->chat_id, $message->body);
+            $result = $this->sendWithInlineRetries($openWa, $session->openwa_session_id, $message->chat->chat_id, $message->body);
         } catch (OpenWaPacingLimited $limited) {
             $this->pacingLimited($message, $counter, $limited);
 
@@ -125,6 +125,31 @@ class SendWhatsAppMessage implements ShouldQueue
         }
 
         $this->accepted($message, $result);
+    }
+
+    /**
+     * On a real queue a transient refusal is handed back to the queue ({@see self::rejected()}). The `sync` queue (or a direct call) cannot do
+     * that, and failing the reply for good on a refusal that clears within seconds (the plain throttler, a reconnecting engine) would
+     * contradict the contract: it waits briefly and asks again, a bounded number of times.
+     */
+    private function sendWithInlineRetries(OpenWaClient $openWa, string $openWaSessionId, string $chatId, string $body): OpenWaSendResult
+    {
+        $retries = $this->canRelease() ? 0 : max(0, (int) config('whatsapp.send.inline_retries', 2));
+        $pauseMs = max(0, (int) config('whatsapp.send.inline_retry_ms', 2000));
+
+        for ($attempt = 0; ; $attempt++) {
+            try {
+                return $openWa->sendText($openWaSessionId, $chatId, $body);
+            } catch (OpenWaRejected $rejected) {
+                $transient = ! $rejected instanceof OpenWaPacingLimited && ($rejected->status === 429 || $rejected->isConflict());
+
+                if (! $transient || $attempt >= $retries) {
+                    throw $rejected;
+                }
+
+                usleep($pauseMs * 1000);
+            }
+        }
     }
 
     /** Called by the queue when the deadline passed or the worker gave up: whatever is still pending did not go out. */

@@ -381,7 +381,7 @@ async function seedDemoWidget(instance: Instance): Promise<void> {
             config: {
                 theme: {
                     primary: '#2563eb',
-                    accent: '#f59e0b',
+                    accent: '#D97706',
                     radius: 12,
                     launcherSize: 'lg',
                 },

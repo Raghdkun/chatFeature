@@ -51,7 +51,7 @@ export function AgentCategoriesPicker({
                     })}
                     data-testid={`agent-categories-${agentId}`}
                     className={cn(
-                        'group flex min-h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-2 py-1 text-start text-sm shadow-xs transition-colors',
+                        'group flex min-h-9 w-full min-w-0 items-center justify-between gap-2 rounded-md border border-input bg-background px-2 py-1 text-start text-sm shadow-xs transition-colors',
                         'hover:bg-accent/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
                         'disabled:cursor-not-allowed disabled:opacity-60',
                     )}

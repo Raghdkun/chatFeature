@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Chat\Api;
 
+use App\Domain\Chat\Actions\UploadAttachment;
 use App\Domain\Chat\Enums\SenderType;
 use App\Domain\Chat\Events\ConversationUpdated;
 use App\Domain\Chat\Events\MessageCreated;
@@ -193,6 +194,24 @@ class PublicMessagesApiTest extends TestCase
         $this->send(['body' => str_repeat('x', MessageText::HARD_MAX_LENGTH + 1)])->assertStatus(422)->assertJsonStructure(['error' => ['details' => ['body']]]);
         $this->send(['body' => str_repeat('😀', MessageText::HARD_MAX_LENGTH)])->assertCreated();
         $this->assertSame(MessageText::HARD_MAX_LENGTH, mb_strlen((string) Message::query()->latest('id')->value('body')));
+    }
+
+    public function test_images_staged_and_then_removed_never_block_the_chat_for_good(): void
+    {
+        config(['chat.rate_limits.public_upload_session' => 100]);
+        $uploaded = [];
+
+        // Twelve add-and-remove rounds: nothing references these uploads, and the client has no way to take them back.
+        foreach (range(1, 12) as $unused) {
+            $uploaded[] = $this->withToken($this->token->plaintext)->post("/api/v1/public/conversations/{$this->chat->ulid}/attachments", ['file' => $this->pngUpload()], ['Accept' => 'application/json'])
+                ->assertCreated()->json('data.ulid');
+        }
+
+        $pending = Attachment::query()->where('conversation_id', $this->chat->id)->whereNull('message_id');
+
+        $this->assertSame(UploadAttachment::MAX_PENDING, $pending->count(), 'the oldest went, the newest are kept');
+        $this->assertSame(array_slice($uploaded, -UploadAttachment::MAX_PENDING), $pending->orderBy('id')->pluck('ulid')->all());
+        $this->send(['attachments' => [end($uploaded)], 'body' => 'this one'])->assertCreated();
     }
 
     public function test_an_image_message_references_uploaded_attachments_once(): void

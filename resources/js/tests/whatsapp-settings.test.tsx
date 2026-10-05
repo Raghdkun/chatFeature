@@ -207,9 +207,31 @@ describe('the connection', () => {
         expect(input('wa-base-url').getAttribute('aria-invalid')).toBe('true');
     });
 
-    it('can remove the saved key', async () => {
+    it('asks before removing the saved key and removes nothing when cancelled', async () => {
         await open();
         await click(byTestId('wa-connection-clear-key'));
+
+        await waitFor(() =>
+            expect(byTestId('wa-clear-key-dialog')).not.toBeNull(),
+        );
+        expect(calls('PUT', '/whatsapp/settings')).toHaveLength(0);
+
+        await click(
+            Array.from(
+                byTestId('wa-clear-key-dialog')?.querySelectorAll('button') ??
+                    [],
+            ).find((button) => button.textContent === 'Cancel') ?? null,
+        );
+
+        await waitFor(() => expect(byTestId('wa-clear-key-dialog')).toBeNull());
+        expect(calls('PUT', '/whatsapp/settings')).toHaveLength(0);
+        expect(byTestId('wa-api-key-saved')).not.toBeNull();
+    });
+
+    it('can remove the saved key once confirmed', async () => {
+        await open();
+        await click(byTestId('wa-connection-clear-key'));
+        await click(byTestId('wa-clear-key-dialog-confirm'));
 
         await waitFor(() =>
             expect(calls('PUT', '/whatsapp/settings')).toHaveLength(1),

@@ -54,8 +54,8 @@ class HistoryPageController extends Controller
      */
     private function filters(Request $request): array
     {
-        $status = ConversationStatus::tryFrom((string) $request->query('status'));
-        $type = ConversationType::tryFrom((string) $request->query('type'));
+        $status = ConversationStatus::tryFrom($this->text($request->query('status')));
+        $type = ConversationType::tryFrom($this->text($request->query('type')));
         $agent = $request->query('agent');
 
         return [
@@ -66,8 +66,14 @@ class HistoryPageController extends Controller
             'agent' => is_string($agent) && ctype_digit($agent) ? $agent : '',
             'from' => $this->date($request->query('from'))?->format('Y-m-d') ?? '',
             'to' => $this->date($request->query('to'))?->format('Y-m-d') ?? '',
-            'q' => mb_substr(trim((string) $request->query('q')), 0, 100),
+            'q' => mb_substr(trim($this->text($request->query('q'))), 0, 100),
         ];
+    }
+
+    /** A query value as text: `?q[]=1` is an array, which is no search, not a crash. */
+    private function text(mixed $value): string
+    {
+        return is_string($value) ? $value : '';
     }
 
     private function ulid(mixed $value): string

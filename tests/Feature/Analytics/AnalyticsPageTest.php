@@ -4,6 +4,7 @@ namespace Tests\Feature\Analytics;
 
 use App\Models\Category;
 use App\Models\User;
+use App\Models\WhatsAppSession;
 use App\Models\Widget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -34,6 +35,17 @@ class AnalyticsPageTest extends TestCase
         $this->actingAs(User::factory()->agent()->create())->get('/analytics')->assertOk();
     }
 
+    public function test_the_whatsapp_section_waits_until_whatsapp_was_ever_set_up(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $this->actingAs($admin)->get('/analytics')->assertInertia(fn (Assert $page) => $page->where('scope.whatsapp', false));
+
+        WhatsAppSession::factory()->create();
+
+        $this->actingAs($admin)->get('/analytics')->assertInertia(fn (Assert $page) => $page->where('scope.whatsapp', true));
+    }
+
     public function test_an_administrator_gets_the_scope_the_defaults_and_the_filter_menus(): void
     {
         $admin = User::factory()->admin()->create(['name' => 'Zed Admin']);
@@ -43,6 +55,7 @@ class AnalyticsPageTest extends TestCase
         $category = Category::factory()->create(['name' => 'Billing']);
         $agent = User::factory()->agent()->create(['name' => 'Ann']);
         User::factory()->withoutChatAccess()->create(['name' => 'Not staff']);
+        WhatsAppSession::factory()->create();
 
         $this->actingAs($admin)->get('/analytics')->assertInertia(fn (Assert $page) => $page
             ->where('scope', ['role' => 'admin', 'userId' => $admin->id, 'whatsapp' => true])

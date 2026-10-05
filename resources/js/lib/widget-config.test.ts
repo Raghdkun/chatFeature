@@ -44,7 +44,7 @@ describe('defaults (docs/contracts/widget-config.md)', () => {
             mode: 'auto',
             primary: '#0f766e',
             primaryText: '#ffffff',
-            accent: '#f59e0b',
+            accent: '#D97706',
             surface: '#ffffff',
             text: '#0f172a',
             radius: 16,

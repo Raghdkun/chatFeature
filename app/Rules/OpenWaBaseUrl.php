@@ -12,16 +12,18 @@ use Illuminate\Contracts\Validation\ValidationRule;
  * address spellings, a host that resolves to public addresses only unless private hosts are allowed (`PORTAL_ALLOW_PRIVATE_HOSTS`, or
  * APP_ENV=local: OpenWA normally runs on loopback or a private Docker network), and never a metadata, link-local, multicast or
  * unspecified address. Plain `http` is accepted for a private or loopback target (the key never crosses the internet); a public host
- * needs `https`. Whatever the reason a host is refused for, the message is the same.
+ * needs `https`. Whatever the reason a HOST is refused for (unresolvable, private, metadata ...) the message is the same, so the field is
+ * no probe of the network; a malformed address (credentials, a path, another scheme) is told apart, that says nothing about any host.
  */
 final class OpenWaBaseUrl implements ValidationRule
 {
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
         $message = __('Enter the address of OpenWA, for example http://127.0.0.1:2785 (private network addresses need the "allow private hosts" server setting).');
+        $shape = __('Enter the address as scheme://host:port, for example http://127.0.0.1:2785: no user name or password, no path, no spaces.');
 
         if (! is_string($value) || $value === '' || mb_strlen($value) > 255 || preg_match('/[^\x21-\x7e]|[\\\\@#?]/', $value) === 1) {
-            $fail($message);
+            $fail($shape);
 
             return;
         }
@@ -30,7 +32,7 @@ final class OpenWaBaseUrl implements ValidationRule
 
         if ($parts === false || ! isset($parts['scheme'], $parts['host']) || isset($parts['user']) || isset($parts['pass']) || isset($parts['query']) || isset($parts['fragment'])
             || (isset($parts['path']) && ! in_array($parts['path'], ['', '/'], true))) {
-            $fail($message);
+            $fail($shape);
 
             return;
         }
@@ -38,7 +40,7 @@ final class OpenWaBaseUrl implements ValidationRule
         $scheme = strtolower($parts['scheme']);
 
         if (! in_array($scheme, ['http', 'https'], true)) {
-            $fail($message);
+            $fail($shape);
 
             return;
         }

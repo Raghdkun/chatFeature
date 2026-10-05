@@ -270,6 +270,7 @@ export type Action =
     | { type: 'RATING_FAILED'; notice: Notice }
     | { type: 'RATED' }
     | { type: 'RATING_SKIPPED' }
+    | { type: 'RATING_TOO_LATE' }
     | { type: 'OFFLINE_SUBMITTING' }
     | { type: 'OFFLINE_SENT'; ticket: ConversationPublic; email?: string }
     | { type: 'OFFLINE_FAILED'; failure: CreateFailure }
@@ -934,6 +935,17 @@ export function reduce(state: MachineState, action: Action): MachineState {
                 ? state
                 : go(state, 'closed', {
                       closedReason: 'rated',
+                      conversation: null,
+                      messages: [],
+                      busy: null,
+                  });
+
+        // The server refused the rating because the chat is already closed (the rating window ran out): say the chat is closed, never "thanks".
+        case 'RATING_TOO_LATE':
+            return state.phase !== 'ended'
+                ? state
+                : go(state, 'closed', {
+                      closedReason: 'ended',
                       conversation: null,
                       messages: [],
                       busy: null,

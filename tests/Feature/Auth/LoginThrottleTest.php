@@ -35,6 +35,20 @@ class LoginThrottleTest extends TestCase
         return $this->withServerVariables(['REMOTE_ADDR' => $ip])->post(route('login.store'), ['email' => $email, 'password' => 'wrong-password']);
     }
 
+    public function test_a_throttled_dashboard_form_goes_back_with_the_wait_instead_of_a_bare_429(): void
+    {
+        for ($i = 1; $i <= 30; $i++) {
+            $this->attempt("user{$i}@example.test");
+        }
+
+        $throttled = $this->withHeaders(['X-Inertia' => 'true', 'X-Inertia-Version' => 'x'])->withServerVariables(['REMOTE_ADDR' => '203.0.113.9'])
+            ->post(route('login.store'), ['email' => 'user31@example.test', 'password' => 'wrong-password']);
+
+        $throttled->assertRedirect();
+        $this->assertNotSame(429, $throttled->getStatusCode());
+        $this->assertStringContainsString('Too many attempts. Try again in', json_encode(session()->all()) ?: '');
+    }
+
     public function test_one_address_cannot_spray_unlimited_emails(): void
     {
         for ($i = 1; $i <= 30; $i++) {

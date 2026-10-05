@@ -1195,6 +1195,13 @@ describe('ending, closing and transferring', () => {
         await waitFor(() =>
             expect(routerMock.visit).toHaveBeenCalledWith('/inbox'),
         );
+        // The chat left this agent's lists on purpose: the view must not ask for it again (the server would answer 403).
+        expect(
+            backend.current.calls(
+                'GET',
+                `/api/v1/conversations/${CONVERSATION}`,
+            ),
+        ).toHaveLength(0);
     });
 
     it('transfers to another category (the current one is not offered)', async () => {

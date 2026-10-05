@@ -57,13 +57,13 @@ function FilterSelect({
     onChange: (value: string) => void;
 }) {
     return (
-        <label className="grid gap-1 text-xs text-muted-foreground">
+        <label className="grid min-w-0 gap-1 text-xs text-muted-foreground">
             <span>{label}</span>
             <select
                 value={value}
                 onChange={(event) => onChange(event.target.value)}
                 data-testid={testId}
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
             >
                 <option value="">{all}</option>
                 {options.map((option) => (
@@ -96,7 +96,7 @@ export function ChatFilters({
     const { t } = useTrans();
 
     return (
-        <div className="grid gap-2">
+        <div className="grid min-w-0 gap-2">
             <div className="relative">
                 <Search
                     className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"

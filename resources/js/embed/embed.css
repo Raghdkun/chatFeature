@@ -69,6 +69,12 @@
         text-size-adjust: 100%;
     }
 
+    /* Texts an administrator writes (welcome, subtitle, consent, ...) may hold a long URL or a word without breaks: wrap it anywhere
+       instead of overflowing and being clipped. Inherited, and it lowers the min-content width so flex children shrink too. */
+    .pne-root {
+        overflow-wrap: anywhere;
+    }
+
     button,
     [role='button'] {
         cursor: pointer;

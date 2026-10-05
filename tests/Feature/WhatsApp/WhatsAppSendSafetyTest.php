@@ -166,6 +166,54 @@ class WhatsAppSendSafetyTest extends TestCase
         $this->assertSame(WaMessageStatus::Pending, $message->refresh()->status);
     }
 
+    /** The `sync` queue: a job without a queue job behind it cannot be released. */
+    private function runOnTheSyncQueue(WaMessage $message): void
+    {
+        (new SendWhatsAppMessage($message->id))->handle(app(OpenWaClient::class), app(SendPacer::class), app(SendCounter::class));
+    }
+
+    public function test_on_the_sync_queue_a_transient_refusal_is_asked_again_instead_of_failing_the_reply(): void
+    {
+        $this->useTheRealHttpClient();
+        $message = $this->pending('Hello');
+        Http::fake(['*' => Http::sequence()
+            ->push(['statusCode' => 429, 'message' => 'ThrottlerException: Too Many Requests'], 429)
+            ->push(['statusCode' => 409, 'message' => 'Session is not connected. The WhatsApp client is not ready.'], 409)
+            ->push(['messageId' => 'true_4915123456789@c.us_OK', 'timestamp' => 1], 201)]);
+
+        $this->runOnTheSyncQueue($message);
+
+        $this->assertSame(WaMessageStatus::Sent, $message->refresh()->status);
+        Http::assertSentCount(3);
+    }
+
+    public function test_on_the_sync_queue_a_refusal_that_does_not_clear_fails_with_a_reason_without_the_exception_class(): void
+    {
+        $this->useTheRealHttpClient();
+        $message = $this->pending('Hello');
+        Http::fake(['*' => Http::response(['statusCode' => 429, 'message' => 'ThrottlerException: Too Many Requests'], 429)]);
+
+        $this->runOnTheSyncQueue($message);
+
+        $message->refresh();
+        $this->assertSame(WaMessageStatus::Failed, $message->status);
+        $this->assertStringNotContainsString('ThrottlerException', (string) $message->error);
+        $this->assertStringContainsString('too many requests', strtolower((string) $message->error));
+        Http::assertSentCount(3);
+    }
+
+    public function test_on_the_sync_queue_a_refusal_that_will_not_change_is_not_asked_again(): void
+    {
+        $this->useTheRealHttpClient();
+        $message = $this->pending('Hello');
+        Http::fake(['*' => Http::response(['statusCode' => 400, 'message' => 'text must be shorter than or equal to 4096 characters'], 400)]);
+
+        $this->runOnTheSyncQueue($message);
+
+        $this->assertSame(WaMessageStatus::Failed, $message->refresh()->status);
+        Http::assertSentCount(1);
+    }
+
     public function test_a_failure_of_our_own_bookkeeping_after_openwa_accepted_the_message_never_sends_it_again(): void
     {
         $message = $this->pending('Hello');

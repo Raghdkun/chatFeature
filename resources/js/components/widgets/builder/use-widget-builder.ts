@@ -1,4 +1,4 @@
-import { useReducer, useState } from 'react';
+import { useReducer, useRef, useState } from 'react';
 import {
     builderReducer,
     createBuilderState,
@@ -69,6 +69,8 @@ export function useWidgetBuilder(data: WidgetBuilderData) {
     );
     const [status, setStatus] = useState<BuilderStatus>('idle');
     const [message, setMessage] = useState<BuilderMessage | null>(null);
+    /** A second click while a save or publish is still running (the buttons only disable after the next render) must not start another. */
+    const inFlight = useRef(false);
     const dirty = isDirty(state);
     const ulid = state.meta.ulid;
 
@@ -258,7 +260,23 @@ export function useWidgetBuilder(data: WidgetBuilderData) {
         return { ok: false, saved, failed, tab: firstTabWithError(errors) };
     }
 
-    async function saveDraft(): Promise<SaveOutcome> {
+    async function alone(
+        run: () => Promise<SaveOutcome>,
+    ): Promise<SaveOutcome> {
+        if (inFlight.current) {
+            return { ok: false, saved: [], failed: [], tab: null };
+        }
+
+        inFlight.current = true;
+
+        try {
+            return await run();
+        } finally {
+            inFlight.current = false;
+        }
+    }
+
+    async function saveWithoutGuard(): Promise<SaveOutcome> {
         try {
             return await runSave();
         } catch {
@@ -266,8 +284,16 @@ export function useWidgetBuilder(data: WidgetBuilderData) {
         }
     }
 
-    async function publish(): Promise<SaveOutcome> {
-        const outcome = await saveDraft();
+    function saveDraft(): Promise<SaveOutcome> {
+        return alone(saveWithoutGuard);
+    }
+
+    function publish(): Promise<SaveOutcome> {
+        return alone(publishWithoutGuard);
+    }
+
+    async function publishWithoutGuard(): Promise<SaveOutcome> {
+        const outcome = await saveWithoutGuard();
 
         if (!outcome.ok) {
             return outcome;

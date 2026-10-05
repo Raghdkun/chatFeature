@@ -124,4 +124,27 @@ describe('mergeWaMessages', () => {
             b.ulid,
         ]);
     });
+
+    it("orders by WhatsApp's own time, not by when this app recorded the message", () => {
+        const recordedFirstButSentLater = message({
+            ulid: '01JABC00000000000000000001',
+            waTimestamp: '2026-11-25T10:00:00.000Z',
+            createdAt: '2026-11-25T09:00:00.000Z',
+        });
+        const recordedLaterButSentEarlier = message({
+            ulid: '01JABC00000000000000000002',
+            waTimestamp: '2026-11-22T10:00:00.000Z',
+            createdAt: '2026-11-25T09:30:00.000Z',
+        });
+
+        expect(
+            mergeWaMessages(
+                [recordedFirstButSentLater],
+                [recordedLaterButSentEarlier],
+            ).map((m) => m.ulid),
+        ).toEqual([
+            recordedLaterButSentEarlier.ulid,
+            recordedFirstButSentLater.ulid,
+        ]);
+    });
 });

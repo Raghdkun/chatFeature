@@ -28,6 +28,7 @@
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="WHATSAPP_INLINE_RETRY_MS" value="0"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PRESENCE_FAILURE_STORE" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>

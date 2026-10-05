@@ -2,6 +2,7 @@
 
 use App\Exceptions\ApiErrorRenderer;
 use App\Http\Middleware\ApiSecurityHeaders;
+use App\Http\Middleware\AuthenticateStaffSession;
 use App\Http\Middleware\AuthenticateVisitor;
 use App\Http\Middleware\EnforceAuthFeatures;
 use App\Http\Middleware\EnsureAdmin;
@@ -18,10 +19,12 @@ use App\Support\RouteFiles;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\Route;
+use Inertia\Inertia;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -49,6 +52,8 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Not installed yet: web -> /setup, API -> 503 not_installed. First in the global stack.
         $middleware->prepend(InstallGate::class);
+        // Outermost for the answers no group middleware ever sees: a 401 from `auth`, an unknown path, a wrong method.
+        $middleware->append(ApiSecurityHeaders::class);
 
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
 
@@ -76,6 +81,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(prepend: [SecurityHeaders::class]);
 
         $middleware->web(append: [
+            // A password change or reset ends every OTHER session of that account, pages included. Until now only the stateful API
+            // calls noticed (Sanctum's variant), so the old tab's pages kept answering while its background requests got 401 and it
+            // reloaded itself in a loop. The session of the person who changed it survives (the hash is stored again after the response).
+            AuthenticateStaffSession::class,
             HandleAppearance::class,
             SetLocale::class,
             EnforceAuthFeatures::class,
@@ -107,6 +116,25 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // `api/*` errors use the documented envelope {error:{code,message,details?}} (docs/contracts/rest-shapes.md).
         $exceptions->render(fn (Throwable $e, Request $request) => ApiErrorRenderer::render($e, $request));
+
+        // A throttled FORM of the dashboard (sign-in, the two-factor code, a reset request ...) used to open a bare "429" box over the page with no
+        // word about how long to wait. It goes back to the form instead, with the wait as a toast. (Pages and the API keep their own 429.)
+        $exceptions->render(function (ThrottleRequestsException $e, Request $request) {
+            if ($request->is('api/*') || ! $request->header('X-Inertia') || $request->isMethod('GET') || ! $request->hasSession()) {
+                return null;
+            }
+
+            $wait = (int) ($e->getHeaders()['Retry-After'] ?? 0);
+
+            Inertia::flash('toast', [
+                'type' => 'error',
+                'message' => $wait > 0
+                    ? __('Too many attempts. Try again in :seconds seconds.', ['seconds' => $wait])
+                    : __('Too many attempts. Please wait a moment and try again.'),
+            ]);
+
+            return back();
+        });
 
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),

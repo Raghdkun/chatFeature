@@ -80,7 +80,10 @@ export function waMessageKey(message: DisplayMessage): string {
     return message.local?.clientMsgId ?? message.ulid;
 }
 
-/** Interleave day dividers and group consecutive messages of one side: the customer, or the same administrator. */
+/**
+ * Interleave day dividers and group consecutive messages of one side: the customer, or the same administrator. The day and the time of a
+ * message are WhatsApp's own (`waTimestamp`), not the moment this app recorded it: a delayed or replayed delivery keeps its real day.
+ */
 export function buildWaEntries(
     messages: readonly DisplayMessage[],
 ): WaListEntry[] {
@@ -91,8 +94,8 @@ export function buildWaEntries(
             ? 'in'
             : `out:${message.sentBy?.id ?? ''}:${message.status}`;
     const continues = (a: DisplayMessage, b: DisplayMessage): boolean => {
-        const aAt = parse(a.createdAt);
-        const bAt = parse(b.createdAt);
+        const aAt = parse(a.waTimestamp);
+        const bAt = parse(b.waTimestamp);
 
         return (
             side(a) === side(b) &&
@@ -104,16 +107,16 @@ export function buildWaEntries(
     messages.forEach((message, index) => {
         const previous = messages[index - 1];
         const next = messages[index + 1];
-        const at = parse(message.createdAt);
+        const at = parse(message.waTimestamp);
 
         if (
             previous === undefined ||
-            startOfDay(parse(previous.createdAt)) !== startOfDay(at)
+            startOfDay(parse(previous.waTimestamp)) !== startOfDay(at)
         ) {
             entries.push({
                 kind: 'day',
                 key: `day-${startOfDay(at)}`,
-                iso: message.createdAt,
+                iso: message.waTimestamp,
             });
         }
 
