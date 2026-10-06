@@ -14,8 +14,17 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-COMPOSE_FILE="${COMPOSE_FILE:-compose.prod.yml}"
 ENV_FILE="${ENV_FILE:-.env}"
+# COMPOSE_FILE: the shell variable, else the line of the env file (`scripts/init-env.sh --nginx` writes compose.prod.yml:compose.nginx.yml there),
+# else compose.prod.yml. A colon-separated list, like Docker's own variable: every file becomes a `-f`, so the override that replaces the edge
+# service (compose.nginx.yml) is never forgotten, and `up` never starts the stock Caddy next to the host's nginx.
+if [ -z "${COMPOSE_FILE:-}" ] && [ -f "$ENV_FILE" ]; then
+    COMPOSE_FILE="$(grep -E '^COMPOSE_FILE=' "$ENV_FILE" | head -n 1 | cut -d= -f2- || true)"
+fi
+COMPOSE_FILE="${COMPOSE_FILE:-compose.prod.yml}"
+compose_files=()
+IFS=: read -r -a _compose_list <<< "$COMPOSE_FILE"
+for _file in "${_compose_list[@]}"; do compose_files+=(-f "$_file"); done
 backup=""
 assume_yes=false
 with_env=false
@@ -40,7 +49,7 @@ if [ -z "${BACKUP_PASSPHRASE:-}" ] && [ -n "${BACKUP_PASSPHRASE_FILE:-}" ]; then
     BACKUP_PASSPHRASE="$(cat "$BACKUP_PASSPHRASE_FILE")"
 fi
 
-dc() { docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"; }
+dc() { docker compose "${compose_files[@]}" --env-file "$ENV_FILE" "$@"; }
 log() { echo "[restore $(date -u +%H:%M:%S)] $*"; }
 die() { echo "[restore] ERROR: $*" >&2; exit 1; }
 
@@ -93,7 +102,10 @@ if [ "$assume_yes" = false ]; then
 fi
 
 log "stopping the application services (MySQL and Redis keep running) ..."
-dc stop caddy app queue scheduler reverb nats-consumer > /dev/null 2>&1 || true
+# the edge is `caddy` (Caddy with its own TLS) or `web` (behind the host's nginx): stop whichever this stack has
+edge="$(dc config --services 2> /dev/null | grep -E '^(caddy|web)$' | tr '\n' ' ' || true)"
+# shellcheck disable=SC2086
+dc stop $edge app queue scheduler reverb nats-consumer > /dev/null 2>&1 || true
 dc up -d --no-build --wait mysql redis > /dev/null
 
 log "restoring MySQL ..."
@@ -128,4 +140,4 @@ if [ -n "$openwa_tar" ]; then
 else
     dc up -d --no-build > /dev/null
 fi
-log "done. Check: docker compose -f $COMPOSE_FILE ps  and  curl -fsS https://<your domain>/up"
+log "done. Check: docker compose ps  (in this directory)  and  curl -fsS https://<your domain>/up"

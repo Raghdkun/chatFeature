@@ -1,0 +1,83 @@
+# PNE Chat behind the nginx (+ certbot) that is ALREADY installed on the server. An override of compose.prod.yml:
+#
+#   docker compose -f compose.prod.yml -f compose.nginx.yml --env-file .env up -d --build
+#   (scripts/init-env.sh --nginx writes COMPOSE_FILE=compose.prod.yml:compose.nginx.yml into .env, so plain `docker compose ...` does the same)
+#
+# What changes compared with compose.prod.yml, and nothing else:
+#   - the stock edge, `caddy` (Caddy with its own Let's Encrypt certificates on ports 80/443), is NOT started: profile `direct-caddy`
+#   - a service `web` takes its place: the SAME image (target `web`), run with Caddyfile.proxy: plain HTTP, no certificates, published only on
+#     127.0.0.1:${PROXY_PORT} (default 8088). nginx on the host terminates TLS and proxies to it (docker/nginx/pne-chat.conf).
+#   - no network alias for the public name: OpenWA (profile `whatsapp`) reaches https://<domain> through the host's own nginx, like everybody else.
+#
+# Never start the stack with `-f compose.prod.yml` alone in this mode: that brings `caddy` back, which wants ports 80 and 443 (nginx has them).
+# The host ports of every other service stay unpublished, MySQL, Redis, Reverb, OpenWA and NATS included. Published ports bypass `ufw`.
+services:
+    caddy:
+        # Compose starts a service with a profile only when that profile is enabled: nobody enables this one.
+        profiles: ['direct-caddy']
+
+    web:
+        image: ${PNE_IMAGE_WEB:-pnechat-web}:${PNE_TAG:-latest}
+        build:
+            context: .
+            target: web
+        command:
+            [
+                'caddy',
+                'run',
+                '--config',
+                '/etc/caddy/Caddyfile.proxy',
+                '--adapter',
+                'caddyfile',
+            ]
+        init: true
+        restart: unless-stopped
+        ports:
+            # Loopback only: the only client is the nginx on this machine. NEVER write 0.0.0.0 or drop the 127.0.0.1 here: the application
+            # trusts the X-Forwarded-* headers this port receives (TRUSTED_PROXIES=*), which is only safe while nobody else can send them.
+            - '127.0.0.1:${PROXY_PORT:-8088}:80'
+        environment:
+            # Every proxied websocket costs Caddy about 170 KB (measured: 1 500 sockets = about 250 MB).
+            GOMEMLIMIT: ${CADDY_GOMEMLIMIT:-400MiB}
+        read_only: true
+        tmpfs:
+            # No certificates here: Caddy only keeps its autosaved config and a lock file, nothing worth a volume.
+            - /tmp:size=16m
+            - /data:size=8m
+            - /config:size=8m
+        cap_drop:
+            - ALL
+        cap_add:
+            # The caddy binary carries the file capability cap_net_bind_service: without it in the bounding set the kernel refuses to start it
+            # at all ("exec caddy failed: Operation not permitted"), whatever port it listens on.
+            - NET_BIND_SERVICE
+        security_opt:
+            - no-new-privileges:true
+        volumes:
+            - fpm-socket:/run/php
+        networks:
+            - internal
+        depends_on:
+            app:
+                condition: service_healthy
+            reverb:
+                condition: service_started
+        healthcheck:
+            test:
+                [
+                    'CMD',
+                    'wget',
+                    '-q',
+                    '--spider',
+                    'http://127.0.0.1:2019/config/',
+                ]
+            interval: 30s
+            timeout: 5s
+            retries: 3
+            start_period: 15s
+        logging:
+            driver: json-file
+            options:
+                max-size: '10m'
+                max-file: '5'
+        mem_limit: ${CADDY_MEM_LIMIT:-512m}

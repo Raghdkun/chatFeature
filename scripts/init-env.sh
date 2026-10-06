@@ -12,6 +12,10 @@
 #       make: APP_KEY, the Reverb app id/key/secret, the VAPID key pair and the one-time SETUP_TOKEN. Existing values are kept.
 #
 # Local test with Caddy's own CA:  scripts/init-env.sh --domain localhost --email internal
+#
+# A server that already runs nginx (+ certbot) on ports 80/443:  scripts/init-env.sh --domain chat.example.com --email you@example.com --nginx
+#   (also: --proxy-port 8088). Step 1 then starts the stack through compose.nginx.yml (COMPOSE_FILE), sets TRUSTED_PROXIES=* and leaves TLS to
+#   nginx; docs/deployment-vps-nginx.md has the rest (nginx site, certbot).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -21,9 +25,11 @@ EXAMPLE_FILE=".env.production.example"
 domain=""
 email=""
 secrets_only=false
+nginx=false
+proxy_port="8088"
 
 usage() {
-    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
@@ -32,6 +38,8 @@ while [ $# -gt 0 ]; do
         --domain) domain="${2:?--domain needs a value}"; shift 2 ;;
         --email) email="${2:?--email needs a value}"; shift 2 ;;
         --secrets) secrets_only=true; shift ;;
+        --nginx) nginx=true; shift ;;
+        --proxy-port) proxy_port="${2:?--proxy-port needs a value}"; shift 2 ;;
         -h | --help) usage 0 ;;
         *) echo "Unknown option: $1" >&2; usage 2 ;;
     esac
@@ -78,10 +86,20 @@ if [ "$secrets_only" = false ]; then
     fi
 
     set_value APP_DOMAIN "$domain"
-    set_value CADDY_TLS "$email"
+    if [ "$nginx" = true ]; then
+        case "$proxy_port" in '' | *[!0-9]*) echo "--proxy-port must be a number." >&2; exit 2 ;; esac
+        # TLS is nginx's job: CADDY_TLS is not used (compose.prod.yml only insists on a value), the application trusts the forwarded headers of
+        # the one client that can reach the web container, and the stack is started through the override file.
+        set_value COMPOSE_FILE "compose.prod.yml:compose.nginx.yml"
+        set_value CADDY_TLS "internal"
+        set_value PROXY_PORT "$proxy_port"
+        set_value TRUSTED_PROXIES "*"
+    else
+        set_value CADDY_TLS "$email"
+    fi
     set_value APP_URL "https://$domain"
     set_value REVERB_HOST "$domain"
-    if [ "$email" != "internal" ]; then
+    if [ "$email" != "internal" ] || [ "$nginx" = true ]; then
         set_value VAPID_SUBJECT "mailto:$email"
         set_value MAIL_FROM_ADDRESS "chat@$domain"
     fi
@@ -89,13 +107,24 @@ if [ "$secrets_only" = false ]; then
     set_secret REDIS_PASSWORD 24
     set_secret OPENWA_API_KEY_PEPPER 32
 
-    cat <<EOF
+    if [ "$nginx" = true ]; then
+        cat <<EOF
+
+Next (behind the host's nginx, docs/deployment-vps-nginx.md):
+  1. Check $ENV_FILE (mail settings, memory limits).
+  2. docker compose --env-file $ENV_FILE build          (reads COMPOSE_FILE from $ENV_FILE: compose.prod.yml + compose.nginx.yml)
+  3. scripts/init-env.sh --secrets
+  4. docker compose up -d, then the nginx site (docker/nginx/pne-chat.conf) and certbot.
+EOF
+    else
+        cat <<EOF
 
 Next:
   1. Check $ENV_FILE (mail settings, memory limits).
   2. docker compose -f compose.prod.yml --env-file $ENV_FILE build
   3. scripts/init-env.sh --secrets
 EOF
+    fi
     exit 0
 fi
 

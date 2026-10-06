@@ -18,7 +18,7 @@
 #                         the archives contain customer conversations, your secrets and a WhatsApp login. (BACKUP_PASSPHRASE_FILE: read it from a file)
 #   BACKUP_AFTER_COMMAND  a command run after a successful backup with the backup directory as its argument, to copy it off the
 #                         server, e.g. 'rsync -a --delete-after' or a script that calls rclone / scp
-#   COMPOSE_FILE, ENV_FILE  default compose.prod.yml and .env
+#   COMPOSE_FILE, ENV_FILE  default: the COMPOSE_FILE line of .env, else compose.prod.yml (a colon-separated list is fine), and .env
 #
 # Cron (every night at 03:20, log to a file):
 #   20 3 * * * cd /opt/pnechat && BACKUP_PASSPHRASE_FILE=/root/.pnechat-backup-key scripts/backup.sh >> /var/log/pnechat-backup.log 2>&1
@@ -26,8 +26,17 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-COMPOSE_FILE="${COMPOSE_FILE:-compose.prod.yml}"
 ENV_FILE="${ENV_FILE:-.env}"
+# COMPOSE_FILE: the shell variable, else the line of the env file (`scripts/init-env.sh --nginx` writes compose.prod.yml:compose.nginx.yml there),
+# else compose.prod.yml. A colon-separated list, like Docker's own variable: every file becomes a `-f`, so the override that replaces the edge
+# service (compose.nginx.yml) is never forgotten, and `up` never starts the stock Caddy next to the host's nginx.
+if [ -z "${COMPOSE_FILE:-}" ] && [ -f "$ENV_FILE" ]; then
+    COMPOSE_FILE="$(grep -E '^COMPOSE_FILE=' "$ENV_FILE" | head -n 1 | cut -d= -f2- || true)"
+fi
+COMPOSE_FILE="${COMPOSE_FILE:-compose.prod.yml}"
+compose_files=()
+IFS=: read -r -a _compose_list <<< "$COMPOSE_FILE"
+for _file in "${_compose_list[@]}"; do compose_files+=(-f "$_file"); done
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 KEEP_DAYS="${BACKUP_KEEP_DAYS:-14}"
 
@@ -35,7 +44,7 @@ if [ -z "${BACKUP_PASSPHRASE:-}" ] && [ -n "${BACKUP_PASSPHRASE_FILE:-}" ]; then
     BACKUP_PASSPHRASE="$(cat "$BACKUP_PASSPHRASE_FILE")"
 fi
 
-dc() { docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"; }
+dc() { docker compose "${compose_files[@]}" --env-file "$ENV_FILE" "$@"; }
 log() { echo "[backup $(date -u +%H:%M:%S)] $*"; }
 die() { echo "[backup] ERROR: $*" >&2; exit 1; }
 

@@ -110,6 +110,7 @@ Goal: starter kit and tooling. Exit: stock kit boots; SQLite (tests) and MySQL b
 - Known gaps: Reverb needs `ext-uv` above about 1000 sockets (the production image has it); the CSP still needs the manual browser checklist in [testing.md](docs/testing.md); FCM push and passkey sign-in for native apps are not built.
 
 ### P8 Deploy + QA + docs + deck
+- [x] 8A+ the same stack behind the nginx + certbot that a server already has: `compose.nginx.yml` (Caddy only routes, on 127.0.0.1), `docker/nginx/pne-chat.conf`, `scripts/init-env.sh --nginx`, [docs/deployment-vps-nginx.md](docs/deployment-vps-nginx.md); proven locally with an nginx container, not yet on a real server
 - [x] 8A multi-stage `Dockerfile` (php-fpm 8.4 with `ext-uv`/`ext-redis`, a Caddy `web` image with the same `public/`), `compose.prod.yml` (caddy, app, queue, scheduler, reverb, nats-consumer, mysql, redis, optional OpenWA/NATS), `docker/caddy/Caddyfile`, `.env.production.example`, `scripts/{init-env,backup,restore}.sh`; run on a local Docker host over HTTPS (`tls internal`), amd64 image built under emulation
 - [x] 8B [deployment guide](docs/deployment-hostinger-kvm.md) (sizing, Hostinger, hardening, Docker, wizard, WhatsApp, upgrade/rollback, backups, restore drill, break-glass, troubleshooting) + [runbook](docs/runbook.md) pointers. Not verified: real Let's Encrypt, a real Hostinger VPS, a WhatsApp phone
 - [ ] 8C QA matrix (chromium/webkit/firefox, iPhone/Pixel profiles, axe, Lighthouse, RTL pass)

@@ -12,6 +12,9 @@
 #
 # Only Caddy publishes ports (80, 443 tcp and 443 udp for HTTP/3). MySQL, Redis, Reverb, OpenWA and NATS never do.
 # Published ports bypass `ufw`: do not add `ports:` to any other service.
+#
+# A server that ALREADY runs nginx (+ certbot) on ports 80/443 uses compose.nginx.yml on top of this file instead: Caddy then only routes
+# (plain HTTP on 127.0.0.1:8088) and nginx owns the certificates. See docs/deployment-vps-nginx.md.
 name: pnechat
 
 x-logging: &logging
@@ -83,7 +86,7 @@ services:
             - '${HTTPS_PORT:-443}:443/udp'
         environment:
             APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env}
-            CADDY_TLS: ${CADDY_TLS:?set CADDY_TLS in .env (an e-mail address, or "internal")}
+            CADDY_TLS: ${CADDY_TLS:?set CADDY_TLS in .env (an e-mail address, or "internal"; behind the host's nginx it is unused and scripts/init-env.sh --nginx writes "internal")}
             # Every proxied websocket costs Caddy about 170 KB (measured: 1 500 sockets = about 250 MB): the Go garbage collector works
             # harder before the container limit below is reached.
             GOMEMLIMIT: ${CADDY_GOMEMLIMIT:-400MiB}

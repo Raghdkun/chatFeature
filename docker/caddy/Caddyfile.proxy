@@ -1,0 +1,21 @@
+# Caddy behind a reverse proxy that ALREADY terminates TLS: nginx (+ certbot) on the host. Compose service `web` of compose.nginx.yml.
+#
+# Plain HTTP on port 80 of the container, which compose.nginx.yml publishes ONLY on 127.0.0.1 (default port 8088): nothing but the
+# nginx on this machine can reach it, so the forwarded headers below can be believed. No certificates, no ACME, no public ports.
+# The routing (static files, websocket, PHP-FPM, what is never served) is in routes.caddy, shared with Caddyfile.
+{
+	# Caddy's admin API stays on localhost inside the container (the container health check uses it); it is not published.
+	admin localhost:2019
+	# TLS belongs to nginx: never try to get a certificate or redirect to https from here.
+	auto_https off
+	servers {
+		# nginx reaches this container through the Docker bridge (a private address): keep the X-Forwarded-For / -Proto / -Host it sends,
+		# so the application sees the real visitor address and the https scheme (secure cookies, HSTS, signed URLs). Anything else would
+		# have them overwritten with the address of the bridge.
+		trusted_proxies static private_ranges
+	}
+}
+
+:80 {
+	import /etc/caddy/routes.caddy
+}

@@ -5,7 +5,8 @@
 #
 #   docker build --target app -t pnechat-app .   php-fpm 8.4 + the application; also runs the queue worker, the scheduler,
 #                                                 Reverb and the NATS consumer (same image, different command)
-#   docker build --target web -t pnechat-web .   Caddy 2 + the built public/ directory (/build, the widget loader, sw.js ...)
+#   docker build --target web -t pnechat-web .   Caddy 2 + the built public/ directory (/build, the widget loader, sw.js ...); runs on its
+#                                                 own with TLS, or behind the host's nginx (docs/deployment-vps-nginx.md)
 #
 # Stages: base (PHP + extensions) -> vendor (composer, no dev) -> frontend (pnpm + the Wayfinder PHP step + loader size check)
 #         -> app -> web.  `docs/deployment-hostinger-kvm.md` explains how compose uses them.
@@ -158,8 +159,11 @@ ENTRYPOINT ["pne-entrypoint"]
 CMD ["php-fpm"]
 
 # ---------------------------------------------------------------------------------------------------------------------
-# web: Caddy with the public/ directory of THIS build baked in
+# web: Caddy with the public/ directory of THIS build baked in. One image, two ways to run it:
+#   Caddyfile        (the default command) Caddy terminates TLS itself, automatic Let's Encrypt          compose.prod.yml  `caddy`
+#   Caddyfile.proxy  plain HTTP behind nginx / certbot on the host (`caddy run --config /etc/caddy/Caddyfile.proxy`)  compose.nginx.yml `web`
+# Both import routes.caddy, so the routing of the two modes cannot drift apart.
 # ---------------------------------------------------------------------------------------------------------------------
 FROM caddy:${CADDY_VERSION}-alpine AS web
-COPY docker/caddy/Caddyfile /etc/caddy/Caddyfile
+COPY docker/caddy/routes.caddy docker/caddy/Caddyfile docker/caddy/Caddyfile.proxy /etc/caddy/
 COPY --from=app /var/www/html/public /srv/public

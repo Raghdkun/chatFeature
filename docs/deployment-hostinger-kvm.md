@@ -2,6 +2,8 @@
 
 > Status: written and run in P8 (track 8A). The Docker image, `compose.prod.yml`, the Caddyfile and the backup scripts were **built and run on a development Mac (Docker Desktop, Apple silicon, arm64)** with the host ports 18080 / 18443, `tls internal` and a throwaway `.env`: first run through the real setup endpoints, a visitor chat reaching an agent over `wss://` through Caddy, the scheduler, the queue worker, restarts, `down`/`up`, `migrate --force`, an encrypted backup, **destroying every volume and restoring**, 2 500 websockets through Caddy. Section "What was and was not verified" (14.5) lists exactly what that covers. **Not verified: real Let's Encrypt issuance, a real Hostinger VPS or hPanel, an amd64 server, a real WhatsApp phone, a real pizzasys portal.** Every statement about Hostinger's panel is marked *(as of writing, verify in hPanel)*: names, menus and limits change.
 
+> **Server that already runs nginx and certbot?** Use [deployment-vps-nginx.md](deployment-vps-nginx.md) instead of sections 8.1 (the stack's own Caddy would want ports 80/443): same image and `.env`, plus `compose.nginx.yml`, an nginx site and `certbot --nginx`. Sections 1-7 and 8.2 onwards of this guide still apply.
+
 If you have never used Docker: read sections 1 to 8 in order, copy the commands, and keep section 13 (troubleshooting) open. Every command is meant to be pasted as it is, after replacing `chat.example.com` and `you@example.com`.
 
 ## Contents

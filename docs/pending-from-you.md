@@ -18,7 +18,7 @@
 - [ ] **A phone for WhatsApp.** Pair a **dedicated** number with OpenWA (Settings > WhatsApp > scan the QR) and walk the checklist in [whatsapp-openwa.md](whatsapp-openwa.md): the message-level payloads (`message.*`, acks) of the real OpenWA image have never been recorded, and the round trip through a real phone has never been run.
 - [ ] **pizzasys:** the service-client token and the production (and optional testing) domain of your Auth Portal, if you want mode 2 on a real portal. Everything so far ran against a local clone of pizzasys.
 - [ ] **SMTP credentials** (host, port 587/465, user, password) so offline tickets can be answered by e-mail. Until then `MAIL_MAILER=log` writes the mails to the log.
-- [ ] **Hostinger:** the VPS, a domain (A record to the VPS) and an SSH key, then follow [deployment-hostinger-kvm.md](deployment-hostinger-kvm.md). The stack has been proven on a Mac only: a real Let's Encrypt certificate, the Hostinger panel, `ufw` on Ubuntu and an amd64 run of the whole stack are still unverified.
+- [ ] **Your VPS (Docker, nginx and certbot already installed):** a domain whose A record points at it, an SSH user, then follow [deployment-vps-nginx.md](deployment-vps-nginx.md) (a bare Hostinger KVM without nginx: [deployment-hostinger-kvm.md](deployment-hostinger-kvm.md)). The stack has been proven on a Mac only: a real Let's Encrypt certificate, the Hostinger panel, `ufw` on Ubuntu and an amd64 run of the whole stack are still unverified.
 - [ ] **Keep the first admin password off the real instance** if you ever used a seeded or test password with the public pizzasys repository.
 
 ## Decisions for you
