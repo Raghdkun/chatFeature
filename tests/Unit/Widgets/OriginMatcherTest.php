@@ -248,6 +248,16 @@ class OriginMatcherTest extends TestCase
         );
     }
 
+    public function test_frame_ancestors_name_plain_http_for_development_hosts(): void
+    {
+        // A scheme-less source only matches https on an https panel: `localhost:3000` on http would be framed-refused.
+        $this->assertSame(
+            'http://localhost:63287 http://127.0.0.1:5500 http://[::1]:3000 http://localhost example.com',
+            $this->matcher->frameAncestors(['localhost:63287', '127.0.0.1:5500', '[::1]:3000', 'http://localhost', 'https://localhost', 'example.com']),
+        );
+        $this->assertSame('http://app.test', $this->matcher->frameAncestors(['app.test', 'http://app.test']));
+    }
+
     public function test_wildcard_entries_are_recognised_with_or_without_a_scheme_prefix(): void
     {
         $this->assertTrue($this->matcher->isWildcardEntry('*.example.com'));

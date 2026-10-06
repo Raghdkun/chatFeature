@@ -143,11 +143,28 @@ final class OriginMatcher
             $normalised = $this->normalizeEntry($entry);
 
             if ($normalised !== null) {
-                $sources[$normalised] = $normalised;
+                $source = $this->frameSource($normalised);
+                $sources[$source] = $source;
             }
         }
 
         return $sources === [] ? "'none'" : implode(' ', $sources);
+    }
+
+    /**
+     * A CSP source without a scheme only matches the scheme of the page that carries the policy (https here), so it would refuse
+     * a development host on plain http even though `covers()` admits it: such a host gets the explicit `http://` source (which
+     * also matches https).
+     */
+    private function frameSource(string $normalised): string
+    {
+        $parsed = $this->parseEntry($normalised);
+
+        if ($parsed !== null && $parsed['scheme'] === null && $this->isDevelopmentHost($parsed['host'])) {
+            return 'http://'.$normalised;
+        }
+
+        return $normalised;
     }
 
     /**

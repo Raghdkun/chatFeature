@@ -6,6 +6,10 @@ All notable changes are recorded here, following [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Fixed (first production deployment, 2026-10-06)
+
+- **A widget on a plain-http development page (`http://localhost:3000`, `http://127.0.0.1:5500`) could not be framed by an https chat server** even with the host on the domain list: the `frame-ancestors` header listed `localhost:3000` without a scheme, and a CSP source without a scheme only matches the scheme of the page that carries the policy (https). The API origin check and the embed header disagreed, which the e2e never saw (it serves both from http). Development hosts (`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`, `*.test`) now get an explicit `http://` source, which also matches https (`OriginMatcher::frameAncestors`).
+
 ### Fixed (full real-browser verification, 2026-10-05; see [feature-verification.md](feature-verification.md))
 
 Six verifiers drove real Chrome through every feature on isolated instances (902 checks, 85 findings); what they found and was fixed:

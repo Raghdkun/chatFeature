@@ -127,7 +127,7 @@ sudo certbot --nginx -d YOUR.DOMAIN --redirect
 sudo certbot renew --dry-run                     # renewal works through the same plugin; nothing to add to cron
 ```
 
-certbot edits the server block in place: it adds `listen 443 ssl`, the certificate lines and an http→https redirect. The proxy settings, which are the part that matters, are inside the same block and therefore apply to https as they are. (On nginx 1.25.1 or newer add `http2 on;` inside the block if certbot did not.)
+certbot edits the server block in place: it adds `listen 443 ssl`, the certificate lines and an http→https redirect. The proxy settings, which are the part that matters, are inside the same block and therefore apply to https as they are. certbot does not turn on HTTP/2 by itself: until you do, check 1 below answers `HTTP/1.1 200` and everything works. On nginx 1.25.1 or newer add `http2 on;` inside the block; on older nginx (Ubuntu 24.04 ships 1.24) put `http2` on the TLS listen lines instead: `sudo sed -i -E 's/^(\s*listen .*443 ssl)/\1 http2/' /etc/nginx/sites-available/YOUR.DOMAIN.conf && sudo nginx -t && sudo systemctl reload nginx`.
 
 What the site file does, so you can maintain it:
 
@@ -144,7 +144,7 @@ Open `https://YOUR.DOMAIN/setup`. Follow section 8.2 of [deployment-hostinger-kv
 
 | # | Check | Command | Expect |
 |---|---|---|---|
-| 1 | Application answers over TLS | `curl -sI https://YOUR.DOMAIN/up` | `HTTP/2 200` |
+| 1 | Application answers over TLS | `curl -sI https://YOUR.DOMAIN/up` | `200` (`HTTP/2 200` once HTTP/2 is on, see section 6) |
 | 2 | Plain HTTP redirects | `curl -sI http://YOUR.DOMAIN/login` | `301` to `https://...` |
 | 3 | Headers survived the proxy | `curl -sI https://YOUR.DOMAIN/login` | `strict-transport-security: max-age=31536000` (proves the app sees `https`), `content-security-policy...` with a `nonce-`, `x-frame-options: SAMEORIGIN`, `x-content-type-options: nosniff` |
 | 4 | Static files are cached | `curl -sI https://YOUR.DOMAIN/widget/v1/loader.js` | `200`, `cache-control: public, max-age=300` |
